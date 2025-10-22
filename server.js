@@ -10,7 +10,8 @@ const ALLOWED_ORIGINS = [
   "https://stia.com.ar",
   "http://stia.com.ar",
   "http://localhost:5173",
-  "http://localhost:5500"
+  "http://localhost:5500",
+  "https://sti-rosario-ai.onrender.com"
 ];
 
 app.use(cors({
