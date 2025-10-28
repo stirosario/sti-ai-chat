@@ -1,0 +1,196 @@
+{
+  "settings": {
+    "language": "es",
+    "version": "1.1.0",
+    "updated_at": "2025-10-28T02:28:14.028280",
+    "bot_name": "Tecnos Pro",
+    "brand": "STI — Servicio Técnico Inteligente",
+    "notes": "Flujos avanzados con procedimientos técnicos para soporte: PowerShell, drivers, hardware diagnóstico, redes avanzadas, clonación de discos, logs, BIOS/UEFI, BSOD y recuperación."
+  },
+  "messages": {
+    "greeting": "Hola — soy Tecnos Pro de STI. Decime qué problema tenés y te doy pasos técnicos claros para resolverlo.",
+    "help_menu_title": "Temas avanzados disponibles",
+    "help_menu": [
+      "1) PowerShell y comandos administrativos",
+      "2) Drivers y rollback",
+      "3) Diagnóstico hardware (SMART, temperaturas)",
+      "4) Redes avanzadas y puertos",
+      "5) Clonado y backup de discos (imágenes)",
+      "6) Logs y Visor de eventos",
+      "7) BIOS / UEFI y arranque",
+      "8) BSOD — análisis y pasos",
+      "9) Restauración avanzada y entorno de recuperación",
+      "10) Activación y licencias Windows",
+      "11) Registro (regedit) — operaciones básicas",
+      "12) Soporte remoto seguro (AnyDesk/TeamViewer)"
+    ],
+    "fallback": "No entendí bien. Decime con pocas palabras: por ejemplo 'powershell admin', 'driver rollback', 'clonar disco', 'smart', 'bsod 0x0000007e', 'eventvwr', 'modo recovery'."
+  },
+  "intents": [
+    {
+      "id": "powershell",
+      "triggers": [
+        "powershell",
+        "powershell admin",
+        "pwsh",
+        "winrm",
+        "execute script",
+        "script powershell",
+        "administrador powershell"
+      ],
+      "response": "**PowerShell (ejecución segura y comandos útiles):**\n- Abrir como admin: buscá \"PowerShell\", clic derecho → Ejecutar como administrador.\n- Política de ejecución temporal: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`\n- Comandos útiles:\n  - `Get-Service` (lista servicios)\n  - `Get-EventLog -LogName System -Newest 50`\n  - `Get-Process | Sort-Object CPU -Descending | Select -First 10`\n  - `Test-NetConnection google.com -Port 443` (prueba de puerto)\n- Para ejecutar un script: `.\\mi-script.ps1` (desde la carpeta donde está el script).\n**Precaución:** no ejecutes scripts no confiables sin revisar el contenido.\n"
+    },
+    {
+      "id": "drivers",
+      "triggers": [
+        "drivers",
+        "controladores",
+        "driver rollback",
+        "actualizar driver",
+        "desinstalar driver",
+        "driver problema",
+        "driver grafico"
+      ],
+      "response": "**Drivers — actualizar / volver atrás / reinstalar:**\n1) Abrí Administrador de dispositivos (`devmgmt.msc`).\n2) Buscá el dispositivo problemático → clic derecho → Propiedades → Pestaña *Controlador*.\n3) Opciones: *Actualizar controlador*, *Revertir controlador* (si aparece), *Desinstalar dispositivo* (marcar \"Eliminar el software del controlador\" si vas a reinstalar).\n4) Descargar drivers desde el sitio oficial del fabricante (Intel, AMD, NVIDIA, Realtek, etc.).\n5) En caso de pantallazos tras actualizar, arrancá en Modo seguro y hacé rollback del driver.\n"
+    },
+    {
+      "id": "hardware_diagnostico",
+      "triggers": [
+        "diagnóstico hardware",
+        "smart",
+        "temperatura",
+        "sata",
+        "disco falla",
+        "hdd slow",
+        "ssd salud",
+        "fan",
+        "temperaturas alto"
+      ],
+      "response": "**Diagnóstico hardware básico:**\n- Discos: verificá SMART con CrystalDiskInfo o PowerShell:\n  `Get-PhysicalDisk | Select-Object FriendlyName,OperationalStatus,HealthStatus`\n- Temperaturas: usá HWMonitor, HWiNFO o `wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature`\n- Test de memoria: `mdsched.exe` → reiniciar y ejecutar Windows Memory Diagnostic.\n- Fuentes de alimentación/ventiladores: revisá tensiones y ruidos. Si hay reinicios, probá con otra fuente.\n"
+    },
+    {
+      "id": "redes_avanzadas",
+      "triggers": [
+        "red avanzada",
+        "puertos",
+        "nat",
+        "port forwarding",
+        "firewall rule",
+        "tcpdump",
+        "wireshark",
+        "mtu",
+        "dns avanzado"
+      ],
+      "response": "**Redes avanzadas y diagnóstico:**\n- Ver rutas y estado: `route print` y `ipconfig /all`\n- Probar puertos: `Test-NetConnection host -Port 3389` (PowerShell) o `telnet host port` si disponible.\n- Firewall: revisar reglas con `wf.msc` o `Get-NetFirewallRule` (PowerShell).\n- Sniffing: usar Wireshark para tráfico; filtrar por IP / puerto (ej: `ip.addr==192.168.1.10 && tcp.port==443`).\n- NAT/Port Forwarding: verificar en el router que la IP del equipo sea estática o reservada para la regla.\n"
+    },
+    {
+      "id": "clonado_backup",
+      "triggers": [
+        "clonar disco",
+        "imagen disco",
+        "clonezilla",
+        "ghost",
+        "backup imagen",
+        "macrium",
+        "aomei",
+        "clonar ssd",
+        "migrar hdd a ssd"
+      ],
+      "response": "**Clonado y backup de discos (procedimiento seguro):**\n1) Elección de herramienta: Macrium Reflect (gratis), Clonezilla (open source), Acronis.\n2) Crear imagen del disco origen a disco externo: siempre verificá la integridad del backup.\n3) Si migrás a SSD: cloná y luego en BIOS asegurate que el modo SATA esté en AHCI para Windows 10/11.\n4) Si cambia tamaño de particiones, usá la herramienta para redimensionar y luego `bcdboot C:\\Windows` si el arranque falla.\n**Consejo:** siempre hacé imagen completa antes de operaciones destructivas.\n"
+    },
+    {
+      "id": "logs_eventvwr",
+      "triggers": [
+        "logs",
+        "visor de eventos",
+        "eventvwr",
+        "event viewer",
+        "registro eventos",
+        "error evento"
+      ],
+      "response": "**Visor de eventos — cómo usarlo para diagnóstico:**\n- Abrí `eventvwr.msc` → Windows Logs → System / Application / Security.\n- Filtra por niveles: Error, Warning. Ordená por fecha reciente.\n- Mensajes críticos: busca Event ID y Source; copiá el Event ID para buscar soluciones.\n- Logs de sistema al arrancar: Windows Logs → System → filtrar por Kernel-Boot, Kernel-Power para reinicios aleatorios.\n"
+    },
+    {
+      "id": "bios_uefi",
+      "triggers": [
+        "bios",
+        "uefi",
+        "arranque",
+        "secure boot",
+        "fast boot",
+        "msinfo",
+        "boot order",
+        "uefi settings",
+        "bios settings"
+      ],
+      "response": "**BIOS / UEFI — recomendaciones y precauciones:**\n- Entrar al BIOS/UEFI: tecla Supr/F2/F10 al arrancar (varía por equipo).\n- Secure Boot: mantener activado salvo que instales un OS no firmado.\n- Modo SATA: AHCI recomendado para SSD; cambiar requiere pasos antes (regedit o preparar drivers) para evitar BSOD.\n- Actualización BIOS: solo desde la web oficial y con batería/UPS conectada. Seguí instrucciones del fabricante.\n"
+    },
+    {
+      "id": "bsod",
+      "triggers": [
+        "bsod",
+        "pantalla azul",
+        "pantallazo azul",
+        "blue screen",
+        "stop code",
+        "0x",
+        "pantalla azul 0x",
+        "crash dump"
+      ],
+      "response": "**BSOD — pasos iniciales para análisis:**\n1) Anotá el código de error (ej: `0x0000007E`) y el archivo si aparece (ej: `nvlddmkm.sys`).\n2) Arrancá en Modo seguro si no inicia normalmente y desinstalá drivers recientes.\n3) Analizá minidumps con BlueScreenView o `WinDbg` (instalá Windows SDK).\n4) Ejecutá `sfc /scannow` y `DISM /Online /Cleanup-Image /RestoreHealth`.\n5) Si es hardware (temperaturas, RAM, disco), hacé tests (memtest, SMART).\n"
+    },
+    {
+      "id": "recuperacion_avanzada",
+      "triggers": [
+        "recuperación",
+        "entorno recuperación",
+        "winre",
+        "repair",
+        "reparar inicio",
+        "system restore advanced",
+        "recuperar windows"
+      ],
+      "response": "**Entorno de recuperación (WinRE) y restauración avanzada:**\n- Acceso: Shift + Reiniciar → Solucionar problemas → Opciones avanzadas.\n- Opciones útiles: Reparación de inicio, Restaurar sistema, Símbolo del sistema (para `bcdboot`, `bootrec`), Desinstalar actualizaciones.\n- Restaurar imagen del sistema: si tenés una imagen, usá *Recuperar imagen del sistema* desde WinRE.\n"
+    },
+    {
+      "id": "activacion",
+      "triggers": [
+        "activación",
+        "licencia windows",
+        "product key",
+        "slmgr",
+        "activar windows",
+        "clave windows"
+      ],
+      "response": "**Activación y licencias Windows — pasos rápidos:**\n- Verificar estado: Win + I → Sistema → Activación.\n- Cambiar clave: `slmgr.vbs /ipk TU-CLAVE-AQUI` y luego `slmgr.vbs /ato` para activar online.\n- Problemas de activación tras cambio de hardware: usar cuenta Microsoft o contactar Soporte de Microsoft con prueba de compra.\n"
+    },
+    {
+      "id": "regedit",
+      "triggers": [
+        "regedit",
+        "registro",
+        "registro windows",
+        "editar registro",
+        "registry",
+        "clave registro"
+      ],
+      "response": "**Regedit — operaciones básicas y seguridad:**\n- Abrir: Win + R → `regedit` (como admin si es necesario).\n- Antes de tocar: Exportá la rama (Archivo → Exportar) como backup.\n- Operaciones comunes: modificar valores para comportamientos avanzados, eliminar claves huérfanas; siempre documentá cambios.\n- Si Windows no arranca por cambio en el registro: usar WinRE → Símbolo del sistema para restaurar desde imagen o punto de restauración.\n"
+    },
+    {
+      "id": "soporte_remoto",
+      "triggers": [
+        "anydesk",
+        "teamviewer",
+        "soporte remoto",
+        "remote support",
+        "escritorio remoto",
+        "rdp",
+        "conexión remota"
+      ],
+      "response": "**Soporte remoto seguro (best practices):**\n- Usar versiones oficiales; pedir al cliente que descargue desde el sitio oficial.\n- Configurar permisos temporales: no pedir contraseñas por chat; usar códigos de sesión (AnyDesk) o enlaces seguros.\n- Registrar acciones: anotar comandos que se ejecutan y capturas de pantalla si el cliente da permiso.\n- Para RDP: habilitar Network Level Authentication y usar VPN/port forwarding seguro si es necesario.\n"
+    }
+  ],
+  "fallback": {
+    "response": "{fallback}"
+  }
+}
