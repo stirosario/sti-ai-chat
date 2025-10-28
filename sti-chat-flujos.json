@@ -1,0 +1,148 @@
+{
+  "bot": "STI • Servicio Técnico Inteligente",
+  "locale": "es-AR",
+  "version": "1.0.0",
+  "settings": {
+    "whatsapp_link": "https://wa.me/5493417422422",
+    "brand_short": "STI",
+    "quick_replies": ["✅ Se solucionó", "❌ Sigue igual", "🧑‍🔧 Quiero asistencia por WhatsApp"]
+  },
+  "messages": {
+    "greeting": "¡Hola! Soy el asistente de STI 🤖. Contame en pocas palabras tu problema (ej.: no enciende, sin internet, muy lento). Te voy guiando paso a paso.",
+    "escalate": "Te conecto ya con un técnico por WhatsApp para revisión rápida 👉 {{whatsapp_link}}",
+    "ask_contact": "Si querés coordinar, decime tu nombre, zona de Rosario y si es PC o notebook (modelo si lo sabés).",
+    "after_step_options": "¿Cómo fue? → ✅ Se solucionó | ❌ Sigue igual | 🧑‍🔧 Quiero asistencia por WhatsApp",
+    "safety_reminder": "⚠️ No abras el equipo si no tenés experiencia. Te guío con pasos seguros.",
+    "success_generic": "¡Genial! Me alegra que se haya solucionado 🙌. ¿Querés algún consejo extra de mantenimiento?",
+    "fail_generic": "Ok, sigamos descartando causas rápidas.",
+    "diagnostic_free": "Este diagnóstico inicial es gratuito. Solo se cobra si necesitás servicio técnico."
+  },
+  "intents": [
+    {
+      "id": "no-enciende",
+      "name": "No enciende",
+      "keywords": ["no enciende", "no prende", "no arranca", "sin luz", "no responde"],
+      "priority": 100,
+      "flow": [
+        {"id": "p1", "text": "Probemos energía: conectá la PC/notebook a otro toma. Si podés, enchufá una lámpara en ese toma para confirmar que hay corriente.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Revisá el cable/transformador: desconectá y volvé a conectar firme en ambos extremos.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Notebook con batería removible: quitá la batería, dejá solo el cargador y probá encender. Si no es removible, seguí.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "PC de escritorio: mirá el interruptor atrás de la fuente. Debe estar en “|”.", "success_next": "end", "fail_next": "p5"},
+        {"id": "p5", "text": "Forzá arranque: mantené presionado 10 s el botón de encendido, soltá, esperá 5 s y presioná 1 s para encender.", "success_next": "end", "fail_next": "p6"},
+        {"id": "p6", "text": "Hagamos una descarga estática: desconectá todo (corriente/batería), mantené presionado el botón 20 s, reconectá y probá.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "sin-imagen",
+      "name": "Enciende sin imagen / pantalla negra",
+      "keywords": ["no da imagen", "pantalla negra", "enciende pero no da video", "sin imagen", "no hay video"],
+      "priority": 90,
+      "flow": [
+        {"id": "p1", "text": "Confirmá que el monitor/pantalla esté encendido y en la entrada correcta (HDMI/DP). Probá cambiar de entrada.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Probá con otro cable o puerto. Si tenés placa de video dedicada, probá también salida del video integrado (o viceversa).", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Desconectá periféricos no esenciales (USB, HDMI extra) y reiniciá.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Notebook: alterná pantalla con Fn + tecla de pantalla (F4/F7/F8 según marca).", "success_next": "end", "fail_next": "p5"},
+        {"id": "p5", "text": "¿Escuchás sonidos de inicio de Windows? Si sí, el problema es de pantalla/cable. Si no, podría ser arranque/placa.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "no-inicia-windows",
+      "name": "No inicia Windows / bucle reparación",
+      "keywords": ["no inicia windows", "reparación automática", "preparando reparación", "ciclo de reinicios", "no arranca windows", "boot"],
+      "priority": 80,
+      "flow": [
+        {"id": "p1", "text": "Probemos Modo seguro: apagá manteniendo 10 s el botón. Encendé y presioná repetidas veces F8 (o Shift+F8) si está disponible. Elegí 'Modo seguro'.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Si entraste: desinstalá lo último instalado y revisá drivers con alerta en Administrador de dispositivos.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Intentá 'Restaurar sistema' a un punto anterior desde el entorno de recuperación.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Usá 'Reparación de inicio'. Si hay datos críticos, evitá restablecer total sin backup.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "lento",
+      "name": "Muy lento / se traba",
+      "keywords": ["lento", "se traba", "tarda mucho", "congelado", "va muy lento"],
+      "priority": 70,
+      "flow": [
+        {"id": "p1", "text": "Abrí el Administrador de tareas (Ctrl+Shift+Esc) → 'Rendimiento'. ¿CPU, RAM o Disco están al 90–100%? Cerrá apps pesadas.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "En 'Inicio' deshabilitá programas innecesarios que se abren con Windows.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Limpieza rápida: Win + R → cleanmgr → limpia temporales.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Pasá un análisis rápido con tu antivirus. Si tenés HDD, evaluá migrar a SSD (mejora x5–x10).", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "sin-internet",
+      "name": "Sin internet / Wi-Fi",
+      "keywords": ["sin internet", "no conecta", "wifi no conecta", "no hay wifi", "no tengo internet"],
+      "priority": 75,
+      "flow": [
+        {"id": "p1", "text": "¿El celular tiene internet en la misma red? Si tampoco, puede ser el proveedor.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Reiniciá módem/router: apagá 15 s, encendé y esperá 2–3 min.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "En la PC: 'Olvidar red' y volver a conectarse. Probá otra red (hotspot del celular).", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Win + R → ncpa.cpl → deshabilitar y habilitar el adaptador. Luego en CMD: ipconfig /flushdns.", "success_next": "end", "fail_next": "p5"},
+        {"id": "p5", "text": "Si falla solo por cable: probá otro cable y otro puerto del router.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "sin-sonido",
+      "name": "Sin sonido",
+      "keywords": ["sin sonido", "no se escucha", "sin audio", "no hay audio"],
+      "priority": 50,
+      "flow": [
+        {"id": "p1", "text": "En el icono de volumen elegí el dispositivo de salida correcto (parlantes/auriculares/HDMI).", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Probá con auriculares. Si ahí suena, el problema está en los parlantes/TV.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Administrador de dispositivos → Controladoras de sonido: ¿hay alguna con alerta? Si sí, actualizá/reinstalá.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Reiniciá servicios: Win + R → services.msc → Windows Audio → Reiniciar.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "temperatura",
+      "name": "Se calienta / ventilador fuerte",
+      "keywords": ["se calienta", "caliente", "ventilador fuerte", "ruido ventilador"],
+      "priority": 45,
+      "flow": [
+        {"id": "p1", "text": "Apoyá la notebook en superficie rígida y liberá rejillas. Cerrá apps pesadas.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Actualizá drivers de video y Windows Update.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Si sigue, conviene limpieza interna y cambio de pasta térmica (taller).", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "teclado-touchpad",
+      "name": "Teclado/Touchpad no funcionan",
+      "keywords": ["no anda el teclado", "no funciona el teclado", "touchpad no funciona", "no anda el touch"],
+      "priority": 40,
+      "flow": [
+        {"id": "p1", "text": "Conectá teclado/mouse USB para descartar software.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Administrador de dispositivos: desinstalá 'Teclado HID' y reiniciá (se reinstala solo).", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Verificá la tecla Fn que bloquea el touchpad (ícono mano/trackpad).", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "bateria-carga",
+      "name": "No carga la batería",
+      "keywords": ["no carga", "enchufado sin cargar", "batería 0%", "no carga la notebook"],
+      "priority": 42,
+      "flow": [
+        {"id": "p1", "text": "Probá otro enchufe y mirá si el cargador enciende/LED.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "Apagá, conectá cargador, mantené 10 s el botón de encendido y prendé.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Revisá el estado de salud de la batería (si la app de tu marca lo permite).", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Si dice 'conectado y sin cargar', puede ser cargador o circuito de carga.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    },
+    {
+      "id": "impresora",
+      "name": "Impresora no imprime",
+      "keywords": ["no imprime", "en cola", "atasco", "impresora no imprime", "no sale nada"],
+      "priority": 35,
+      "flow": [
+        {"id": "p1", "text": "Desde la impresora: imprimí página de prueba para descartar conexión.", "success_next": "end", "fail_next": "p2"},
+        {"id": "p2", "text": "En Windows: abrí la cola de impresión y cancelá todo.", "success_next": "end", "fail_next": "p3"},
+        {"id": "p3", "text": "Reinstalá el driver desde el sitio del fabricante.", "success_next": "end", "fail_next": "p4"},
+        {"id": "p4", "text": "Verificá Wi-Fi/USB, papel, tinta y atascos.", "success_next": "end", "fail_next": "escalate"}
+      ]
+    }
+  ],
+  "fallback": {
+    "prompt": "Para ayudarte mejor, decime si tu problema es alguno de estos: no enciende, enciende sin imagen, no inicia Windows, sin internet, muy lento, sin sonido, se calienta, teclado/touchpad, batería, impresora. Si no aplica, describilo en 1–2 frases.",
+    "suggested": ["No enciende", "Sin internet", "Muy lento", "Pantalla negra"]
+  }
+}
