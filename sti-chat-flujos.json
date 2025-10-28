@@ -6,7 +6,7 @@
     "whatsapp_link": "https://wa.me/5493417422422"
   },
   "messages": {
-    "greeting": "¡Hola! Soy Tecnos de STI 🤖. Contame en pocas palabras tu problema (ej.: no enciende, sin internet, lento, pantalla negra, sin sonido). Te guío paso a paso.",
+    "greeting": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. Contame en pocas palabras tu problema (ej.: no enciende, sin internet, lento, pantalla negra, sin sonido). Te guío paso a paso posibles soluciones.",
     "help_menu_title": "Temas frecuentes",
     "help_menu": [
       "No enciende",
