@@ -262,5 +262,9 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, flowsLoaded: Boolean(STI?.intents?.length) });
 });
 
+app.get('/', (_req, res) => {
+  res.type('text').send('STI AI backend up');
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`STI AI backend on :${PORT}`));
