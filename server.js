@@ -20,6 +20,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// CTA WhatsApp (se agrega al final de cada respuesta)
+const WHATSAPP_CTA = "\n\nSi preferís, escribinos por WhatsApp: https://wa.me/5493417422422 ";
+
 // ===== Carga de flujos (base + avanzado) =====
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -89,6 +92,36 @@ if (USE_OPENAI) {
 // ===== Helpers =====
 const normalize = (s='') => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
+// ----- Fuzzy matching helpers -----
+function levenshtein(a = '', b = ''){
+  if (a === b) return 0;
+  const al = a.length, bl = b.length;
+  if (al === 0) return bl;
+  if (bl === 0) return al;
+  const dp = Array.from({length: al + 1}, (_, i) => [i, *([0]*bl)])
+  for (let j = 1; j <= bl; j++) dp[0][j] = j;
+  for (let i = 1; i <= al; i++){
+    for (let j = 1; j <= bl; j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost);
+    }
+  }
+  return dp[al][bl];
+}
+function fuzzyIncludes(text, trigger){
+  if (!text || !trigger) return false;
+  const t = normalize(text), k = normalize(trigger);
+  if (t.includes(k) || k.includes(t)) return true;
+  const words = t.split(' ');
+  for (const w of words){
+    if (w.length >= 3){
+      const d = levenshtein(w, k);
+      if ((w.length <= 5 && d <= 1) || (w.length >= 6 && d <= 2)) return true;
+    }
+  }
+  return false;
+}
+
 // ===== Endpoint principal =====
 app.post('/api/chat', async (req, res) => {
   try{
@@ -101,14 +134,14 @@ app.post('/api/chat', async (req, res) => {
     let reply = STI.fallback.response.replace('{fallback}', STI.messages.fallback || 'Decime una palabra clave.');
     for(const intent of STI.intents){
       const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
-      if(triggers.some(k => text.includes(normalize(String(k))))){
+      if(triggers.some(k => fuzzyIncludes(text, String(k)))){
         reply = (intent.response || '')
           .replace('{greeting}', STI.messages.greeting || 'Hola')
           .replace('{help_menu_title}', STI.messages.help_menu_title || 'Temas')
           .replace('{help_menu}', (STI.messages.help_menu || []).join('\n'))
           .replace('{fallback}', STI.messages.fallback || '');
         console.log(`🤖 intent="${intent.id}"`);
-        return res.json({ reply });
+        return res.json({ reply: (reply + WHATSAPP_CTA) });
       }
     }
 
@@ -125,7 +158,7 @@ app.post('/api/chat', async (req, res) => {
       });
       reply = completion.choices?.[0]?.message?.content?.trim() || reply;
       console.log('🤖 openai fallback usado');
-      return res.json({ reply });
+      return res.json({ reply: (reply + WHATSAPP_CTA) });
     }
 
     // 3) Sin OpenAI: devolvér guía útil
@@ -133,7 +166,7 @@ app.post('/api/chat', async (req, res) => {
       `**${STI.messages.help_menu_title || 'Temas disponibles'}**\n` +
       (STI.messages.help_menu || []).map(i => `• ${i}`).join('\n');
     console.log('ℹ️ guía enviada (sin OpenAI)');
-    return res.json({ reply: guide });
+    return res.json({ reply: (guide + WHATSAPP_CTA) });
 
   }catch(e){
     console.error('❌ ERROR /api/chat:', e.message);
