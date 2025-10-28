@@ -3,14 +3,13 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import path from 'path';
 import OpenAI from 'openai';
 
 // =========================
 //  CORS / APP BASE
 // =========================
 const app = express();
-
-// 🔐 Ajustá orígenes permitidos a producción
 const ALLOWED_ORIGINS = [
   'https://stia.com.ar',
   'http://stia.com.ar',
@@ -18,7 +17,6 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5500',
   'https://sti-rosario-ai.onrender.com'
 ];
-
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
@@ -28,12 +26,12 @@ app.use(cors({
 app.use(express.json());
 
 // =========================
-//  OPENAI CLIENT
+//  OPENAI CLIENT (opcional)
 // =========================
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // =========================
-/*  PROMPT DE IDENTIDAD (FALLBACK IA) */
+//  PROMPT IA (fallback)
 // =========================
 const SYSTEM_PROMPT = `
 Eres “STI Asistente”. Idioma: ES-AR.
@@ -51,24 +49,17 @@ Funciones:
 // =========================
 //  CARGA DE FLUJOS LOCALES
 // =========================
-import path from "path";  // 👈 va arriba del bloque (junto con los otros imports)
-
-const FLOWS_PATH = path.resolve(process.cwd(), "sti-chat-flujos.json");
-
-let STI = {
-  settings: {},
-  messages: {},
-  intents: [],
-  fallback: {}
-};
+const FLOWS_PATH = path.resolve(process.cwd(), 'sti-chat-flujos.json');
+let STI = { settings: {}, messages: {}, intents: [], fallback: {} };
 
 function loadFlows() {
   try {
     const raw = fs.readFileSync(FLOWS_PATH, 'utf8');
     STI = JSON.parse(raw);
-    console.log(`✅ Flujos STI cargados: ${FLOWS_PATH}`);
+    console.log(`✅ Flujos STI cargados (${STI.intents?.length || 0} intents)`);
   } catch (e) {
     console.error('⚠️ No se pudo cargar sti-chat-flujos.json:', e.message);
+    STI = { settings: {}, messages: {}, intents: [], fallback: {} };
   }
 }
 loadFlows();
@@ -81,9 +72,9 @@ const QUICK_FAIL = '❌';
 const QUICK_ESCALATE = '🧑‍🔧';
 
 const normalize = (s = '') =>
-  s
+  String(s)
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sin tildes
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -91,49 +82,30 @@ function findIntentByKeywords(text) {
   const t = normalize(text);
   let best = null;
   for (const it of STI.intents || []) {
-    const hit = (it.keywords || []).some(k => t.includes(normalize(k)));
+    const hit = (it.keywords || it.triggers || []).some(k => t.includes(normalize(k)));
     if (hit) {
-      if (!best || (it.priority || 0) > (best.priority || 0)) best = it;
+      if (!best || (it.priority || 0) > (best?.priority || 0)) best = it;
     }
   }
   return best;
 }
 
-// Marcador oculto para rastrear estado: [[sti:intent=ID;step=NEXT_ID]]
+// Marcador oculto [[sti:intent=ID;step=NEXT_ID]]
 const MARKER_RE = /\[\[sti:intent=([a-z0-9\-_.]+);step=([a-z0-9\-_.]+)\]\]/i;
 
 function extractLastMarker(messages = []) {
-  // Busca desde el final el último mensaje del asistente con marcador
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m?.role === 'assistant' && typeof m.content === 'string') {
       const match = m.content.match(MARKER_RE);
-      if (match) {
-        return { intentId: match[1], nextStepId: match[2] };
-      }
+      if (match) return { intentId: match[1], nextStepId: match[2] };
     }
   }
   return null;
 }
 
 function getStepById(intent, stepId) {
-  if (!intent?.flow) return null;
-  return intent.flow.find(s => s.id === stepId) || null;
-}
-
-function composeStepReply({ intent, step, includeSafety = false }) {
-  const safety = includeSafety && STI.messages?.safety_reminder
-    ? STI.messages.safety_reminder + '\n\n'
-    : '';
-
-  // Próximo destino si falla este paso
-  const nextOnFail = step.fail_next || 'end';
-  const marker = `\n\n[[sti:intent=${intent.id};step=${nextOnFail}]]`;
-
-  const options = STI.messages?.after_step_options
-    || '¿Cómo fue? → ✅ Se solucionó | ❌ Sigue igual | 🧑‍🔧 Quiero asistencia por WhatsApp';
-
-  return `${safety}${step.text}\n\n${options}${marker}`;
+  return intent?.flow?.find(s => s.id === stepId) || null;
 }
 
 function replySuccess() {
@@ -142,82 +114,57 @@ function replySuccess() {
 
 function replyEscalate() {
   const link = STI.settings?.whatsapp_link || 'https://wa.me/5493417422422';
-  const a = STI.messages?.escalate || `Te conecto ya con un técnico por WhatsApp 👉 ${link}`;
+  const a = (STI.messages?.escalate || `Te conecto ya con un técnico por WhatsApp 👉 {{whatsapp_link}}`)
+    .replace('{{whatsapp_link}}', link);
   const b = STI.messages?.ask_contact || 'Para coordinar: nombre, zona de Rosario y si es PC o notebook (modelo si lo sabés).';
-  return `${a.replace('{{whatsapp_link}}', link)}\n\n${b}`;
-}
-
-function replyFailGeneric() {
-  return STI.messages?.fail_generic || 'Ok, sigamos descartando causas rápidas.';
+  return `${a}\n\n${b}`;
 }
 
 function replyFallback() {
   const prompt = STI.fallback?.prompt || 'Contame tu problema en 1–2 frases o elegí una categoría.';
   const sug = STI.fallback?.suggested || ['No enciende', 'Sin internet', 'Muy lento', 'Pantalla negra'];
-  return `${prompt}\n\nSugerencias: ${sug.map(s => `• ${s}`).join('\n')}`;
+  return `${prompt}\n\nSugerencias:\n${sug.map(s => `• ${s}`).join('\\n')}`;
+}
+
+function composeStepReply({ intent, step, includeSafety = false }) {
+  const safety = includeSafety && STI.messages?.safety_reminder ? STI.messages.safety_reminder + '\\n\\n' : '';
+  const nextOnFail = step.fail_next || 'end';
+  const marker = `\\n\\n[[sti:intent=${intent.id};step=${nextOnFail}]]`;
+  const options = STI.messages?.after_step_options
+    || '¿Cómo fue? → ✅ Se solucionó | ❌ Sigue igual | 🧑‍🔧 Quiero asistencia por WhatsApp';
+  return `${safety}${step.text}\\n\\n${options}${marker}`;
 }
 
 function isQuick(text, symbol) {
-  return text?.trim().startsWith(symbol);
+  return String(text || '').trim().startsWith(symbol);
 }
 
 // =========================
-//  ENDPOINT PRINCIPAL
-// =========================
-// =========================
 //  ENDPOINT PRINCIPAL CHAT
 // =========================
-app.post("/api/chat", (req, res) => {
-  const { message } = req.body;
-  const text = (message || "").toLowerCase().trim();
+app.post('/api/chat', async (req, res) => {
+  const { message = '', messages = [] } = req.body || {};
+  const userText = String(message || '');
+  const userNorm = normalize(userText);
 
-  // 🧠 Log de entrada con fecha
-  const timestamp = new Date().toLocaleString("es-AR");
-  console.log(`📩 [${timestamp}] Mensaje recibido: "${text}"`);
+  const timestamp = new Date().toLocaleString('es-AR');
+  console.log(`📩 [${timestamp}] Mensaje: "${userText}"`);
 
-  // --- Búsqueda del intent ---
-  let reply = STI.fallback.response.replace("{fallback}", STI.messages.fallback);
-
-  for (const intent of STI.intents) {
-    if (intent.triggers.some(k => text.includes(k))) {
-      reply = intent.response
-        .replace("{greeting}", STI.messages.greeting)
-        .replace("{help_menu_title}", STI.messages.help_menu_title)
-        .replace("{help_menu}", STI.messages.help_menu.join("\n"))
-        .replace("{fallback}", STI.messages.fallback);
-      break;
-    }
-  }
-
-  // 🧾 Log de respuesta generada
-  console.log(`🤖 Respuesta enviada:\n${reply}\n-----------------------------`);
-
-  res.json({ reply });
-});
-
-
-    // 1) Manejo de respuestas rápidas si venimos de un paso (marcador)
+  try {
+    // 1) Si venimos de un paso (marcador) y el usuario elige ✅/❌/🧑‍🔧
     const marker = extractLastMarker(messages);
     if (marker) {
       const { intentId, nextStepId } = marker;
       const intent = (STI.intents || []).find(i => i.id === intentId);
-
       if (intent) {
-        // ✅ Se solucionó
         if (isQuick(userText, QUICK_OK)) {
           return res.json({ reply: { role: 'assistant', content: replySuccess() }, from: 'sti-local' });
         }
-        // 🧑‍🔧 Escalar
         if (isQuick(userText, QUICK_ESCALATE)) {
           return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
         }
-        // ❌ Sigue igual → avanzar al siguiente paso (si existe)
         if (isQuick(userText, QUICK_FAIL)) {
-          if (nextStepId === 'end') {
-            // No hay más pasos, sugerir escalado
-            return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
-          }
-          if (nextStepId === 'escalate') {
+          if (nextStepId === 'end' || nextStepId === 'escalate') {
             return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
           }
           const nextStep = getStepById(intent, nextStepId);
@@ -225,11 +172,9 @@ app.post("/api/chat", (req, res) => {
             const content = composeStepReply({ intent, step: nextStep, includeSafety: false });
             return res.json({ reply: { role: 'assistant', content }, from: 'sti-local' });
           }
-          // Si no existe el paso, fallback a escalado
           return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
         }
-        // Si el usuario escribió algo libre (no quick reply), intentar continuar el flujo igualmente:
-        // Intentar el "nextStepId" como siguiente instrucción por defecto
+        // texto libre → intentar continuar al nextStep por defecto
         if (nextStepId && nextStepId !== 'end' && nextStepId !== 'escalate') {
           const nextStep = getStepById(intent, nextStepId);
           if (nextStep) {
@@ -240,40 +185,43 @@ app.post("/api/chat", (req, res) => {
       }
     }
 
-    // 2) Intento de detección por keywords (primer mensaje o sin marcador)
-    const found = findIntentByKeywords(userText);
-    if (found && Array.isArray(found.flow) && found.flow.length > 0) {
+    // 2) Detección por keywords (primer mensaje o sin marcador)
+    const found = findIntentByKeywords(userNorm);
+    if (found?.flow?.length) {
       const first = found.flow[0];
       const content = composeStepReply({
         intent: found,
         step: first,
         includeSafety: Boolean(STI.messages?.safety_reminder)
       });
-      return res.json({
-        reply: { role: 'assistant', content },
-        from: 'sti-local'
-      });
+      console.log('🤖 Intent detectado:', found.id);
+      return res.json({ reply: { role: 'assistant', content }, from: 'sti-local' });
     }
 
-    // 3) Fallback IA (cuando no hay intención clara)
-    //    Si el usuario preguntó algo muy general, primero ofrecer guía base
+    // 3) Fallback local breve para textos muy cortos (p.ej., "hola")
     if (userNorm.length < 8) {
-      return res.json({ reply: { role: 'assistant', content: replyFallback() }, from: 'sti-local' });
+      const content = replyFallback();
+      return res.json({ reply: { role: 'assistant', content }, from: 'sti-local' });
     }
 
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...(Array.isArray(messages) ? messages : [])
-      ]
-    });
+    // 4) Fallback IA (si hay API key)
+    if (client) {
+      const completion = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...(Array.isArray(messages) ? messages : []),
+          { role: 'user', content: userText }
+        ]
+      });
+      const aiReply = completion.choices?.[0]?.message
+        || { role: 'assistant', content: '¿Podés repetir la consulta?' };
+      return res.json({ reply: aiReply, from: 'openai' });
+    }
 
-    const reply = completion.choices?.[0]?.message
-      || { role: 'assistant', content: '¿Podés repetir la consulta?' };
-
-    return res.json({ reply, from: 'openai' });
+    // Sin API: responder fallback local
+    return res.json({ reply: { role: 'assistant', content: replyFallback() }, from: 'sti-local' });
   } catch (e) {
     console.error('AI_ERROR', e);
     return res.status(500).json({ error: 'AI_ERROR', detail: e.message });
@@ -283,8 +231,6 @@ app.post("/api/chat", (req, res) => {
 // =========================
 //  HEALTHCHECK Y ARRANQUE
 // =========================
-
-// ✅ Ruta de control simple para Render (no dupliques)
 app.get('/health', (_req, res) => {
   res.json({ ok: true, flowsLoaded: Boolean(STI?.intents?.length) });
 });
@@ -293,10 +239,7 @@ app.get('/', (_req, res) => {
   res.type('text').send('🧠 STI AI backend activo');
 });
 
-// ✅ Puerto dinámico (Render asigna process.env.PORT)
 const PORT = process.env.PORT || 3001;
-
-// ✅ Escucha universal para IPv4 e IPv6
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🧠 STI AI backend escuchando en puerto ${PORT}`);
 });
