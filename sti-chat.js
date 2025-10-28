@@ -10,11 +10,16 @@
    </div>
 */
 (function(){
-  const API_BASE = (window.STI_API_BASE || 'https://sti-rosario-ai.onrender.com').replace(/\/+$/,''); // configurable
-  const logEl = document.getElementById('sti-chat-log');
-  const formEl = document.getElementById('sti-chat-form');
+  const API_BASE = (window.STI_API_BASE || 'https://sti-rosario-ai.onrender.com').replace(/\/+$/,'');
+  const logEl   = document.getElementById('sti-chat-log');
+  const formEl  = document.getElementById('sti-chat-form');
   const inputEl = document.getElementById('sti-chat-input');
   const quickEl = document.getElementById('sti-quick-actions');
+
+  if(!logEl || !formEl || !inputEl || !quickEl){
+    console.warn('[STI-CHAT] Falta algún contenedor HTML del chat.');
+    return;
+  }
 
   const messages = []; // historial para markers
 
@@ -41,17 +46,50 @@
       const w = normalize(words[i]);
       if (typoMap.has(w)) {
         const fixed = typoMap.get(w);
-        // conservar mayúsculas iniciales simples
         words[i] = /^[A-ZÁÉÍÓÚ]/.test(words[i]) ? fixed.charAt(0).toUpperCase()+fixed.slice(1) : fixed;
       }
     }
     return words.join('');
   }
 
+  // Limpia marca oculta y arma HTML legible
+  function formatAssistant(content){
+    const whatsapp = 'https://wa.me/5493417422422';
+    let txt = String(content || '');
+
+    // 1) Ocultar marcador interno
+    txt = txt.replace(/\[\[sti:intent=[^;]+;step=[^\]]+\]\]/gi, '');
+
+    // 2) Reemplazar token de WhatsApp
+    txt = txt.replace(/\{\{\s*whatsapp_link\s*\}\}/gi, whatsapp);
+
+    // 3) Normalizar saltos (soporta "\n" literal y saltos reales)
+    txt = txt.replace(/\\n/g, '\n');
+
+    // 4) Mejorar bullets simples (• ) → viñetas visuales
+    //   - Convertimos líneas que empiezan con "• " a <div class="sti-bullet">• ...</div>
+    txt = txt.split('\n').map(line => {
+      const ltrim = line.trimStart();
+      if (ltrim.startsWith('• ')) {
+        return `<div class="sti-bullet">${ltrim.replace(/^•\s*/, '• ')}</div>`;
+      }
+      return line;
+    }).join('\n');
+
+    // 5) Convertir saltos a <br>
+    txt = txt.replace(/\n/g, '<br>');
+
+    // 6) Linkear WhatsApp si aparece en el texto plano
+    txt = txt.replace(/https?:\/\/wa\.me\/\d+/g, m => `<a href="${m}" target="_blank" rel="noopener">${m}</a>`);
+
+    return txt;
+  }
+
   function addBubble(role, content){
     const item = document.createElement('div');
     item.className = 'sti-msg ' + role;
-    item.innerHTML = content.replace(/\n/g,'<br>');
+    const html = role === 'assistant' ? formatAssistant(content) : String(content).replace(/\n/g,'<br>');
+    item.innerHTML = html;
     logEl.appendChild(item);
     logEl.scrollTop = logEl.scrollHeight;
   }
@@ -78,10 +116,8 @@
   }
 
   async function send(text){
-    // autocorrección suave
     const cleaned = autocorrect(text);
     addBubble('user', cleaned);
-
     messages.push({ role:'user', content: cleaned });
 
     try{
@@ -98,17 +134,18 @@
       addBubble('assistant', reply);
 
       // Mostrar quick replies si el backend agregó opciones en el texto
-      const hasOptions = /✅|❌|🧑‍🔧/.test(reply);
+      const hasOptions = /✅|❌|🧑‍🔧/.test(String(reply));
       setQuickReplies(hasOptions);
     }catch(err){
+      console.error('[STI-CHAT] Error fetch', err);
       addBubble('assistant', 'Hubo un problema de conexión. Intentá de nuevo en unos segundos.');
     }
   }
 
   // Envío por formulario
-  formEl?.addEventListener('submit', (e)=>{
+  formEl.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const txt = (inputEl?.value || '').trim();
+    const txt = (inputEl.value || '').trim();
     if(!txt) return;
     inputEl.value = '';
     setQuickReplies(false);

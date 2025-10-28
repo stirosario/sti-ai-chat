@@ -15,14 +15,19 @@ const ALLOWED_ORIGINS = [
   'http://stia.com.ar',
   'http://localhost:5173',
   'http://localhost:5500',
-  'https://sti-rosario-ai.onrender.com'
+  'https://sti-rosario-ai.onrender.com',
+  'https://www.stia.com.ar' // por si usás www
 ];
-app.use(cors({
+
+const corsOpts = {
   origin: (origin, cb) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error('Origen no permitido'), false);
-  }
-}));
+  },
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOpts));
+app.options('*', cors(corsOpts));
 app.use(express.json());
 
 // =========================
@@ -82,7 +87,8 @@ function findIntentByKeywords(text) {
   const t = normalize(text);
   let best = null;
   for (const it of STI.intents || []) {
-    const hit = (it.keywords || it.triggers || []).some(k => t.includes(normalize(k)));
+    const keys = (it.keywords || it.triggers || []);
+    const hit = keys.some(k => t.includes(normalize(k)));
     if (hit) {
       if (!best || (it.priority || 0) > (best?.priority || 0)) best = it;
     }
@@ -123,16 +129,17 @@ function replyEscalate() {
 function replyFallback() {
   const prompt = STI.fallback?.prompt || 'Contame tu problema en 1–2 frases o elegí una categoría.';
   const sug = STI.fallback?.suggested || ['No enciende', 'Sin internet', 'Muy lento', 'Pantalla negra'];
-  return `${prompt}\n\nSugerencias:\n${sug.map(s => `• ${s}`).join('\\n')}`;
+  // ⬇️ ahora enviamos saltos REALES, no literales "\\n"
+  return `${prompt}\n\nSugerencias:\n${sug.map(s => `• ${s}`).join('\n')}`;
 }
 
 function composeStepReply({ intent, step, includeSafety = false }) {
-  const safety = includeSafety && STI.messages?.safety_reminder ? STI.messages.safety_reminder + '\\n\\n' : '';
+  const safety = includeSafety && STI.messages?.safety_reminder ? STI.messages.safety_reminder + '\n\n' : '';
   const nextOnFail = step.fail_next || 'end';
-  const marker = `\\n\\n[[sti:intent=${intent.id};step=${nextOnFail}]]`;
+  const marker = `\n\n[[sti:intent=${intent.id};step=${nextOnFail}]]`;
   const options = STI.messages?.after_step_options
     || '¿Cómo fue? → ✅ Se solucionó | ❌ Sigue igual | 🧑‍🔧 Quiero asistencia por WhatsApp';
-  return `${safety}${step.text}\\n\\n${options}${marker}`;
+  return `${safety}${step.text}\n\n${options}${marker}`;
 }
 
 function isQuick(text, symbol) {
@@ -156,14 +163,19 @@ app.post('/api/chat', async (req, res) => {
     if (marker) {
       const { intentId, nextStepId } = marker;
       const intent = (STI.intents || []).find(i => i.id === intentId);
+      console.log(`🔎 Marker detectado → intent=${intentId} next=${nextStepId}`);
+
       if (intent) {
         if (isQuick(userText, QUICK_OK)) {
+          console.log('➡️ Quick: OK');
           return res.json({ reply: { role: 'assistant', content: replySuccess() }, from: 'sti-local' });
         }
         if (isQuick(userText, QUICK_ESCALATE)) {
+          console.log('➡️ Quick: ESCALAR');
           return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
         }
         if (isQuick(userText, QUICK_FAIL)) {
+          console.log('➡️ Quick: FAIL');
           if (nextStepId === 'end' || nextStepId === 'escalate') {
             return res.json({ reply: { role: 'assistant', content: replyEscalate() }, from: 'sti-local' });
           }
@@ -200,12 +212,14 @@ app.post('/api/chat', async (req, res) => {
 
     // 3) Fallback local breve para textos muy cortos (p.ej., "hola")
     if (userNorm.length < 8) {
+      console.log('🛟 Fallback local (texto corto)');
       const content = replyFallback();
       return res.json({ reply: { role: 'assistant', content }, from: 'sti-local' });
     }
 
     // 4) Fallback IA (si hay API key)
     if (client) {
+      console.log('🧠 Derivo a OpenAI');
       const completion = await client.chat.completions.create({
         model: 'gpt-4o-mini',
         temperature: 0.2,
@@ -221,6 +235,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Sin API: responder fallback local
+    console.log('🛟 Fallback local (sin OPENAI_API_KEY)');
     return res.json({ reply: { role: 'assistant', content: replyFallback() }, from: 'sti-local' });
   } catch (e) {
     console.error('AI_ERROR', e);
@@ -229,10 +244,32 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // =========================
+//  UTILIDADES (opcional)
+// =========================
+// Recargar flujos sin redeploy
+app.post('/admin/reload', (_req, res) => {
+  loadFlows();
+  res.json({ ok: true, intents: STI.intents?.length || 0 });
+});
+
+// Inspeccionar intents cargados (sin textos)
+app.get('/admin/intents', (_req, res) => {
+  res.json({
+    count: STI.intents?.length || 0,
+    ids: (STI.intents || []).map(i => i.id)
+  });
+});
+
+// =========================
 //  HEALTHCHECK Y ARRANQUE
 // =========================
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, flowsLoaded: Boolean(STI?.intents?.length) });
+  res.json({
+    ok: true,
+    flowsLoaded: Boolean(STI?.intents?.length),
+    intents: STI?.intents?.length || 0,
+    hasOpenAI: Boolean(process.env.OPENAI_API_KEY),
+  });
 });
 
 app.get('/', (_req, res) => {
