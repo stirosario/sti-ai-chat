@@ -8,7 +8,7 @@
     "notes": "Flujos avanzados con procedimientos técnicos para soporte: PowerShell, drivers, hardware diagnóstico, redes avanzadas, clonación de discos, logs, BIOS/UEFI, BSOD y recuperación."
   },
   "messages": {
-    "greeting": "Hola — soy Tecnos Pro de STI. Decime qué problema tenés y te doy pasos técnicos claros para resolverlo.",
+    "greeting": "¡Hola! Soy Tecnos el asistente de STI 🤖. Decime qué problema tenés y te doy pasos técnicos claros para resolverlo.",
     "help_menu_title": "Temas avanzados disponibles",
     "help_menu": [
       "1) PowerShell y comandos administrativos",

@@ -8,7 +8,7 @@
     "quick_replies": ["✅ Se solucionó", "❌ Sigue igual", "🧑‍🔧 Quiero asistencia por WhatsApp"]
   },
   "messages": {
-    "greeting": "¡Hola! Soy el asistente de STI 🤖. Contame en pocas palabras tu problema (ej.: no enciende, sin internet, muy lento). Te voy guiando paso a paso.",
+    "greeting": "¡Hola! Soy Tecnos el asistente de STI 🤖. Contame en pocas palabras tu problema (ej.: no enciende, sin internet, muy lento). Te voy guiando paso a paso.",
     "escalate": "Te conecto ya con un técnico por WhatsApp para revisión rápida 👉 {{whatsapp_link}}",
     "ask_contact": "Si querés coordinar, decime tu nombre, zona de Rosario y si es PC o notebook (modelo si lo sabés).",
     "after_step_options": "¿Cómo fue? → ✅ Se solucionó | ❌ Sigue igual | 🧑‍🔧 Quiero asistencia por WhatsApp",
