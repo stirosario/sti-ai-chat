@@ -36,15 +36,14 @@ function safeReadJSON(p) {
 const CANDIDATE_DIRS = [process.cwd(), __dirname, path.resolve(__dirname, '..')];
 const resolveFirst = (fname) => {
   if (!fname) return null;
-  for(const d of CANDIDATE_DIRS){
+  for (const d of CANDIDATE_DIRS) {
     const p = path.join(d, fname);
-    if(fs.existsSync(p)) return p;
+    if (fs.existsSync(p)) return p;
   }
   return null;
 };
 
 // ===== Carga de flujos (NUEVO: sti-chat.json con sections) =====
-// Prioridad: sti-chat.json (nuevo). Si no existe, cae a sti-chat-flujos.json (legacy).
 const FLOWS_NEW_PATH = resolveFirst('sti-chat.json');
 const FLOWS_OLD_PATH = resolveFirst('sti-chat-flujos.json');
 
@@ -57,7 +56,7 @@ let STI = {
   version: flowsBase?.version || '2.x',
   settings: flowsBase?.settings || {},
   messages: flowsBase?.messages || {},
-  intents: flowsBase?.intents  || [],
+  intents: flowsBase?.intents || [],
   fallback: flowsBase?.fallback || { response: '{fallback}' },
   sections: flowsBase?.sections || null
 };
@@ -79,27 +78,21 @@ if (USE_OPENAI) {
 }
 
 // ===== Helpers =====
-// Normalización configurable via sections.nlp
-function normalizeRaw(s='') {
-  return String(s ?? '');
-}
-function baseNormalize(s='') {
+function normalizeRaw(s = '') { return String(s ?? ''); }
+function baseNormalize(s = '') {
   return s.toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'')
-    .replace(/\s+/g,' ')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
-function normalizeWithConfig(s='') {
+function normalizeWithConfig(s = '') {
   const raw = normalizeRaw(s);
   const nlp = STI.sections?.nlp || {};
   let out = raw;
   if (nlp.trim !== false) out = out.trim();
   if (nlp.lowercase !== false) out = out.toLowerCase();
-  if (nlp.strip_accents !== false) {
-    out = out.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  }
-  // mantener espacios simples
+  if (nlp.strip_accents !== false) out = out.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   out = out.replace(/\s+/g, ' ');
   return out;
 }
@@ -111,38 +104,31 @@ function tpl(str) {
   return String(str).replace(/\{\{\s*whatsapp_link\s*\}\}/g, whats);
 }
 
-// ----- Fuzzy matching helpers (mantengo tu implementación) -----
-function levenshtein(a = '', b = ''){
+// ----- Fuzzy matching -----
+function levenshtein(a = '', b = '') {
   if (a === b) return 0;
   const al = a.length, bl = b.length;
   if (al === 0) return bl;
   if (bl === 0) return al;
-
   const dp = Array.from({ length: al + 1 }, () => Array(bl + 1).fill(0));
   for (let i = 0; i <= al; i++) dp[i][0] = i;
   for (let j = 0; j <= bl; j++) dp[0][j] = j;
-
-  for (let i = 1; i <= al; i++){
-    for (let j = 1; j <= bl; j++){
-      const cost = a[i-1] === b[j-1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i-1][j] + 1,
-        dp[i][j-1] + 1,
-        dp[i-1][j-1] + cost
-      );
+  for (let i = 1; i <= al; i++) {
+    for (let j = 1; j <= bl; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
     }
   }
   return dp[al][bl];
 }
-
-function fuzzyIncludes(text, trigger){
+function fuzzyIncludes(text, trigger) {
   if (!text || !trigger) return false;
   const t = normalizeWithConfig(text);
   const k = normalizeWithConfig(trigger);
   if (t.includes(k) || k.includes(t)) return true;
   const words = t.split(' ');
-  for (const w of words){
-    if (w.length >= 3){
+  for (const w of words) {
+    if (w.length >= 3) {
       const d = levenshtein(w, k);
       if ((w.length <= 5 && d <= 1) || (w.length >= 6 && d <= 2)) return true;
     }
@@ -151,8 +137,7 @@ function fuzzyIncludes(text, trigger){
 }
 
 // === Helper: detección de marca canónica ===
-// Recibe el texto ya normalizado (usá textNorm) y devuelve la marca canónica o null.
-function detectBrandCanonical(textNorm = ""){
+function detectBrandCanonical(textNorm = '') {
   const tests = [
     { rx: /\b(hp|h p|h\-p|hpe|hepi|jepi|agp)\b/, canon: 'HP' },
     { rx: /\b(lenovo|lenovoa|lenobo|lenow|lenoovo)\b/, canon: 'Lenovo' },
@@ -175,48 +160,35 @@ function detectBrandCanonical(textNorm = ""){
     { rx: /\b(vaio|vaoi|vao|vayio|baio)\b/, canon: 'VAIO' },
     { rx: /\b(lg|l g|elgi|eleji|ege|lge)\b/, canon: 'LG' }
   ];
-  for (const t of tests){
-    if (t.rx.test(textNorm)) return t.canon;
-  }
+  for (const t of tests) if (t.rx.test(textNorm)) return t.canon;
   return null;
 }
 
-// === Estado simple por cliente: conteo de fallos para escalar a WhatsApp ===
+// === Estado simple por cliente ===
 const missCounters = new Map(); // key = req.ip (o un header si tenés sesión)
-function bumpMiss(ip){
-  const n = (missCounters.get(ip) || 0) + 1;
-  missCounters.set(ip, n);
-  return n;
-}
-function resetMiss(ip){
-  missCounters.set(ip, 0);
-}
+function bumpMiss(ip) { const n = (missCounters.get(ip) || 0) + 1; missCounters.set(ip, n); return n; }
+function resetMiss(ip) { missCounters.set(ip, 0); }
 
 // ===== Endpoint principal =====
 app.post('/api/chat', async (req, res) => {
-  try{
+  try {
     const { message, history = [] } = req.body || {};
     const textNorm = normalizeWithConfig(String(message || ''));
     const ts = new Date().toLocaleString('es-AR');
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
     console.log(`📩 [${ts}] input(${ip}): "${textNorm}"`);
 
-    // --- 0) Shortcut: si el usuario manda vacío, devolvemos saludo+menu
+    // --- 0) Si viene vacío → saludo + menú
     if (!textNorm) {
-      const greet = STI.sections?.greetings?.response
-                 || STI.messages?.greeting
-                 || 'Hola, ¿en qué puedo ayudarte?';
-      const menuTitle = STI.sections?.menus?.help_menu_title
-                     || STI.messages?.help_menu_title
-                     || 'Temas frecuentes';
-      const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || [])
-                        .map(i => `• ${i}`).join('\n');
+      const greet = STI.sections?.greetings?.response || STI.messages?.greeting || 'Hola, ¿en qué puedo ayudarte?';
+      const menuTitle = STI.sections?.menus?.help_menu_title || STI.messages?.help_menu_title || 'Temas frecuentes';
+      const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []).map(i => `• ${i}`).join('\n');
       const guide = `${tpl(greet)}\n\n**${menuTitle}**\n${menuItems}`;
       resetMiss(ip);
       return res.json({ reply: guide });
     }
 
-    // --- 1) Greetings por sections.greetings (nuevo)
+    // --- 1) Greetings por sections.greetings
     const gs = STI.sections?.greetings;
     if (gs?.triggers?.some(k => fuzzyIncludes(textNorm, String(k)))) {
       resetMiss(ip);
@@ -224,62 +196,69 @@ app.post('/api/chat', async (req, res) => {
       return res.json({ reply: greet });
     }
 
-// --- 2) Intent matcher (con detección de marca {{marca_detectada}})
-for (const intent of (STI.intents || [])) {
-  const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
-  if (triggers.some(k => fuzzyIncludes(textNorm, String(k)))) {
-    resetMiss(ip);
-    let reply = intent.response || '';
+    // --- 2) Intent matcher (con detección de marca)
+    for (const intent of (STI.intents || [])) {
+      const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
+      if (triggers.some(k => fuzzyIncludes(textNorm, String(k)))) {
+        resetMiss(ip);
+        let reply = intent.response || '';
 
-    // === Marca detectada (para intent "marca" o si el template la pide) ===
-    if (intent.id === 'marca' || /\{\{\s*marca_detectada\s*\}\}/.test(reply)) {
-      const canon = detectBrandCanonical(textNorm) || 'tu equipo';
-      reply = reply.replace(/\{\{\s*marca_detectada\s*\}\}/g, canon);
-      console.log(`🔎 marca_detectada=${canon}`);
+        // === Detección de marca (única y universal) ===
+        const canon = detectBrandCanonical(textNorm); // p.ej. "ASUS", "HP", etc.
+        if (canon) {
+          if (/\{\{\s*marca_detectada\s*\}\}/.test(reply)) {
+            reply = reply.replace(/\{\{\s*marca_detectada\s*\}\}/g, canon);
+          } else {
+            const alreadyMentions = new RegExp(`\\b${canon.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(reply);
+            if (!alreadyMentions) {
+              if (/\n\n¿Sigue igual\?/.test(reply)) {
+                reply = reply.replace(/\n\n¿Sigue igual\?/, `\n\n💡 Veo que tenés una ${canon}.\n\n¿Sigue igual?`);
+              } else {
+                reply = `💡 Veo que tenés una ${canon}.\n\n` + reply;
+              }
+            }
+          }
+          console.log(`🔎 marca_detectada=${canon}`);
+        }
+
+        // Sustituciones legacy
+        reply = reply
+          .replace('{greeting}', STI.messages.greeting || 'Hola')
+          .replace('{help_menu_title}', STI.messages.help_menu_title || 'Temas')
+          .replace('{help_menu}', (STI.messages.help_menu || []).join('\n'))
+          .replace('{fallback}', STI.messages.fallback || '');
+
+        // Plantillas
+        reply = tpl(reply);
+
+        console.log(`🤖 intent="${intent.id}"`);
+        const hasWhats = reply.includes('wa.me/') || reply.includes('{{whatsapp_link}}');
+        return res.json({ reply: hasWhats ? reply : (reply + WHATSAPP_CTA) });
+      }
     }
 
-    // Sustituciones legacy (compat con tu implementación previa)
-    reply = reply
-      .replace('{greeting}', STI.messages.greeting || 'Hola')
-      .replace('{help_menu_title}', STI.messages.help_menu_title || 'Temas')
-      .replace('{help_menu}', (STI.messages.help_menu || []).join('\n'))
-      .replace('{fallback}', STI.messages.fallback || '');
+    // --- 3) Fallback local: soft → medio → hard (WhatsApp)
+    const limit = Number(STI.settings?.fallback_escalation_after ?? 3);
+    const currentMiss = bumpMiss(ip);
 
-    // Sustitución de plantillas {{whatsapp_link}}
-    reply = tpl(reply);
+    if (currentMiss >= limit) {
+      resetMiss(ip);
+      const hard = STI.sections?.fallbacks?.hard
+        || 'No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}';
+      return res.json({ reply: tpl(hard) });
 
-    console.log(`🤖 intent="${intent.id}"`);
-    // Evitar duplicar CTA si ya está la URL en la respuesta
-    const hasWhats = reply.includes('wa.me/') || reply.includes('{{whatsapp_link}}');
-    return res.json({ reply: hasWhats ? reply : (reply + WHATSAPP_CTA) });
-  }
-}
+    } else if (currentMiss === Math.max(2, limit - 1) && STI.sections?.fallbacks?.medio) {
+      const medio = STI.sections.fallbacks.medio;
+      return res.json({ reply: tpl(medio) });
 
+    } else {
+      const soft = STI.sections?.fallbacks?.soft
+        || STI.messages?.fallback
+        || 'Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.';
+      return res.json({ reply: tpl(soft) });
+    }
 
-
-// --- 3) Fallback local con 3 niveles: soft → medio → hard (WhatsApp)
-const limit = Number(STI.settings?.fallback_escalation_after ?? 3);
-const currentMiss = bumpMiss(ip);
-
-if (currentMiss >= limit) {
-  resetMiss(ip);
-  const hard = STI.sections?.fallbacks?.hard
-    || 'No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}';
-  return res.json({ reply: tpl(hard) });
-
-} else if (currentMiss === Math.max(2, limit - 1) && STI.sections?.fallbacks?.medio) {
-  const medio = STI.sections.fallbacks.medio;
-  return res.json({ reply: tpl(medio) });
-
-} else {
-  const soft = STI.sections?.fallbacks?.soft
-    || STI.messages?.fallback
-    || 'Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.';
-  return res.json({ reply: tpl(soft) });
-}
-
-
-  }catch(e){
+  } catch (e) {
     console.error('❌ ERROR /api/chat:', e.stack || e.message);
     return res.status(200).json({ reply: 'No pude procesar la consulta. Probá con una palabra clave como "drivers", "bsod", "powershell", "red".' });
   }
