@@ -6,6 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// ==== NUEVO: utilidades modulares ====
+import { isGreetingMessage } from './detectarSaludo.js';
+import { normalizarTextoCompleto } from './normalizarTexto.js';
+
 // ===== CORS =====
 const app = express();
 const ALLOWED_ORIGINS = [
@@ -79,21 +83,26 @@ if (USE_OPENAI) {
 
 // ===== Helpers =====
 function normalizeRaw(s = '') { return String(s ?? ''); }
-function baseNormalize(s = '') {
-  return s.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+
+// Mantenemos compatibilidad con nlp config de sections,
+// pero aprovechamos nuestro normalizador común.
 function normalizeWithConfig(s = '') {
   const raw = normalizeRaw(s);
   const nlp = STI.sections?.nlp || {};
-  let out = raw;
-  if (nlp.trim !== false) out = out.trim();
-  if (nlp.lowercase !== false) out = out.toLowerCase();
-  if (nlp.strip_accents !== false) out = out.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  out = out.replace(/\s+/g, ' ');
+
+  // Aplico normalización completa por defecto (minúsculas, sin acentos, sin repes, trim)
+  let out = normalizarTextoCompleto(raw);
+
+  // Permitir desactivar partes desde config si existiera esa necesidad
+  if (nlp.lowercase === false) out = out; // ya está en minúsculas por defecto
+  if (nlp.strip_accents === false) {
+    // reinyectar acentos no es trivial; si se desactiva, usamos solo trim/espacios
+    out = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+  if (nlp.trim === false) {
+    // poco común: devolver con espacios extremos si lo piden
+    out = ` ${out} `;
+  }
   return out;
 }
 
@@ -173,7 +182,11 @@ function resetMiss(ip) { missCounters.set(ip, 0); }
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, history = [] } = req.body || {};
-    const textNorm = normalizeWithConfig(String(message || ''));
+
+    const rawText  = String(message || '');
+    const textNorm = normalizeWithConfig(rawText);           // normalización gobernada por config
+    const textClean = normalizarTextoCompleto(rawText);      // normalizador común (para logs/reglas globales)
+
     const ts = new Date().toLocaleString('es-AR');
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
     console.log(`📩 [${ts}] input(${ip}): "${textNorm}"`);
@@ -188,7 +201,27 @@ app.post('/api/chat', async (req, res) => {
       return res.json({ reply: guide });
     }
 
-    // --- 1) Greetings por sections.greetings
+    // --- 1) Detección de saludo universal (ES + EN) —> responde saludo breve
+    if (isGreetingMessage(rawText) || isGreetingMessage(textClean)) {
+      resetMiss(ip);
+      const greet = tpl(
+        (STI.sections?.greetings?.response) ||
+        (STI.messages?.greeting) ||
+        '¡Hola! 👋 Soy Tecnos de STI. ¿En qué puedo ayudarte hoy?'
+      );
+
+      // Mostrar menú inicial si está habilitado (por defecto sí)
+      const showMenu = STI.settings?.greet_show_menu !== false;
+      if (showMenu) {
+        const menuTitle = STI.sections?.menus?.help_menu_title || STI.messages?.help_menu_title || 'Temas frecuentes';
+        const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || [])
+          .map(i => `• ${i}`).join('\n');
+        return res.json({ reply: `${greet}\n\n**${menuTitle}**\n${menuItems}` });
+      }
+      return res.json({ reply: greet });
+    }
+
+    // --- 1.b) Greetings por sections.greetings (triggers explícitos)
     const gs = STI.sections?.greetings;
     if (gs?.triggers?.some(k => fuzzyIncludes(textNorm, String(k)))) {
       resetMiss(ip);
