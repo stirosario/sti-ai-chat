@@ -390,6 +390,76 @@ app.get('/api/testchat', (req, res) => {
   }
 });
 
+// ===== Tester completo: GET /api/testchat?q=... =====
+// Permite probar saludos, intents y fallbacks desde URL
+app.get('/api/testchat', async (req, res) => {
+  try {
+    const q = String(req.query.q ?? '').trim();
+    const rawText   = q;
+    const textNorm  = normalizeWithConfig(rawText);
+    const textClean = normalizarTextoCompleto(rawText);
+    const textArg   = reemplazarArgentinismosV1(textClean);
+
+    // 0) vacío
+    if (!textNorm) {
+      const greet = STI.sections?.greetings?.response
+        || STI.messages?.greeting
+        || 'Hola, ¿en qué puedo ayudarte?';
+      const menuTitle = STI.sections?.menus?.help_menu_title
+        || STI.messages?.help_menu_title
+        || 'Temas frecuentes';
+      const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || [])
+        .map(i => `• ${i}`).join('\n');
+      const reply = `${tpl(greet)}\n\n**${menuTitle}**\n${menuItems}`;
+      return res.json({ input: q, reply, via: 'empty-greet' });
+    }
+
+    // 1) Saludos (universal + argento)
+    if (isGreetingMessage(rawText) || isGreetingMessage(textClean) || isArgGreeting(rawText)) {
+      const reply = buildArgGreetingReply(rawText, {
+        greetingsResponse:
+          (STI.sections?.greetings?.response) ||
+          (STI.messages?.greeting) ||
+          '¡Hola! 👋 Soy Tecnos de STI. ¿En qué te doy una mano hoy?',
+        showMenu: STI.settings?.greet_show_menu !== false,
+        menuTitle: STI.sections?.menus?.help_menu_title || STI.messages?.help_menu_title || 'Temas frecuentes',
+        menuItems: (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []),
+        tpl
+      });
+      return res.json({ input: q, reply, via: 'greeting' });
+    }
+
+    // 2) Intent matcher (usa textArg)
+    for (const intent of (STI.intents || [])) {
+      const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
+      const matched = triggers.some(k => fuzzyIncludes(textArg, String(k)));
+      if (matched) {
+        let reply = intent.response || '';
+        const canon = detectBrandCanonical(textNorm);
+        if (canon) {
+          if (/\{\{\s*marca_detectada\s*\}\}/.test(reply)) {
+            reply = reply.replace(/\{\{\s*marca_detectada\s*\}\}/g, canon);
+          } else if (!new RegExp(`\\b${canon.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(reply)) {
+            reply = `💡 Veo que tenés una ${canon}.\n\n` + reply;
+          }
+        }
+        reply = tpl(reply);
+        return res.json({ input: q, reply, via: `intent:${intent.id || 's/ID'}` });
+      }
+    }
+
+    // 3) Fallback
+    const soft = STI.sections?.fallbacks?.soft
+      || STI.messages?.fallback
+      || 'Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.';
+    return res.json({ input: q, reply: tpl(soft), via: 'fallback-soft' });
+
+  } catch (e) {
+    console.error('❌ ERROR /api/testchat:', e);
+    res.status(200).json({ input: req.query.q, reply: 'Error procesando test.', error: e.message });
+  }
+});
+
 // ===== Arranque =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () =>
