@@ -51,16 +51,16 @@ const resolveFirst = (fname) => {
 const FLOWS_NEW_PATH = resolveFirst('sti-chat.json');
 const FLOWS_OLD_PATH = resolveFirst('sti-chat-flujos.json');
 
-const flowsNew = FLOWS_NEW_PATH ? safeReadJSON(FLOWS_NEW_PATH) : null;
+const flowsNew  = FLOWS_NEW_PATH ? safeReadJSON(FLOWS_NEW_PATH) : null;
 const flowsBase = flowsNew || (FLOWS_OLD_PATH ? safeReadJSON(FLOWS_OLD_PATH) : {});
 
 let STI = {
-  bot: flowsBase?.bot || 'STI • Servicio Técnico Inteligente',
-  locale: flowsBase?.locale || 'es-AR',
-  version: flowsBase?.version || '2.x',
+  bot:      flowsBase?.bot || 'STI • Servicio Técnico Inteligente',
+  locale:   flowsBase?.locale || 'es-AR',
+  version:  flowsBase?.version || '2.x',
   settings: flowsBase?.settings || {},
   messages: flowsBase?.messages || {},
-  intents: flowsBase?.intents || [],
+  intents:  flowsBase?.intents || [],
   fallback: flowsBase?.fallback || { response: '{fallback}' },
   sections: flowsBase?.sections || null
 };
@@ -90,19 +90,15 @@ function normalizeWithConfig(s = '') {
   const raw = normalizeRaw(s);
   const nlp = STI.sections?.nlp || {};
 
-  // Aplico normalización completa por defecto (minúsculas, sin acentos, sin repes, trim)
+  // Normalización completa por defecto
   let out = normalizarTextoCompleto(raw);
 
-  // Permitir desactivar partes desde config si existiera esa necesidad
-  if (nlp.lowercase === false) out = out; // ya está en minúsculas por defecto
+  // Permitir desactivar partes desde config si lo pidieran
+  if (nlp.lowercase === false) out = out;
   if (nlp.strip_accents === false) {
-    // reinyectar acentos no es trivial; si se desactiva, usamos solo trim/espacios
     out = raw.toLowerCase().replace(/\s+/g, ' ').trim();
   }
-  if (nlp.trim === false) {
-    // poco común: devolver con espacios extremos si lo piden
-    out = ` ${out} `;
-  }
+  if (nlp.trim === false) out = ` ${out} `;
   return out;
 }
 
@@ -175,8 +171,29 @@ function detectBrandCanonical(textNorm = '') {
 
 // === Estado simple por cliente ===
 const missCounters = new Map(); // key = req.ip (o un header si tenés sesión)
-function bumpMiss(ip) { const n = (missCounters.get(ip) || 0) + 1; missCounters.set(ip, n); return n; }
+function bumpMiss(ip)  { const n = (missCounters.get(ip) || 0) + 1; missCounters.set(ip, n); return n; }
 function resetMiss(ip) { missCounters.set(ip, 0); }
+
+// === Transcripts en memoria (session = ip|user-agent) ===
+const TRANSCRIPTS = new Map();      // sessionId => [{role, text, ts}]
+const MAX_PER_SESSION = 50;
+
+const getSessionId = (req) =>
+  (req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon') +
+  '|' + (req.headers['user-agent'] || 'ua');
+
+function pushTranscript(sid, role, text) {
+  const arr = TRANSCRIPTS.get(sid) || [];
+  arr.push({ role, text, ts: Date.now() });
+  while (arr.length > MAX_PER_SESSION) arr.shift();
+  TRANSCRIPTS.set(sid, arr);
+}
+
+function formatTranscriptForHuman(arr) {
+  return (arr || [])
+    .map(m => `${m.role === 'user' ? 'Cliente' : 'STI'}: ${m.text}`)
+    .join('\n');
+}
 
 // ===== Endpoint principal =====
 app.post('/api/chat', async (req, res) => {
@@ -191,7 +208,15 @@ app.post('/api/chat', async (req, res) => {
 
     const ts = new Date().toLocaleString('es-AR');
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
+    const sid = getSessionId(req);
     console.log(`📩 [${ts}] input(${ip}): "${textNorm}"`);
+    pushTranscript(sid, 'user', rawText);
+
+    // helper de respuesta + guardado
+    const send = (reply, via) => {
+      pushTranscript(sid, 'bot', reply);
+      return res.json({ reply, via });
+    };
 
     // --- 0) Si viene vacío → saludo + menú
     if (!textNorm) {
@@ -200,10 +225,10 @@ app.post('/api/chat', async (req, res) => {
       const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []).map(i => `• ${i}`).join('\n');
       const guide = `${tpl(greet)}\n\n**${menuTitle}**\n${menuItems}`;
       resetMiss(ip);
-      return res.json({ reply: guide });
+      return send(guide, 'empty-greet');
     }
 
-    // --- 1) Detección de saludo (universal + argento) —> responde saludo breve con menú
+    // --- 1) Detección de saludo (universal + argento)
     if (isGreetingMessage(rawText) || isGreetingMessage(textClean) || isArgGreeting(rawText)) {
       resetMiss(ip);
       const reply = buildArgGreetingReply(rawText, {
@@ -216,7 +241,7 @@ app.post('/api/chat', async (req, res) => {
         menuItems: (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []),
         tpl
       });
-      return res.json({ reply });
+      return send(reply, 'greeting');
     }
 
     // --- 1.b) Greetings por sections.greetings (triggers explícitos)
@@ -224,11 +249,10 @@ app.post('/api/chat', async (req, res) => {
     if (gs?.triggers?.some(k => fuzzyIncludes(textNorm, String(k)))) {
       resetMiss(ip);
       const greet = tpl(gs.response);
-      return res.json({ reply: greet });
+      return send(greet, 'greeting-triggers');
     }
 
     // --- 2) Intent matcher (con detección de marca)
-    //     Usamos textArg (ya corrige "no funca/no anda") para mejorar match.
     for (const intent of (STI.intents || [])) {
       const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
       if (triggers.some(k => fuzzyIncludes(textArg, String(k)))) {
@@ -236,7 +260,7 @@ app.post('/api/chat', async (req, res) => {
         let reply = intent.response || '';
 
         // === Detección de marca (única y universal) ===
-        const canon = detectBrandCanonical(textNorm); // p.ej. "ASUS", "HP", etc.
+        const canon = detectBrandCanonical(textNorm);
         if (canon) {
           if (/\{\{\s*marca_detectada\s*\}\}/.test(reply)) {
             reply = reply.replace(/\{\{\s*marca_detectada\s*\}\}/g, canon);
@@ -253,19 +277,16 @@ app.post('/api/chat', async (req, res) => {
           console.log(`🔎 marca_detectada=${canon}`);
         }
 
-        // Sustituciones legacy
+        // Sustituciones legacy + plantillas
         reply = reply
           .replace('{greeting}', STI.messages.greeting || 'Hola')
           .replace('{help_menu_title}', STI.messages.help_menu_title || 'Temas')
           .replace('{help_menu}', (STI.messages.help_menu || []).join('\n'))
           .replace('{fallback}', STI.messages.fallback || '');
-
-        // Plantillas
         reply = tpl(reply);
 
-        console.log(`🤖 intent="${intent.id}"`);
         const hasWhats = reply.includes('wa.me/') || reply.includes('{{whatsapp_link}}');
-        return res.json({ reply: hasWhats ? reply : (reply + WHATSAPP_CTA) });
+        return send(hasWhats ? reply : (reply + WHATSAPP_CTA), `intent:${intent.id || 's/ID'}`);
       }
     }
 
@@ -277,17 +298,17 @@ app.post('/api/chat', async (req, res) => {
       resetMiss(ip);
       const hard = STI.sections?.fallbacks?.hard
         || 'No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}';
-      return res.json({ reply: tpl(hard) });
+      return send(tpl(hard), 'fallback-hard');
 
     } else if (currentMiss === Math.max(2, limit - 1) && STI.sections?.fallbacks?.medio) {
-      const medio = STI.sections.fallbacks.medio;
-      return res.json({ reply: tpl(medio) });
+      const medio = tpl(STI.sections.fallbacks.medio);
+      return send(medio, 'fallback-medio');
 
     } else {
       const soft = STI.sections?.fallbacks?.soft
         || STI.messages?.fallback
         || 'Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.';
-      return res.json({ reply: tpl(soft) });
+      return send(tpl(soft), 'fallback-soft');
     }
 
   } catch (e) {
@@ -310,9 +331,7 @@ app.get('/health', (_req, res) => {
 });
 app.get('/', (_req, res) => res.type('text').send('🧠 STI AI backend activo'));
 
-
 // ===== Tester completo: GET /api/testchat?q=... =====
-// Permite probar saludos, intents y fallbacks desde URL
 app.get('/api/testchat', async (req, res) => {
   try {
     const q = String(req.query.q ?? '').trim();
@@ -320,6 +339,13 @@ app.get('/api/testchat', async (req, res) => {
     const textNorm  = normalizeWithConfig(rawText);
     const textClean = normalizarTextoCompleto(rawText);
     const textArg   = reemplazarArgentinismosV1(textClean);
+    const sid = getSessionId(req);
+
+    const send = (reply, via) => {
+      pushTranscript(sid, 'user', rawText || '(vacío)');
+      pushTranscript(sid, 'bot', reply);
+      return res.json({ input: q, reply, via });
+    };
 
     // 0) vacío
     if (!textNorm) {
@@ -332,7 +358,7 @@ app.get('/api/testchat', async (req, res) => {
       const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || [])
         .map(i => `• ${i}`).join('\n');
       const reply = `${tpl(greet)}\n\n**${menuTitle}**\n${menuItems}`;
-      return res.json({ input: q, reply, via: 'empty-greet' });
+      return send(reply, 'empty-greet');
     }
 
     // 1) Saludos (universal + argento)
@@ -347,7 +373,7 @@ app.get('/api/testchat', async (req, res) => {
         menuItems: (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []),
         tpl
       });
-      return res.json({ input: q, reply, via: 'greeting' });
+      return send(reply, 'greeting');
     }
 
     // 2) Intent matcher (usa textArg)
@@ -365,7 +391,7 @@ app.get('/api/testchat', async (req, res) => {
           }
         }
         reply = tpl(reply);
-        return res.json({ input: q, reply, via: `intent:${intent.id || 's/ID'}` });
+        return send(reply, `intent:${intent.id || 's/ID'}`);
       }
     }
 
@@ -373,12 +399,38 @@ app.get('/api/testchat', async (req, res) => {
     const soft = STI.sections?.fallbacks?.soft
       || STI.messages?.fallback
       || 'Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.';
-    return res.json({ input: q, reply: tpl(soft), via: 'fallback-soft' });
+    return send(tpl(soft), 'fallback-soft');
 
   } catch (e) {
     console.error('❌ ERROR /api/testchat:', e);
     res.status(200).json({ input: req.query.q, reply: 'Error procesando test.', error: e.message });
   }
+});
+
+// ===== Exportar transcript a WhatsApp: GET /api/export/whatsapp =====
+// Parámetros opcionales: ?session=... (si no viene, usa ip|ua actual)
+app.get('/api/export/whatsapp', (req, res) => {
+  const sid = String(
+    req.query.session ||
+    ((req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon') +
+     '|' + (req.headers['user-agent'] || 'ua'))
+  );
+
+  const items = TRANSCRIPTS.get(sid) || [];
+  if (!items.length) return res.json({ ok:false, error:'no_transcript', sessionId:sid });
+
+  const header = `Resumen de chat — STI\r\nID sesión: ${sid}\r\n--------------------------------\r\n`;
+  const body   = formatTranscriptForHuman(items);
+  let text     = header + body;
+
+  // WhatsApp tolera ~4096; usamos margen
+  const MAX = 1500;
+  if (text.length > MAX) text = text.slice(0, MAX - 20) + '\n[...]';
+
+  const phone = '5493417422422';
+  const wa_link = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+
+  res.json({ ok:true, sessionId:sid, count:items.length, wa_link, preview:text });
 });
 
 // ===== Arranque =====
