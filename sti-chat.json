@@ -34,7 +34,8 @@
         "Se calienta",
         "Teclado/Touchpad no funciona",
         "No carga la batería",
-        "Impresora no imprime"
+        "Impresora no imprime",
+        "Asistencia remota (AnyDesk)"
       ]
     },
 
@@ -151,38 +152,84 @@
     },
 
     {
-  "id": "marca",
-  "triggers": [
-    "hp", "h p", "h-p", "hpe", "hepi", "jepi", "agp",
-    "lenovo", "lenovoa", "lenobo", "lenow", "lenoovo", "lenobo",
-    "dell", "del", "delk", "dlell", "dele", "delp",
-    "asus", "azus", "asuz", "asusz", "asuss", "asuzt",
-    "acer", "acerp", "azer", "azzer", "ascer", "accer",
-    "toshiba", "toshiva", "toshia", "toshiva", "tosiva", "tosh",
-    "samsung", "sansumg", "samgsung", "samsumg", "samung", "sangsun",
-    "sony", "soni", "soony", "zoni", "soñi", "soney",
-    "apple", "aple", "aplle", "appple", "appl", "manzana",
-    "msi", "m s i", "emesai", "msy", "mpsi",
-    "bangho", "banho", "bangó", "banjo", "vangho",
-    "exa", "exxa", "exsa", "exza", "exa computers",
-    "positivo", "posotivo", "posiitivo", "postivo", "positibo",
-    "bgh", "b g h", "bejéache", "bjeh", "begeache",
-    "compaq", "compaq", "kompak", "kompaq", "compak", "kompa",
-    "gateway", "geteway", "getaway", "gatewey", "gatewei", "gatuwey",
-    "huawei", "huaweii", "huawey", "huauei", "guawey", "huauei", "wawey",
-    "xiaomi", "xioami", "xiomi", "chaomi", "xiaomy", "xiaommi", "xiomy",
-    "alienware", "alienwer", "alien war", "aluenwer", "alienwaer", "alienwer",
-    "vaio", "vaoi", "vao", "vayio", "baio",
-    "lg", "l g", "elgi", "eleji", "ege", "lge"
-  ],
-  "response": "Perfecto 💡 Veo que mencionás una **marca reconocida**. Trabajamos con equipos **{{marca_detectada}}** y también con otras principales del mercado.\nPodés contarme el problema (por ejemplo: *no enciende*, *pantalla negra*, *sin sonido*) y te guío paso a paso."
-},
+      "id": "marca",
+      "triggers": [
+        "hp", "h p", "h-p", "hpe", "hepi", "jepi", "agp",
+        "lenovo", "lenovoa", "lenobo", "lenow", "lenoovo", "lenobo",
+        "dell", "del", "delk", "dlell", "dele", "delp",
+        "asus", "azus", "asuz", "asusz", "asuss", "asuzt",
+        "acer", "acerp", "azer", "azzer", "ascer", "accer",
+        "toshiba", "toshiva", "toshia", "toshiva", "tosiva", "tosh",
+        "samsung", "sansumg", "samgsung", "samsumg", "samung", "sangsun",
+        "sony", "soni", "soony", "zoni", "soñi", "soney",
+        "apple", "aple", "aplle", "appple", "appl", "manzana",
+        "msi", "m s i", "emesai", "msy", "mpsi",
+        "bangho", "banho", "bangó", "banjo", "vangho",
+        "exa", "exxa", "exsa", "exza", "exa computers",
+        "positivo", "posotivo", "posiitivo", "postivo", "positibo",
+        "bgh", "b g h", "bejéache", "bjeh", "begeache",
+        "compaq", "kompak", "kompaq", "compak", "kompa",
+        "gateway", "geteway", "getaway", "gatewey", "gatewei", "gatuwey",
+        "huawei", "huaweii", "huawey", "huauei", "guawey", "wawey",
+        "xiaomi", "xioami", "xiomi", "chaomi", "xiaomy", "xiaommi", "xiomy",
+        "alienware", "alienwer", "alien war", "aluenwer", "alienwaer",
+        "vaio", "vaoi", "vao", "vayio", "baio",
+        "lg", "l g", "elgi", "eleji", "ege", "lge"
+      ],
+      "response": "Perfecto 💡 Veo que mencionás una **marca reconocida**. Trabajamos con equipos **{{marca_detectada}}** y también con otras principales del mercado.\nPodés contarme el problema (por ejemplo: *no enciende*, *pantalla negra*, *sin sonido*) y te guío paso a paso."
+    },
 
     {
       "_note": "Intent explícito de saludo (además de sections.greetings)",
       "id": "saludo",
       "triggers": ["hola", "holaa", "ola", "holis", "buenas", "buen dia", "buen día", "hey", "ey", "que tal", "qué tal", "wena"],
       "response": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. ¿Cómo te llamás? Contame en pocas palabras tu problema."
+    },
+
+    {
+      "_note": "=== ANYDESK: intent general para captar frases de ayuda ===",
+      "id": "anydesk-ayuda",
+      "triggers": [
+        "anydesk", "any desk", "ani desk", "anidesk", "anidesc", "anydes", "anydsk", "anydsek", "anydex", "anydeks", "anydecks", "anydesck", "any-desks",
+        "asistencia remota", "control remoto", "conectarme remoto", "conexion remota",
+        "me ayudas con anydesk", "no se usar anydesk", "como se usa anydesk", "necesito soporte remoto",
+        "tengo el id de anydesk", "mi id de anydesk", "te paso el anydesk", "abrí anydesk", "abri anydesk", "tengo anydesk abierto",
+        "no me abre anydesk", "no puedo abrir anydesk", "me pide permisos anydesk",
+        "contador anydesk", "esperar demasiados segundos", "espera muchos segundos", "demasiados segundos anydesk",
+        "id anydesk no cambia", "quiero otro id anydesk", "mi id no cambia", "id repetido anydesk",
+        "desinstalar anydesk", "instalar anydesk", "cambiar id anydesk", "borrar anydesk", "eliminar anydesk", "reinstalar anydesk"
+      ],
+      "response": "¡Perfecto! Te ayudo con **AnyDesk** 🧩\nElegí una opción:\n• **Instalar AnyDesk** → escribí: *instalar anydesk*\n• **Desinstalar AnyDesk** → escribí: *desinstalar anydesk*\n• **Cambiar ID de AnyDesk** → escribí: *cambiar id anydesk*\n\nSi ya lo tenés abierto, decime tu **ID** (aparece como *Tu dirección*). También podemos hacerlo por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "instalar-anydesk",
+      "triggers": [
+        "descargar anydesk", "instalar anydesk", "anydesk nuevo", "como instalar anydesk",
+        "no tengo anydesk", "no se como usar anydesk", "necesito anydesk", "instalar remoto",
+        "bajar anydesk", "donde descargo anydesk", "link anydesk", "ayuda anydesk",
+        "anidesk", "anydes", "any-desk", "any deks", "anydsek", "anydex"
+      ],
+      "response": "Perfecto 👌 Vamos a instalar **AnyDesk** para asistencia remota.\n\n1️⃣ Ingresá a 👉 **https://anydesk.com/es/downloads**\n2️⃣ Descargá la versión **para Windows**.\n3️⃣ Abrí el archivo descargado (`AnyDesk.exe`).\n4️⃣ En la ventana, clic en **Instalar AnyDesk en este equipo** y seguí los pasos.\n5️⃣ Abrí AnyDesk y decime tu **número de ID** (aparece como *Tu dirección*).\n\n¿Preferís que te guíe por WhatsApp? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "desinstalar-anydesk",
+      "triggers": [
+        "desinstalar anydesk", "borrar anydesk", "eliminar anydesk", "sacar anydesk",
+        "quitar anydesk", "desinstalar programa anydesk", "desinstalo anydesk", "desinstalar anidesk"
+      ],
+      "response": "Para **desinstalar AnyDesk** 🔧\n\n1️⃣ **Inicio → Configuración → Aplicaciones**.\n2️⃣ Buscá **AnyDesk** en la lista.\n3️⃣ Tocá **Desinstalar** y confirmá.\n4️⃣ Para borrar datos guardados, eliminá la carpeta de usuario:\n   `C:\\\\Users\\\\TuUsuario\\\\AppData\\\\Roaming\\\\AnyDesk`\n5️⃣ (Opcional) Limpiá la caché de instaladores temporales en `C:\\\\Users\\\\TuUsuario\\\\AppData\\\\Local\\\\Temp`.\n\nLuego podés reinstalarlo con el intent *instalar anydesk*. Si querés, te acompaño por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "cambiar-id-anydesk",
+      "triggers": [
+        "cambiar id anydesk", "nuevo id anydesk", "id distinto anydesk", "id cambiado",
+        "quiero otro id anydesk", "mi id no cambia", "resetear anydesk", "reset id anydesk",
+        "id repetido anydesk", "forzar id nuevo anydesk"
+      ],
+      "response": "Para **generar un nuevo ID** en AnyDesk 🆔\n\n1️⃣ **Desinstalá** AnyDesk (ver *desinstalar anydesk*).\n2️⃣ Borrá la configuración del usuario:\n   `C:\\\\Users\\\\TuUsuario\\\\AppData\\\\Roaming\\\\AnyDesk`\n3️⃣ **Reiniciá** la PC 💻.\n4️⃣ Descargá e **instalá** nuevamente desde **https://anydesk.com/es/downloads**.\n5️⃣ Abrí AnyDesk: verás un **nuevo número de ID** en *Tu dirección*.\n\nSi querés, lo hacemos juntos por WhatsApp 👉 {{whatsapp_link}}"
     }
   ],
 
@@ -201,7 +248,8 @@
       "Se calienta",
       "Teclado/Touchpad no funciona",
       "No carga la batería",
-      "Impresora no imprime"
+      "Impresora no imprime",
+      "Asistencia remota (AnyDesk)"
     ],
     "fallback": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
     "whatsapp_cta": "Si preferís, escribinos por WhatsApp: {{whatsapp_link}}"
