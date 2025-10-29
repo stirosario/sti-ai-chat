@@ -195,6 +195,82 @@ function formatTranscriptForHuman(arr) {
     .join('\n');
 }
 
+// ====== NUEVO: Persistencia de tickets & transcripts ======
+const DEFAULT_TRANSCRIPTS_DIR = path.join(__dirname, 'data', 'transcripts');
+const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || DEFAULT_TRANSCRIPTS_DIR;
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/+$/,'');
+
+function ensureDir(p) {
+  try { fs.mkdirSync(p, { recursive: true }); } catch {}
+}
+ensureDir(TRANSCRIPTS_DIR);
+
+function yyyymmdd(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth()+1).padStart(2,'0');
+  const d = String(date.getDate()).padStart(2,'0');
+  return `${y}${m}${d}`;
+}
+
+function randBase36(n = 4) {
+  return Math.random().toString(36).slice(2, 2+n).toUpperCase();
+}
+
+function newTicketId() {
+  return `TCK-${yyyymmdd()}-${randBase36(5)}`;
+}
+
+function ticketPath(ticketId) {
+  return path.join(TRANSCRIPTS_DIR, `${ticketId}.json`);
+}
+
+function sessionShadowPath(sid) {
+  // Guardado intermedio opcional por sesión
+  const safe = Buffer.from(sid).toString('hex').slice(0, 40);
+  return path.join(TRANSCRIPTS_DIR, `session-${safe}.json`);
+}
+
+function readTicket(ticketId) {
+  const p = ticketPath(ticketId);
+  if (!fs.existsSync(p)) return null;
+  return safeReadJSON(p);
+}
+
+function saveSessionShadow(sid) {
+  const items = TRANSCRIPTS.get(sid) || [];
+  const data = {
+    type: 'session_shadow',
+    sessionId: sid,
+    updatedAt: new Date().toISOString(),
+    items
+  };
+  try { fs.writeFileSync(sessionShadowPath(sid), JSON.stringify(data, null, 2), 'utf-8'); } catch {}
+}
+
+function createTicketFromSession(sid, meta = {}) {
+  const items = TRANSCRIPTS.get(sid) || [];
+  if (!items.length) return { ok:false, error:'no_transcript' };
+
+  const ticketId = newTicketId();
+  const data = {
+    type: 'ticket',
+    id: ticketId,
+    createdAt: new Date().toISOString(),
+    sessionId: sid,
+    meta,
+    bot: STI.bot,
+    locale: STI.locale,
+    version: STI.version,
+    items
+  };
+  fs.writeFileSync(ticketPath(ticketId), JSON.stringify(data, null, 2), 'utf-8');
+
+  const linkHtml  = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
+  const linkJson  = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
+
+  return { ok:true, id: ticketId, linkHtml, linkJson, count: items.length };
+}
+
 // ===== Endpoint principal =====
 app.post('/api/chat', async (req, res) => {
   try {
@@ -208,13 +284,16 @@ app.post('/api/chat', async (req, res) => {
 
     const ts = new Date().toLocaleString('es-AR');
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
+    const ua = req.headers['user-agent'] || 'ua';
     const sid = getSessionId(req);
-    console.log(`📩 [${ts}] input(${ip}): "${textNorm}"`);
+    console.log(`📩 [${ts}] input(${ip}) UA(${ua.slice(0,30)}...): "${textNorm}"`);
     pushTranscript(sid, 'user', rawText);
+    saveSessionShadow(sid);
 
     // helper de respuesta + guardado
     const send = (reply, via) => {
       pushTranscript(sid, 'bot', reply);
+      saveSessionShadow(sid);
       return res.json({ reply, via });
     };
 
@@ -290,14 +369,22 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // --- 3) Fallback local: soft → medio → hard (WhatsApp)
+    // --- 3) Fallback local: soft → medio → hard (WhatsApp con ticket)
     const limit = Number(STI.settings?.fallback_escalation_after ?? 3);
     const currentMiss = bumpMiss(ip);
 
     if (currentMiss >= limit) {
       resetMiss(ip);
-      const hard = STI.sections?.fallbacks?.hard
+      // Al escalar, generamos ticket y lo adjuntamos
+      const created = createTicketFromSession(sid, { ip, ua });
+      let hard = STI.sections?.fallbacks?.hard
         || 'No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}';
+
+      if (created.ok) {
+        const msg = `\n\n🧾 Ticket generado: *${created.id}*\nAbrilo acá: ${created.linkHtml}`;
+        hard = tpl(hard) + msg;
+        return send(hard, 'fallback-hard-ticket');
+      }
       return send(tpl(hard), 'fallback-hard');
 
     } else if (currentMiss === Math.max(2, limit - 1) && STI.sections?.fallbacks?.medio) {
@@ -326,7 +413,9 @@ app.get('/health', (_req, res) => {
     usingNewFlows: Boolean(FLOWS_NEW_PATH),
     newPath: FLOWS_NEW_PATH || null,
     legacyPath: FLOWS_OLD_PATH || null,
-    fallbackEscalationAfter: STI.settings?.fallback_escalation_after ?? 3
+    fallbackEscalationAfter: STI.settings?.fallback_escalation_after ?? 3,
+    transcriptsDir: TRANSCRIPTS_DIR,
+    publicBaseUrl: PUBLIC_BASE_URL
   });
 });
 app.get('/', (_req, res) => res.type('text').send('🧠 STI AI backend activo'));
@@ -344,6 +433,7 @@ app.get('/api/testchat', async (req, res) => {
     const send = (reply, via) => {
       pushTranscript(sid, 'user', rawText || '(vacío)');
       pushTranscript(sid, 'bot', reply);
+      saveSessionShadow(sid);
       return res.json({ input: q, reply, via });
     };
 
@@ -407,7 +497,25 @@ app.get('/api/testchat', async (req, res) => {
   }
 });
 
-// ===== Exportar transcript a WhatsApp: GET /api/export/whatsapp =====
+// ===== NUEVO: Exportar/generar Ticket explícito =====
+// GET /api/export/ticket  (genera ticket desde la sesión actual)
+app.get('/api/export/ticket', (req, res) => {
+  const sid = String(
+    req.query.session ||
+    ((req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon') +
+     '|' + (req.headers['user-agent'] || 'ua'))
+  );
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
+  const ua = req.headers['user-agent'] || 'ua';
+
+  const created = createTicketFromSession(sid, { ip, ua });
+  if (!created.ok) return res.json({ ok:false, error:'no_transcript', sessionId:sid });
+
+  return res.json({ ok:true, sessionId:sid, id:created.id, linkHtml:created.linkHtml, linkJson:created.linkJson, count:created.count });
+});
+
+// ===== Exportar transcript a WhatsApp con Ticket =====
+// GET /api/export/whatsapp
 // Parámetros opcionales: ?session=... (si no viene, usa ip|ua actual)
 app.get('/api/export/whatsapp', (req, res) => {
   const sid = String(
@@ -419,22 +527,83 @@ app.get('/api/export/whatsapp', (req, res) => {
   const items = TRANSCRIPTS.get(sid) || [];
   if (!items.length) return res.json({ ok:false, error:'no_transcript', sessionId:sid });
 
-  const header = `Resumen de chat — STI\r\nID sesión: ${sid}\r\n--------------------------------\r\n`;
-  const body   = formatTranscriptForHuman(items);
-  let text     = header + body;
+  // Generar ticket primero
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
+  const ua = req.headers['user-agent'] || 'ua';
+  const created = createTicketFromSession(sid, { ip, ua });
+  if (!created.ok) return res.json({ ok:false, error:'ticket_failed', sessionId:sid });
 
-  // WhatsApp tolera ~4096; usamos margen
-  const MAX = 1500;
-  if (text.length > MAX) text = text.slice(0, MAX - 20) + '\n[...]';
+  // Mensaje breve para WhatsApp
+  const header = `Hola, necesito asistencia con mi equipo.\r\n`;
+  const ticketLine = `🧾 Mi número de ticket es: *${created.id}*\r\n`;
+  const linkLine = `Podés ver todo el detalle acá: ${created.linkHtml}\r\n`;
+  const text = `${header}${ticketLine}${linkLine}`;
 
   const phone = '5493417422422';
   const wa_link = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 
-  res.json({ ok:true, sessionId:sid, count:items.length, wa_link, preview:text });
+  res.json({ ok:true, sessionId:sid, id:created.id, wa_link, ticket_url: created.linkHtml, preview:text, count: items.length });
+});
+
+// ===== NUEVO: Ver ticket en JSON =====
+app.get('/api/ticket/:id', (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const data = readTicket(id);
+  if (!data) return res.status(404).json({ ok:false, error:'ticket_not_found', id });
+  res.json({ ok:true, ticket: data });
+});
+
+// ===== NUEVO: Ver ticket en HTML simple =====
+app.get('/ticket/:id', (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const data = readTicket(id);
+  if (!data) return res.status(404).type('text/html').send(`<h1>Ticket no encontrado</h1><p>ID: ${id}</p>`);
+
+  const title = `${STI.bot} — Ticket ${id}`;
+  const createdAt = new Date(data.createdAt).toLocaleString('es-AR');
+  const rows = (data.items || []).map(m => {
+    const who = m.role === 'user' ? 'Cliente' : 'STI';
+    const when = new Date(m.ts || Date.now()).toLocaleString('es-AR');
+    const txt = String(m.text || '').replace(/[&<>]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]));
+    return `<tr><td style="white-space:nowrap;color:#666">${when}</td><td><strong>${who}:</strong> ${txt}</td></tr>`;
+  }).join('\n');
+
+  const html = `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;margin:20px;background:#0b1020;color:#e7ecff}
+  .card{background:#11193a;border:1px solid #2a3a78;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.35);padding:18px;max-width:980px;margin:auto}
+  h1{margin:0 0 10px;font-size:22px}
+  .meta{color:#a9b3ff;font-size:14px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:15px;background:#0f1733;border-radius:10px;overflow:hidden}
+  td{border-bottom:1px solid #1c2b66;padding:10px 12px;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .cta{margin-top:16px}
+  .cta a{display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🧾 Ticket ${id}</h1>
+    <div class="meta">Creado: ${createdAt} — Bot: ${STI.bot}</div>
+    <table>${rows}</table>
+    <div class="cta">
+      <a href="https://wa.me/5493417422422?text=${encodeURIComponent(`Hola, sigo el ticket ${id}.`) }" target="_blank" rel="noopener">Responder por WhatsApp</a>
+      &nbsp;&nbsp;
+      <a href="${PUBLIC_BASE_URL}/api/ticket/${id}" target="_blank" rel="noopener">Ver JSON</a>
+    </div>
+  </div>
+</body>
+</html>`;
+  res.type('html').send(html);
 });
 
 // ===== Arranque =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () =>
-  console.log(`🧠 STI AI backend escuchando en puerto ${PORT}`)
+  console.log(`🧠 STI AI backend escuchando en puerto ${PORT}\n📁 TRANSCRIPTS_DIR=${TRANSCRIPTS_DIR}\n🌐 PUBLIC_BASE_URL=${PUBLIC_BASE_URL}`)
 );
