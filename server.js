@@ -7,8 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // ==== NUEVO: utilidades modulares ====
-import { isGreetingMessage } from './detectarSaludo.js';
-import { normalizarTextoCompleto } from './normalizarTexto.js';
+import { isGreetingMessage, isArgGreeting, buildArgGreetingReply } from './detectarSaludo.js';
+import { normalizarTextoCompleto, reemplazarArgentinismosV1 } from './normalizarTexto.js';
 
 // ===== CORS =====
 const app = express();
@@ -183,9 +183,11 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { message, history = [] } = req.body || {};
 
-    const rawText  = String(message || '');
-    const textNorm = normalizeWithConfig(rawText);           // normalización gobernada por config
-    const textClean = normalizarTextoCompleto(rawText);      // normalizador común (para logs/reglas globales)
+    const rawText   = String(message || '');
+    // normalizadores
+    const textNorm  = normalizeWithConfig(rawText);
+    const textClean = normalizarTextoCompleto(rawText);
+    const textArg   = reemplazarArgentinismosV1(textClean);
 
     const ts = new Date().toLocaleString('es-AR');
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
@@ -201,24 +203,20 @@ app.post('/api/chat', async (req, res) => {
       return res.json({ reply: guide });
     }
 
-    // --- 1) Detección de saludo universal (ES + EN) —> responde saludo breve
-    if (isGreetingMessage(rawText) || isGreetingMessage(textClean)) {
+    // --- 1) Detección de saludo (universal + argento) —> responde saludo breve con menú
+    if (isGreetingMessage(rawText) || isGreetingMessage(textClean) || isArgGreeting(rawText)) {
       resetMiss(ip);
-      const greet = tpl(
-        (STI.sections?.greetings?.response) ||
-        (STI.messages?.greeting) ||
-        '¡Hola! 👋 Soy Tecnos de STI. ¿En qué puedo ayudarte hoy?'
-      );
-
-      // Mostrar menú inicial si está habilitado (por defecto sí)
-      const showMenu = STI.settings?.greet_show_menu !== false;
-      if (showMenu) {
-        const menuTitle = STI.sections?.menus?.help_menu_title || STI.messages?.help_menu_title || 'Temas frecuentes';
-        const menuItems = (STI.sections?.menus?.help_menu || STI.messages?.help_menu || [])
-          .map(i => `• ${i}`).join('\n');
-        return res.json({ reply: `${greet}\n\n**${menuTitle}**\n${menuItems}` });
-      }
-      return res.json({ reply: greet });
+      const reply = buildArgGreetingReply(rawText, {
+        greetingsResponse:
+          (STI.sections?.greetings?.response) ||
+          (STI.messages?.greeting) ||
+          '¡Hola! 👋 Soy Tecnos de STI. ¿En qué te doy una mano hoy?',
+        showMenu: STI.settings?.greet_show_menu !== false,
+        menuTitle: STI.sections?.menus?.help_menu_title || STI.messages?.help_menu_title || 'Temas frecuentes',
+        menuItems: (STI.sections?.menus?.help_menu || STI.messages?.help_menu || []),
+        tpl
+      });
+      return res.json({ reply });
     }
 
     // --- 1.b) Greetings por sections.greetings (triggers explícitos)
@@ -230,9 +228,10 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // --- 2) Intent matcher (con detección de marca)
+    //     Usamos textArg (ya corrige "no funca/no anda") para mejorar match.
     for (const intent of (STI.intents || [])) {
       const triggers = Array.isArray(intent.triggers) ? intent.triggers : [];
-      if (triggers.some(k => fuzzyIncludes(textNorm, String(k)))) {
+      if (triggers.some(k => fuzzyIncludes(textArg, String(k)))) {
         resetMiss(ip);
         let reply = intent.response || '';
 
@@ -311,6 +310,27 @@ app.get('/health', (_req, res) => {
 });
 app.get('/', (_req, res) => res.type('text').send('🧠 STI AI backend activo'));
 
+// ===== ENDPOINT TEMPORAL DE TEST =====
+app.get('/api/test', (req, res) => {
+  try {
+    const info = {
+      ok: true,
+      time: new Date().toLocaleString('es-AR'),
+      env: process.env.NODE_ENV || 'development',
+      hasOpenAI: USE_OPENAI,
+      totalIntents: STI?.intents?.length || 0,
+      greetingsLoaded: STI?.sections?.greetings ? true : false,
+      chatVersion: STI.version,
+      messageExample: STI.messages?.greeting || 'Hola, soy Tecnos 👋'
+    };
+    res.json(info);
+  } catch (err) {
+    console.error('❌ Error en /api/test:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 // ===== Arranque =====
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => console.log(`🧠 STI AI backend escuchando en puerto ${PORT}`));
+app.listen(PORT, '0.0.0.0', () =>
+  console.log(`🧠 STI AI backend escuchando en puerto ${PORT}`)
+);
