@@ -1,0 +1,213 @@
+{
+  "bot": "STI • Servicio Técnico Inteligente",
+  "locale": "es-AR",
+  "version": "3.0.1",
+  "settings": {
+    "whatsapp_link": "https://wa.me/5493417422422",
+    "fallback_escalation_after": 3,
+    "max_suggestions": 8
+  },
+
+  "_note": "=== SECCIONES ESCRIBIBLES POR LUCAS ===",
+
+  "sections": {
+    "greetings": {
+      "_note": "Frases que disparan el saludo y la respuesta que querés",
+      "triggers": [
+        "hola", "holaa", "ola", "ola!", "oli", "holis",
+        "buen dia", "buen día", "buenas", "buenas tardes", "buenas noches",
+        "hey", "ey", "que tal", "qué tal", "q tal", "holaaa", "wena"
+      ],
+      "response": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. ¿Cómo te llamás? Contame en pocas palabras tu problema (ej.: no enciende, sin internet, lento, pantalla negra, sin sonido). Te guío paso a paso."
+    },
+
+    "menus": {
+      "_note": "Textos del menú de ayuda",
+      "help_menu_title": "Temas frecuentes",
+      "help_menu": [
+        "No enciende",
+        "Pantalla negra / sin imagen",
+        "No inicia Windows",
+        "Sin internet / Wi-Fi",
+        "Muy lento / se traba",
+        "Sin sonido",
+        "Se calienta",
+        "Teclado/Touchpad no funciona",
+        "No carga la batería",
+        "Impresora no imprime"
+      ]
+    },
+
+    "fallbacks": {
+      "_note": "Mensajes para ‘no entendido’. El chat escalará a WhatsApp tras N fallos.",
+      "soft": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
+      "medio": "Mmm, parece que no te entendí bien 😅. ¿Podés decirlo con otras palabras o elegir uno de los temas más comunes?",
+      "hard": "No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    "nlp": {
+      "_note": "Normalización simple del texto de usuario",
+      "lowercase": true,
+      "strip_accents": true,
+      "trim": true
+    }
+  },
+
+  "_note2": "=== INTENTS ESCRIBIBLES POR LUCAS ===",
+
+  "intents": [
+    {
+      "id": "no-enciende",
+      "triggers": [
+        "no enciende", "no prende", "no arranca", "sin luz", "no responde", "no power",
+        "no prende mas", "no prende nada", "no arranca pc", "no arranca notebook",
+        "no anda", "no se prende", "se apaga", "pantalla apagada"
+      ],
+      "response": "Vamos a lo básico 🔌\n1) Probá **otro enchufe/toma**.\n2) Revisá **cable/cargador**.\n3) Notebook: si se puede, **quitá la batería** y probá solo con cargador.\n4) PC: interruptor de **fuente** en “|”.\n5) Mantené **10 s** el botón; soltar, esperar 5 s y encender.\n\n¿Sigue igual? Te doy una mano por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "sin-imagen",
+      "triggers": [
+        "pantalla negra", "no da imagen", "enciende pero no da video", "sin imagen", "no hay video",
+        "no se ve", "pantalla sin luz", "no muestra nada", "sin pantalla", "monitor sin señal",
+        "dice sin señal", "sin senial", "no se ve nada"
+      ],
+      "response": "Chequeemos la imagen 🖥️\n1) **Monitor** encendido y **entrada correcta** (HDMI/DP).\n2) Probá **otro cable/puerto**. Si tenés placa dedicada, probá el integrado y viceversa.\n3) Quitá periféricos no esenciales y **reiniciá**.\n4) Notebook: **Fn + tecla de pantalla** (F4/F7/F8 según marca).\n\n¿Nada aún? Seguimos por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "no-inicia-windows",
+      "triggers": [
+        "no inicia windows", "reparación automática", "preparando reparación", "ciclo de reinicios", "no arranca windows", "boot",
+        "no entra windows", "queda cargando", "pantalla azul", "blue screen", "pantalla celeste", "bsod", "error inicio"
+      ],
+      "response": "Recuperemos Windows 🪟\n1) Intentá **Modo seguro**.\n2) Si entra: desinstalá lo último y revisá **drivers** con alerta.\n3) **Restaurar sistema** a un punto anterior.\n4) **Reparación de inicio**.\n\n¿Sigue igual? Te asisto por WhatsApp 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "sin-internet",
+      "triggers": [
+        "sin internet", "no conecta", "no hay internet", "no tengo internet", "wifi no conecta", "no hay wifi",
+        "sin conexión", "no conecta a internet", "me quedé sin internet", "sin red", "no anda el wifi",
+        "no funciona el wifi", "no agarra internet", "wifi caido", "weifi", "wiffi", "guifi", "wi fi", "wifi cortado"
+      ],
+      "response": "Veamos conectividad 🌐\n1) ¿Otros dispositivos **tienen** internet?\n2) Reiniciá **módem/router** (30 s apagado).\n3) PC: *Olvidar red* y reconectar; probá **hotspot**.\n4) En CMD:\n```\nipconfig /release\nipconfig /renew\nipconfig /flushdns\n```\n5) Por **cable**: otro cable/puerto.\n\n¿Sigue sin internet? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "lento",
+      "triggers": [
+        "lento", "se traba", "tarda mucho", "muy lento", "congelado", "tildado", "se congela", "anda pesado",
+        "se cuelga", "no responde", "lag", "laggea", "traba", "se traba todo", "funciona mal"
+      ],
+      "response": "Aceleremos 🚀\n1) **Ctrl+Shift+Esc** → ¿CPU/RAM/Disco al 90–100%?\n2) Deshabilitá **inicio automático** de apps.\n3) `cleanmgr` para temporales.\n4) Análisis rápido con antivirus.\n5) Si tenés **HDD**, migrar a **SSD** (mejora x5–x10).\n\n¿Sigue lento? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "sin-sonido",
+      "triggers": [
+        "sin sonido", "no se escucha", "sin audio", "no hay audio",
+        "no suena", "no tengo sonido", "no tengo audio", "no se oye", "no reproduce sonido", "no se escucha nada", "muteado"
+      ],
+      "response": "Audio 🔊\n1) Elegí **dispositivo de salida** correcto.\n2) Probá **auriculares**.\n3) **Controladoras de sonido**: actualizar/reinstalar.\n4) `services.msc` → **Windows Audio** → Reiniciar.\n\n¿Nada aún? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "temperatura",
+      "triggers": [
+        "se calienta", "caliente", "ventilador fuerte", "ruido ventilador", "temperatura", "ventilador suena",
+        "muy caliente", "se apaga por calor", "calor", "temperatura alta", "se recalienta"
+      ],
+      "response": "Temperatura 🌡️\n1) Superficie **rígida** y rejillas libres.\n2) Cerrá apps pesadas; actualizá **video** y **Windows**.\n3) Puede requerir **limpieza** y **pasta térmica**.\n\n¿Coordinamos? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "teclado-touchpad",
+      "triggers": [
+        "no anda el teclado", "no funciona el teclado", "touchpad no funciona", "no anda el touch", "teclado no responde", "touchpad",
+        "no anda el mouse", "raton no anda", "teclado roto", "no escribe", "no anda la tecla", "mouse no funciona", "pad no anda"
+      ],
+      "response": "Teclado/Touchpad ⌨️🖱️\n1) Conectá **teclado/mouse USB**.\n2) Reinstalá **Teclado HID** y **reiniciá**.\n3) Revisá la **tecla Fn** que bloquea el touchpad.\n\n¿Seguimos? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "bateria-carga",
+      "triggers": [
+        "no carga", "enchufado sin cargar", "batería 0%", "no carga la notebook", "no carga bateria",
+        "no carga nada", "no carga pila", "enchufo y no carga", "no prende enchufado", "no carga el cargador"
+      ],
+      "response": "Carga 🔋\n1) Otro enchufe y **LED** del cargador.\n2) Apagá, conectá cargador, mantené **10 s** el botón y prendé.\n3) Revisá **salud de batería**.\n4) Si dice *conectado y sin cargar*, puede ser cargador o circuito de carga.\n\n¿Lo vemos? 👉 {{whatsapp_link}}"
+    },
+
+    {
+      "id": "impresora",
+      "triggers": [
+        "no imprime", "en cola", "atasco", "impresora no imprime", "no sale nada",
+        "no imprime nada", "no imprime hoja", "no imprime pagina", "error impresora", "impresora atascada",
+        "impresora sin tinta", "no detecta impresora"
+      ],
+      "response": "Impresión 🖨️\n1) Imprimí **página de prueba**.\n2) **Cancelar cola** en Windows.\n3) **Reinstalar driver** del fabricante.\n4) Verificar **Wi-Fi/USB**, papel, tinta, atascos.\n\n¿Problemas aún? 👉 {{whatsapp_link}}"
+    },
+
+    {
+  "id": "marca",
+  "triggers": [
+    "hp", "h p", "h-p", "hpe", "hepi", "jepi", "agp",
+    "lenovo", "lenovoa", "lenobo", "lenow", "lenoovo", "lenobo",
+    "dell", "del", "delk", "dlell", "dele", "delp",
+    "asus", "azus", "asuz", "asusz", "asuss", "asuzt",
+    "acer", "acerp", "azer", "azzer", "ascer", "accer",
+    "toshiba", "toshiva", "toshia", "toshiva", "tosiva", "tosh",
+    "samsung", "sansumg", "samgsung", "samsumg", "samung", "sangsun",
+    "sony", "soni", "soony", "zoni", "soñi", "soney",
+    "apple", "aple", "aplle", "appple", "appl", "manzana",
+    "msi", "m s i", "emesai", "msy", "mpsi",
+    "bangho", "banho", "bangó", "banjo", "vangho",
+    "exa", "exxa", "exsa", "exza", "exa computers",
+    "positivo", "posotivo", "posiitivo", "postivo", "positibo",
+    "bgh", "b g h", "bejéache", "bjeh", "begeache",
+    "compaq", "compaq", "kompak", "kompaq", "compak", "kompa",
+    "gateway", "geteway", "getaway", "gatewey", "gatewei", "gatuwey",
+    "huawei", "huaweii", "huawey", "huauei", "guawey", "huauei", "wawey",
+    "xiaomi", "xioami", "xiomi", "chaomi", "xiaomy", "xiaommi", "xiomy",
+    "alienware", "alienwer", "alien war", "aluenwer", "alienwaer", "alienwer",
+    "vaio", "vaoi", "vao", "vayio", "baio",
+    "lg", "l g", "elgi", "eleji", "ege", "lge"
+  ],
+  "response": "Perfecto 💡 Veo que mencionás una **marca reconocida**. Trabajamos con equipos **{{marca_detectada}}** y también con otras principales del mercado.\nPodés contarme el problema (por ejemplo: *no enciende*, *pantalla negra*, *sin sonido*) y te guío paso a paso."
+},
+
+    {
+      "_note": "Intent explícito de saludo (además de sections.greetings)",
+      "id": "saludo",
+      "triggers": ["hola", "holaa", "ola", "holis", "buenas", "buen dia", "buen día", "hey", "ey", "que tal", "qué tal", "wena"],
+      "response": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. ¿Cómo te llamás? Contame en pocas palabras tu problema."
+    }
+  ],
+
+  "_note3": "=== COMPAT: si tu runtime aún usa messages/*, dejamos textos base ===",
+
+  "messages": {
+    "greeting": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. ¿Cómo te llamás? Contame tu problema en pocas palabras.",
+    "help_menu_title": "Temas frecuentes",
+    "help_menu": [
+      "No enciende",
+      "Pantalla negra / sin imagen",
+      "No inicia Windows",
+      "Sin internet / Wi-Fi",
+      "Muy lento / se traba",
+      "Sin sonido",
+      "Se calienta",
+      "Teclado/Touchpad no funciona",
+      "No carga la batería",
+      "Impresora no imprime"
+    ],
+    "fallback": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
+    "whatsapp_cta": "Si preferís, escribinos por WhatsApp: {{whatsapp_link}}"
+  },
+
+  "fallback": {
+    "response": "{fallback}"
+  }
+}
