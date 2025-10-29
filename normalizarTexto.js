@@ -35,25 +35,7 @@ export function normalizarTextoCompleto(texto = "") {
   return colapsarRepeticiones(normalizarBasico(texto));
 }
 
-/**
- * Argentinismos comunes → términos más neutros o técnicos.
- * Mejora el reconocimiento de intenciones al estandarizar expresiones locales.
- *
- * Ejemplos:
- *  - "no funca" / "no anda" → "no arranca"
- *  - "se colgo" → "se congeló"
- *  - "esta lenta" → "esta muy lenta"
- */
-export function reemplazarArgentinismosV1(texto = "") {
-  if (!texto) return texto;
 
-  return texto
-    .replace(/\bno\s*funca\b/g, 'no arranca')
-    .replace(/\bno\s*anda\b/g, 'no arranca')
-    .replace(/\bse\s*colg[oó]\b/g, 'se congelo')
-    .replace(/\besta\s*lenta\b/g, 'esta muy lenta')
-    .replace(/\banda\s*mal\b/g, 'no funciona bien');
-}
 
 // --- Reemplaza expresiones argentinas comunes por equivalentes neutros ---
 export function reemplazarArgentinismosV1(text = '') {
