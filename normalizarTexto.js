@@ -34,3 +34,62 @@ export function colapsarRepeticiones(texto = "") {
 export function normalizarTextoCompleto(texto = "") {
   return colapsarRepeticiones(normalizarBasico(texto));
 }
+
+/**
+ * Argentinismos comunes → términos más neutros o técnicos.
+ * Mejora el reconocimiento de intenciones al estandarizar expresiones locales.
+ *
+ * Ejemplos:
+ *  - "no funca" / "no anda" → "no arranca"
+ *  - "se colgo" → "se congeló"
+ *  - "esta lenta" → "esta muy lenta"
+ */
+export function reemplazarArgentinismosV1(texto = "") {
+  if (!texto) return texto;
+
+  return texto
+    .replace(/\bno\s*funca\b/g, 'no arranca')
+    .replace(/\bno\s*anda\b/g, 'no arranca')
+    .replace(/\bse\s*colg[oó]\b/g, 'se congelo')
+    .replace(/\besta\s*lenta\b/g, 'esta muy lenta')
+    .replace(/\banda\s*mal\b/g, 'no funciona bien');
+}
+
+// --- Reemplaza expresiones argentinas comunes por equivalentes neutros ---
+export function reemplazarArgentinismosV1(text = '') {
+  let t = String(text).toLowerCase();
+
+  const reemplazos = {
+    'no funca': 'no funciona',
+    'no anda': 'no funciona',
+    'anda mal': 'funciona mal',
+    'colgado': 'congelado',
+    'lento': 'funciona lento',
+    'se trabo': 'se trabó',
+    'se tildo': 'se tildó',
+    'tildado': 'congelado',
+    'bootea': 'inicia',
+    'booteo': 'inicio',
+    'reinicia solo': 'se reinicia solo',
+    'se apaga': 'se apaga solo',
+    'pantalla azul': 'bsod',
+    'pantalla negra': 'sin video',
+    'pantalla blanca': 'sin video',
+    'enchufado': 'conectado',
+    'enchufe': 'conector de corriente',
+    'enchufeado': 'conectado',
+    'enchufo': 'conecto',
+    'enchufar': 'conectar',
+    'enchufalo': 'conectalo',
+    'enchufala': 'conectala',
+    'enchufe la': 'conecte la',
+    'enchufe el': 'conecte el'
+  };
+
+  for (const [key, value] of Object.entries(reemplazos)) {
+    const rx = new RegExp(`\\b${key}\\b`, 'gi');
+    t = t.replace(rx, value);
+  }
+
+  return t.trim();
+}
