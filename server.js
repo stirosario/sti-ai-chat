@@ -215,26 +215,37 @@ app.post('/api/chat', (req, res)=>{
       return res.json({ ok: true, reply: again, stage: 'ask_name' });
     }
 
-    // Paso 2: detectar problema + dispositivo
-    if (ses.stage === 'ask_problem') {
-      const issueKey  = findIssue(norm);
-      const deviceKey = findDevice(norm);
+// Paso 2: detectar problema + dispositivo
+if (ses.stage === 'ask_problem') {
+  const issueKey  = findIssue(norm);
+  const deviceKey = findDevice(norm);
 
-      if (!issueKey && !deviceKey) {
-        ses.tries++;
-        if (ses.tries >= (CFG.settings?.fallback_escalation_after || 3)) {
-          const msg = (CFG.sections?.fallbacks?.hard || CFG.messages?.fallback || 'Te ofrezco asistencia por WhatsApp: {{whatsapp_link}}')
-            .replace(/\{\{\s*whatsapp_link\s*\}\}/g, CFG.settings?.whatsapp_link || '');
-          appendTranscript(sid, 'assistant', msg);
-          return res.json({ ok: true, reply: msg, stage: 'ask_problem' });
-        }
-        const soft = CFG.sections?.fallbacks?.medio || CFG.messages?.fallback || '¿Podés decirlo con otras palabras o elegir un tema?';
-        appendTranscript(sid, 'assistant', soft);
-        return res.json({ ok: true, reply: soft, stage: 'ask_problem' });
-      }
+  // 👉 NUEVO: si detecta dispositivo pero no problema, pedir el problema
+  if (deviceKey && !issueKey) {
+    const probe = CFG.messages_v4?.device_probe
+      || "Perfecto, {{nombre}}. Ya tengo que es <b>{{device}}</b>. Ahora decime brevemente cuál es el <b>problema</b> (ej: no enciende, sin imagen, lento, no inicia Windows, sin internet).";
+    const reply = tpl(probe, ses.name, deviceKey, null);
+    appendTranscript(sid, 'assistant', reply);
+    return res.json({ ok: true, reply, stage: 'ask_problem' });
+  }
 
-      ses.lastIssue = issueKey || ses.lastIssue;
-      ses.lastDevice = deviceKey || ses.lastDevice;
+  // Bloque original ↓
+  if (!issueKey && !deviceKey) {
+    ses.tries++;
+    if (ses.tries >= (CFG.settings?.fallback_escalation_after || 3)) {
+      const msg = (CFG.sections?.fallbacks?.hard || CFG.messages?.fallback || 'Te ofrezco asistencia por WhatsApp: {{whatsapp_link}}')
+        .replace(/\{\{\s*whatsapp_link\s*\}\}/g, CFG.settings?.whatsapp_link || '');
+      appendTranscript(sid, 'assistant', msg);
+      return res.json({ ok: true, reply: msg, stage: 'ask_problem' });
+    }
+    const soft = CFG.sections?.fallbacks?.medio || CFG.messages?.fallback || '¿Podés decirlo con otras palabras o elegir un tema?';
+    appendTranscript(sid, 'assistant', soft);
+    return res.json({ ok: true, reply: soft, stage: 'ask_problem' });
+  }
+
+  ses.lastIssue = issueKey || ses.lastIssue;
+  ses.lastDevice = deviceKey || ses.lastDevice;
+
 
       // Respuesta base por template
       const template = (issueKey && CFG?.nlp?.response_templates?.[issueKey])
