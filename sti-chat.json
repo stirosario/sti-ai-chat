@@ -818,7 +818,7 @@
   },
   "messages_v4": {
     "greeting": {
-      "name_request": "👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?\nPodés decirme: \"soy Juan\" / \"me llamo Ana\" / \"mi nombre es Gero\".\nSi preferís, escribí \"omitir\" y seguimos.",
+      "name_request": "👋 <b>¡Hola!</b> Soy <b>Tecnos</b>, tu Técnico Inteligente de STI\n🌐 <b>Servicio Técnico Inteligente</b>\n\n✍️ Decime en una o dos palabras cuál es tu <b>nombre</b>, o escribí <b>omitir</b> para continuar.",
       "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora contame en pocas palabras cuál es el problema.\nEjemplos:\n1 - no enciende\n2 - pantalla negra\n3 - muy lento\n4 - no tengo internet\n5 - no inicia Windows",
       "skip_name": "Listo, seguimos sin nombre. Contame en pocas palabras cuál es el problema."
     },
