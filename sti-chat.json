@@ -353,7 +353,7 @@
     ],
     "response_templates": {
       "default": "Un gusto hablar con vos {{nombre}} 🙌. Entiendo que tu **{{device}}** tiene: *{{issue_human}}*. Arranquemos con unos **chequeos básicos** y después me contás si **se solucionó** o **sigue igual** 😉",
-      "no_enciende": "Un gusto hablar con vos {{nombre}} 😄. Entiendo que tu **{{device}}** *no enciende*. 1) Probá **otro enchufe/toma**. 2) Revisá **cable/cargador**. 3) Si es notebook, mantené **Power 15 s** con cargador. 4) Si es PC, fijate el interruptor de la **fuente** en “|”. 5) Encendé y decime si hay **luces o sonidos**.\\n\\nCuando termines, decime si **se solucionó** o **sigue igual** 😉",
+      "no_enciende": "Un gusto hablar con vos {{nombre}} 😄. Entiendo que tu **{{device}}** *no enciende*. 1) Probá **otro enchufe/toma**. 2) Revisá **cable/cargador**. 3) Si es notebook, mantené **Power 15 s** con cargador. 4) Si es PC, fijate el interruptor de la **fuente** en “I”. 5) Encendé y decime si hay **luces o sonidos**.\\n\\nCuando termines, decime si **se solucionó** o **sigue igual** 😉",
       "sin_imagen": "Genial, {{nombre}}. Tu **{{device}}** *no da imagen*. 1) **Monitor** encendido y **entrada correcta** (HDMI/DP). 2) Probá **otro cable/puerto**. 3) Quitá periféricos y **reiniciá**. 4) Notebook: conectá **pantalla externa** y **Fn + tecla pantalla**.\\n\\nDespués contame: **se solucionó** o **sigue igual**.",
       "sin_internet": "Dale, {{nombre}} 🙌. **No tenés internet**. 1) ¿Otros equipos **tienen**? 2) Apagá/encendé **módem/router 30 s**. 3) En tu equipo: *Olvidar red* y reconectar. 4) Probá **hotspot** del celu.\\n\\nDecime: **se solucionó** o **sigue igual**.",
       "internet_inestable": "{{nombre}}, la conexión **se corta** 💫. 1) Reinicio de **router**. 2) Usar **5 GHz** si podés. 3) Alejate de interferencias. 4) Probá en otra habitación.\\n\\n¿Mejoró o sigue igual?",
@@ -700,7 +700,7 @@
       ]
     },
     "followup_texts": {
-      "ask_result": "Cuando termines, contame si **se solucionó** o **sigue igual**. Estoy acá, tranqui 😉",
+      "ask_result": "",
       "advanced_intro": "De una, {{nombre}} 🙏. Sigamos con unos **chequeos más avanzados**:",
       "solved": "¡Qué alegría haberte ayudado, {{nombre}}! 😄 Cuando necesites, contá con STI. Si querés, seguinos en Instagram 👉 https://instagram.com/sti.rosario ¡Gracias!",
       "escalate": "Tranquilo {{nombre}} 😌. Como no se resolvió con básicos/avanzados, parece un **caso Nivel 2/3**. Te dejo un botón para enviar **toda esta conversación** por WhatsApp a un técnico, así no repetís nada y aceleramos la solución."
