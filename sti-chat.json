@@ -84,6 +84,337 @@
       "soft": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
       "medio": "Mmm, no te llegué a entender bien 😅. ¿Podés decirlo con otras palabras o elegir uno de los temas más comunes?",
       "hard": "No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}"
+    },
+    "name_request": {
+      "text": "👋 ¡Hola! Soy <b>Tecnos 🤖</b>, tu <b>Técnico Inteligente de STI 🧠</b><br><br>💡 Herramienta gratuita creada por 🌐 <b>STI • Servicio Técnico Inteligente</b><br><br>✅ <b>Comencemos:</b> ✍️ Decime tu nombre o escribí <i>omitir</i> para continuar."
+    },
+    "device_request": {
+      "text": "Perfecto, <b>{{nombre}}</b> 🙌<br>Decime qué dispositivo es. Podés escribirlo o elegir uno:",
+      "suggestions": [
+        "PC de escritorio",
+        "Notebook",
+        "Router/Módem",
+        "Repetidor Wi‑Fi",
+        "Android",
+        "iPhone",
+        "Impresora",
+        "Smart TV",
+        "Consola",
+        "Disco/USB",
+        "Monitor",
+        "Teclado/Mouse",
+        "Webcam",
+        "UPS/Estabilizador"
+      ]
+    },
+    "device_triggers": {
+      "pc": [
+        "pc",
+        "cpu",
+        "escritorio",
+        "gabinete",
+        "torre",
+        "compu"
+      ],
+      "notebook": [
+        "notebook",
+        "laptop",
+        "netbook",
+        "note",
+        "portátil",
+        "nobu"
+      ],
+      "router": [
+        "router",
+        "módem",
+        "modem",
+        "wifi",
+        "wi-fi",
+        "internet",
+        "fibra"
+      ],
+      "repetidor": [
+        "repetidor",
+        "extensor",
+        "mesh",
+        "ap",
+        "access point"
+      ],
+      "android": [
+        "android",
+        "celu",
+        "celular",
+        "samsung",
+        "xiaomi",
+        "moto",
+        "poco"
+      ],
+      "iphone": [
+        "iphone",
+        "ios",
+        "ipad",
+        "apple"
+      ],
+      "impresora": [
+        "impresora",
+        "printer",
+        "hp",
+        "epson",
+        "brother",
+        "canon"
+      ],
+      "smarttv": [
+        "smart tv",
+        "tele",
+        "tv",
+        "netflix",
+        "youtube"
+      ],
+      "consola": [
+        "play",
+        "ps4",
+        "ps5",
+        "xbox",
+        "switch",
+        "consola",
+        "joystick"
+      ],
+      "disco": [
+        "disco",
+        "externo",
+        "usb",
+        "pendrive",
+        "memoria",
+        "ssd",
+        "hdd"
+      ],
+      "monitor": [
+        "monitor",
+        "pantalla"
+      ],
+      "perifericos": [
+        "teclado",
+        "mouse",
+        "ratón",
+        "touchpad"
+      ],
+      "webcam": [
+        "webcam",
+        "cámara",
+        "camara"
+      ],
+      "ups": [
+        "ups",
+        "estabilizador",
+        "regleta",
+        "zapatilla"
+      ]
+    },
+    "device_flows": {
+      "pc": {
+        "title": "PC de escritorio",
+        "basicas": [
+          "🔌 Verificá cable de energía en la fuente y toma; probá otro enchufe.",
+          "⏺️ Apagá la llave trasera de la fuente 10s y volvé a encender.",
+          "🖥️ Revisá que el monitor esté en <b>HDMI/DP</b> correcto y con brillo.",
+          "🧹 Quitá polvo visible de ventilaciones (sin abrir si está en garantía).",
+          "🔄 Probá encender solo con teclado/monitor (desconectá USB externos)."
+        ],
+        "avanzadas": [
+          "🧲 Reseteá BIOS: quitá energía, mantené power 15s, reconectá.",
+          "🧼 Reasentá RAM: retirala y volvela a colocar (si sabés hacerlo).",
+          "💾 Probá booteo con pendrive Windows/Rescate para descartar disco.",
+          "🔍 Observá códigos/beeps de la placa madre (anótalos si suenan)."
+        ]
+      },
+      "notebook": {
+        "title": "Notebook",
+        "basicas": [
+          "🔋 Mantené presionado power 15s (con cargador desconectado).",
+          "🔌 Probá otro cargador compatible o toma diferente.",
+          "🖥️ Conectá a un monitor por HDMI para descartar pantalla.",
+          "⌨️ Probá <b>Fn + brillo</b> y verificá que no esté en modo avión.",
+          "💡 Mirá si enciende un led al conectar el cargador."
+        ],
+        "avanzadas": [
+          "🔧 Desconectá batería (si es extraíble) y probá solo a cargador.",
+          "🧲 Reset pinhole (si tiene): botón pequeño cerca del cargador.",
+          "💾 Boot menú (F12/ESC) para testear disco y memoria.",
+          "🛠️ Reasentar RAM/SSD (solo si tenés experiencia)."
+        ]
+      },
+      "router": {
+        "title": "Router / Módem",
+        "basicas": [
+          "🔌 Desconectá <b>módem y router</b> 30s; conectá primero módem 2min y luego router.",
+          "🔎 Verificá que el cable WAN/Internet esté firme y con clic.",
+          "📶 Probá Wi‑Fi 2.4 GHz y 5 GHz; testeá cerca del equipo.",
+          "📱 Probá con datos móviles apagados (solo Wi‑Fi) y en otro dispositivo.",
+          "💡 Anotá estado de luces (Power/DSL/Internet/Wi‑Fi)."
+        ],
+        "avanzadas": [
+          "🧰 Entrá a 192.168.x.x y reiniciá desde el panel (no reset de fábrica).",
+          "🔁 Cambiá canal Wi‑Fi (1/6/11 en 2.4 GHz, automático en 5 GHz).",
+          "🔐 Desactivá WPS y probá una contraseña simple temporal.",
+          "🧩 Conectá por cable directo a PC para descartar Wi‑Fi."
+        ]
+      },
+      "repetidor": {
+        "title": "Repetidor Wi‑Fi",
+        "basicas": [
+          "🔄 Reiniciá el repetidor (desenchufá 20s y volvé a enchufar).",
+          "📶 Colocalo a mitad de camino entre router y zona débil.",
+          "🛜 Confirmá que repite la red correcta (SSID) y con buena señal.",
+          "🔌 Probá otro tomacorriente."
+        ],
+        "avanzadas": [
+          "⚙️ Reconfiguralo desde cero (WPS desactivado, modo réplica).",
+          "🛰️ Si soporta <b>mesh</b>, emparejalo con el router principal.",
+          "🧭 Fijá canal igual al del router o automático."
+        ]
+      },
+      "android": {
+        "title": "Android",
+        "basicas": [
+          "🔁 Reinicio normal.",
+          "🧼 Limpiá caché de la app con problemas (Ajustes → Apps).",
+          "🗂️ Espacio libre: dejá al menos 2–3 GB.",
+          "📡 Wi‑Fi/Datos: activá y desactivá modo avión 15s.",
+          "🔒 Verificá actualizaciones del sistema."
+        ],
+        "avanzadas": [
+          "🧰 Modo seguro (arranca sin apps de terceros) para probar.",
+          "🔄 Restablecer ajustes de red (no borra fotos).",
+          "🧩 ADB/Modo desarrollador para logs si fuera necesario.",
+          "☁️ Backup y restablecimiento si persiste."
+        ]
+      },
+      "iphone": {
+        "title": "iPhone",
+        "basicas": [
+          "🔁 Forzar reinicio (según modelo).",
+          "📡 Restablecer ajustes de red.",
+          "🗂️ Liberá espacio (Ajustes → General → Almacenamiento).",
+          "🔄 Actualizá iOS si hay disponible."
+        ],
+        "avanzadas": [
+          "🧰 Modo recuperación/DFU con iTunes/Finder.",
+          "☁️ Backup en iCloud y restauración limpia.",
+          "🔍 Diagnóstico con Analíticas (Ajustes → Privacidad → Analíticas)."
+        ]
+      },
+      "impresora": {
+        "title": "Impresora",
+        "basicas": [
+          "🧻 Verificá papel, bandeja y tapa cerrada.",
+          "🖨️ Probá página de prueba desde el panel.",
+          "🔌 USB: cambiá de puerto. Wi‑Fi: reconectá a la red.",
+          "🖥️ Reinstalá el controlador desde la web del fabricante."
+        ],
+        "avanzadas": [
+          "🧼 Limpieza de cabezales/alineación (inyección).",
+          "🛜 IP fija o reserva DHCP para Wi‑Fi.",
+          "🧩 Compartir impresora por red de Windows (si aplica)."
+        ]
+      },
+      "smarttv": {
+        "title": "Smart TV",
+        "basicas": [
+          "🔁 Desenchufá 30s y volvé a enchufar.",
+          "📡 Probá otra app (YouTube/Netflix) y otra red (hotspot).",
+          "🧹 Limpiá caché de apps o reinstalalas.",
+          "🕹️ Revisá entrada HDMI correcta."
+        ],
+        "avanzadas": [
+          "🌐 DNS manual (1.1.1.1 o 8.8.8.8).",
+          "🧰 Reset de red del TV.",
+          "🔄 Actualización de firmware."
+        ]
+      },
+      "consola": {
+        "title": "Consola (PS/Xbox/Switch)",
+        "basicas": [
+          "🔌 Power cycle (desenchufar 30s).",
+          "🕹️ Verificá HDMI y otra entrada/otro cable.",
+          "🌐 Probá conexión por cable.",
+          "🧼 Limpiá caché del sistema (según consola)."
+        ],
+        "avanzadas": [
+          "🔄 Reconstrucción de base de datos (PS).",
+          "🧰 NAT/UPnP en router.",
+          "📶 Asignar IP fija a la consola."
+        ]
+      },
+      "disco": {
+        "title": "Disco externo / USB",
+        "basicas": [
+          "🔌 Probá otro puerto/cable.",
+          "🖥️ Probalo en otra PC.",
+          "🗂️ Verificá en <b>Administración de discos</b> si aparece.",
+          "💡 Escuchá ruidos extraños (anotalos)."
+        ],
+        "avanzadas": [
+          "🧩 Comprobación SMART (CrystalDiskInfo).",
+          "🔐 Desactivá suspensión selectiva USB (Windows).",
+          "💾 Recuperación con software (solo lectura)."
+        ]
+      },
+      "monitor": {
+        "title": "Monitor",
+        "basicas": [
+          "🔌 Probá otro cable/entrada (HDMI/DP/VGA).",
+          "💡 Subí brillo/contraste; modo correcto de entrada.",
+          "🖥️ Probalo en otra PC.",
+          "🔄 Restablecé ajustes de fábrica."
+        ],
+        "avanzadas": [
+          "🧲 Chequear adaptador de video/convertidores.",
+          "🧰 Test de píxeles (patrones).",
+          "⚙️ Actualizar firmware si el fabricante ofrece."
+        ]
+      },
+      "perifericos": {
+        "title": "Teclado / Mouse",
+        "basicas": [
+          "🔌 Probá otro puerto/PC.",
+          "🔋 Cambiá pilas (si es inalámbrico).",
+          "🧲 Reconectá receptor USB; quitalo 10s y volvé a poner.",
+          "🧼 Limpiá sensores y teclas atascadas."
+        ],
+        "avanzadas": [
+          "🧰 Reinstalá drivers / software del fabricante.",
+          "🔄 Desactivá ahorro de energía en USB.",
+          "📶 Cambiá canal inalámbrico (si permite)."
+        ]
+      },
+      "webcam": {
+        "title": "Webcam",
+        "basicas": [
+          "🔌 Otro puerto USB.",
+          "📹 Probala en otra app (Cámara/Meet).",
+          "🔒 Revisá permisos de cámara en el sistema.",
+          "🧼 Tapita/protección abierta."
+        ],
+        "avanzadas": [
+          "🧰 Driver del fabricante.",
+          "🔄 Desactivar ‘Privacidad de cámara’ por hardware (si tiene).",
+          "🧪 Probar en otra PC para descartar falla."
+        ]
+      },
+      "ups": {
+        "title": "UPS / Estabilizador",
+        "basicas": [
+          "🔌 Probá directo a pared (descartar UPS).",
+          "🔋 Chequeá baterías/leds de estado.",
+          "⚡ No conectes calefactores/altos consumos.",
+          "🔄 Apagá/encendé y esperá 1 min."
+        ],
+        "avanzadas": [
+          "🔧 Test de autonomía (solo si es seguro).",
+          "🔁 Calibración si el modelo lo permite.",
+          "🔍 Revisión de fusibles/buzzer (técnico)."
+        ]
+      }
     }
   },
   "nlp": {
@@ -819,10 +1150,10 @@
   "messages_v4": {
     "greeting": {
       "name_request": "👋 ¡Hola! Soy <b>Tecnos 🤖</b>, tu <b>Técnico Inteligente de STI 🧠</b><br><br>💡 Herramienta gratuita creada por 🌐 <b>STI • Servicio Técnico Inteligente</b><br><br>✅ <b>Comencemos:</b> ✍️ Decime tu nombre o escribí <i>omitir</i> para continuar.",
-      "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora contame en pocas palabras con qué <b>dispositivo</b> tenés problemas.<br><br>Ejemplos:<br>1 - pc<br>2 - notebook<br>3 - router<br>4 - monitor<br>5 - teclado<br><br>Si no podés identificar el dispositivo o no sabés su nombre, describí en pocas palabras el <b>problema</b> que estás teniendo.",
+      "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora decime con qué <b>dispositivo</b> tenés problemas o elegí uno de la lista:<br><br>• pc • notebook • router • impresora • android/iphone • smart tv • consola • monitor • disco/usb<br><br>Si preferís, describí en pocas palabras el <b>problema</b>.",
       "skip_name": "Listo, seguimos sin nombre. Contame en pocas palabras cuál es el problema."
     },
-    "device_probe": "Perfecto, {{nombre}}. Ya tengo que es <b>{{device}}</b>. Ahora contame brevemente cuál es el <b>problema</b> (ej: no enciende, sin imagen, lento, no inicia Windows, sin internet).",
+    "device_probe": "Perfecto, {{nombre}}. Ya tengo que es <b>{{device}}</b>. Ahora contame brevemente cuál es el <b>problema</b> (ej: no enciende, sin imagen, sin internet, no carga).",
     "after_steps": "Si el problema continúa, elegí una opción:",
     "default_options": [
       "Realizar pruebas avanzadas",
