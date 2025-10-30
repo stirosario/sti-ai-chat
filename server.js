@@ -154,7 +154,7 @@ a:hover{text-decoration:underline}
   res.send(html);
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`[STI Chat V4.6] Up on :${PORT} — data=${DATA_BASE}`);
 });

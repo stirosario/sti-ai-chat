@@ -2,33 +2,34 @@
   "bot": "STI • Servicio Técnico Inteligente",
   "locale": "es-AR",
   "version": "4.6.0",
+"settings": {
+  "enable_transcripts": true,
 
-  "settings": {
-    "enable_transcripts": true,
-    "transcriptsDir": "./data/transcripts",
-    "ticketsDir": "./data/tickets",
-    "publicBaseUrl": "https://sti-rosario-ai.onrender.com",
+  "transcriptsDir": "/data/transcripts",
+  "ticketsDir": "/data/tickets",
+  "publicBaseUrl": "https://sti-rosario-ai.onrender.com",
 
-    "fallback_escalation_after": 3,
+  "fallback_escalation_after": 3,
 
-    "whatsapp_number": "5493417422422",
-    "whatsapp_ticket": {
-      "max_chars": 1600,
-      "include_timestamp": true,
-      "prefix": "Hola STI 👋. Vengo del chat web. Dejo mi consulta:"
-    },
-
-    "problem_keywords": [
-      "no enciende","no prende","no arranca","no inicia","no entra a windows",
-      "pantalla","sin imagen","pantalla negra","no da imagen",
-      "sin internet","no conecta","sin wifi","no hay señal",
-      "lento","trabado","tildado","se tilda","congelado",
-      "se reinicia","se apaga solo","no carga","bateria","batería",
-      "caliente","temperatura","ruido","ventilador","cooler",
-      "no detecta","no reconoce","usb","pendrive","disco","hdd","ssd",
-      "error","falla","no funca","no funciona"
-    ]
+  "whatsapp_number": "5493417422422",
+  "whatsapp_ticket": {
+    "max_chars": 1600,
+    "include_timestamp": true,
+    "prefix": "Hola STI 👋. Vengo del chat web. Dejo mi consulta:"
   },
+
+  "problem_keywords": [
+    "no enciende","no prende","no arranca","no inicia","no entra a windows",
+    "pantalla","sin imagen","pantalla negra","no da imagen",
+    "sin internet","no conecta","sin wifi","no hay señal",
+    "lento","trabado","tildado","se tilda","congelado",
+    "se reinicia","se apaga solo","no carga","bateria","batería",
+    "caliente","temperatura","ruido","ventilador","cooler",
+    "no detecta","no reconoce","usb","pendrive","disco","hdd","ssd",
+    "error","falla","no funca","no funciona"
+  ]
+},
+
 
   "messages_v4": {
     "greeting": {
