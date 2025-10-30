@@ -1,8 +1,6 @@
-
-// server.js — STI Chat V4.1
-// Flujo "nombre primero", validación de nombres/apodos, listas numeradas,
-// y uso de sti-chat.json (secciones, nlp, templates, advanced).
-// Resiliente: corre con Node 18+ y sin OpenAI.
+// server.js — STI Chat V4.3
+// Flujo "nombre primero", NLP con regex, transcripts persistentes,
+// y WhatsApp Ticket que adjunta el historial en el mensaje prellenado.
 
 import 'dotenv/config';
 import express from 'express';
@@ -10,7 +8,6 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { esNombreValido, extraerNombre, contieneProblema } from './nombres-validos.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -19,8 +16,7 @@ const CONFIG_PATH = path.resolve(__dirname, 'sti-chat.json');
 function loadConfig() {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    const cfg = JSON.parse(raw);
-    return cfg;
+    return JSON.parse(raw);
   } catch (e) {
     console.error('ERROR leyendo sti-chat.json:', e.message);
     return {};
@@ -29,14 +25,40 @@ function loadConfig() {
 
 let CFG = loadConfig();
 
-// === Asegurar transcripts
+// === Utils ===
+function nowISO(){ return new Date().toISOString(); }
+function capFirst(s=''){ return s.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()); }
+function normalize(s=''){
+  return String(s)
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// === Nombre & problema helpers (inline) ===
+const NOMBRE_RX = /\b(?:soy|me llamo|mi nombre es)\s+([a-záéíóúüñ]{2,20})\b/i;
+function extraerNombre(text=''){
+  const m = NOMBRE_RX.exec(text);
+  if (m) return m[1];
+  const solo = String(text).trim();
+  if (/^[a-záéíóúüñ]{2,20}$/i.test(solo)) return solo;
+  return null;
+}
+function esNombreValido(name=''){ return /^[a-záéíóúüñ]{2,20}$/i.test(name); }
+function contieneProblema(norm, keywords=[]){
+  if (!Array.isArray(keywords)) return false;
+  return keywords.some(k => norm.includes(String(k).toLowerCase()));
+}
+
+// === Asegurar transcripts persistentes ===
 const transcriptsDir = path.resolve(__dirname, (CFG.settings?.transcriptsDir || './data/transcripts'));
 fs.mkdirSync(transcriptsDir, { recursive: true });
 
-// === App
+// === App ===
 const app = express();
 const ALLOWED_ORIGINS = [
-  'https://stia.com.ar', 'http://stia.com.ar',
+  'https://stia.com.ar','http://stia.com.ar',
   'http://localhost:5173','http://localhost:5500',
   'https://sti-rosario-ai.onrender.com'
 ];
@@ -49,32 +71,18 @@ app.use(express.json());
 // Memoria de sesión simple (puede migrar a Redis)
 const SESSIONS = new Map();
 
-function nowISO(){ return new Date().toISOString(); }
-function capFirst(s=''){ return s.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()); }
-
 function renderNumbered(list) {
   if (!Array.isArray(list)) return '';
-  return list.map((t, i) => `${i+1} - ${t}`).join('\\n');
+  return list.map((t, i) => `${i+1} - ${t}`).join('\n');
 }
-
-// Guardar transcript
 function appendTranscript(sessionId, role, text) {
   if (CFG.settings?.enable_transcripts === false) return;
   const file = path.resolve(transcriptsDir, `${sessionId}.txt`);
-  const line = `[${nowISO()}] ${role.toUpperCase()}: ${text}\\n`;
+  const line = `[${nowISO()}] ${role.toUpperCase()}: ${text}\n`;
   fs.appendFile(file, line, ()=>{});
 }
 
-// Util: normalizar
-function normalize(s=''){
-  return s
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// === NLP helpers (usan regex del JSON)
+// === NLP helpers (desde JSON) ===
 function matchByRegexArray(text, arr) {
   if (!Array.isArray(arr)) return null;
   for (const it of arr) {
@@ -85,58 +93,79 @@ function matchByRegexArray(text, arr) {
   }
   return null;
 }
-
-function findDevice(text){
-  return matchByRegexArray(text, CFG?.nlp?.devices || []);
-}
-
-function findIssue(text){
-  return matchByRegexArray(text, CFG?.nlp?.issues || []);
-}
-
+function findDevice(text){ return matchByRegexArray(text, CFG?.nlp?.devices || []); }
+function findIssue(text){ return matchByRegexArray(text, CFG?.nlp?.issues || []); }
 function issueLabel(key){
   const labels = CFG?.nlp?.issue_labels || {};
   return labels[key] || key || 'problema';
 }
-
 function deviceLabel(key){
   const item = (CFG?.nlp?.devices || []).find(d => d.key === key);
   if (!item) return 'equipo';
-  // devolver una etiqueta simple por key
-  const map = {
-    pc: 'PC',
-    notebook: 'notebook',
-    monitor: 'monitor',
-    internet: 'conexión',
-    impresora: 'impresora',
-    teclado: 'teclado',
-    mouse: 'mouse',
-    audio: 'audio',
-    camara: 'cámara',
-    disco: 'disco/SSD',
-    video: 'placa de video',
-    puertos: 'puertos',
-    bateria: 'batería'
-  };
+  const map = { pc:'PC', notebook:'notebook', monitor:'monitor', internet:'conexión', impresora:'impresora',
+    teclado:'teclado', mouse:'mouse', audio:'audio', camara:'cámara', disco:'disco/SSD', video:'placa de video',
+    puertos:'puertos', bateria:'batería' };
   return map[item.key] || item.key;
 }
-
-// Personalización de placeholders {{nombre}}, {{device}}, {{issue_human}} y eliminación de asteriscos
 function tpl(str, name, deviceKey, issueKey){
   if (!str) return '';
   const nombre = name ? capFirst(name) : '';
   const device = deviceLabel(deviceKey);
   const issueHuman = issueLabel(issueKey);
   let out = String(str);
-  out = out.replace(/\{\{\s*nombre\s*\}\}/gi, nombre);
-  out = out.replace(/\{\{\s*device\s*\}\}/gi, device);
-  out = out.replace(/\{\{\s*issue_human\s*\}\}/gi, issueHuman);
-  // sin asteriscos
+  out = out.replace(/\{\{\s*nombre\s*\}\}/gi, nombre)
+           .replace(/\{\{\s*device\s*\}\}/gi, device)
+           .replace(/\{\{\s*issue_human\s*\}\}/gi, issueHuman);
+  if (CFG.sections?.anydesk){
+    out = out.replace(/\{\{\s*ANYDESK_INSTALAR\s*\}\}/g, '- ' + CFG.sections.anydesk.instalar.join('\\n- '));
+    out = out.replace(/\{\{\s*ANYDESK_DESINSTALAR\s*\}\}/g, '- ' + CFG.sections.anydesk.desinstalar.join('\\n- '));
+    out = out.replace(/\{\{\s*ANYDESK_CAMBIAR\s*\}\}/g, '- ' + CFG.sections.anydesk.cambiar_id.join('\\n- '));
+  }
   out = out.replace(/\*/g, '');
   return out;
 }
 
-// Health
+// ===== WhatsApp Ticket =====
+function readTranscript(sessionId){
+  try {
+    const file = path.resolve(transcriptsDir, `${sessionId}.txt`);
+    if (!fs.existsSync(file)) return '';
+    return fs.readFileSync(file, 'utf8');
+  } catch { return ''; }
+}
+function buildWhatsAppTicket(sessionId, name=null, lastDevice=null, lastIssue=null){
+  const num   = (CFG.settings?.whatsapp_number || '').trim();
+  const prefs = CFG.settings?.whatsapp_ticket || {};
+  const prefix = prefs.prefix || 'Hola STI 👋. Vengo del chat web. Dejo mi consulta:';
+
+  const headerLines = [];
+  headerLines.push(prefix);
+  if (name) headerLines.push(`• Cliente: ${capFirst(name)}`);
+  if (lastDevice) headerLines.push(`• Equipo: ${deviceLabel(lastDevice)}`);
+  if (lastIssue) headerLines.push(`• Problema: ${issueLabel(lastIssue)}`);
+
+  let transcript = readTranscript(sessionId) || '';
+  if (prefs.include_timestamp === false){
+    transcript = transcript.replace(/\[\d{4}-\d{2}-\d{2}T.*?\]\s*/g, '');
+  }
+
+  const header = headerLines.join('\n');
+  let body = `${header}\n\n${transcript}`;
+
+  // Limitar longitud (JS correcto)
+  const maxChars = Math.max(800, Math.min(Number(prefs.max_chars || 1600), 3000));
+  if (body.length > maxChars) {
+    body = body.slice(-maxChars);       // ← esta es la línea clave
+    body = '…\n' + body;
+  }
+
+  const encoded = encodeURIComponent(body);
+  const link = `https://wa.me/${num}?text=${encoded}`;
+  return { link, body };
+}
+
+
+// ===== Rutas =====
 app.get('/api/health', (req, res)=>{
   res.json({
     ok: true,
@@ -147,45 +176,57 @@ app.get('/api/health', (req, res)=>{
   });
 });
 
-// Reload
 app.post('/api/reload', (req, res)=>{
   CFG = loadConfig();
   res.json({ ok: true, version: CFG.version, issues: CFG?.nlp?.issues?.length || 0 });
 });
 
-// Greeting (lee del sti-chat.json)
 app.get('/api/greeting', (req, res) => {
   const msg = (CFG.messages_v4?.greeting?.name_request)
     || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
   res.json({ ok: true, greeting: msg });
 });
 
-// Core chat
+app.get('/api/whatsapp-ticket', (req, res) => {
+  const sessionId = String(req.query.sessionId || 'default');
+  const ses = SESSIONS.get(sessionId);
+  const name = ses?.name || null;
+  const { lastDevice, lastIssue } = (ses || {});
+  const { link, body } = buildWhatsAppTicket(sessionId, name, lastDevice, lastIssue);
+  appendTranscript(sessionId, 'assistant', 'Se generó link de WhatsApp con ticket');
+  res.json({ ok: true, link });
+});
+
+app.get('/api/transcript/:sid', (req, res) => {
+  const sessionId = String(req.params.sid);
+  const txt = readTranscript(sessionId);
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.send(txt || '');
+});
+
+// ----- Core chat -----
 app.post('/api/chat', (req, res)=>{
   try {
     const { text, sessionId } = req.body || {};
     if (!text) return res.json({ ok:false, reply: 'No pude procesar tu consulta.' });
     const raw = String(text);
     const norm = normalize(raw);
-
     const sid = String(sessionId || 'default');
+
     if (!SESSIONS.has(sid)) {
       SESSIONS.set(sid, { stage: 'ask_name', name: null, tries: 0, lastIssue: null, lastDevice: null });
     }
     const ses = SESSIONS.get(sid);
     appendTranscript(sid, 'user', raw);
 
-    // Paso 1: pedir nombre primero
+    // 1) Nombre primero
     if (ses.stage === 'ask_name') {
-      // Si detecta problema antes del nombre → pedir nombre igual
       if (contieneProblema(norm, CFG?.settings?.problem_keywords)) {
         const ask = CFG.messages_v4?.greeting?.name_request
-          || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? (Ej: soy Juan / me llamo Ana / mi nombre es Gero)';
+          || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? (Ej: soy Juan / me llamo Ana).';
         appendTranscript(sid, 'assistant', ask);
         return res.json({ ok: true, reply: ask, stage: 'ask_name' });
       }
-
-      // Omitir
       if (/^\s*omitir\s*$/i.test(norm)) {
         ses.name = null;
         ses.stage = 'ask_problem';
@@ -194,8 +235,6 @@ app.post('/api/chat', (req, res)=>{
         appendTranscript(sid, 'assistant', msg);
         return res.json({ ok: true, reply: msg, stage: ses.stage });
       }
-
-      // Intento de extraer nombre
       const nameCandidate = extraerNombre(raw);
       if (nameCandidate && esNombreValido(nameCandidate)) {
         ses.name = nameCandidate;
@@ -206,71 +245,64 @@ app.post('/api/chat', (req, res)=>{
         appendTranscript(sid, 'assistant', msgP);
         return res.json({ ok: true, reply: msgP, stage: ses.stage });
       }
-
-      // Reintento
       ses.tries++;
       const again = CFG.messages_v4?.greeting?.name_request
-        || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? (Ej: soy Juan / me llamo Ana / mi nombre es Gero). También podés escribir "omitir".';
+        || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? También podés escribir "omitir".';
       appendTranscript(sid, 'assistant', again);
       return res.json({ ok: true, reply: again, stage: 'ask_name' });
     }
 
-// Paso 2: detectar problema + dispositivo
-if (ses.stage === 'ask_problem') {
-  const issueKey  = findIssue(norm);
-  const deviceKey = findDevice(norm);
+    // 2) Detectar problema + dispositivo
+    if (ses.stage === 'ask_problem') {
+      const issueKey  = findIssue(norm);
+      const deviceKey = findDevice(norm);
 
-  // 👉 NUEVO: si detecta dispositivo pero no problema, pedir el problema
-  if (deviceKey && !issueKey) {
-    const probe = CFG.messages_v4?.device_probe
-      || "Perfecto, {{nombre}}. Ya tengo que es <b>{{device}}</b>. Ahora decime brevemente cuál es el <b>problema</b> (ej: no enciende, sin imagen, lento, no inicia Windows, sin internet).";
-    const reply = tpl(probe, ses.name, deviceKey, null);
-    appendTranscript(sid, 'assistant', reply);
-    return res.json({ ok: true, reply, stage: 'ask_problem' });
-  }
+      if (deviceKey && !issueKey) {
+        const probe = CFG.messages_v4?.device_probe
+          || "Perfecto, {{nombre}}. Ya tengo que es {{device}}. Ahora decime brevemente cuál es el problema.";
+        const reply = tpl(probe, ses.name, deviceKey, null);
+        appendTranscript(sid, 'assistant', reply);
+        return res.json({ ok: true, reply, stage: 'ask_problem' });
+      }
 
-  // Bloque original ↓
-  if (!issueKey && !deviceKey) {
-    ses.tries++;
-    if (ses.tries >= (CFG.settings?.fallback_escalation_after || 3)) {
-      const msg = (CFG.sections?.fallbacks?.hard || CFG.messages?.fallback || 'Te ofrezco asistencia por WhatsApp: {{whatsapp_link}}')
-        .replace(/\{\{\s*whatsapp_link\s*\}\}/g, CFG.settings?.whatsapp_link || '');
-      appendTranscript(sid, 'assistant', msg);
-      return res.json({ ok: true, reply: msg, stage: 'ask_problem' });
-    }
-    const soft = CFG.sections?.fallbacks?.medio || CFG.messages?.fallback || '¿Podés decirlo con otras palabras o elegir un tema?';
-    appendTranscript(sid, 'assistant', soft);
-    return res.json({ ok: true, reply: soft, stage: 'ask_problem' });
-  }
+      if (!issueKey && !deviceKey) {
+        ses.tries++;
+        if (ses.tries >= (CFG.settings?.fallback_escalation_after || 3)) {
+          const msg = (CFG.sections?.fallbacks?.hard || 'Te ofrezco asistencia por WhatsApp: {{whatsapp_link}}')
+            .replace(/\{\{\s*whatsapp_link\s*\}\}/g, CFG.settings?.whatsapp_link || '');
+          appendTranscript(sid, 'assistant', msg);
+          return res.json({ ok: true, reply: msg, stage: 'ask_problem' });
+        }
+        const soft = CFG.sections?.fallbacks?.medio || '¿Podés decirlo con otras palabras o elegir un tema?';
+        appendTranscript(sid, 'assistant', soft);
+        return res.json({ ok: true, reply: soft, stage: 'ask_problem' });
+      }
 
-  ses.lastIssue = issueKey || ses.lastIssue;
-  ses.lastDevice = deviceKey || ses.lastDevice;
+      ses.lastIssue = issueKey || ses.lastIssue;
+      ses.lastDevice = deviceKey || ses.lastDevice;
 
-
-      // Respuesta base por template
+      // Template base
       const template = (issueKey && CFG?.nlp?.response_templates?.[issueKey])
         ? CFG.nlp.response_templates[issueKey]
         : (CFG?.nlp?.response_templates?.default || 'Entiendo, {{nombre}}. Vamos a revisar tu {{device}} con {{issue_human}}.');
 
       let reply = tpl(template, ses.name, ses.lastDevice, ses.lastIssue);
 
-      // Agregar opciones numeradas (1=avanzadas, 2=WhatsApp)
       const opts = CFG.messages_v4?.default_options || [
-        'Realizar pruebas avanzadas',
-        'Hablar con un técnico por WhatsApp'
+        'Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'
       ];
       const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-      reply = `${reply}\\n\\n${after}\\n${renderNumbered(opts)}`;
+      reply = `${reply}\n\n${after}\n${renderNumbered(opts)}`;
 
       ses.stage = 'in_flow';
       appendTranscript(sid, 'assistant', reply);
       return res.json({ ok: true, reply, stage: ses.stage });
     }
 
-    // Paso 3: dentro del flujo, esperar 1/2
+    // 3) Dentro del flujo
     if (ses.stage === 'in_flow') {
       const choice = normalize(raw);
-      const map = CFG.messages_v4?.default_options_map || { '1': 'advanced', '2': 'whatsapp' };
+      const map = CFG.messages_v4?.default_options_map || { '1': 'advanced', '2': 'whatsapp_ticket' };
 
       if (map[choice]) {
         if (map[choice] === 'advanced') {
@@ -278,25 +310,22 @@ if (ses.stage === 'ask_problem') {
           const intro = (CFG?.nlp?.followup_texts?.advanced_intro || 'Sigamos con unos chequeos más avanzados, {{nombre}}:');
           const introP = tpl(intro, ses.name, ses.lastDevice, ses.lastIssue);
           const body = renderNumbered(steps);
-          const out = `${introP}\\n\\n${body}`;
+          const out = `${introP}\n\n${body}`;
           appendTranscript(sid, 'assistant', out);
           return res.json({ ok: true, reply: out, stage: 'in_flow' });
         }
-        if (map[choice] === 'whatsapp') {
-          const w = CFG.settings?.whatsapp_link || '';
-          const msg = `Te paso nuestro WhatsApp${ses.name ? ', ' + capFirst(ses.name) : ''}:\\n${w}\\nVoy a adjuntar esta conversación para que el técnico no te haga repetir nada.`;
-          appendTranscript(sid, 'assistant', msg);
-          return res.json({ ok: true, reply: msg, stage: 'post_flow' });
+        if (map[choice] === 'whatsapp_ticket') {
+          const { link } = buildWhatsAppTicket(sid, ses.name, ses.lastDevice, ses.lastIssue);
+          const msg = `Te paso nuestro WhatsApp${ses.name ? ', ' + capFirst(ses.name) : ''}:\n${link}\n(Ya adjunté esta conversación en el mensaje para que el técnico no te haga repetir nada).`;
+          appendTranscript(sid, 'assistant', 'Se ofreció WhatsApp con ticket');
+          return res.json({ ok: true, reply: msg, stage: 'post_flow', whatsappLink: link });
         }
       }
-
-      // si no eligió 1/2, re-enunciar
       const opts = CFG.messages_v4?.default_options || [
-        'Realizar pruebas avanzadas',
-        'Hablar con un técnico por WhatsApp'
+        'Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'
       ];
       const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-      const reply = `${after}\\n${renderNumbered(opts)}`;
+      const reply = `${after}\n${renderNumbered(opts)}`;
       appendTranscript(sid, 'assistant', reply);
       return res.json({ ok: true, reply, stage: 'in_flow' });
     }
@@ -312,4 +341,4 @@ if (ses.stage === 'ask_problem') {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=> console.log(`STI Chat V4.1 listo en http://localhost:${PORT}`));
+app.listen(PORT, ()=> console.log(`STI Chat V4.3 listo en http://localhost:${PORT}`));
