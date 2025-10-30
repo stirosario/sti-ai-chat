@@ -1,7 +1,7 @@
 {
   "bot": "STI • Servicio Técnico Inteligente",
   "locale": "es-AR",
-  "version": "3.5",
+  "version": "3.6",
   "settings": {
     "whatsapp_link": "https://wa.me/5493417422422",
     "instagram_link": "https://instagram.com/sti.rosario",
@@ -104,7 +104,8 @@
         "Monitor",
         "Teclado/Mouse",
         "Webcam",
-        "UPS/Estabilizador"
+        "UPS/Estabilizador",
+        "Otro dispositivo"
       ]
     },
     "device_triggers": {
@@ -208,6 +209,14 @@
         "estabilizador",
         "regleta",
         "zapatilla"
+      ],
+      "otro": [
+        "otro",
+        "desconocido",
+        "varios",
+        "equipo",
+        "dispositivo",
+        "aparato"
       ]
     },
     "device_flows": {
@@ -225,7 +234,8 @@
           "🧼 Reasentá RAM: retirala y volvela a colocar (si sabés hacerlo).",
           "💾 Probá booteo con pendrive Windows/Rescate para descartar disco.",
           "🔍 Observá códigos/beeps de la placa madre (anótalos si suenan)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Ya tengo que es una <b>PC de escritorio</b>. Contame brevemente qué pasa (ej: <b>no enciende</b>, <b>sin imagen</b>, <b>reinicios</b>, <b>pitidos al encender</b>, <b>no da video</b>)."
       },
       "notebook": {
         "title": "Notebook",
@@ -241,7 +251,8 @@
           "🧲 Reset pinhole (si tiene): botón pequeño cerca del cargador.",
           "💾 Boot menú (F12/ESC) para testear disco y memoria.",
           "🛠️ Reasentar RAM/SSD (solo si tenés experiencia)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Ya tengo que es una <b>notebook</b>. ¿Qué ocurre? (ej: <b>no enciende</b>, <b>no carga la batería</b>, <b>pantalla negra</b>, <b>muy lenta</b>)."
       },
       "router": {
         "title": "Router / Módem",
@@ -257,7 +268,8 @@
           "🔁 Cambiá canal Wi‑Fi (1/6/11 en 2.4 GHz, automático en 5 GHz).",
           "🔐 Desactivá WPS y probá una contraseña simple temporal.",
           "🧩 Conectá por cable directo a PC para descartar Wi‑Fi."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Ya tengo que es un <b>router/módem</b>. ¿Qué pasa? (ej: <b>sin internet</b>, <b>el Wi‑Fi no aparece</b>, <b>se corta la señal</b>, <b>luces de Internet en rojo/apagadas</b>, <b>solo funciona por cable</b>)."
       },
       "repetidor": {
         "title": "Repetidor Wi‑Fi",
@@ -271,7 +283,8 @@
           "⚙️ Reconfiguralo desde cero (WPS desactivado, modo réplica).",
           "🛰️ Si soporta <b>mesh</b>, emparejalo con el router principal.",
           "🧭 Fijá canal igual al del router o automático."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>repetidor Wi‑Fi</b>. ¿Qué sucede? (ej: <b>no extiende señal</b>, <b>se desconecta</b>, <b>luz roja</b>, <b>repite red pero sin internet</b>)."
       },
       "android": {
         "title": "Android",
@@ -287,7 +300,8 @@
           "🔄 Restablecer ajustes de red (no borra fotos).",
           "🧩 ADB/Modo desarrollador para logs si fuera necesario.",
           "☁️ Backup y restablecimiento si persiste."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>Android</b>. ¿Qué problema tiene? (ej: <b>no enciende</b>, <b>no carga</b>, <b>no conecta Wi‑Fi</b>, <b>apps se cierran</b>)."
       },
       "iphone": {
         "title": "iPhone",
@@ -301,7 +315,8 @@
           "🧰 Modo recuperación/DFU con iTunes/Finder.",
           "☁️ Backup en iCloud y restauración limpia.",
           "🔍 Diagnóstico con Analíticas (Ajustes → Privacidad → Analíticas)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>iPhone/iPad</b>. ¿Qué ocurre? (ej: <b>no enciende</b>, <b>sin datos/Wi‑Fi</b>, <b>no actualiza</b>, <b>pantalla congelada</b>)."
       },
       "impresora": {
         "title": "Impresora",
@@ -315,7 +330,8 @@
           "🧼 Limpieza de cabezales/alineación (inyección).",
           "🛜 IP fija o reserva DHCP para Wi‑Fi.",
           "🧩 Compartir impresora por red de Windows (si aplica)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es una <b>impresora</b>. ¿Qué pasa? (ej: <b>no imprime</b>, <b>atasco de papel</b>, <b>tinta baja/seca</b>, <b>error de conexión</b>, <b>imprime en blanco</b>)."
       },
       "smarttv": {
         "title": "Smart TV",
@@ -329,7 +345,8 @@
           "🌐 DNS manual (1.1.1.1 o 8.8.8.8).",
           "🧰 Reset de red del TV.",
           "🔄 Actualización de firmware."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>Smart TV</b>. ¿Qué pasa? (ej: <b>no abre apps</b>, <b>sin internet</b>, <b>no reconoce HDMI</b>, <b>se reinicia</b>)."
       },
       "consola": {
         "title": "Consola (PS/Xbox/Switch)",
@@ -343,7 +360,8 @@
           "🔄 Reconstrucción de base de datos (PS).",
           "🧰 NAT/UPnP en router.",
           "📶 Asignar IP fija a la consola."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es una <b>consola</b>. ¿Qué pasa? (ej: <b>no da video</b>, <b>no conecta a internet</b>, <b>joystick no sincroniza</b>, <b>se queda en el logo</b>)."
       },
       "disco": {
         "title": "Disco externo / USB",
@@ -357,7 +375,8 @@
           "🧩 Comprobación SMART (CrystalDiskInfo).",
           "🔐 Desactivá suspensión selectiva USB (Windows).",
           "💾 Recuperación con software (solo lectura)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>disco/USB</b>. ¿Qué pasa? (ej: <b>no lo detecta</b>, <b>pide formatear</b>, <b>hace ruidos</b>, <b>muy lento</b>)."
       },
       "monitor": {
         "title": "Monitor",
@@ -371,7 +390,8 @@
           "🧲 Chequear adaptador de video/convertidores.",
           "🧰 Test de píxeles (patrones).",
           "⚙️ Actualizar firmware si el fabricante ofrece."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>monitor</b>. ¿Qué pasa? (ej: <b>sin imagen</b>, <b>parpadea</b>, <b>colores extraños</b>, <b>no reconoce la entrada</b>)."
       },
       "perifericos": {
         "title": "Teclado / Mouse",
@@ -385,7 +405,8 @@
           "🧰 Reinstalá drivers / software del fabricante.",
           "🔄 Desactivá ahorro de energía en USB.",
           "📶 Cambiá canal inalámbrico (si permite)."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es un <b>teclado/mouse</b>. ¿Qué pasa? (ej: <b>no responde</b>, <b>teclas se repiten</b>, <b>mouse no mueve</b>, <b>cortes intermitentes</b>)."
       },
       "webcam": {
         "title": "Webcam",
@@ -399,7 +420,8 @@
           "🧰 Driver del fabricante.",
           "🔄 Desactivar ‘Privacidad de cámara’ por hardware (si tiene).",
           "🧪 Probar en otra PC para descartar falla."
-        ]
+        ],
+        "probe": "Perfecto, {{nombre}}. Es una <b>webcam</b>. ¿Qué pasa? (ej: <b>no la detecta</b>, <b>imagen negra</b>, <b>baja calidad</b>, <b>la app no accede</b>)."
       },
       "ups": {
         "title": "UPS / Estabilizador",
@@ -413,9 +435,2732 @@
           "🔧 Test de autonomía (solo si es seguro).",
           "🔁 Calibración si el modelo lo permite.",
           "🔍 Revisión de fusibles/buzzer (técnico)."
+        ],
+        "probe": "Perfecto, {{nombre}}. Es una <b>UPS/estabilizador</b>. ¿Qué pasa? (ej: <b>no entrega energía</b>, <b>pita seguido</b>, <b>autonomía corta</b>, <b>luces de falla</b>)."
+      },
+      "otro": {
+        "title": "Otro dispositivo",
+        "basicas": [
+          "🔍 Contame brevemente qué tipo de equipo es (marca y modelo si podés).",
+          "🔌 Verificá que tenga energía o batería cargada.",
+          "🔄 Reinicialo o desconectalo 30 segundos y volvé a probar.",
+          "📡 Si depende de red o Bluetooth, revisá que la conexión esté activa.",
+          "📱 Probá en otro puerto, toma o dispositivo si es posible."
+        ],
+        "avanzadas": [
+          "🧩 Revisá si el fabricante tiene software o app de configuración.",
+          "🌐 Buscá actualizaciones de firmware o controladores.",
+          "🧰 Restablecé los valores de fábrica si el equipo lo permite.",
+          "📞 Si el problema persiste, prepará número de serie y revisamos juntos por WhatsApp."
+        ],
+        "probe": "Perfecto, {{nombre}}. Es <b>otro dispositivo</b>. Contame qué tipo de equipo es y qué pasa (ej: <b>no enciende</b>, <b>no conecta</b>, <b>error al iniciar</b>, <b>comportamiento inestable</b>)."
+      }
+    },
+    "problem_phrases": [
+      {
+        "phrase": "sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "parpadea dsl",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "luz roja internet",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "wi fi no aparece",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "se tilda todo",
+        "device": "pc",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "fuera de línea",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "atasco de papel",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi fi",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo no prende",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "corta señal",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no aparece la red",
+        "device": "router",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "lento",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "wii fii débil",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "pita seguido",
+        "device": "ups",
+        "tags": [
+          "energia"
+        ]
+      },
+      {
+        "phrase": "no conecta al wii fii",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no entrega energía",
+        "device": "ups",
+        "tags": [
+          "energia"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no abre netflix",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "corta señal",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "tengo no inicia",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no puedo llamar",
+        "device": "iphone",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "se tilda ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo sin señal",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "colores raros",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no carga la batería",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "no asigna ip",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "wifii débil",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no reconoce hdmi",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no inicia ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se reinicia solo ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo sin imagen",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "baja tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no conecta al wii fii",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "conectado sin cargar ayuda",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "tengo se reinicia solo",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "atasco de papel",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "parpadea pantalla ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifii",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "mouse no mueve",
+        "device": "perifericos",
+        "tags": [
+          "teclado_mouse"
+        ]
+      },
+      {
+        "phrase": "no reconoce hdmi",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin señal",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "wi fi débil",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi fi",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wii fii débil",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no lo detecta la compu",
+        "device": "disco",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "sin imagen",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo sin señal",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no tengo internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no tengo señal",
+        "device": "android",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "luz roja internet",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "se reinicia solo ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo conectado sin cargar",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "fuera de línea",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo no reconoce hdmi",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "lag en juegos",
+        "device": "consola",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "tengo no prende",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "wii fii no aparece",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "imprime en blanco",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo queda en negro",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "pantalla negra ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no la detecta",
+        "device": "webcam",
+        "tags": [
+          "webcam"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo se cuelga",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi-fi",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "queda en negro",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no da video",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no enciende ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "freeze",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se congela",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se queda en logo",
+        "device": "consola",
+        "tags": [
+          "consola"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifii no aparece",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no funca",
+        "device": "pc",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "error en impresora",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "se tilda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi-fi",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "la batería murió",
+        "device": "notebook",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no tengo internet ayuda",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no agarra wifi",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "teclas no responden",
+        "device": "perifericos",
+        "tags": [
+          "teclado_mouse"
+        ]
+      },
+      {
+        "phrase": "no imprime",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo se cuelga",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no carga",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "luz de internet apagada",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "pide formatear",
+        "device": "disco",
+        "tags": [
+          "usb",
+          "almacenamiento"
+        ]
+      },
+      {
+        "phrase": "wifii no aparece",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin señal ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "parpadea dsl",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "error en impresora",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "se reinicia solo",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifii",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi fi",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no me anda el celu",
+        "device": "android",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "se congela ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta online",
+        "device": "consola",
+        "tags": [
+          "consola"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi-fi débil",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no puedo llamar",
+        "device": "android",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifi",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "lento",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin señal hdmi",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "atasco de papel",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no da video",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "mucha tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "me quedé sin net",
+        "device": "router",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "tengo carga intermitente",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "no asigna ip",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "colores raros ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no me escuchan",
+        "device": "iphone",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no carga apps",
+        "device": "android",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "pantalla negra ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "wifi no aparece",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifii",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no toma el hdmi",
+        "device": "monitor",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "parpadea pantalla",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no imprime",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "wifi débil",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifii no aparece",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "wifii débil",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi-fi no aparece",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no prende ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no conecta wifi",
+        "device": "android",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "imprime en blanco",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no abre nada",
+        "device": "pc",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "no carga la batería",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no asigna ip",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se cierra la app",
+        "device": "iphone",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo no reconoce hdmi",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "mucha tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "wifi caído",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta wifi",
+        "device": "iphone",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no enciende",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "lag en mouse",
+        "device": "perifericos",
+        "tags": [
+          "teclado_mouse"
+        ]
+      },
+      {
+        "phrase": "wii fii no aparece",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifi débil",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifi no aparece",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no enciende",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "wi fi débil",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "imprime en blanco",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "muy lento",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no carga",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "queda en negro",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "click no funciona",
+        "device": "perifericos",
+        "tags": [
+          "teclado_mouse"
+        ]
+      },
+      {
+        "phrase": "pantalla negra",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "error en impresora",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "parpadea pantalla",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "repite sin internet",
+        "device": "repetidor",
+        "tags": [
+          "wifi"
+        ]
+      },
+      {
+        "phrase": "wifi caído",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifi",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi-fi no aparece",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wii fii no aparece",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "muy lento usb",
+        "device": "disco",
+        "tags": [
+          "usb",
+          "almacenamiento"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo se reinicia solo",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "me escucha entrecortado",
+        "device": "android",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "freeze",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "luz roja internet",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "parpadea dsl",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no da video ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi-fi débil",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo se congela",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "luz de internet apagada",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "carga intermitente",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "no abre youtube",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "tengo no arranca",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo parpadea pantalla",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo parpadea pantalla",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se reinicia solo",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo colores raros",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo se tilda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no carga la batería ayuda",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin señal ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no prende",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no conecta al wii fii",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "autonomía corta",
+        "device": "ups",
+        "tags": [
+          "energia"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin señal",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "atasco de papel",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no prende",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "wi-fi débil",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifi caído",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no inicia",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo no da video",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo muy lento",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no me escuchan",
+        "device": "android",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "wii fii débil",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifi no aparece",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no detecta usb",
+        "device": "disco",
+        "tags": [
+          "usb",
+          "almacenamiento"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifii",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se cuelga",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se reinicia tv",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "no da video ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "tengo no inicia",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "mucha tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "no inicia ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no anda el touchpad",
+        "device": "perifericos",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "teclas repetidas",
+        "device": "perifericos",
+        "tags": [
+          "teclado_mouse"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no da video",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se cuelga ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "wifi débil",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se desconecta repetidor",
+        "device": "repetidor",
+        "tags": [
+          "wifi"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifi",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no carga ayuda",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi fi no aparece",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no da imagen consola",
+        "device": "consola",
+        "tags": [
+          "consola"
+        ]
+      },
+      {
+        "phrase": "no asigna ip",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "queda en negro ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "wifi caído",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "no tengo internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no tengo internet ayuda",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi-fi",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "sin internet",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no arranca ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no conecta al wi-fi",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wifi débil",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no sincroniza control",
+        "device": "consola",
+        "tags": [
+          "consola"
+        ]
+      },
+      {
+        "phrase": "no inicia",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "luz roja repetidor",
+        "device": "repetidor",
+        "tags": [
+          "wifi"
+        ]
+      },
+      {
+        "phrase": "tengo pantalla negra",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "imagen negra webcam",
+        "device": "webcam",
+        "tags": [
+          "webcam"
+        ]
+      },
+      {
+        "phrase": "sin imagen ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "baja tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "muy lento",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "corta señal",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "baja tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "fuera de línea",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo queda en negro",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no carga apps",
+        "device": "iphone",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se corta internet",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "me pide tinta pero hay",
+        "device": "impresora",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "wi fi no aparece",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no conecta al wifi",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "luz de internet apagada",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "wifii débil",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "muy oscura",
+        "device": "webcam",
+        "tags": [
+          "webcam"
+        ]
+      },
+      {
+        "phrase": "mucha tinta",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se cuelga",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "carga intermitente ayuda",
+        "device": "notebook",
+        "tags": [
+          "bateria",
+          "power"
+        ]
+      },
+      {
+        "phrase": "fuera de línea",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "sin internet ayuda",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no arranca ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "error en impresora",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "tengo muy lento",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no se ve nada",
+        "device": "monitor",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "no sale audio",
+        "device": "smarttv",
+        "tags": [
+          "tv"
+        ]
+      },
+      {
+        "phrase": "luz roja internet",
+        "device": "router",
+        "tags": [
+          "router"
+        ]
+      },
+      {
+        "phrase": "wi fi débil",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no imprime",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "wi fi débil",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "wi-fi débil",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "no conecta datos",
+        "device": "android",
+        "tags": [
+          "telefono"
+        ]
+      },
+      {
+        "phrase": "colores raros",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "parpadea pantalla ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "colores raros ayuda",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "wifii débil",
+        "device": "router",
+        "tags": [
+          "conexion",
+          "red"
+        ]
+      },
+      {
+        "phrase": "tengo sin internet",
+        "device": "iphone",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "imprime en blanco",
+        "device": "impresora",
+        "tags": [
+          "impresora"
+        ]
+      },
+      {
+        "phrase": "solo anda por cable",
+        "device": "android",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "se rompe la señal",
+        "device": "router",
+        "tags": [
+          "arg"
+        ]
+      },
+      {
+        "phrase": "wi fi no aparece",
+        "device": "smarttv",
+        "tags": [
+          "conexion",
+          "apps"
+        ]
+      },
+      {
+        "phrase": "no prende ayuda",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "tengo colores raros",
+        "device": "pc",
+        "tags": [
+          "hardware",
+          "windows"
+        ]
+      },
+      {
+        "phrase": "no arranca",
+        "device": "notebook",
+        "tags": [
+          "hardware",
+          "windows"
         ]
       }
-    }
+    ]
   },
   "nlp": {
     "_note": "Normalización + extracción de nombre/dispositivo/problema",
