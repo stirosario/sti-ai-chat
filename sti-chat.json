@@ -818,10 +818,11 @@
   },
   "messages_v4": {
     "greeting": {
-      "name_request": "👋 <b>¡Hola!</b> Soy <b>Tecnos</b>, tu Técnico Inteligente de STI\n🌐 <b>Servicio Técnico Inteligente</b>\n\n✍️ Decime en una o dos palabras cuál es tu <b>nombre</b>, o escribí <b>omitir</b> para continuar.",
-      "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora contame en pocas palabras cuál es el problema.\nEjemplos:\n1 - no enciende\n2 - pantalla negra\n3 - muy lento\n4 - no tengo internet\n5 - no inicia Windows",
+      "name_request": "👋 ¡Hola! Soy <b>Tecnos 🤖</b>, tu <b>Técnico Inteligente de STI 🧠</b><br><br>💡 Esta herramienta es de <b>uso gratuito</b> y fue desarrollada por 🌐 <b>STI • Servicio Técnico Inteligente</b>, con el fin de <b>ayudar a la comunidad</b> a resolver <b>cuestiones y problemas básicos</b> que suelen presentarse en <b>computadoras y dispositivos</b>.<br><br>🚫 Queda prohibido su uso con fines comerciales o fuera del marco de asistencia técnica de <b>STI</b>.<br><br>✅ <b>Ahora comencemos:</b> ✍️ Decime en una o dos palabras cuál es tu <b>nombre</b>, o escribí <b>omitir</b> para continuar.",
+      "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora contame en pocas palabras con qué <b>dispositivo</b> tenés problemas.<br><br>Ejemplos:<br>1 - pc<br>2 - notebook<br>3 - router<br>4 - monitor<br>5 - teclado<br><br>Si no podés identificar el dispositivo o no sabés su nombre, describí en pocas palabras el <b>problema</b> que estás teniendo.",
       "skip_name": "Listo, seguimos sin nombre. Contame en pocas palabras cuál es el problema."
     },
+    "device_probe": "Perfecto, {{nombre}}. Ya tengo que es <b>{{device}}</b>. Ahora contame brevemente cuál es el <b>problema</b> (ej: no enciende, sin imagen, lento, no inicia Windows, sin internet).",
     "after_steps": "Si el problema continúa, elegí una opción:",
     "default_options": [
       "Realizar pruebas avanzadas",
