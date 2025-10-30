@@ -153,6 +153,13 @@ app.post('/api/reload', (req, res)=>{
   res.json({ ok: true, version: CFG.version, issues: CFG?.nlp?.issues?.length || 0 });
 });
 
+// Greeting (lee del sti-chat.json)
+app.get('/api/greeting', (req, res) => {
+  const msg = (CFG.messages_v4?.greeting?.name_request)
+    || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
+  res.json({ ok: true, greeting: msg });
+});
+
 // Core chat
 app.post('/api/chat', (req, res)=>{
   try {
