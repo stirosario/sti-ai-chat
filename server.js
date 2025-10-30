@@ -1,8 +1,8 @@
-// server.js — STI Chat V4.4 (OpenAI opcional + Ticket WhatsApp + transcripts)
-// - Flujo “nombre primero” con orden corregido
-// - NLP por regex desde sti-chat.json (fallback)
-// - OpenAI para tests rápidos / avanzados (toggle por env)
-// - Ticket WhatsApp con historial completo (slice fijo JS)
+// server.js — STI Chat V4.5 (IA Total + OpenAI + Ticket WhatsApp + transcripts)
+// - Flujo “nombre primero”
+// - NLP desde sti-chat.json (fallback)
+// - OpenAI para respuestas inteligentes (tests rápidos, avanzados y contexto total)
+// - Ticket WhatsApp con historial completo
 // - Endpoints: /api/health, /api/reload, /api/greeting, /api/chat, /api/whatsapp-ticket, /api/transcript/:sid
 
 import 'dotenv/config';
@@ -13,9 +13,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 
-// ====== OpenAI config (opcionales por entorno) ======
+// ====== OpenAI config ======
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const USE_OPENAI_ONLY = String(process.env.USE_OPENAI_ONLY || '0') === '1'; // si es "1", prioriza IA siempre
+const USE_OPENAI_ONLY = String(process.env.USE_OPENAI_ONLY || '0') === '1';
+const USE_OPENAI_FULL = String(process.env.USE_OPENAI_FULL || '1') === '1'; // ⚡️ IA total activada
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // ====== Paths / Config ======
@@ -91,7 +92,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Memoria simple (podés migrar a Redis)
+// Memoria simple
 const SESSIONS = new Map();
 
 function renderNumbered(list) {
@@ -99,7 +100,7 @@ function renderNumbered(list) {
   return list.map((t, i) => `${i+1} - ${t}`).join('\n');
 }
 
-// ====== NLP helpers (desde JSON) ======
+// ====== NLP helpers ======
 function matchByRegexArray(text, arr) {
   if (!Array.isArray(arr)) return null;
   for (const it of arr) {
@@ -133,81 +134,56 @@ function tpl(str, name, deviceKey, issueKey){
   out = out.replace(/\{\{\s*nombre\s*\}\}/gi, nombre)
            .replace(/\{\{\s*device\s*\}\}/gi, device)
            .replace(/\{\{\s*issue_human\s*\}\}/gi, issueHuman);
-  if (CFG.sections?.anydesk){
-    out = out.replace(/\{\{\s*ANYDESK_INSTALAR\s*\}\}/g, '- ' + CFG.sections.anydesk.instalar.join('\\n- '));
-    out = out.replace(/\{\{\s*ANYDESK_DESINSTALAR\s*\}\}/g, '- ' + CFG.sections.anydesk.desinstalar.join('\\n- '));
-    out = out.replace(/\{\{\s*ANYDESK_CAMBIAR\s*\}\}/g, '- ' + CFG.sections.anydesk.cambiar_id.join('\\n- '));
-  }
   out = out.replace(/\*/g, '');
   return out;
 }
 
-// ====== OpenAI helpers (IA) ======
+// ====== OpenAI helpers ======
 function buildAIToneHeader(nombre, deviceKey){
   const deviceHum = deviceKey ? deviceLabel(deviceKey) : 'equipo';
   const cliente = nombre ? `Cliente: ${capFirst(nombre)}.` : '';
-  return `Actuá como Técnico Senior de STI (Argentina). ${cliente} Dispositivo: ${deviceHum}.
-Escribí en tono claro, argentino (vos), sin parrafadas, en bullets concretos.`;
+  return `Actuá como Técnico Senior de STI (Argentina). ${cliente} Dispositivo: ${deviceHum}.`;
 }
 
-async function aiQuickTests(textoCliente, nombre=null, deviceKey=null){
-  if (!openai) return "La IA no está habilitada en el servidor. Probemos con pasos estándar.";
-  const header = buildAIToneHeader(nombre, deviceKey);
-  const prompt = `${header}
+async function aiResponder(textoCliente, ses) {
+  if (!openai) return "La IA no está habilitada.";
+  const context = readTranscript(ses.sessionId || '');
+  const device = deviceLabel(ses.lastDevice);
+  const name = ses.name ? capFirst(ses.name) : "cliente";
+  const prompt = `
+Sos Tecnos, el Técnico Inteligente de STI Rosario.
+Tu misión es ayudar al ${name} a diagnosticar su ${device}.
+Historial de la conversación:
+---
+${context}
+---
+El cliente acaba de decir: "${textoCliente}"
 
-El cliente dijo: """${textoCliente}"""
+1️⃣ Analizá lo que ya se probó.
+2️⃣ Si hay nueva información (por ejemplo, "ahora enciende pero no entra a Windows"), adaptá el diagnóstico.
+3️⃣ Devolvé 4–5 pasos concretos (en bullets cortos, tono argentino).
+4️⃣ Si parece más grave, sugerí pasar al técnico.
 
-Devolveme EXACTAMENTE este formato:
-
-✅ Tests rápidos:
+Formato:
+✅ Diagnóstico actualizado:
 1) ...
 2) ...
 3) ...
 4) ...
 5) ...
 
-Cerrá con: "Decime si alguno funcionó o si querés que te pase pruebas avanzadas o hablar directo con técnico (WhatsApp)."
+Cerrá con: "¿Querés que te lo pase al técnico con el ticket completo por WhatsApp?"
 `;
-  try{
+  try {
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      messages: [{ role:'user', content: prompt }],
-      temperature: 0.3, max_tokens: 500
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3, max_tokens: 700
     });
-    return r.choices?.[0]?.message?.content?.trim() || "No pude generar pasos ahora.";
-  }catch(e){
-    console.error('OpenAI quick error:', e?.message || e);
-    return "Ahora no pude generar los pasos con IA. Probemos con los básicos y si no va, te paso avanzados o WhatsApp.";
-  }
-}
-
-async function aiAdvancedTests(textoCliente, nombre=null, deviceKey=null){
-  if (!openai) return "La IA no está habilitada. Probemos con avanzados estándar.";
-  const header = buildAIToneHeader(nombre, deviceKey);
-  const prompt = `${header}
-
-El cliente dijo: """${textoCliente}"""
-
-Generá 3–4 PRUEBAS AVANZADAS (pocas palabras, técnicas). Formato:
-
-⚙️ Tests avanzados:
-1) ...
-2) ...
-3) ...
-4) ...
-
-Cerrá con: "Si no se resolvió, te paso el WhatsApp con el ticket para que no tengas que repetir nada."
-`;
-  try{
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role:'user', content: prompt }],
-      temperature: 0.2, max_tokens: 450
-    });
-    return r.choices?.[0]?.message?.content?.trim() || "No pude generar avanzados ahora.";
-  }catch(e){
-    console.error('OpenAI adv error:', e?.message || e);
-    return "La IA no respondió. Si querés, te paso directo el WhatsApp con el ticket.";
+    return r.choices?.[0]?.message?.content?.trim() || "No pude generar diagnóstico ahora.";
+  } catch (e) {
+    console.error("OpenAI responder error:", e);
+    return "Hubo un error generando la respuesta con IA.";
   }
 }
 
@@ -230,210 +206,120 @@ function buildWhatsAppTicket(sessionId, name=null, lastDevice=null, lastIssue=nu
 
   const header = headerLines.join('\n');
   let body = `${header}\n\n${transcript}`;
-
-  // Limitar longitud (JS correcto)
   const maxChars = Math.max(800, Math.min(Number(prefs.max_chars || 1600), 3000));
   if (body.length > maxChars) {
-    body = body.slice(-maxChars); // últimos N caracteres
+    body = body.slice(-maxChars);
     body = '…\n' + body;
   }
-
   const encoded = encodeURIComponent(body);
   const link = `https://wa.me/${num}?text=${encoded}`;
+  console.log("✅ WhatsApp Ticket generado:\n", body);
   return { link, body };
 }
 
-// ====== Rutas ======
-app.get('/api/health', (req, res)=>{
-  res.json({
-    ok: true,
-    bot: CFG.bot,
-    version: CFG.version,
-    intents_count: CFG?.nlp?.issues?.length || 0,
-    transcriptsDir
-  });
-});
-
-app.post('/api/reload', (req, res)=>{
-  CFG = loadConfig();
-  res.json({ ok: true, version: CFG.version, issues: CFG?.nlp?.issues?.length || 0 });
-});
-
-app.get('/api/greeting', (req, res) => {
-  const msg = (CFG.messages_v4?.greeting?.name_request)
-    || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
-  res.json({ ok: true, greeting: msg });
-});
-
-app.get('/api/whatsapp-ticket', (req, res) => {
-  const sessionId = String(req.query.sessionId || 'default');
+// ====== Endpoints ======
+app.get('/api/health', (req, res)=> res.json({ ok:true, bot:CFG.bot, version:CFG.version, intents_count:CFG?.nlp?.issues?.length || 0 }));
+app.post('/api/reload', (req, res)=>{ CFG = loadConfig(); res.json({ ok:true, version:CFG.version }); });
+app.get('/api/greeting', (req,res)=> res.json({ ok:true, greeting: (CFG.messages_v4?.greeting?.name_request)||'👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?' }));
+app.get('/api/whatsapp-ticket',(req,res)=>{
+  const sessionId = String(req.query.sessionId||'default');
   const ses = SESSIONS.get(sessionId);
-  const name = ses?.name || null;
-  const { lastDevice, lastIssue } = (ses || {});
-  const { link } = buildWhatsAppTicket(sessionId, name, lastDevice, lastIssue);
-  appendTranscript(sessionId, 'assistant', 'Se generó link de WhatsApp con ticket');
-  res.json({ ok: true, link });
+  const { link } = buildWhatsAppTicket(sessionId, ses?.name, ses?.lastDevice, ses?.lastIssue);
+  appendTranscript(sessionId,'assistant','Se generó link de WhatsApp con ticket');
+  res.json({ ok:true, link });
 });
-
-app.get('/api/transcript/:sid', (req, res) => {
-  const sessionId = String(req.params.sid);
-  const txt = readTranscript(sessionId);
-  res.set('Content-Type', 'text/plain; charset=utf-8');
+app.get('/api/transcript/:sid',(req,res)=>{
+  const txt = readTranscript(String(req.params.sid));
+  res.set('Content-Type','text/plain; charset=utf-8');
   res.send(txt || '');
 });
 
-// ====== Core chat ======
-app.post('/api/chat', async (req, res)=>{
+// ====== Chat principal ======
+app.post('/api/chat', async (req,res)=>{
   try {
     const { text, sessionId } = req.body || {};
-    if (!text) return res.json({ ok:false, reply: 'No pude procesar tu consulta.' });
-    const raw = String(text);
-    const norm = normalize(raw);
+    if (!text) return res.json({ ok:false, reply:'No pude procesar tu consulta.' });
+    const raw = String(text), norm = normalize(raw);
     const sid = String(sessionId || 'default');
-
-    if (!SESSIONS.has(sid)) {
-      SESSIONS.set(sid, { stage: 'ask_name', name: null, tries: 0, lastIssue: null, lastDevice: null });
-    }
+    if (!SESSIONS.has(sid)) SESSIONS.set(sid,{ stage:'ask_name', name:null, tries:0, lastIssue:null, lastDevice:null });
     const ses = SESSIONS.get(sid);
-    appendTranscript(sid, 'user', raw);
+    ses.sessionId = sid;
+    appendTranscript(sid,'user',raw);
 
-    // === 1) Nombre primero (orden corregido)
+    // === Etapa 1: pedir nombre ===
     if (ses.stage === 'ask_name') {
-      if (/^\s*omitir\s*$/i.test(norm)) {
-        ses.name = null;
-        ses.stage = 'ask_problem';
-        const msg = CFG.messages_v4?.greeting?.skip_name
-          || 'Listo, seguimos sin nombre. Contame en pocas palabras cuál es el problema.';
-        appendTranscript(sid, 'assistant', msg);
-        return res.json({ ok: true, reply: msg, stage: ses.stage });
-      }
-      const nameCandidate = extraerNombre(raw); // primero intento extraer nombre
+      const nameCandidate = extraerNombre(raw);
       if (nameCandidate && esNombreValido(nameCandidate)) {
         ses.name = nameCandidate;
         ses.stage = 'ask_problem';
-        const msg = CFG.messages_v4?.greeting?.name_confirm
-          || 'Genial {NOMBRE}! Contame en pocas palabras cuál es el problema.';
-        const msgP = msg.replace(/\{NOMBRE\}/g, capFirst(ses.name));
-        appendTranscript(sid, 'assistant', msgP);
-        return res.json({ ok: true, reply: msgP, stage: ses.stage });
+        const msg = `¡Genial, ${capFirst(ses.name)}! 👍 Ahora decime con qué dispositivo tenés problemas o describí brevemente el problema.`;
+        appendTranscript(sid,'assistant',msg);
+        return res.json({ ok:true, reply:msg, stage:ses.stage });
       }
-      // si no pude extraer nombre y detecto que ya trajo problema, igual pido nombre amablemente
-      if (contieneProblema(norm, CFG?.settings?.problem_keywords)) {
-        const ask = CFG.messages_v4?.greeting?.name_request
-          || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? (Ej: soy Juan / me llamo Ana).';
-        appendTranscript(sid, 'assistant', ask);
-        return res.json({ ok: true, reply: ask, stage: 'ask_name' });
+      if (/^\s*omitir\s*$/i.test(norm)) {
+        ses.name=null; ses.stage='ask_problem';
+        const msg='Listo, seguimos sin nombre. Contame qué dispositivo o problema tenés.';
+        appendTranscript(sid,'assistant',msg);
+        return res.json({ ok:true, reply:msg, stage:ses.stage });
       }
-      // pedir nombre otra vez
-      ses.tries++;
-      const again = CFG.messages_v4?.greeting?.name_request
-        || 'Hola! Soy Tecnos de STI. ¿Cómo te llamás? También podés escribir "omitir".';
-      appendTranscript(sid, 'assistant', again);
-      return res.json({ ok: true, reply: again, stage: 'ask_name' });
+      const again='👋 ¡Hola! Soy Tecnos. ¿Cómo te llamás? (Ej: soy Juan o me llamo Ana).';
+      appendTranscript(sid,'assistant',again);
+      return res.json({ ok:true, reply:again, stage:'ask_name' });
     }
 
-    // === 2) Detectar problema + dispositivo
+    // === Etapa 2: detectar dispositivo/problema ===
     if (ses.stage === 'ask_problem') {
-      const issueKey  = findIssue(norm);
-      const deviceKey = findDevice(norm);
+      ses.lastDevice = findDevice(norm) || ses.lastDevice;
+      ses.lastIssue  = findIssue(norm) || ses.lastIssue;
 
-      // Si solo mencionó dispositivo → pedir problema
-      if (deviceKey && !issueKey) {
-        const probe = CFG.messages_v4?.device_probe
-          || "Perfecto, {{nombre}}. Ya tengo que es {{device}}. Ahora decime brevemente cuál es el problema.";
-        const reply = tpl(probe, ses.name, deviceKey, null);
-        appendTranscript(sid, 'assistant', reply);
-        return res.json({ ok: true, reply, stage: 'ask_problem' });
+      // ⚡️ Modo IA Total (interpreta todo el contexto)
+      if (USE_OPENAI_FULL) {
+        const aiReply = await aiResponder(raw, ses);
+        appendTranscript(sid,'assistant',aiReply);
+        const wspOpt="\n\nSi querés, puedo generar el ticket para enviarlo directo al técnico (WhatsApp).";
+        return res.json({ ok:true, reply:aiReply+wspOpt, stage:'in_flow' });
       }
 
-      // ===== OpenAI prioridad si está activado o si no hay issue detectado =====
-      if (USE_OPENAI_ONLY || !issueKey) {
-        ses.lastDevice = deviceKey || ses.lastDevice;
-        ses.lastIssue  = issueKey || ses.lastIssue;
-        const ai = await aiQuickTests(raw, ses.name, ses.lastDevice);
-        const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
-        const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-        const reply = `${ai}\n\n${after}\n${renderNumbered(opts)}`;
-        ses.stage = 'in_flow';
-        appendTranscript(sid, 'assistant', reply);
-        return res.json({ ok:true, reply, stage: ses.stage });
-      }
-
-      // ===== Flujo estático (si hay issue detectado y no forzamos IA) =====
-      ses.lastIssue = issueKey || ses.lastIssue;
-      ses.lastDevice = deviceKey || ses.lastDevice;
-
-      const template = (issueKey && CFG?.nlp?.response_templates?.[issueKey])
-        ? CFG.nlp.response_templates[issueKey]
-        : (CFG?.nlp?.response_templates?.default || 'Entiendo, {{nombre}}. Vamos a revisar tu {{device}} con {{issue_human}}.');
-      let reply = tpl(template, ses.name, ses.lastDevice, ses.lastIssue);
-
-      const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
-      const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-      reply = `${reply}\n\n${after}\n${renderNumbered(opts)}`;
-
-      ses.stage = 'in_flow';
-      appendTranscript(sid, 'assistant', reply);
-      return res.json({ ok: true, reply, stage: ses.stage });
+      // IA parcial o estático
+      const ai = await aiQuickTests(raw, ses.name, ses.lastDevice);
+      const opts = ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
+      const after='Si el problema continúa, elegí una opción:';
+      const reply=`${ai}\n\n${after}\n${renderNumbered(opts)}`;
+      ses.stage='in_flow';
+      appendTranscript(sid,'assistant',reply);
+      return res.json({ ok:true, reply, stage:ses.stage });
     }
 
-    // === 3) Dentro del flujo (opciones / texto libre) ===
+    // === Etapa 3: flujo activo ===
     if (ses.stage === 'in_flow') {
-  const choice = normalize(raw);
-  const wantsAdv = choice === '1' || /avanza(d|)o|seguir probando|mas pruebas/.test(choice);
-  const wantsWsp = choice === '2' || /whats?app|wsp|ticket|tecnico|t[eé]cnico/.test(choice);
-
-  // === Opción 1: Pruebas avanzadas ===
-  if (wantsAdv) {
-    const ai = await aiAdvancedTests(
-      `Nombre=${ses.name||''}; Dispositivo=${deviceLabel(ses.lastDevice)}; Problema=${issueLabel(ses.lastIssue)};`,
-      ses.name, ses.lastDevice
-    );
-    // ✅ Luego de las avanzadas, solo ofrecer WhatsApp
-    const wspMsg = 'Si el problema no se resolvió, podés enviarlo al técnico con el ticket completo.';
-    const wspOpt = '2 - Enviar a WhatsApp (con ticket)';
-    const out = `${ai}\n\n${wspMsg}\n${wspOpt}`;
-    appendTranscript(sid, 'assistant', out);
-    return res.json({ ok: true, reply: out, stage: 'advanced_done' });
-  }
-
-  // === Opción 2: WhatsApp ===
-  if (wantsWsp) {
-    const { link } = buildWhatsAppTicket(sid, ses.name, ses.lastDevice, ses.lastIssue);
-    const msg = `Te paso nuestro WhatsApp${ses.name ? ', ' + capFirst(ses.name) : ''}:\n${link}\n(Ya adjunté esta conversación en el mensaje para que el técnico no te haga repetir nada).`;
-    appendTranscript(sid, 'assistant', 'Se ofreció WhatsApp con ticket');
-    return res.json({ ok: true, reply: msg, stage: 'post_flow', whatsappLink: link });
-  }
-
-  // === Si ya hizo avanzadas, ofrecer solo WhatsApp ===
-  if (ses.stage === 'advanced_done') {
-    const wspMsg = 'Si todavía no pudiste resolverlo, enviá el caso al técnico:';
-    const wspOpt = '2 - Enviar a WhatsApp (con ticket)';
-    const reply = `${wspMsg}\n${wspOpt}`;
-    appendTranscript(sid, 'assistant', reply);
-    return res.json({ ok: true, reply, stage: 'advanced_done' });
-  }
-
-  // === Default: menú inicial de opciones ===
-  const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
-  const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-  const reply = `${after}\n${renderNumbered(opts)}`;
-  appendTranscript(sid, 'assistant', reply);
-  return res.json({ ok: true, reply, stage: 'in_flow' });
-
-
+      const choice = normalize(raw);
+      if (/1|avanzad/.test(choice)) {
+        const ai = await aiAdvancedTests(raw, ses.name, ses.lastDevice);
+        const out = `${ai}\n\nSi el problema no se resolvió, puedo pasarte el ticket para WhatsApp.`;
+        appendTranscript(sid,'assistant',out);
+        return res.json({ ok:true, reply:out, stage:'advanced_done' });
+      }
+      if (/2|whats|ticket|tecnic/.test(choice)) {
+        const { link } = buildWhatsAppTicket(sid, ses.name, ses.lastDevice, ses.lastIssue);
+        const msg=`Te paso nuestro WhatsApp${ses.name?', '+capFirst(ses.name):''}:\n${link}\n(Ya adjunté esta conversación en el mensaje para que el técnico no te haga repetir nada).`;
+        appendTranscript(sid,'assistant','Se ofreció WhatsApp con ticket');
+        return res.json({ ok:true, reply:msg, stage:'post_flow', whatsappLink:link });
+      }
+      const reply='Si querés, puedo generarte el ticket de WhatsApp con todo el historial.';
+      appendTranscript(sid,'assistant',reply);
+      return res.json({ ok:true, reply, stage:'in_flow' });
     }
 
-    // Cierre genérico
-    const bye = '¿Necesitás algo más? Puedo ayudarte con otra consulta.';
-    appendTranscript(sid, 'assistant', bye);
-    return res.json({ ok: true, reply: bye, stage: 'post_flow' });
+    // === Cierre genérico ===
+    const bye='¿Necesitás algo más? Puedo ayudarte con otra consulta.';
+    appendTranscript(sid,'assistant',bye);
+    return res.json({ ok:true, reply:bye, stage:'post_flow' });
 
   } catch (e) {
     console.error('ERROR /api/chat:', e);
-    return res.json({ ok:false, reply: 'Ocurrió un error procesando tu mensaje.' });
+    return res.json({ ok:false, reply:'Ocurrió un error procesando tu mensaje.' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=> console.log(`STI Chat V4.4 listo en http://localhost:${PORT}`));
+app.listen(PORT, ()=> console.log(`STI Chat V4.5 listo en http://localhost:${PORT}`));
