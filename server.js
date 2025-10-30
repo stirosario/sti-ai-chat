@@ -1,17 +1,29 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path'; // ya lo tenés
+
+// === Instancia y middlewares básicos ===
+const app = express();                    // ⬅️ ESTA LÍNEA FALTABA
+app.set('trust proxy', 1);
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: false }));
+
 // ============================
 //  PERSISTENCIA EN /data (Render)
 // ============================
 const DATA_BASE        = process.env.DATA_BASE        || '/data';
 const TRANSCRIPTS_DIR  = process.env.TRANSCRIPTS_DIR  || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR      = process.env.TICKETS_DIR      || path.join(DATA_BASE, 'tickets');
-const LOGS_DIR         = process.env.LOGS_DIR         || path.join(DATA_BASE, 'logs'); // opcional
+const LOGS_DIR         = process.env.LOGS_DIR         || path.join(DATA_BASE, 'logs');
 const PUBLIC_BASE_URL  = process.env.PUBLIC_BASE_URL  || 'https://sti-rosario-ai.onrender.com';
 const WHATSAPP_NUMBER  = process.env.WHATSAPP_NUMBER  || '5493417422422';
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch {}
 }
-
 // Helpercito
 function nowIso() { return new Date().toISOString(); }
 
@@ -140,4 +152,9 @@ a:hover{text-decoration:underline}
 </html>`;
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`[STI Chat V4.6] Up on :${PORT} — data=${DATA_BASE}`);
 });
