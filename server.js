@@ -1,4 +1,3 @@
-\
 // server.js — STI Chat v3.5 “Experiencia Humana” (compatible con sti-chat.json v3.5)
 // Fuente única: sti-chat.json (greetings/menus/fallbacks + NLP devices/issues + templates + advanced_steps + followups)
 // © STI Rosario — Lucas. Última edición: 2025-10-29
