@@ -59,7 +59,7 @@
         "holaaa",
         "wena"
       ],
-      "response": "👋 ¡Hola, soy *Tecnos*! 🤖 Tu Técnico Inteligente de *STI*. Para empezar, decime tu *nombre* y en pocas palabras cuál es el problema. 💻💡\\n\\nEjemplos: *mi notebook no prende*, *mi monitor se apaga*, *no tengo internet*, *mi PC no enciende*, etc.\\n\\n🧠 Contame, ¿qué te está pasando?",
+      "response": "👋 <b>¡Hola!</b> Soy <b>Tecnos</b>, tu Técnico Inteligente de STI\n🌐 <b>Servicio Técnico Inteligente</b>\n\n✍️ Decime en una o dos palabras cuál es tu <b>nombre</b>, o escribí <b>omitir</b> para continuar.",
       "show_whatsapp_button": false
     },
     "menus": {
