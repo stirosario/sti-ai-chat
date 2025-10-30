@@ -6,7 +6,36 @@
     "whatsapp_link": "https://wa.me/5493417422422",
     "instagram_link": "https://instagram.com/sti.rosario",
     "fallback_escalation_after": 3,
-    "max_suggestions": 8
+    "max_suggestions": 8,
+    "enable_transcripts": true,
+    "transcriptsDir": "./data/transcripts",
+    "problem_keywords": [
+      "no enciende",
+      "no prende",
+      "no arranca",
+      "pantalla",
+      "negra",
+      "sin imagen",
+      "no inicia",
+      "windows",
+      "internet",
+      "wifi",
+      "lento",
+      "muy lento",
+      "calienta",
+      "teclado",
+      "touchpad",
+      "bateria",
+      "cargador",
+      "impresora",
+      "sonido",
+      "audio",
+      "reinicia",
+      "apaga",
+      "formatear",
+      "virus",
+      "malware"
+    ]
   },
   "sections": {
     "greetings": {
@@ -704,6 +733,65 @@
       "advanced_intro": "De una, {{nombre}} 🙏. Sigamos con unos **chequeos más avanzados**:",
       "solved": "¡Qué alegría haberte ayudado, {{nombre}}! 😄 Cuando necesites, contá con STI. Si querés, seguinos en Instagram 👉 https://instagram.com/sti.rosario ¡Gracias!",
       "escalate": "Tranquilo {{nombre}} 😌. Como no se resolvió con básicos/avanzados, parece un **caso Nivel 2/3**. Te dejo un botón para enviar **toda esta conversación** por WhatsApp a un técnico, así no repetís nada y aceleramos la solución."
+    },
+    "issue_labels": {
+      "no_enciende": "no enciende",
+      "sin_imagen": "sin imagen / pantalla negra",
+      "sin_internet": "sin internet",
+      "internet_inestable": "internet inestable",
+      "no_sonido": "sin sonido",
+      "lento": "muy lento",
+      "pantalla_azul": "pantalla azul",
+      "reparacion_automatica": "reparación automática",
+      "se_reinicia": "reinicios",
+      "se_apaga": "se apaga solo",
+      "teclado_no_funciona": "teclado no funciona",
+      "touchpad_no_funciona": "touchpad no funciona",
+      "mouse_no_funciona": "mouse no funciona",
+      "usb_no_detecta": "USB no detecta",
+      "hdmi_no_senal": "HDMI sin señal",
+      "bateria_no_carga": "batería no carga",
+      "temperatura_alta": "temperatura alta",
+      "disco_falla": "falla de disco",
+      "ram_falla": "fallas de RAM",
+      "gpu_falla": "falla de placa de video",
+      "fuente_falla": "falla de fuente",
+      "bios_config": "configuración de BIOS/UEFI",
+      "sistema_no_inicia": "no inicia el sistema",
+      "drivers_conflicto": "conflicto de drivers",
+      "wifi_no_detecta": "Wi‑Fi no detecta",
+      "bluetooth_no_funciona": "Bluetooth no funciona",
+      "impresora_no_imprime": "impresora no imprime",
+      "escaner_no_funciona": "escáner no funciona",
+      "camara_no_funciona": "cámara no funciona",
+      "microfono_no_funciona": "micrófono no funciona",
+      "sin_espacio": "sin espacio en disco",
+      "disco_no_detectado": "disco no detectado",
+      "ssd_lento": "SSD lento",
+      "particion_perdida": "partición perdida",
+      "virus_malware": "virus o malware",
+      "actualizaciones_pendientes": "actualizaciones pendientes",
+      "office_no_abre": "Office no abre",
+      "navegador_lento": "navegador lento",
+      "correo_no_sincroniza": "correo no sincroniza",
+      "tecla_trabada": "tecla trabada",
+      "touchscreen_no_responde": "pantalla táctil no responde",
+      "lector_sd_no_lee": "lector SD no lee",
+      "ethernet_no_detecta": "Ethernet no detecta",
+      "ping_alto": "ping alto",
+      "vpn_no_conecta": "VPN no conecta",
+      "hora_desconfigurada": "hora/fecha desconfigurada",
+      "bios_desactualizada": "BIOS desactualizada",
+      "ventilador_no_gira": "ventilador no gira",
+      "pantalla_parpadea": "pantalla parpadea",
+      "brillo_problema": "problema de brillo",
+      "olor_humo": "olor a quemado",
+      "boton_power_falla": "botón de encendido",
+      "cargador_falla": "cargador falla",
+      "conector_alimentacion_flojo": "conector de alimentación flojo",
+      "tecla_fn_bloqueo": "FN bloquea funciones",
+      "lector_dvd_no_lee": "lectora de DVD no lee",
+      "altavoz_distorsiona": "altavoz distorsiona"
     }
   },
   "messages": {
@@ -727,5 +815,21 @@
   },
   "fallback": {
     "response": "{fallback}"
+  },
+  "messages_v4": {
+    "greeting": {
+      "name_request": "👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?\nPodés decirme: \"soy Juan\" / \"me llamo Ana\" / \"mi nombre es Gero\".\nSi preferís, escribí \"omitir\" y seguimos.",
+      "name_confirm": "¡Genial, {NOMBRE}! 👍 Ahora contame en pocas palabras cuál es el problema.\nEjemplos:\n1 - no enciende\n2 - pantalla negra\n3 - muy lento\n4 - no tengo internet\n5 - no inicia Windows",
+      "skip_name": "Listo, seguimos sin nombre. Contame en pocas palabras cuál es el problema."
+    },
+    "after_steps": "Si el problema continúa, elegí una opción:",
+    "default_options": [
+      "Realizar pruebas avanzadas",
+      "Hablar con un técnico por WhatsApp"
+    ],
+    "default_options_map": {
+      "1": "advanced",
+      "2": "whatsapp"
+    }
   }
 }
