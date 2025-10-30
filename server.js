@@ -379,35 +379,49 @@ app.post('/api/chat', async (req, res)=>{
 
     // === 3) Dentro del flujo (opciones / texto libre) ===
     if (ses.stage === 'in_flow') {
-      const choice = normalize(raw);
-      const wantsAdv = choice === '1' || /avanza(d|)o|seguir probando|mas pruebas/.test(choice);
-      const wantsWsp = choice === '2' || /whats?app|wsp|ticket|tecnico|t[eé]cnico/.test(choice);
+  const choice = normalize(raw);
+  const wantsAdv = choice === '1' || /avanza(d|)o|seguir probando|mas pruebas/.test(choice);
+  const wantsWsp = choice === '2' || /whats?app|wsp|ticket|tecnico|t[eé]cnico/.test(choice);
 
-      if (wantsAdv) {
-        const ai = await aiAdvancedTests(
-          `Nombre=${ses.name||''}; Dispositivo=${deviceLabel(ses.lastDevice)}; Problema=${issueLabel(ses.lastIssue)};`,
-          ses.name, ses.lastDevice
-        );
-        const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
-        const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-        const out = `${ai}\n\n${after}\n${renderNumbered(opts)}`;
-        appendTranscript(sid, 'assistant', out);
-        return res.json({ ok: true, reply: out, stage: 'in_flow' });
-      }
+  // === Opción 1: Pruebas avanzadas ===
+  if (wantsAdv) {
+    const ai = await aiAdvancedTests(
+      `Nombre=${ses.name||''}; Dispositivo=${deviceLabel(ses.lastDevice)}; Problema=${issueLabel(ses.lastIssue)};`,
+      ses.name, ses.lastDevice
+    );
+    // ✅ Luego de las avanzadas, solo ofrecer WhatsApp
+    const wspMsg = 'Si el problema no se resolvió, podés enviarlo al técnico con el ticket completo.';
+    const wspOpt = '2 - Enviar a WhatsApp (con ticket)';
+    const out = `${ai}\n\n${wspMsg}\n${wspOpt}`;
+    appendTranscript(sid, 'assistant', out);
+    return res.json({ ok: true, reply: out, stage: 'advanced_done' });
+  }
 
-      if (wantsWsp) {
-        const { link } = buildWhatsAppTicket(sid, ses.name, ses.lastDevice, ses.lastIssue);
-        const msg = `Te paso nuestro WhatsApp${ses.name ? ', ' + capFirst(ses.name) : ''}:\n${link}\n(Ya adjunté esta conversación en el mensaje para que el técnico no te haga repetir nada).`;
-        appendTranscript(sid, 'assistant', 'Se ofreció WhatsApp con ticket');
-        return res.json({ ok: true, reply: msg, stage: 'post_flow', whatsappLink: link });
-      }
+  // === Opción 2: WhatsApp ===
+  if (wantsWsp) {
+    const { link } = buildWhatsAppTicket(sid, ses.name, ses.lastDevice, ses.lastIssue);
+    const msg = `Te paso nuestro WhatsApp${ses.name ? ', ' + capFirst(ses.name) : ''}:\n${link}\n(Ya adjunté esta conversación en el mensaje para que el técnico no te haga repetir nada).`;
+    appendTranscript(sid, 'assistant', 'Se ofreció WhatsApp con ticket');
+    return res.json({ ok: true, reply: msg, stage: 'post_flow', whatsappLink: link });
+  }
 
-      // Si escribió otra cosa, repetir menú
-      const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
-      const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
-      const reply = `${after}\n${renderNumbered(opts)}`;
-      appendTranscript(sid, 'assistant', reply);
-      return res.json({ ok: true, reply, stage: 'in_flow' });
+  // === Si ya hizo avanzadas, ofrecer solo WhatsApp ===
+  if (ses.stage === 'advanced_done') {
+    const wspMsg = 'Si todavía no pudiste resolverlo, enviá el caso al técnico:';
+    const wspOpt = '2 - Enviar a WhatsApp (con ticket)';
+    const reply = `${wspMsg}\n${wspOpt}`;
+    appendTranscript(sid, 'assistant', reply);
+    return res.json({ ok: true, reply, stage: 'advanced_done' });
+  }
+
+  // === Default: menú inicial de opciones ===
+  const opts = CFG.messages_v4?.default_options || ['Realizar pruebas avanzadas','Enviar a WhatsApp (con ticket)'];
+  const after = CFG.messages_v4?.after_steps || 'Si el problema continúa, elegí una opción:';
+  const reply = `${after}\n${renderNumbered(opts)}`;
+  appendTranscript(sid, 'assistant', reply);
+  return res.json({ ok: true, reply, stage: 'in_flow' });
+
+
     }
 
     // Cierre genérico
