@@ -8,25 +8,48 @@
     "fallback_escalation_after": 3,
     "max_suggestions": 8
   },
-
   "sections": {
     "greetings": {
       "_note": "Frases que disparan el saludo",
-      "triggers": ["hola","holaa","ola","oli","holis","buen dia","buen día","buenas","buenas tardes","buenas noches","hey","ey","que tal","qué tal","q tal","holaaa","wena"],
+      "triggers": [
+        "hola",
+        "holaa",
+        "ola",
+        "oli",
+        "holis",
+        "buen dia",
+        "buen día",
+        "buenas",
+        "buenas tardes",
+        "buenas noches",
+        "hey",
+        "ey",
+        "que tal",
+        "qué tal",
+        "q tal",
+        "holaaa",
+        "wena"
+      ],
       "response": "👋 ¡Hola, soy *Tecnos*! 🤖 Tu Técnico Inteligente de *STI*. Para empezar, decime tu *nombre* y en pocas palabras cuál es el problema. 💻💡\\n\\nEjemplos: *mi notebook no prende*, *mi monitor se apaga*, *no tengo internet*, *mi PC no enciende*, etc.\\n\\n🧠 Contame, ¿qué te está pasando?",
       "show_whatsapp_button": false
     },
-
     "menus": {
       "_note": "Textos del menú de ayuda",
       "help_menu_title": "Temas frecuentes",
       "help_menu": [
-        "No enciende","Pantalla negra / sin imagen","No inicia Windows","Sin internet / Wi-Fi",
-        "Muy lento / se traba","Sin sonido","Se calienta","Teclado/Touchpad no funciona",
-        "No carga la batería","Impresora no imprime","Asistencia remota (AnyDesk)"
+        "No enciende",
+        "Pantalla negra / sin imagen",
+        "No inicia Windows",
+        "Sin internet / Wi-Fi",
+        "Muy lento / se traba",
+        "Sin sonido",
+        "Se calienta",
+        "Teclado/Touchpad no funciona",
+        "No carga la batería",
+        "Impresora no imprime",
+        "Asistencia remota (AnyDesk)"
       ]
     },
-
     "fallbacks": {
       "_note": "Mensajes para ‘no entendido’.",
       "soft": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
@@ -34,94 +57,302 @@
       "hard": "No pude resolverlo por acá 🤔. Te ofrezco asistencia personalizada por WhatsApp 👉 {{whatsapp_link}}"
     }
   },
-
   "nlp": {
     "_note": "Normalización + extracción de nombre/dispositivo/problema",
     "lowercase": true,
     "strip_accents": true,
     "trim": true,
-
-    "names_triggers": ["me llamo","soy","mi nombre es"],
-
+    "names_triggers": [
+      "me llamo",
+      "soy",
+      "mi nombre es"
+    ],
     "devices": [
-      { "key": "notebook", "rx": "\\b(note\\s*book|notebook|laptop|netbook)\\b" },
-      { "key": "pc",       "rx": "\\b(pc|computadora|computadora\\s*de\\s*escritorio|escritorio|cpu|compu)\\b" },
-      { "key": "monitor",  "rx": "\\b(monitor|pantalla)\\b" },
-      { "key": "internet", "rx": "\\b(internet|red|conexi[oó]n|wifi|wi[-\\s]*fi|router|m[oó]dem|modem)\\b" },
-      { "key": "impresora","rx": "\\b(impresora|printer)\\b" },
-      { "key": "teclado",  "rx": "\\b(teclado|keyboard)\\b" },
-      { "key": "mouse",    "rx": "\\b(mouse|rat[oó]n)\\b" },
-      { "key": "audio",    "rx": "\\b(parlantes?|parlante|auriculares|audio|sonido)\\b" },
-      { "key": "camara",   "rx": "\\b(c[aá]mara|webcam)\\b" },
-      { "key": "disco",    "rx": "\\b(disco|ssd|hdd|almacenamiento)\\b" },
-      { "key": "video",    "rx": "\\b(placa\\s*de\\s*video|placa\\s*gr[aá]fica|gpu|video)\\b" },
-      { "key": "puertos",  "rx": "\\b(usb|hdmi|display\\s*port|dp|ethernet)\\b" },
-      { "key": "bateria",  "rx": "\\b(bater[ií]a|carga|cargador)\\b" }
+      {
+        "key": "notebook",
+        "rx": "\\b(note\\s*book|notebook|laptop|netbook)\\b"
+      },
+      {
+        "key": "pc",
+        "rx": "\\b(pc|computadora|computadora\\s*de\\s*escritorio|escritorio|cpu|compu)\\b"
+      },
+      {
+        "key": "monitor",
+        "rx": "\\b(monitor|pantalla)\\b"
+      },
+      {
+        "key": "internet",
+        "rx": "\\b(internet|red|conexi[oó]n|wifi|wi[-\\s]*fi|router|m[oó]dem|modem)\\b"
+      },
+      {
+        "key": "impresora",
+        "rx": "\\b(impresora|printer)\\b"
+      },
+      {
+        "key": "teclado",
+        "rx": "\\b(teclado|keyboard)\\b"
+      },
+      {
+        "key": "mouse",
+        "rx": "\\b(mouse|rat[oó]n)\\b"
+      },
+      {
+        "key": "audio",
+        "rx": "\\b(parlantes?|parlante|auriculares|audio|sonido)\\b"
+      },
+      {
+        "key": "camara",
+        "rx": "\\b(c[aá]mara|webcam)\\b"
+      },
+      {
+        "key": "disco",
+        "rx": "\\b(disco|ssd|hdd|almacenamiento)\\b"
+      },
+      {
+        "key": "video",
+        "rx": "\\b(placa\\s*de\\s*video|placa\\s*gr[aá]fica|gpu|video)\\b"
+      },
+      {
+        "key": "puertos",
+        "rx": "\\b(usb|hdmi|display\\s*port|dp|ethernet)\\b"
+      },
+      {
+        "key": "bateria",
+        "rx": "\\b(bater[ií]a|carga|cargador)\\b"
+      }
     ],
-
     "issues": [
-      { "key":"no_enciende",            "rx":"\\b(no\\s*(enciende|prende)|no\\s*arranca|no\\s*prende\\b|no\\s*ensiende|no\\s*prendee)\\b" },
-      { "key":"sin_imagen",             "rx":"\\b(no\\s*da\\s*imagen|sin\\s*imagen|pantalla\\s*negra|no\\s*se\\s*ve|no\\s*hay\\s*se[nñ]al|no\\s*de\\s*imagen)\\b" },
-      { "key":"sin_internet",           "rx":"\\b(no\\s*tengo\\s*internet|sin\\s*internet|no\\s*hay\\s*internet|no\\s*conecta\\s*internet|no\\s*tien\\s*intern(et|e)t|no\\s*anda\\s*el\\s*wifi)\\b" },
-      { "key":"internet_inestable",     "rx":"\\b(se\\s*corta\\s*internet|internet\\s*lento|wifi\\s*se\\s*corta|se\\s*cai[eé]|intermitent(e|a))\\b" },
-      { "key":"no_sonido",              "rx":"\\b(sin\\s*sonido|no\\s*se\\s*escucha|no\\s*suena|sin\\s*audio|no\\s*tengo\\s*sonido|no\\s*ay\\s*sonido)\\b" },
-      { "key":"lento",                  "rx":"\\b(lento|tarda\\s*mucho|muy\\s*lento|se\\s*traba|se\\s*congela|anda\\s*pesado|lag(gea)?)\\b" },
-      { "key":"pantalla_azul",          "rx":"\\b(pantalla\\s*azul|bsod|blue\\s*screen|c[oó]digo\\s*de\\s*paro)\\b" },
-      { "key":"reparacion_automatica",  "rx":"\\b(reparaci[oó]n\\s*autom[aá]tica|preparando\\s*reparaci[oó]n|automatic\\s*repair)\\b" },
-      { "key":"se_reinicia",            "rx":"\\b(se\\s*reinicia|reinicios?\\s*constantes)\\b" },
-      { "key":"se_apaga",               "rx":"\\b(se\\s*apaga|apaga\\s*solo|apaga\\s*de\\s*golpe)\\b" },
-      { "key":"teclado_no_funciona",    "rx":"\\b(teclado\\s*(no\\s*funciona|no\\s*anda|no\\s*responde|roto)|teclas?\\s*no\\s*anda[n]?)\\b" },
-      { "key":"touchpad_no_funciona",   "rx":"\\b(touchpad|panel\\s*t[aá]ctil).*(no\\s*funciona|no\\s*anda|no\\s*responde)\\b" },
-      { "key":"mouse_no_funciona",      "rx":"\\b(mouse|rat[oó]n).*(no\\s*funciona|no\\s*anda|no\\s*responde)\\b" },
-      { "key":"usb_no_detecta",         "rx":"\\b(usb\\s*no\\s*detecta|no\\s*reconoce\\s*usb|no\\s*detecta\\s*pendrive|no\\s*anda\\s*el\\s*usb)\\b" },
-      { "key":"hdmi_no_senal",          "rx":"\\b(hdmi\\s*(sin\\s*se[nñ]al|no\\s*da|no\\s*signal))\\b" },
-      { "key":"bateria_no_carga",       "rx":"\\b(no\\s*carga|enchufado\\s*sin\\s*cargar|bater[ií]a\\s*0%|no\\s*carga\\s*la\\s*notebook)\\b" },
-      { "key":"temperatura_alta",       "rx":"\\b(se\\s*calienta|temperatura\\s*alta|calienta\\s*mucho|se\\s*recalienta)\\b" },
-      { "key":"disco_falla",            "rx":"\\b(disco\\s*(falla|ruido|lento)|click|clack|smart\\s*error)\\b" },
-      { "key":"ram_falla",              "rx":"\\b(memoria|ram).*(falla|error|no\\s*detecta)\\b" },
-      { "key":"gpu_falla",              "rx":"\\b(placa\\s*de\\s*video|gpu|tarjeta\\s*gr[aá]fica).*(falla|artefactos|no\\s*da)\\b" },
-      { "key":"fuente_falla",           "rx":"\\b(fuente\\s*(falla|quema|no\\s*da)|psu)\\b" },
-      { "key":"bios_config",            "rx":"\\b(bios|uefi|secure\\s*boot|orden\\s*de\\s*arranque)\\b" },
-      { "key":"sistema_no_inicia",      "rx":"\\b(no\\s*inicia\\s*(windows)?|no\\s*arranca\\s*sistema|queda\\s*cargando)\\b" },
-      { "key":"drivers_conflicto",      "rx":"\\b(driver|controlador).*(falla|conflicto|no\\s*anda|no\\s*funciona)\\b" },
-      { "key":"wifi_no_detecta",        "rx":"\\b(wifi|wi[\\-\\s]*fi).*(no\\s*detecta|no\\s*aparece|no\\s*ve|no\\s*encuentra)\\b" },
-      { "key":"bluetooth_no_funciona",  "rx":"\\b(blu(e)?to[o]?th|bluetooth).*(no\\s*anda|no\\s*funciona|no\\s*conecta)\\b" },
-      { "key":"impresora_no_imprime",   "rx":"\\b(impresora).*(no\\s*imprime|en\\s*cola|atasco|no\\s*sale)\\b" },
-      { "key":"escaner_no_funciona",    "rx":"\\b(esc[aá]ner|scanner).*(no\\s*funciona|no\\s*anda|no\\s*detecta)\\b" },
-      { "key":"camara_no_funciona",     "rx":"\\b(c[aá]mara|webcam).*(no\\s*funciona|no\\s*anda|no\\s*detecta)\\b" },
-      { "key":"microfono_no_funciona",  "rx":"\\b(micr[oó]fono).*(no\\s*funciona|no\\s*anda|no\\s*se\\s*escucha)\\b" },
-      { "key":"sin_espacio",            "rx":"\\b(sin\\s*espacio|disco\\s*lleno|no\\s*hay\\s*espacio)\\b" },
-      { "key":"disco_no_detectado",     "rx":"\\b(disco|ssd|hdd).*(no\\s*detecta|no\\s*aparece)\\b" },
-      { "key":"ssd_lento",              "rx":"\\b(ssd).*(lento)\\b" },
-      { "key":"particion_perdida",      "rx":"\\b(partici[oó]n|unidad).*(perdida|no\\s*aparece)\\b" },
-      { "key":"virus_malware",          "rx":"\\b(virus|malware|troyano|ransomware)\\b" },
-      { "key":"actualizaciones_pendientes","rx":"\\b(actualizaci[oó]n|update|windows\\s*update).*(pendiente|falla|no\\s*instala)\\b" },
-      { "key":"office_no_abre",         "rx":"\\b(office|word|excel|outlook).*(no\\s*abre|no\\s*inicia|se\\s*cierra)\\b" },
-      { "key":"navegador_lento",        "rx":"\\b(chrome|edge|firefox|navegador).*(lento|se\\s*traba)\\b" },
-      { "key":"correo_no_sincroniza",   "rx":"\\b(correo|mail|outlook|gmail).*(no\\s*sincroniza|no\\s*recibe|no\\s*env[ií]a)\\b" },
-      { "key":"tecla_trabada",          "rx":"\\b(tecla).*(trabada|pegada|no\\s*sale)\\b" },
-      { "key":"touchscreen_no_responde","rx":"\\b(pantalla\\s*t[aá]ctil|touch\\s*screen).*(no\\s*responde|no\\s*anda)\\b" },
-      { "key":"lector_sd_no_lee",       "rx":"\\b(lector\\s*sd|tarjeta\\s*sd).*(no\\s*lee|no\\s*detecta)\\b" },
-      { "key":"ethernet_no_detecta",    "rx":"\\b(ethernet|red\\s*cable|lan).*(no\\s*detecta|desconectado)\\b" },
-      { "key":"ping_alto",              "rx":"\\b(ping|latencia).*(alto|elevado)\\b" },
-      { "key":"vpn_no_conecta",         "rx":"\\b(vpn).*(no\\s*conecta|no\\s*anda|falla)\\b" },
-      { "key":"hora_desconfigurada",    "rx":"\\b(hora|reloj|fecha).*(mal|desconfigurada|incorrecta)\\b" },
-      { "key":"bios_desactualizada",    "rx":"\\b(bios|uefi).*(vieja|desactualizada|update)\\b" },
-      { "key":"ventilador_no_gira",     "rx":"\\b(ventilador).*(no\\s*gira|parado|no\\s*anda)\\b" },
-      { "key":"pantalla_parpadea",      "rx":"\\b(pantalla|monitor).*(parpadea|fliquea|titila)\\b" },
-      { "key":"brillo_problema",        "rx":"\\b(brillo|vrillo).*(bajo|alto|no\\s*ajusta|no\\s*sirve)\\b" },
-      { "key":"olor_humo",              "rx":"\\b(humo|umo|olor\\s*a\\s*quemado)\\b" },
-      { "key":"boton_power_falla",      "rx":"\\b(bot[oó]n\\s*power|bot[oó]n\\s*encendido).*(falla|no\\s*anda)\\b" },
-      { "key":"cargador_falla",         "rx":"\\b(cargador|adapter).*(falla|no\\s*carga|calienta)\\b" },
-      { "key":"conector_alimentacion_flojo","rx":"\\b(conector|jack).*(flojo|falso\\s*contacto)\\b" },
-      { "key":"tecla_fn_bloqueo",       "rx":"\\b(fn|funci[oó]n).*(bloquea|desactiva|touchpad)\\b" },
-      { "key":"lector_dvd_no_lee",      "rx":"\\b(dvd|unidad\\s*optica|lectora).*(no\\s*lee|no\\s*abre)\\b" },
-      { "key":"altavoz_distorsiona",    "rx":"\\b(parlante|altavoz).*(distorsiona|rota|grita)\\b" }
+      {
+        "key": "no_enciende",
+        "rx": "\\b(no\\s*(enciende|prende)|no\\s*arranca|no\\s*prende\\b|no\\s*ensiende|no\\s*prendee)\\b"
+      },
+      {
+        "key": "sin_imagen",
+        "rx": "\\b(no\\s*da\\s*imagen|sin\\s*imagen|pantalla\\s*negra|no\\s*se\\s*ve|no\\s*hay\\s*se[nñ]al|no\\s*de\\s*imagen)\\b"
+      },
+      {
+        "key": "sin_internet",
+        "rx": "\\b(no\\s*tengo\\s*internet|sin\\s*internet|no\\s*hay\\s*internet|no\\s*conecta\\s*internet|no\\s*tien\\s*intern(et|e)t|no\\s*anda\\s*el\\s*wifi)\\b"
+      },
+      {
+        "key": "internet_inestable",
+        "rx": "\\b(se\\s*corta\\s*internet|internet\\s*lento|wifi\\s*se\\s*corta|se\\s*cai[eé]|intermitent(e|a))\\b"
+      },
+      {
+        "key": "no_sonido",
+        "rx": "\\b(sin\\s*sonido|no\\s*se\\s*escucha|no\\s*suena|sin\\s*audio|no\\s*tengo\\s*sonido|no\\s*ay\\s*sonido)\\b"
+      },
+      {
+        "key": "lento",
+        "rx": "\\b(lento|tarda\\s*mucho|muy\\s*lento|se\\s*traba|se\\s*congela|anda\\s*pesado|lag(gea)?)\\b"
+      },
+      {
+        "key": "pantalla_azul",
+        "rx": "\\b(pantalla\\s*azul|bsod|blue\\s*screen|c[oó]digo\\s*de\\s*paro)\\b"
+      },
+      {
+        "key": "reparacion_automatica",
+        "rx": "\\b(reparaci[oó]n\\s*autom[aá]tica|preparando\\s*reparaci[oó]n|automatic\\s*repair)\\b"
+      },
+      {
+        "key": "se_reinicia",
+        "rx": "\\b(se\\s*reinicia|reinicios?\\s*constantes)\\b"
+      },
+      {
+        "key": "se_apaga",
+        "rx": "\\b(se\\s*apaga|apaga\\s*solo|apaga\\s*de\\s*golpe)\\b"
+      },
+      {
+        "key": "teclado_no_funciona",
+        "rx": "\\b(teclado\\s*(no\\s*funciona|no\\s*anda|no\\s*responde|roto)|teclas?\\s*no\\s*anda[n]?)\\b"
+      },
+      {
+        "key": "touchpad_no_funciona",
+        "rx": "\\b(touchpad|panel\\s*t[aá]ctil).*(no\\s*funciona|no\\s*anda|no\\s*responde)\\b"
+      },
+      {
+        "key": "mouse_no_funciona",
+        "rx": "\\b(mouse|rat[oó]n).*(no\\s*funciona|no\\s*anda|no\\s*responde)\\b"
+      },
+      {
+        "key": "usb_no_detecta",
+        "rx": "\\b(usb\\s*no\\s*detecta|no\\s*reconoce\\s*usb|no\\s*detecta\\s*pendrive|no\\s*anda\\s*el\\s*usb)\\b"
+      },
+      {
+        "key": "hdmi_no_senal",
+        "rx": "\\b(hdmi\\s*(sin\\s*se[nñ]al|no\\s*da|no\\s*signal))\\b"
+      },
+      {
+        "key": "bateria_no_carga",
+        "rx": "\\b(no\\s*carga|enchufado\\s*sin\\s*cargar|bater[ií]a\\s*0%|no\\s*carga\\s*la\\s*notebook)\\b"
+      },
+      {
+        "key": "temperatura_alta",
+        "rx": "\\b(se\\s*calienta|temperatura\\s*alta|calienta\\s*mucho|se\\s*recalienta)\\b"
+      },
+      {
+        "key": "disco_falla",
+        "rx": "\\b(disco\\s*(falla|ruido|lento)|click|clack|smart\\s*error)\\b"
+      },
+      {
+        "key": "ram_falla",
+        "rx": "\\b(memoria|ram).*(falla|error|no\\s*detecta)\\b"
+      },
+      {
+        "key": "gpu_falla",
+        "rx": "\\b(placa\\s*de\\s*video|gpu|tarjeta\\s*gr[aá]fica).*(falla|artefactos|no\\s*da)\\b"
+      },
+      {
+        "key": "fuente_falla",
+        "rx": "\\b(fuente\\s*(falla|quema|no\\s*da)|psu)\\b"
+      },
+      {
+        "key": "bios_config",
+        "rx": "\\b(bios|uefi|secure\\s*boot|orden\\s*de\\s*arranque)\\b"
+      },
+      {
+        "key": "sistema_no_inicia",
+        "rx": "\\b(no\\s*inicia\\s*(windows)?|no\\s*arranca\\s*sistema|queda\\s*cargando)\\b"
+      },
+      {
+        "key": "drivers_conflicto",
+        "rx": "\\b(driver|controlador).*(falla|conflicto|no\\s*anda|no\\s*funciona)\\b"
+      },
+      {
+        "key": "wifi_no_detecta",
+        "rx": "\\b(wifi|wi[\\-\\s]*fi).*(no\\s*detecta|no\\s*aparece|no\\s*ve|no\\s*encuentra)\\b"
+      },
+      {
+        "key": "bluetooth_no_funciona",
+        "rx": "\\b(blu(e)?to[o]?th|bluetooth).*(no\\s*anda|no\\s*funciona|no\\s*conecta)\\b"
+      },
+      {
+        "key": "impresora_no_imprime",
+        "rx": "\\b(impresora).*(no\\s*imprime|en\\s*cola|atasco|no\\s*sale)\\b"
+      },
+      {
+        "key": "escaner_no_funciona",
+        "rx": "\\b(esc[aá]ner|scanner).*(no\\s*funciona|no\\s*anda|no\\s*detecta)\\b"
+      },
+      {
+        "key": "camara_no_funciona",
+        "rx": "\\b(c[aá]mara|webcam).*(no\\s*funciona|no\\s*anda|no\\s*detecta)\\b"
+      },
+      {
+        "key": "microfono_no_funciona",
+        "rx": "\\b(micr[oó]fono).*(no\\s*funciona|no\\s*anda|no\\s*se\\s*escucha)\\b"
+      },
+      {
+        "key": "sin_espacio",
+        "rx": "\\b(sin\\s*espacio|disco\\s*lleno|no\\s*hay\\s*espacio)\\b"
+      },
+      {
+        "key": "disco_no_detectado",
+        "rx": "\\b(disco|ssd|hdd).*(no\\s*detecta|no\\s*aparece)\\b"
+      },
+      {
+        "key": "ssd_lento",
+        "rx": "\\b(ssd).*(lento)\\b"
+      },
+      {
+        "key": "particion_perdida",
+        "rx": "\\b(partici[oó]n|unidad).*(perdida|no\\s*aparece)\\b"
+      },
+      {
+        "key": "virus_malware",
+        "rx": "\\b(virus|malware|troyano|ransomware)\\b"
+      },
+      {
+        "key": "actualizaciones_pendientes",
+        "rx": "\\b(actualizaci[oó]n|update|windows\\s*update).*(pendiente|falla|no\\s*instala)\\b"
+      },
+      {
+        "key": "office_no_abre",
+        "rx": "\\b(office|word|excel|outlook).*(no\\s*abre|no\\s*inicia|se\\s*cierra)\\b"
+      },
+      {
+        "key": "navegador_lento",
+        "rx": "\\b(chrome|edge|firefox|navegador).*(lento|se\\s*traba)\\b"
+      },
+      {
+        "key": "correo_no_sincroniza",
+        "rx": "\\b(correo|mail|outlook|gmail).*(no\\s*sincroniza|no\\s*recibe|no\\s*env[ií]a)\\b"
+      },
+      {
+        "key": "tecla_trabada",
+        "rx": "\\b(tecla).*(trabada|pegada|no\\s*sale)\\b"
+      },
+      {
+        "key": "touchscreen_no_responde",
+        "rx": "\\b(pantalla\\s*t[aá]ctil|touch\\s*screen).*(no\\s*responde|no\\s*anda)\\b"
+      },
+      {
+        "key": "lector_sd_no_lee",
+        "rx": "\\b(lector\\s*sd|tarjeta\\s*sd).*(no\\s*lee|no\\s*detecta)\\b"
+      },
+      {
+        "key": "ethernet_no_detecta",
+        "rx": "\\b(ethernet|red\\s*cable|lan).*(no\\s*detecta|desconectado)\\b"
+      },
+      {
+        "key": "ping_alto",
+        "rx": "\\b(ping|latencia).*(alto|elevado)\\b"
+      },
+      {
+        "key": "vpn_no_conecta",
+        "rx": "\\b(vpn).*(no\\s*conecta|no\\s*anda|falla)\\b"
+      },
+      {
+        "key": "hora_desconfigurada",
+        "rx": "\\b(hora|reloj|fecha).*(mal|desconfigurada|incorrecta)\\b"
+      },
+      {
+        "key": "bios_desactualizada",
+        "rx": "\\b(bios|uefi).*(vieja|desactualizada|update)\\b"
+      },
+      {
+        "key": "ventilador_no_gira",
+        "rx": "\\b(ventilador).*(no\\s*gira|parado|no\\s*anda)\\b"
+      },
+      {
+        "key": "pantalla_parpadea",
+        "rx": "\\b(pantalla|monitor).*(parpadea|fliquea|titila)\\b"
+      },
+      {
+        "key": "brillo_problema",
+        "rx": "\\b(brillo|vrillo).*(bajo|alto|no\\s*ajusta|no\\s*sirve)\\b"
+      },
+      {
+        "key": "olor_humo",
+        "rx": "\\b(humo|umo|olor\\s*a\\s*quemado)\\b"
+      },
+      {
+        "key": "boton_power_falla",
+        "rx": "\\b(bot[oó]n\\s*power|bot[oó]n\\s*encendido).*(falla|no\\s*anda)\\b"
+      },
+      {
+        "key": "cargador_falla",
+        "rx": "\\b(cargador|adapter).*(falla|no\\s*carga|calienta)\\b"
+      },
+      {
+        "key": "conector_alimentacion_flojo",
+        "rx": "\\b(conector|jack).*(flojo|falso\\s*contacto)\\b"
+      },
+      {
+        "key": "tecla_fn_bloqueo",
+        "rx": "\\b(fn|funci[oó]n).*(bloquea|desactiva|touchpad)\\b"
+      },
+      {
+        "key": "lector_dvd_no_lee",
+        "rx": "\\b(dvd|unidad\\s*optica|lectora).*(no\\s*lee|no\\s*abre)\\b"
+      },
+      {
+        "key": "altavoz_distorsiona",
+        "rx": "\\b(parlante|altavoz).*(distorsiona|rota|grita)\\b"
+      }
     ],
-
     "response_templates": {
       "default": "Un gusto hablar con vos {{nombre}} 🙌. Entiendo que tu **{{device}}** tiene: *{{issue_human}}*. Arranquemos con unos **chequeos básicos** y después me contás si **se solucionó** o **sigue igual** 😉",
-
       "no_enciende": "Un gusto hablar con vos {{nombre}} 😄. Entiendo que tu **{{device}}** *no enciende*. 1) Probá **otro enchufe/toma**. 2) Revisá **cable/cargador**. 3) Si es notebook, mantené **Power 15 s** con cargador. 4) Si es PC, fijate el interruptor de la **fuente** en “|”. 5) Encendé y decime si hay **luces o sonidos**.\\n\\nCuando termines, decime si **se solucionó** o **sigue igual** 😉",
       "sin_imagen": "Genial, {{nombre}}. Tu **{{device}}** *no da imagen*. 1) **Monitor** encendido y **entrada correcta** (HDMI/DP). 2) Probá **otro cable/puerto**. 3) Quitá periféricos y **reiniciá**. 4) Notebook: conectá **pantalla externa** y **Fn + tecla pantalla**.\\n\\nDespués contame: **se solucionó** o **sigue igual**.",
       "sin_internet": "Dale, {{nombre}} 🙌. **No tenés internet**. 1) ¿Otros equipos **tienen**? 2) Apagá/encendé **módem/router 30 s**. 3) En tu equipo: *Olvidar red* y reconectar. 4) Probá **hotspot** del celu.\\n\\nDecime: **se solucionó** o **sigue igual**.",
@@ -180,67 +411,294 @@
       "lector_dvd_no_lee": "La **lectora de DVD** no lee 📀. 1) Otro **disco**. 2) Limpieza de **lente**. 3) Ver si aparece en **Explorador**.\\n\\n¿Funciona?",
       "altavoz_distorsiona": "**Parlante distorsiona** 🔊. 1) Probá **auriculares**. 2) Bajá **volumen**. 3) Reinstalá driver.\\n\\n¿Mejoró?"
     },
-
     "advanced_steps": {
-      "no_enciende": ["Desconectá todo y probá **solo energía**.","PC: recolocar **RAM** y probar un módulo.","Notebook sin batería (si es extraíble) + solo cargador.","Si hay **pitidos**, decime el patrón."],
-      "sin_imagen": ["Probar salida **integrada/dedicada**.","Resetear **BIOS** a defaults.","Probar otro **monitor/TV**."],
-      "sin_internet": ["Probar **cable** directo al módem/router.","CMD admin: `ipconfig /release` → `/renew` → `/flushdns`.","Desinstalar adaptador y **reiniciar**."],
-      "internet_inestable": ["Fijar **canal** Wi-Fi menos saturado.","Actualizar **firmware** del router.","Conectar por **Ethernet** para aislar Wi-Fi."],
-      "no_sonido": ["Reinstalar/actualizar **drivers**.","Panel de control → Sonido: deshabilitar/habilitar salida por defecto.","Probar salida **HDMI/USB** alternativa."],
-      "lento": ["Deshabilitar **programas de inicio**.","Chequear **SMART** del disco.","Actualizar Windows + **chipset/video**."],
-      "pantalla_azul": ["**MemTest** para RAM.","Reinstalar/rollback **driver de video**.","`chkdsk /f` + `sfc /scannow`."],
-      "reparacion_automatica": ["Desinstalar **actualización** conflictiva.","Reparar con **USB de Windows** (conservar archivos).","Chequear **SMART** y cables SATA."],
-      "se_reinicia": ["Probar otra **fuente** (PC).","Test **RAM** con MemTest.","Visor de eventos → **Sistema** (errores críticos)."],
-      "se_apaga": ["Limpieza + **pasta térmica**.","Otra **fuente/cargador**.","Eventos críticos en **Visor de eventos**."],
-      "teclado_no_funciona": ["Actualizar **BIOS/EC**.","Desactivar **Teclas filtro** (accesibilidad).","Servicio si hubo **derrame**."],
-      "touchpad_no_funciona": ["Usar mouse USB para continuar.","Habilitar en **BIOS** si está off.","Driver desde **fabricante**."],
-      "mouse_no_funciona": ["Probar otro **mouse**.","Eliminar software de mouse de terceros.","Revisar conflictos en **Administrador de dispositivos**."],
-      "usb_no_detecta": ["Actualizar **chipset/USB**.","Desinstalar **controladoras USB** y reiniciar.","Probar puertos **traseros** o **hub alimentado**."],
-      "hdmi_no_senal": ["Salida **integrada/dedicada**.","Actualizar **driver de video**.","Probar otra **pantalla**."],
-      "bateria_no_carga": ["Probar otro **cargador**.","Actualizar **BIOS/EC**.","Si dice *conectado y sin cargar*, puede ser cargador o **circuito de carga**."],
-      "temperatura_alta": ["Limpieza interna + **pasta térmica**.","Revisar **fan** que gire.","Ajustar **curva** de ventiladores."],
-      "disco_falla": ["`chkdsk /f` + `sfc /scannow`.","Otro **cable/puerto SATA**.","Cambiar a **SSD**."],
-      "ram_falla": ["Limpiar contactos con **goma** suave.","Probar otros **slots**.","Actualizar **BIOS**."],
-      "gpu_falla": ["Probar **integrada** para descartar.","Verificar **alimentación PCIe**.","Stress test (**FurMark/OCCT**) si corresponde."],
-      "fuente_falla": ["Medir **voltajes** si hay tester.","Revisar conectores **ATX/CPU/GPU**.","Buscar hollín/olor **quemado**."],
-      "bios_config": ["Actualizar **BIOS** estable.","Desactivar **Fast Boot** para pruebas.","Ajustar **modo SATA** (AHCI/RAID)."],
-      "sistema_no_inicia": ["Reparar con **USB** manteniendo archivos.","Chequear **disco** (SMART).","Revisar **drivers** recientes."],
-      "drivers_conflicto": ["DDU para **video** en Modo seguro.","Instalar versión **estable**.","Bloquear update automático de ese driver."],
-      "wifi_no_detecta": ["Habilitar adaptador en **Redes**.","Probar **5 GHz** vs **2.4**.","Driver **Wi-Fi** del fabricante."],
-      "bluetooth_no_funciona": ["Actualizar driver **BT**.","Probar con otro **dispositivo**.","Verificar **modo avión** y permisos."],
-      "impresora_no_imprime": ["Reinstalar driver del **fabricante**.","Resetear spooler (**cola**).","Probar impresión **USB directa**."],
-      "escaner_no_funciona": ["Cerrar apps que lo **bloqueen**.","Probar en otro **equipo**.","Revisar **servicios** de adquisición de imágenes."],
-      "camara_no_funciona": ["Configurar **privacidad**.","Probar otro **puerto USB**.","Driver del **fabricante**."],
-      "microfono_no_funciona": ["Reinstalar **audio**.","Permisos de **privacidad**.","Probar otro **micrófono**."],
-      "sin_espacio": ["Mover a **externo/nube**.","Activar **Storage Sense**.","Ampliar a **SSD** mayor."],
-      "disco_no_detectado": ["Ver si aparece en **BIOS**.","Cambiar **cable/bahía**.","Inicializar y crear **partición**."],
-      "ssd_lento": ["Desactivar **defrag** clásico.","Activar **TRIM**.","Revisar **SMART**."],
-      "particion_perdida": ["Usar **TestDisk**.","Evitar escribir en el disco.","Hacer **backup** urgente."],
-      "virus_malware": ["Escaneo en **Modo seguro**.","Revisar **inicio**/tareas programadas.","Si hay cifrado: acudir a **especialista**."],
-      "actualizaciones_pendientes": ["Limpiar caché **WU**.","Instalar manual desde **Catálogo Microsoft**.","Verificar **espacio**."],
-      "office_no_abre": ["Reparación **en línea**.","Actualizar a última versión.","Nuevo **perfil Outlook** si aplica."],
-      "navegador_lento": ["Restablecer navegador.","Probar otro para comparar.","Actualizar a la **última versión**."],
-      "correo_no_sincroniza": ["Probar **webmail**.","Crear **perfil nuevo**.","Revisar **antivirus/firewall**."],
-      "tecla_trabada": ["Retirar tecla y limpiar (si se puede).","Cambiar **módulo** si es chiclet.","Servicio si hubo **derrame**."],
-      "touchscreen_no_responde": ["Actualizar driver táctil.","Revisar película **protectora**.","Probar en **Modo seguro**."],
-      "lector_sd_no_lee": ["Actualizar driver del lector.","Usar **adaptador USB**.","Ver formato **exFAT/FAT32**."],
-      "ethernet_no_detecta": ["Forzar **1Gbps/100Mbps**.","Probar **IP fija**.","Revisar **LEDs** del puerto."],
-      "ping_alto": ["Cambiar **canal** Wi-Fi.","Reiniciar router y **ONT**.","Consultar a tu **ISP**."],
-      "vpn_no_conecta": ["Revisar **firewall/antivirus**.","Probar con **datos móviles**.","Actualizar **cliente VPN**."],
-      "hora_desconfigurada": ["Posible **pila CMOS**.","Sincronizar con `time.windows.com`.","Revisar en **BIOS**."],
-      "bios_desactualizada": ["Hacerlo con **cargador** y batería.","No interrumpir el **flash**.","Cargar **defaults** luego."],
-      "ventilador_no_gira": ["Puede requerir **reemplazo**.","Revisar **conector** en mother.","Actualizar **EC/BIOS**."],
-      "pantalla_parpadea": ["Actualizar **driver de video**.","Probar otra **pantalla**.","Si es notebook, revisar **flex**."],
-      "brillo_problema": ["Actualizar **BIOS/EC**.","Restablecer plan de **energía**.","Si es panel, revisar **retroiluminación**."],
-      "olor_humo": ["Revisar **fuente/placa** por hollín.","No usar hasta **diagnóstico**.","Si fue el **cargador**, reemplazar."],
-      "boton_power_falla": ["Revisar **flex/placa** del botón.","Reemplazo de **switch**.","Alternativa: encendido por tapa/tecla (si existe)."],
-      "cargador_falla": ["Comprobar **voltaje/amperaje**.","Evitar uso si **se calienta** mucho.","Cambiar **punta** si es removible."],
-      "conector_alimentacion_flojo": ["Puede requerir **resoldado**.","Usar cable en **ángulo** para no forzar.","Servicio técnico."],
-      "tecla_fn_bloqueo": ["Desactivar en **BIOS** (Action Keys).","**Centro de movilidad**.","Manual del **fabricante**."],
-      "lector_dvd_no_lee": ["Reinstalar **IDE/ATAPI**.","Actualizar **firmware**.","Revisar **mecánica** si no abre."],
-      "altavoz_distorsiona": ["Parlante puede estar **dañado**.","Revisar **ecualizadores**/mejoras.","Reemplazo en **servicio**."]
+      "no_enciende": [
+        "Desconectá todo y probá **solo energía**.",
+        "PC: recolocar **RAM** y probar un módulo.",
+        "Notebook sin batería (si es extraíble) + solo cargador.",
+        "Si hay **pitidos**, decime el patrón."
+      ],
+      "sin_imagen": [
+        "Probar salida **integrada/dedicada**.",
+        "Resetear **BIOS** a defaults.",
+        "Probar otro **monitor/TV**."
+      ],
+      "sin_internet": [
+        "Probar **cable** directo al módem/router.",
+        "CMD admin: `ipconfig /release` → `/renew` → `/flushdns`.",
+        "Desinstalar adaptador y **reiniciar**."
+      ],
+      "internet_inestable": [
+        "Fijar **canal** Wi-Fi menos saturado.",
+        "Actualizar **firmware** del router.",
+        "Conectar por **Ethernet** para aislar Wi-Fi."
+      ],
+      "no_sonido": [
+        "Reinstalar/actualizar **drivers**.",
+        "Panel de control → Sonido: deshabilitar/habilitar salida por defecto.",
+        "Probar salida **HDMI/USB** alternativa."
+      ],
+      "lento": [
+        "Deshabilitar **programas de inicio**.",
+        "Chequear **SMART** del disco.",
+        "Actualizar Windows + **chipset/video**."
+      ],
+      "pantalla_azul": [
+        "**MemTest** para RAM.",
+        "Reinstalar/rollback **driver de video**.",
+        "`chkdsk /f` + `sfc /scannow`."
+      ],
+      "reparacion_automatica": [
+        "Desinstalar **actualización** conflictiva.",
+        "Reparar con **USB de Windows** (conservar archivos).",
+        "Chequear **SMART** y cables SATA."
+      ],
+      "se_reinicia": [
+        "Probar otra **fuente** (PC).",
+        "Test **RAM** con MemTest.",
+        "Visor de eventos → **Sistema** (errores críticos)."
+      ],
+      "se_apaga": [
+        "Limpieza + **pasta térmica**.",
+        "Otra **fuente/cargador**.",
+        "Eventos críticos en **Visor de eventos**."
+      ],
+      "teclado_no_funciona": [
+        "Actualizar **BIOS/EC**.",
+        "Desactivar **Teclas filtro** (accesibilidad).",
+        "Servicio si hubo **derrame**."
+      ],
+      "touchpad_no_funciona": [
+        "Usar mouse USB para continuar.",
+        "Habilitar en **BIOS** si está off.",
+        "Driver desde **fabricante**."
+      ],
+      "mouse_no_funciona": [
+        "Probar otro **mouse**.",
+        "Eliminar software de mouse de terceros.",
+        "Revisar conflictos en **Administrador de dispositivos**."
+      ],
+      "usb_no_detecta": [
+        "Actualizar **chipset/USB**.",
+        "Desinstalar **controladoras USB** y reiniciar.",
+        "Probar puertos **traseros** o **hub alimentado**."
+      ],
+      "hdmi_no_senal": [
+        "Salida **integrada/dedicada**.",
+        "Actualizar **driver de video**.",
+        "Probar otra **pantalla**."
+      ],
+      "bateria_no_carga": [
+        "Probar otro **cargador**.",
+        "Actualizar **BIOS/EC**.",
+        "Si dice *conectado y sin cargar*, puede ser cargador o **circuito de carga**."
+      ],
+      "temperatura_alta": [
+        "Limpieza interna + **pasta térmica**.",
+        "Revisar **fan** que gire.",
+        "Ajustar **curva** de ventiladores."
+      ],
+      "disco_falla": [
+        "`chkdsk /f` + `sfc /scannow`.",
+        "Otro **cable/puerto SATA**.",
+        "Cambiar a **SSD**."
+      ],
+      "ram_falla": [
+        "Limpiar contactos con **goma** suave.",
+        "Probar otros **slots**.",
+        "Actualizar **BIOS**."
+      ],
+      "gpu_falla": [
+        "Probar **integrada** para descartar.",
+        "Verificar **alimentación PCIe**.",
+        "Stress test (**FurMark/OCCT**) si corresponde."
+      ],
+      "fuente_falla": [
+        "Medir **voltajes** si hay tester.",
+        "Revisar conectores **ATX/CPU/GPU**.",
+        "Buscar hollín/olor **quemado**."
+      ],
+      "bios_config": [
+        "Actualizar **BIOS** estable.",
+        "Desactivar **Fast Boot** para pruebas.",
+        "Ajustar **modo SATA** (AHCI/RAID)."
+      ],
+      "sistema_no_inicia": [
+        "Reparar con **USB** manteniendo archivos.",
+        "Chequear **disco** (SMART).",
+        "Revisar **drivers** recientes."
+      ],
+      "drivers_conflicto": [
+        "DDU para **video** en Modo seguro.",
+        "Instalar versión **estable**.",
+        "Bloquear update automático de ese driver."
+      ],
+      "wifi_no_detecta": [
+        "Habilitar adaptador en **Redes**.",
+        "Probar **5 GHz** vs **2.4**.",
+        "Driver **Wi-Fi** del fabricante."
+      ],
+      "bluetooth_no_funciona": [
+        "Actualizar driver **BT**.",
+        "Probar con otro **dispositivo**.",
+        "Verificar **modo avión** y permisos."
+      ],
+      "impresora_no_imprime": [
+        "Reinstalar driver del **fabricante**.",
+        "Resetear spooler (**cola**).",
+        "Probar impresión **USB directa**."
+      ],
+      "escaner_no_funciona": [
+        "Cerrar apps que lo **bloqueen**.",
+        "Probar en otro **equipo**.",
+        "Revisar **servicios** de adquisición de imágenes."
+      ],
+      "camara_no_funciona": [
+        "Configurar **privacidad**.",
+        "Probar otro **puerto USB**.",
+        "Driver del **fabricante**."
+      ],
+      "microfono_no_funciona": [
+        "Reinstalar **audio**.",
+        "Permisos de **privacidad**.",
+        "Probar otro **micrófono**."
+      ],
+      "sin_espacio": [
+        "Mover a **externo/nube**.",
+        "Activar **Storage Sense**.",
+        "Ampliar a **SSD** mayor."
+      ],
+      "disco_no_detectado": [
+        "Ver si aparece en **BIOS**.",
+        "Cambiar **cable/bahía**.",
+        "Inicializar y crear **partición**."
+      ],
+      "ssd_lento": [
+        "Desactivar **defrag** clásico.",
+        "Activar **TRIM**.",
+        "Revisar **SMART**."
+      ],
+      "particion_perdida": [
+        "Usar **TestDisk**.",
+        "Evitar escribir en el disco.",
+        "Hacer **backup** urgente."
+      ],
+      "virus_malware": [
+        "Escaneo en **Modo seguro**.",
+        "Revisar **inicio**/tareas programadas.",
+        "Si hay cifrado: acudir a **especialista**."
+      ],
+      "actualizaciones_pendientes": [
+        "Limpiar caché **WU**.",
+        "Instalar manual desde **Catálogo Microsoft**.",
+        "Verificar **espacio**."
+      ],
+      "office_no_abre": [
+        "Reparación **en línea**.",
+        "Actualizar a última versión.",
+        "Nuevo **perfil Outlook** si aplica."
+      ],
+      "navegador_lento": [
+        "Restablecer navegador.",
+        "Probar otro para comparar.",
+        "Actualizar a la **última versión**."
+      ],
+      "correo_no_sincroniza": [
+        "Probar **webmail**.",
+        "Crear **perfil nuevo**.",
+        "Revisar **antivirus/firewall**."
+      ],
+      "tecla_trabada": [
+        "Retirar tecla y limpiar (si se puede).",
+        "Cambiar **módulo** si es chiclet.",
+        "Servicio si hubo **derrame**."
+      ],
+      "touchscreen_no_responde": [
+        "Actualizar driver táctil.",
+        "Revisar película **protectora**.",
+        "Probar en **Modo seguro**."
+      ],
+      "lector_sd_no_lee": [
+        "Actualizar driver del lector.",
+        "Usar **adaptador USB**.",
+        "Ver formato **exFAT/FAT32**."
+      ],
+      "ethernet_no_detecta": [
+        "Forzar **1Gbps/100Mbps**.",
+        "Probar **IP fija**.",
+        "Revisar **LEDs** del puerto."
+      ],
+      "ping_alto": [
+        "Cambiar **canal** Wi-Fi.",
+        "Reiniciar router y **ONT**.",
+        "Consultar a tu **ISP**."
+      ],
+      "vpn_no_conecta": [
+        "Revisar **firewall/antivirus**.",
+        "Probar con **datos móviles**.",
+        "Actualizar **cliente VPN**."
+      ],
+      "hora_desconfigurada": [
+        "Posible **pila CMOS**.",
+        "Sincronizar con `time.windows.com`.",
+        "Revisar en **BIOS**."
+      ],
+      "bios_desactualizada": [
+        "Hacerlo con **cargador** y batería.",
+        "No interrumpir el **flash**.",
+        "Cargar **defaults** luego."
+      ],
+      "ventilador_no_gira": [
+        "Puede requerir **reemplazo**.",
+        "Revisar **conector** en mother.",
+        "Actualizar **EC/BIOS**."
+      ],
+      "pantalla_parpadea": [
+        "Actualizar **driver de video**.",
+        "Probar otra **pantalla**.",
+        "Si es notebook, revisar **flex**."
+      ],
+      "brillo_problema": [
+        "Actualizar **BIOS/EC**.",
+        "Restablecer plan de **energía**.",
+        "Si es panel, revisar **retroiluminación**."
+      ],
+      "olor_humo": [
+        "Revisar **fuente/placa** por hollín.",
+        "No usar hasta **diagnóstico**.",
+        "Si fue el **cargador**, reemplazar."
+      ],
+      "boton_power_falla": [
+        "Revisar **flex/placa** del botón.",
+        "Reemplazo de **switch**.",
+        "Alternativa: encendido por tapa/tecla (si existe)."
+      ],
+      "cargador_falla": [
+        "Comprobar **voltaje/amperaje**.",
+        "Evitar uso si **se calienta** mucho.",
+        "Cambiar **punta** si es removible."
+      ],
+      "conector_alimentacion_flojo": [
+        "Puede requerir **resoldado**.",
+        "Usar cable en **ángulo** para no forzar.",
+        "Servicio técnico."
+      ],
+      "tecla_fn_bloqueo": [
+        "Desactivar en **BIOS** (Action Keys).",
+        "**Centro de movilidad**.",
+        "Manual del **fabricante**."
+      ],
+      "lector_dvd_no_lee": [
+        "Reinstalar **IDE/ATAPI**.",
+        "Actualizar **firmware**.",
+        "Revisar **mecánica** si no abre."
+      ],
+      "altavoz_distorsiona": [
+        "Parlante puede estar **dañado**.",
+        "Revisar **ecualizadores**/mejoras.",
+        "Reemplazo en **servicio**."
+      ]
     },
-
     "followup_texts": {
       "ask_result": "Cuando termines, contame si **se solucionó** o **sigue igual**. Estoy acá, tranqui 😉",
       "advanced_intro": "De una, {{nombre}} 🙏. Sigamos con unos **chequeos más avanzados**:",
@@ -248,18 +706,26 @@
       "escalate": "Tranquilo {{nombre}} 😌. Como no se resolvió con básicos/avanzados, parece un **caso Nivel 2/3**. Te dejo un botón para enviar **toda esta conversación** por WhatsApp a un técnico, así no repetís nada y aceleramos la solución."
     }
   },
-
   "messages": {
     "greeting": "¡Hola! Soy Tecnos, asistente inteligente de STI 🤖. ¿Cómo te llamás? Contame tu problema en pocas palabras.",
     "help_menu_title": "Temas frecuentes",
     "help_menu": [
-      "No enciende","Pantalla negra / sin imagen","No inicia Windows","Sin internet / Wi-Fi",
-      "Muy lento / se traba","Sin sonido","Se calienta","Teclado/Touchpad no funciona",
-      "No carga la batería","Impresora no imprime","Asistencia remota (AnyDesk)"
+      "No enciende",
+      "Pantalla negra / sin imagen",
+      "No inicia Windows",
+      "Sin internet / Wi-Fi",
+      "Muy lento / se traba",
+      "Sin sonido",
+      "Se calienta",
+      "Teclado/Touchpad no funciona",
+      "No carga la batería",
+      "Impresora no imprime",
+      "Asistencia remota (AnyDesk)"
     ],
     "fallback": "Para ayudarte mejor, elegí un tema de la lista o describí el problema en 1 frase.",
     "whatsapp_cta": "Si preferís, escribinos por WhatsApp: {{whatsapp_link}}"
   },
-
-  "fallback": { "response": "{fallback}" }
+  "fallback": {
+    "response": "{fallback}"
+  }
 }
