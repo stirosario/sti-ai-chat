@@ -1,11 +1,14 @@
 {
   "bot": "STI • Servicio Técnico Inteligente",
   "locale": "es-AR",
-  "version": "4.5.0",
+  "version": "4.6.0",
 
   "settings": {
     "enable_transcripts": true,
     "transcriptsDir": "./data/transcripts",
+    "ticketsDir": "./data/tickets",
+    "publicBaseUrl": "https://sti-rosario-ai.onrender.com",
+
     "fallback_escalation_after": 3,
 
     "whatsapp_number": "5493417422422",
@@ -17,8 +20,13 @@
 
     "problem_keywords": [
       "no enciende","no prende","no arranca","no inicia","no entra a windows",
-      "pantalla","sin imagen","sin internet","lento","se reinicia","no carga",
-      "caliente","ruido","ventilador","no detecta","no reconoce","error","falla"
+      "pantalla","sin imagen","pantalla negra","no da imagen",
+      "sin internet","no conecta","sin wifi","no hay señal",
+      "lento","trabado","tildado","se tilda","congelado",
+      "se reinicia","se apaga solo","no carga","bateria","batería",
+      "caliente","temperatura","ruido","ventilador","cooler",
+      "no detecta","no reconoce","usb","pendrive","disco","hdd","ssd",
+      "error","falla","no funca","no funciona"
     ]
   },
 
@@ -28,7 +36,8 @@
       "name_confirm": "¡Genial {NOMBRE}! 👍 Ahora decime con qué dispositivo tenés problemas o describí brevemente el problema.",
       "skip_name": "Listo, seguimos sin nombre. Contame qué dispositivo o problema tenés."
     },
-    "device_probe": "Perfecto, {{nombre}}. Ya tengo que es {{device}}. Ahora contame brevemente cuál es el problema.",
+
+    "device_probe": "Perfecto, {{nombre}}. Tomo nota del equipo: {{device}}. Ahora contame brevemente cuál es el problema.",
     "after_steps": "Si el problema continúa, elegí una opción:",
     "default_options": [
       "Realizar pruebas avanzadas",
@@ -37,33 +46,38 @@
     "default_options_map": { "1": "advanced", "2": "whatsapp_ticket" }
   },
 
-  "_note": "Aunque OpenAI genera la mayor parte de los pasos, dejamos un fallback estático por si la IA no responde.",
+  "_note": "OpenAI lleva la conversación principal (IA total). Este JSON provee NLP + fallbacks y textos de apoyo.",
 
   "nlp": {
     "devices": [
-      { "key": "pc",       "rx": "\\bpc|escritorio|gabinete\\b" },
-      { "key": "notebook", "rx": "\\bnotebook|laptop|portatil|portátil\\b" },
-      { "key": "router",   "rx": "\\brouter|modem|módem\\b" },
-      { "key": "impresora","rx": "\\bimpresora|printer\\b" },
-      { "key": "internet", "rx": "\\binternet|wifi|wi-?fi|red\\b" },
-      { "key": "monitor",  "rx": "\\bmonitor|pantalla\\b" },
-      { "key": "disco",    "rx": "\\bdisco|hdd|ssd\\b" },
-      { "key": "teclado",  "rx": "\\bteclado\\b" },
-      { "key": "mouse",    "rx": "\\bmouse|rat[oó]n\\b" },
-      { "key": "audio",    "rx": "\\baudio|sonido|parlante|auricular\\b" },
-      { "key": "camara",   "rx": "\\bc[aá]mara|webcam\\b" },
-      { "key": "bateria",  "rx": "\\bbateria|bater[íi]a\\b" }
+      { "key": "pc",         "rx": "\\b(pc|escritorio|gabinete|torre|cpu)\\b" },
+      { "key": "notebook",   "rx": "\\b(notebook|laptop|portatil|portátil|netbook|ultrabook)\\b" },
+      { "key": "router",     "rx": "\\b(router|modem|m[óo]dem|ont)\\b" },
+      { "key": "impresora",  "rx": "\\b(impresora|printer|hp|epson|brother|canon)\\b" },
+      { "key": "internet",   "rx": "\\b(internet|wifi|wi-?fi|red|conexi[óo]n)\\b" },
+      { "key": "monitor",    "rx": "\\b(monitor|pantalla|display)\\b" },
+      { "key": "disco",      "rx": "\\b(disco|rigido|r[ií]gido|hdd|ssd|unidad)\\b" },
+      { "key": "teclado",    "rx": "\\b(teclado|keyboard)\\b" },
+      { "key": "mouse",      "rx": "\\b(mouse|rat[óo]n)\\b" },
+      { "key": "audio",      "rx": "\\b(audio|sonido|parlante|auricular|micr[óo]fono)\\b" },
+      { "key": "camara",     "rx": "\\b(c[áa]mara|webcam)\\b" },
+      { "key": "bateria",    "rx": "\\b(bateria|bater[íi]a|carga)\\b" },
+      { "key": "placa_video","rx": "\\b(placa de video|gpu|placa gr[áa]fica|video)\\b" },
+      { "key": "puertos",    "rx": "\\b(puerto[s]?|hdmi|vga|dp|displayport|usb-c|type[- ]?c)\\b" }
     ],
 
     "issues": [
-      { "key": "no_enciende",    "rx": "\\b(no enciende|no prende|no arranca)\\b" },
-      { "key": "no_windows",     "rx": "\\b(no entra a (windows|win)|no inicia sistema)\\b" },
-      { "key": "sin_imagen",     "rx": "\\b(sin imagen|no se ve|pantalla negra)\\b" },
-      { "key": "sin_internet",   "rx": "\\b(sin internet|sin wifi|no conecta|no hay señal)\\b" },
-      { "key": "lento",          "rx": "\\blento|trabado|tildado\\b" },
-      { "key": "no_carga",       "rx": "\\b(no carga|bateria muerta|bater[ií]a no carga)\\b" },
-      { "key": "ruido",          "rx": "\\bruido|ventilador|cooler\\b" },
-      { "key": "usb_no_detecta", "rx": "\\b(no detecta|no reconoce).*(usb|pendrive)|usb.*(no detecta|no reconoce)\\b" }
+      { "key": "no_enciende",     "rx": "\\b(no enciende|no prende|no arranca|no funca)\\b" },
+      { "key": "no_windows",      "rx": "\\b(no entra a (windows|win)|no inicia (sistema|windows))\\b" },
+      { "key": "sin_imagen",      "rx": "\\b(sin imagen|pantalla negra|no se ve|no da imagen)\\b" },
+      { "key": "sin_internet",    "rx": "\\b(sin internet|sin wifi|no conecta|no hay se[ñn]al|se corta internet)\\b" },
+      { "key": "lento",           "rx": "\\b(lento|trabado|tildado|congelado|va pesado)\\b" },
+      { "key": "no_carga",        "rx": "\\b(no carga|bateri[íi]a muerta|cargador no anda|no mantiene carga)\\b" },
+      { "key": "ruido",           "rx": "\\b(ruido|ventilador|cooler|zumbido)\\b" },
+      { "key": "usb_no_detecta",  "rx": "\\b((no detecta|no reconoce).*(usb|pendrive)|usb.*(no detecta|no reconoce))\\b" },
+      { "key": "se_reinicia",     "rx": "\\b(se reinicia|reinicios|rebootea solo|loop de reinicio)\\b" },
+      { "key": "temperatura",     "rx": "\\b(caliente|sobrecalienta|temperatura|thermal throttling)\\b" },
+      { "key": "error_disco",     "rx": "\\b(disco|hdd|ssd).*(error|ruido|lento|bad|sectores|smart)\\b" }
     ],
 
     "issue_labels": {
@@ -74,7 +88,10 @@
       "lento": "lento",
       "no_carga": "no carga",
       "ruido": "ruido/ventilador",
-      "usb_no_detecta": "no detecta USB"
+      "usb_no_detecta": "no detecta USB",
+      "se_reinicia": "se reinicia solo",
+      "temperatura": "temperatura alta",
+      "error_disco": "posible problema de disco"
     },
 
     "response_templates": {
@@ -84,15 +101,39 @@
     "advanced_steps": {
       "no_enciende": [
         "Probar sin batería (solo cargador).",
-        "Reset de energía 30s sin batería/cable.",
-        "Revisar RAM (sacar/colocar).",
-        "Clear CMOS/BIOS si es PC de escritorio."
+        "Reset de energía: desconectar todo y mantener power 30s.",
+        "Revisar RAM (sacar/poner, limpiar contactos).",
+        "Clear CMOS/BIOS (PC de escritorio)."
       ],
       "no_windows": [
-        "Intentar Reparación de inicio (desde medio de instalación).",
+        "Reparación de inicio (medio de instalación).",
         "CHKDSK /F /R desde consola.",
-        "Reinstalar/actualizar drivers de almacenamiento.",
-        "Revisar SMART del disco."
+        "Revisar SMART del disco.",
+        "Actualizar/reinstalar drivers de almacenamiento."
+      ],
+      "sin_imagen": [
+        "Probar monitor/cable alternativo.",
+        "Desconectar GPU y probar video integrado (si aplica).",
+        "Reset BIOS/CMOS.",
+        "HDMI/DP: probar otro puerto."
+      ],
+      "sin_internet": [
+        "Power cycle: apagar router 30s y encender.",
+        "Olvidar/red Wi-Fi y volver a conectar.",
+        "IP automática y DNS 1.1.1.1/8.8.8.8.",
+        "Probar por cable directo al módem."
+      ],
+      "lento": [
+        "Ver procesos y uso de disco/CPU.",
+        "Arranque limpio (msconfig).",
+        "SMART/CrystalDiskInfo para disco.",
+        "Malwarebytes análisis rápido."
+      ],
+      "error_disco": [
+        "SMART: verificar atributos críticos.",
+        "Copia urgente de datos.",
+        "CHKDSK con /F /R.",
+        "Considerar clonar a SSD nuevo."
       ]
     },
 
@@ -104,23 +145,36 @@
   "sections": {
     "fallbacks": {
       "medio": "¿Podés decirlo con otras palabras o elegir un tema?",
-      "hard": "Te ofrezco asistencia por WhatsApp: {{whatsapp_link}}"
+      "hard": "Te ofrezco asistencia por WhatsApp: https://wa.me/5493417422422"
     },
+
     "anydesk": {
+      "_note": "Guías rápidas para clientes: instalar, desinstalar o forzar cambio de ID.",
       "instalar": [
-        "Entrá a anydesk.com y descargá AnyDesk.",
-        "Abrí el instalador y seguí los pasos.",
-        "Compartime el ID que aparece en pantalla."
+        "Entrá a https://anydesk.com y descargá AnyDesk.",
+        "Ejecutá el instalador y elegí \"Instalar\" (mejor que \"solo portable\").",
+        "Abrí AnyDesk y pasame el ID que aparece en pantalla.",
+        "Si Windows pide permisos, aceptalos (control total)."
       ],
       "desinstalar": [
-        "Abrí Panel de Control > Programas.",
-        "Buscá AnyDesk, seleccioná Desinstalar.",
-        "Reiniciá el equipo."
+        "Windows: Panel de Control → Programas → Desinstalar AnyDesk.",
+        "Eliminar (si existe) la carpeta: C:\\\\Program Files (x86)\\\\AnyDesk o C:\\\\Program Files\\\\AnyDesk.",
+        "Reiniciar la PC para limpiar el servicio."
       ],
       "cambiar_id": [
-        "Desinstalá AnyDesk.",
-        "Borrá la carpeta de AnyDesk en AppData/ProgramData si existe.",
-        "Instalá nuevamente para generar un ID nuevo."
+        "Desinstalar AnyDesk como arriba.",
+        "Borrar restos en: C:\\\\ProgramData\\\\AnyDesk y %AppData%\\\\AnyDesk (si existen).",
+        "Reiniciar y volver a instalar desde anydesk.com (se genera un ID nuevo)."
+      ],
+      "macOS": [
+        "Descargá el .dmg, arrastrá AnyDesk a Aplicaciones.",
+        "En Preferencias del Sistema → Seguridad y Privacidad, otorgá permisos de Accesibilidad y Grabación de pantalla.",
+        "Para desinstalar: arrastrar AnyDesk a la Papelera y eliminar preferencias en ~/Library/Application Support/AnyDesk."
+      ],
+      "android": [
+        "Instalá “AnyDesk Remote Control” desde Play Store.",
+        "Abrí la app y compartí el ID.",
+        "Si pide permisos de accesibilidad, activalos para control remoto."
       ]
     }
   }
