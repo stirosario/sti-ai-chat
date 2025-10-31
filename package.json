@@ -12,11 +12,12 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "openai": "^4.23.0"
-  },
+  "cors": "^2.8.5",
+  "dotenv": "^16.4.5",
+  "express": "^4.21.2",
+  "ioredis": "^5.3.2",
+  "openai": "^4.23.0"
+},
   "devDependencies": {
     "nodemon": "^3.1.7"
   },
@@ -28,7 +29,14 @@
     "url": "https://github.com/stirosario/sti-ai-chat/issues"
   },
   "homepage": "https://github.com/stirosario/sti-ai-chat#readme",
-  "keywords": ["sti", "servicio técnico inteligente", "chatbot", "openai", "nodejs", "express"],
+  "keywords": [
+    "sti",
+    "servicio técnico inteligente",
+    "chatbot",
+    "openai",
+    "nodejs",
+    "express"
+  ],
   "author": "Lucas Bertolino • STI Rosario",
   "license": "ISC"
 }
