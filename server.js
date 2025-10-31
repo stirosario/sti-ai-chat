@@ -280,87 +280,141 @@ app.post('/api/chat', async (req, res) => {
     let options = [];
 
     // ===== FLUJO 1: NOMBRE =====
-    if (!session.userName) {
-      const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{2,20})$/i);
+    // if (!session.userName) {
+    //   const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{2,20})$/i);
       
-      if (m && m[1]) {
-        session.userName = m[1].toLowerCase();
-        session.stage = 'ask_device';
-        reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿con qué dispositivo tenés problemas?`;
-      } 
-      else if (/^omitir$/i.test(t)) {
-        session.userName = 'usuario';
-        session.stage = 'ask_device';
-        reply = 'Perfecto, seguimos. ¿Qué dispositivo te está dando problemas?';
-      } 
-      else {
-        reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
-      }
-    }
+    //   if (m && m[1]) {
+    //     session.userName = m[1].toLowerCase();
+    //     session.stage = 'ask_device';
+    //     reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿con qué dispositivo tenés problemas?`;
+    //   } 
+    //   else if (/^omitir$/i.test(t)) {
+    //     session.userName = 'usuario';
+    //     session.stage = 'ask_device';
+    //     reply = 'Perfecto, seguimos. ¿Qué dispositivo te está dando problemas?';
+    //   } 
+    //   else {
+    //     reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
+    //   }
+    // }
     
-    // ===== FLUJO 2: DISPOSITIVO =====
-    else if (!session.device) {
-      const dev = detectDevice(t) || t.toLowerCase().replace(/[^a-záéíóúñ\s]/gi, '').trim();
-      
-      if (dev && dev.length >= 2) {
-        session.device = dev;
-        session.stage = 'ask_issue';
-        reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
-      } 
-      else {
-        reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
-      }
+   // ===== FLUJO 1: NOMBRE =====
+if (!session.userName) {
+  const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{2,20})$/i);
+
+  if (m && m[1]) {
+    session.userName = m[1].toLowerCase();
+    session.stage = 'ask_problem';  // ← cambiamos a pedir problema
+    reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+  }
+  else if (/^omitir$/i.test(t)) {
+    session.userName = 'usuario';
+    session.stage = 'ask_problem';
+    reply = 'Perfecto, seguimos.\n\nAhora decime: ¿qué problema estás teniendo?';
+  }
+  else {
+    reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
+  }
+}
+
+// ===== FLUJO 2: PROBLEMA LIBRE (capturar descripción del cliente) =====
+else if (session.stage === 'ask_problem' && !session.problem) {
+  // Guardamos lo que contó el cliente como problema libre
+  session.problem = t;
+  session.stage   = 'ask_device';   // siguiente paso: identificar equipo
+  // Opciones sugeridas (si usás options en la respuesta)
+  if (typeof options !== 'undefined') {
+    options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
+  }
+  reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
+}
+
+// ===== FLUJO 3: DISPOSITIVO =====
+else if (!session.device) {
+  const dev = detectDevice(t) || t.toLowerCase().replace(/[^a-záéíóúñ\s]/gi, '').trim();
+
+  if (dev && dev.length >= 2) {
+    session.device = dev;
+
+    // Intento deducir el issue automáticamente combinando lo que ya contó el cliente
+    let issueKey = detectIssue(`${session.problem || ''} ${t}`.trim());
+
+    if (issueKey) {
+      // Tenemos issue: pasamos directo a pasos básicos
+      session.issueKey = issueKey;
+      session.stage    = 'basic_tests';
+
+      const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
+        'Reiniciar el equipo',
+        'Verificar conexiones físicas',
+        'Probar en modo seguro'
+      ];
+
+      reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
+      reply += `🔧 **Probá estos pasos básicos:**\n\n`;
+      pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+      reply += `\n¿Pudiste hacer alguno de estos pasos?`;
+
+      session.stepsDone.push('basic_tests_shown');
+      session.tests.basic = pasos.slice(0, 3);
+    } else {
+      // No se pudo deducir issue: pedimos detalle específico del equipo
+      session.stage = 'ask_issue';
+      reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
     }
-    
-    // ===== FLUJO 3: PROBLEMA (ISSUE) =====
-    else if (!session.issueKey) {
-      let issueKey = detectIssue(t);
-      
-      // Detectar frases genéricas argentinas con contexto
-      if (!issueKey && /\b(no anda|no va|no funca|no sirve|no prende)\b/i.test(t)) {
-        issueKey = 'no_funciona';
-      }
+  }
+  else {
+    reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
+  }
+}
 
-      if (issueKey) {
-        session.issueKey = issueKey;
-        session.stage = 'basic_tests';
+// ===== FLUJO 4: PROBLEMA (ISSUE) =====
+else if (!session.issueKey) {
+  let issueKey = detectIssue(t);
 
-        const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
-          'Reiniciar el equipo',
-          'Verificar conexiones físicas',
-          'Probar en modo seguro'
-        ];
+  // Detectar frases genéricas argentinas con contexto
+  if (!issueKey && /\b(no anda|no va|no funca|no sirve|no prende)\b/i.test(t)) {
+    issueKey = 'no_funciona';
+  }
 
-        reply = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
-        reply += `🔧 **Probá estos pasos básicos:**\n\n`;
-        
-        pasos.slice(0, 3).forEach((p, i) => {
-          reply += `${i + 1}. ${p}\n`;
-        });
-        
-        reply += `\n¿Pudiste hacer alguno de estos pasos?`;
-        
-        session.stepsDone.push('basic_tests_shown');
-        session.tests.basic = pasos.slice(0, 3);
-      } 
-      else {
-        // Fallback: no se entendió el problema
-        session.fallbackCount = (session.fallbackCount || 0) + 1;
-        
-        if (session.fallbackCount >= 3) {
-          reply = '🤔 Parece que necesitás ayuda más directa.\n\nTe paso con un técnico por WhatsApp para que te ayude personalmente.';
-          session.waEligible = true;
-          options = ['Enviar a WhatsApp (con ticket)'];
-        } 
-        else {
-          reply = '¿Podés describir el problema con otras palabras? 🤔\n\n';
-          reply += '**Por ejemplo:**\n';
-          reply += '• "no prende"\n';
-          reply += '• "está lento"\n';
-          reply += '• "sin internet"\n';
-          reply += '• "pantalla negra"';
-        }
-      }
+  if (issueKey) {
+    session.issueKey = issueKey;
+    session.stage    = 'basic_tests';
+
+    const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
+      'Reiniciar el equipo',
+      'Verificar conexiones físicas',
+      'Probar en modo seguro'
+    ];
+
+    reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
+    reply += `🔧 **Probá estos pasos básicos:**\n\n`;
+    pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+    reply += `\n¿Pudiste hacer alguno de estos pasos?`;
+
+    session.stepsDone.push('basic_tests_shown');
+    session.tests.basic = pasos.slice(0, 3);
+  }
+  else {
+    // Fallback: no se entendió el problema
+    session.fallbackCount = (session.fallbackCount || 0) + 1;
+
+    if (session.fallbackCount >= 3) {
+      reply = '🤔 Parece que necesitás ayuda más directa.\n\nTe paso con un técnico por WhatsApp para que te ayude personalmente.';
+      session.waEligible = true;
+      if (typeof options !== 'undefined') options = ['Enviar a WhatsApp (con ticket)'];
+    }
+    else {
+      reply  = '¿Podés describir el problema con otras palabras? 🤔\n\n';
+      reply += '**Por ejemplo:**\n';
+      reply += '• "no prende"\n';
+      reply += '• "está lento"\n';
+      reply += '• "sin internet"\n';
+      reply += '• "pantalla negra"';
+    }
+  }
+
+
     }
     
     // ===== FLUJO 4: YA TIENE ISSUE → CONTINUACIÓN =====
