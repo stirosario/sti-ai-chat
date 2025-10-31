@@ -6,6 +6,36 @@ import fs from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
 
+// === Session ID normalizer (acepta body, query o header)
+function getSessionId(req) {
+  const raw = (
+    (req.body && req.body.sessionId) ||
+    (req.query && req.query.sessionId) ||
+    req.headers['x-session-id'] ||
+    ''
+  ).toString().trim();
+
+  return raw || `srv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+}
+
+// === Sesión por defecto (por si no existe en Redis)
+function defaultSession(sessionId) {
+  return {
+    id: sessionId,
+    userName: null,
+    stage: 'ask_problem',
+    device: null,
+    problem: null,
+    issueKey: null,
+    tests: { basic: [], advanced: [], ai: [] },
+    stepsDone: [],
+    fallbackCount: 0,
+    waEligible: false,
+    transcript: []
+  };
+}
+
+
 // ====== OpenAI config ======
 
 
@@ -141,6 +171,12 @@ function tplDefault({ nombre = '', device = 'equipo', issueKey = null }) {
     .replace('{{device}}', device || 'equipo')
     .replace('{{issue_human}}', issueHuman(issueKey));
 }
+
+// === Normalizar sessionId para todos los endpoints ===
+app.use((req, res, next) => {
+  req.sessionId = getSessionId(req);
+  next();
+});
 
 // ===== ENDPOINTS =====
 
@@ -304,12 +340,41 @@ h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{te
 </html>`);
 });
 
-// Greeting inicial
-app.post('/api/greeting', (req, res) => {
-  const text = CHAT?.messages_v4?.greeting?.name_request ||
-    '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (o escribí "omitir")';
-  res.json({ ok: true, reply: text });
+// Greeting inicial (con sesión persistente)
+app.post('/api/greeting', async (req, res) => {
+  try {
+    const sessionId = req.sessionId || getSessionId(req);
+
+    // Buscar o crear sesión en Redis
+    let session = await getSession(sessionId);
+    if (!session) {
+      session = defaultSession(sessionId);
+      await saveSession(sessionId, session);
+      console.log(`[api/greeting] 🆕 Nueva sesión creada: ${sessionId}`);
+    } else {
+      console.log(`[api/greeting] 🔁 Sesión existente: ${sessionId}`);
+    }
+
+    // Respuesta estándar del saludo (igual que antes)
+    const text =
+      CHAT?.messages_v4?.greeting?.name_request ||
+      '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (o escribí "omitir")';
+
+    // Registrar el saludo en el transcript
+    session.transcript.push({ who: 'bot', text, ts: new Date().toISOString() });
+    await saveSession(sessionId, session);
+
+    // Devolver saludo con el sessionId (útil si querés debug o logs)
+    res.json({ ok: true, reply: text, sessionId });
+  } catch (e) {
+    console.error('[api/greeting] ❌ Error:', e);
+    res.json({
+      ok: true,
+      reply: '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (o escribí "omitir")',
+    });
+  }
 });
+
 
 // ===== CHAT PRINCIPAL CON REDIS =====
 app.post('/api/chat', async (req, res) => {
