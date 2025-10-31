@@ -121,38 +121,38 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
 const nowIso = () => new Date().toISOString();
 
 // ===== Carga de flujos/chat =====
+let deviceMatchers = [];
+let issueMatchers  = [];
+
 const CHAT_JSON_PATH = process.env.CHAT_JSON || path.join(process.cwd(), 'sti-chat.json');
 let CHAT = null;
 
 function loadChat() {
   CHAT = JSON.parse(fs.readFileSync(CHAT_JSON_PATH, 'utf8'));
   console.log('[chat] ✅ Cargado', CHAT.version, 'desde', CHAT_JSON_PATH);
+
+  // Solo REASIGNAR (sin "let")
+  deviceMatchers = (CHAT?.nlp?.devices || []).map(d => ({
+    key: d.key,
+    rx: new RegExp(d.rx, 'i')
+  }));
+
+  issueMatchers = (CHAT?.nlp?.issues || []).map(i => ({
+    key: i.key,
+    rx: new RegExp(i.rx, 'i')
+  }));
 }
 
-try { 
-  loadChat(); 
-} catch (e) { 
-  console.error('[chat] ❌ No pude cargar sti-chat.json:', e.message); 
-  CHAT = {}; 
+try {
+  loadChat();
+} catch (e) {
+  console.error('[chat] ❌ No pude cargar sti-chat.json:', e.message);
+  CHAT = {};
 }
 
-// ===== Helpers NLP =====
-const deviceMatchers = (CHAT?.nlp?.devices || []).map(d => ({ 
-  key: d.key, 
-  rx: new RegExp(d.rx, 'i') 
-}));
 
-const issueMatchers = (CHAT?.nlp?.issues || []).map(i => ({ 
-  key: i.key, 
-  rx: new RegExp(i.rx, 'i') 
-}));
 
-function detectDevice(txt = '') {
-  for (const d of deviceMatchers) {
-    if (d.rx.test(txt)) return d.key;
-  }
-  return null;
-}
+
 
 function detectIssue(txt = '') {
   for (const i of issueMatchers) {
@@ -341,43 +341,47 @@ h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{te
 });
 
 // Greeting inicial (con sesión persistente)
-const sessionId = req.sessionId || (req.body?.sessionId || req.query?.sessionId || '').toString().trim();
-console.log(`[${req.path}] sid=${sessionId}`);
-
 app.post('/api/greeting', async (req, res) => {
   try {
-    const sessionId = req.sessionId || getSessionId(req);
+    const sessionId = getSessionId(req);
+    console.log(`[api/greeting] sid=${sessionId}`);
 
-    // Buscar o crear sesión en Redis
+    // cargar o crear sesión
     let session = await getSession(sessionId);
     if (!session) {
-      session = defaultSession(sessionId);
-      await saveSession(sessionId, session);
-      console.log(`[api/greeting] 🆕 Nueva sesión creada: ${sessionId}`);
-    } else {
-      console.log(`[api/greeting] 🔁 Sesión existente: ${sessionId}`);
+      session = {
+        id: sessionId,
+        userName: null,
+        device: null,
+        issueKey: null,
+        problem: null,
+        stage: 'hello',
+        tests: { basic: [], advanced: [] },
+        stepsDone: [],
+        fallbackCount: 0,
+        waEligible: false,
+        transcript: []
+      };
     }
 
-    // Respuesta estándar del saludo (igual que antes)
     const text =
       CHAT?.messages_v4?.greeting?.name_request ||
       '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (o escribí "omitir")';
 
-    // Registrar el saludo en el transcript
-    session.transcript.push({ who: 'bot', text, ts: new Date().toISOString() });
+    // registrar y guardar
+    session.stage = 'ask_problem'; // si querés seguir pidiendo problema primero, dejalo así
+    session.transcript.push({ who: 'bot', text, ts: nowIso() });
     await saveSession(sessionId, session);
 
-    // Devolver saludo con el sessionId (útil si querés debug o logs)
-    res.json({ ok: true, reply: text, sessionId });
+    return res.json({ ok: true, reply: text });
   } catch (e) {
-    console.error('[api/greeting] ❌ Error:', e);
-    res.json({
+    console.error('[api/greeting] error:', e);
+    return res.json({
       ok: true,
-      reply: '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (o escribí "omitir")',
+      reply: '👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás?'
     });
   }
 });
-
 
 // ===== CHAT PRINCIPAL CON REDIS =====
 app.post('/api/chat', async (req, res) => {
@@ -387,244 +391,204 @@ app.post('/api/chat', async (req, res) => {
 
     console.log(`\n[api/chat] 📥 ${sessionId}: "${t}"`);
 
-    // 1. Cargar o crear sesión desde Redis
+    // 1) Cargar o crear sesión desde Redis
     let session = await getSession(sessionId);
     if (!session) {
       session = createEmptySession(sessionId);
       console.log(`[api/chat] ✨ Nueva sesión creada: ${sessionId}`);
     }
 
-    // 2. Guardar turno del usuario en transcript
-    session.transcript.push({ 
-      who: 'user', 
-      text: t, 
-      ts: nowIso() 
-    });
+    // 2) Guardar turno del usuario en transcript
+    session.transcript.push({ who: 'user', text: t, ts: nowIso() });
 
     let reply = '';
     let options = [];
 
-    // ===== FLUJO 1: NOMBRE =====
-    // if (!session.userName) {
-    //   const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{2,20})$/i);
-      
-    //   if (m && m[1]) {
-    //     session.userName = m[1].toLowerCase();
-    //     session.stage = 'ask_device';
-    //     reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿con qué dispositivo tenés problemas?`;
-    //   } 
-    //   else if (/^omitir$/i.test(t)) {
-    //     session.userName = 'usuario';
-    //     session.stage = 'ask_device';
-    //     reply = 'Perfecto, seguimos. ¿Qué dispositivo te está dando problemas?';
-    //   } 
-    //   else {
-    //     reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
-    //   }
-    // }
-    
-// ===== FLUJO 1: NOMBRE o MENSAJE DE PROBLEMA =====
-if (!session.userName) {
-  // ¿suena a problema/dispositivo?
-  const seemsProblem = /\b(pc|notebook|netbook|monitor|teclado|mouse|impresora|printer|wifi|wi-?fi|internet|pantalla|no (prende|enciende|funciona|anda)|sin imagen|lento|se apaga)\b/i.test(t);
+    // ===== FLUJO 1: NOMBRE o MENSAJE DE PROBLEMA =====
+    if (!session.userName) {
+      // ¿suena a problema/dispositivo?
+      const seemsProblem = /\b(pc|notebook|netbook|monitor|teclado|mouse|impresora|printer|wifi|wi-?fi|internet|pantalla|no (prende|enciende|funciona|anda)|sin imagen|lento|se apaga)\b/i.test(t);
+      // nombre "real": 3 a 20 letras (evita 'pc', 'ok', etc.)
+      const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{3,20})$/i);
 
-  // nombre "real": 3 a 20 letras (evita 'pc', 'ok', etc.)
-  const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{3,20})$/i);
-
-  if (seemsProblem) {
-    // 👉 tratar como PROBLEMA, no como nombre
-    session.userName = session.userName || 'usuario';
-    session.problem = t;
-    session.stage   = 'ask_device';   // seguimos tu flujo 2
-    if (typeof options !== 'undefined') {
-      options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
-    }
-    reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
-  }
-  else if (m && m[1]) {
-    session.userName = m[1].toLowerCase();
-    session.stage = 'ask_problem';
-    reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-  }
-  else if (/^omitir$/i.test(t)) {
-    session.userName = 'usuario';
-    session.stage = 'ask_problem';
-    reply = 'Perfecto, seguimos.\n\nAhora decime: ¿qué problema estás teniendo?';
-  }
-  else {
-    reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
-  }
-}
-
-// ===== FLUJO 3: DISPOSITIVO =====
-else if (!session.device) {
-  const dev = detectDevice(t) || t.toLowerCase().replace(/[^a-záéíóúñ\s]/gi, '').trim();
-
-  if (dev && dev.length >= 2) {
-    session.device = dev;
-
-    // Intento deducir el issue automáticamente combinando lo que ya contó el cliente
-    let issueKey = detectIssue(`${session.problem || ''} ${t}`.trim());
-
-    if (issueKey) {
-      // Tenemos issue: pasamos directo a pasos básicos
-      session.issueKey = issueKey;
-      session.stage    = 'basic_tests';
-
-      const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
-        'Reiniciar el equipo',
-        'Verificar conexiones físicas',
-        'Probar en modo seguro'
-      ];
-
-      reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
-      reply += `🔧 **Probá estos pasos básicos:**\n\n`;
-      pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
-      reply += `\n¿Pudiste hacer alguno de estos pasos?`;
-
-      session.stepsDone.push('basic_tests_shown');
-      session.tests.basic = pasos.slice(0, 3);
-    } else {
-      // No se pudo deducir issue: pedimos detalle específico del equipo
-      session.stage = 'ask_issue';
-      reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
-    }
-  }
-  else {
-    reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
-  }
-}
-
-// ===== FLUJO 4: PROBLEMA (ISSUE) =====
-else if (!session.issueKey) {
-  let issueKey = detectIssue(t);
-
-  // Detectar frases genéricas argentinas con contexto
-  if (!issueKey && /\b(no anda|no va|no funca|no sirve|no prende)\b/i.test(t)) {
-    issueKey = 'no_funciona';
-  }
-
-  // 🧠 Si detectamos un issue conocido
-  if (issueKey) {
-    session.issueKey = issueKey;
-    session.stage    = 'basic_tests';
-
-    const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
-      'Reiniciar el equipo',
-      'Verificar conexiones físicas',
-      'Probar en modo seguro'
-    ];
-
-    reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
-    reply += `🔧 **Probá estos pasos básicos:**\n\n`;
-    pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
-    reply += `\n¿Pudiste hacer alguno de estos pasos?`;
-
-    session.stepsDone.push('basic_tests_shown');
-    session.tests.basic = pasos.slice(0, 3);
-  }
-
-  // 🧩 Si NO detectamos un issue conocido: pedimos ayuda a OpenAI
-  else {
-    session.stage = 'basic_tests_ai';
-    session.problem = t;
-
-    try {
-      const aiSteps = await aiQuickTests(session.problem, session.device || '');
-      if (aiSteps && aiSteps.length > 0) {
-        reply  = `Entiendo, ${session.userName}. Veamos si podemos solucionarlo rápido 🔍\n\n`;
-        reply += `🔧 **Probá estos pasos iniciales:**\n\n`;
-        aiSteps.forEach(s => { reply += `• ${s}\n`; });
-        reply += `\n¿Pudiste probar alguno?`;
-
-        session.tests.ai = aiSteps;
-        session.stepsDone.push('ai_basic_shown');
-        session.waEligible = true;
-        options = ['Sí, funcionó ✅', 'No, sigue igual ❌', 'Enviar a WhatsApp (con ticket)'];
+      if (seemsProblem) {
+        // tratar como PROBLEMA, no como nombre
+        session.userName = session.userName || 'usuario';
+        session.problem = t;
+        session.stage   = 'ask_device';
+        options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
+        reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
+      } else if (m && m[1]) {
+        session.userName = m[1].toLowerCase();
+        session.stage = 'ask_problem';
+        reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+      } else if (/^omitir$/i.test(t)) {
+        session.userName = 'usuario';
+        session.stage = 'ask_problem';
+        reply = 'Perfecto, seguimos.\n\nAhora decime: ¿qué problema estás teniendo?';
       } else {
-        reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
+        reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
       }
-    } catch (e) {
-      console.error('[aiQuickTests] ❌ Error AI:', e.message);
-      reply = 'No pude generar sugerencias automáticas ahora 😅. Contame un poco más del problema para ayudarte mejor.';
     }
-  }
-}
 
-    
-    // ===== FLUJO 4: YA TIENE ISSUE → CONTINUACIÓN =====
+    // ===== FLUJO 2: PROBLEMA LIBRE (si estamos pidiendo problema) =====
+    else if (session.stage === 'ask_problem' && !session.problem) {
+      session.problem = t;
+      session.stage   = 'ask_device';
+      options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
+      reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
+    }
+
+    // ===== FLUJO 3: DISPOSITIVO =====
+    else if (!session.device) {
+      const dev = detectDevice(t) || t.toLowerCase().replace(/[^a-záéíóúñ\s]/gi, '').trim();
+
+      if (dev && dev.length >= 2) {
+        session.device = dev;
+
+        // intentar deducir issue combinando lo ya contado
+        let issueKey = detectIssue(`${session.problem || ''} ${t}`.trim());
+
+        if (issueKey) {
+          session.issueKey = issueKey;
+          session.stage    = 'basic_tests';
+
+          const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
+            'Reiniciar el equipo',
+            'Verificar conexiones físicas',
+            'Probar en modo seguro'
+          ];
+
+          reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
+          reply += `🔧 **Probá estos pasos básicos:**\n\n`;
+          pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+          reply += `\n¿Pudiste hacer alguno de estos pasos?`;
+
+          session.stepsDone.push('basic_tests_shown');
+          session.tests.basic = pasos.slice(0, 3);
+        } else {
+          session.stage = 'ask_issue';
+          reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
+        }
+      } else {
+        reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
+      }
+    }
+
+    // ===== FLUJO 4: PROBLEMA (ISSUE) =====
+    else if (!session.issueKey) {
+      let issueKey = detectIssue(t);
+
+      // frases genéricas argentinas
+      if (!issueKey && /\b(no anda|no va|no funca|no sirve|no prende)\b/i.test(t)) {
+        issueKey = 'no_funciona';
+      }
+
+      if (issueKey) {
+        session.issueKey = issueKey;
+        session.stage    = 'basic_tests';
+
+        const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
+          'Reiniciar el equipo',
+          'Verificar conexiones físicas',
+          'Probar en modo seguro'
+        ];
+
+        reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene problema: ${issueHuman(issueKey)} 🔍\n\n`;
+        reply += `🔧 **Probá estos pasos básicos:**\n\n`;
+        pasos.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+        reply += `\n¿Pudiste hacer alguno de estos pasos?`;
+
+        session.stepsDone.push('basic_tests_shown');
+        session.tests.basic = pasos.slice(0, 3);
+      } else {
+        // 🧩 pedir ayuda a OpenAI para sugerir pasos iniciales
+        session.stage = 'basic_tests_ai';
+        session.problem = session.problem || t;
+
+        try {
+          const aiSteps = await aiQuickTests(session.problem, session.device || '');
+          if (aiSteps && aiSteps.length > 0) {
+            reply  = `Entiendo, ${session.userName}. Veamos si podemos solucionarlo rápido 🔍\n\n`;
+            reply += `🔧 **Probá estos pasos iniciales:**\n\n`;
+            aiSteps.forEach(s => { reply += `• ${s}\n`; });
+            reply += `\n¿Pudiste probar alguno?`;
+
+            session.tests.ai = aiSteps;
+            session.stepsDone.push('ai_basic_shown');
+            session.waEligible = true;
+            options = ['Sí, funcionó ✅', 'No, sigue igual ❌', 'Enviar a WhatsApp (con ticket)'];
+          } else {
+            reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
+          }
+        } catch (e) {
+          console.error('[aiQuickTests] ❌ Error AI:', e.message);
+          reply = 'No pude generar sugerencias automáticas ahora 😅. Contame un poco más del problema para ayudarte mejor.';
+        }
+      }
+    }
+
+    // ===== FLUJO 5: CONTINUACIÓN (ya hay issue) =====
     else {
-      // Detectar pedido explícito de WhatsApp/técnico
+      // pedido explícito de WhatsApp/técnico
       if (/\b(whatsapp|técnico|tecnico|ayuda directa|derivar|persona|humano)\b/i.test(t)) {
         session.waEligible = true;
         reply = '✅ Perfecto. Te preparo un ticket con todo el historial para enviarlo por WhatsApp.';
         options = ['Enviar a WhatsApp (con ticket)'];
       }
-      
-      // Detectar confirmaciones argentinas
+      // confirmaciones
       else if (/\b(dale|ok|sí|si|bueno|joya|bárbaro|listo|perfecto|probé|hice)\b/i.test(t)) {
         session.stepsDone.push('user_confirmed_basic');
-        
-        // Ofrecer pasos avanzados si ya mostró básicos
+
         if (session.stage === 'basic_tests' && session.tests.basic.length >= 2) {
           const advSteps = CHAT?.nlp?.advanced_steps?.[session.issueKey] || [];
           const advanced = advSteps.slice(3, 6);
-          
+
           if (advanced.length > 0) {
             session.stage = 'advanced_tests';
             session.tests.advanced = advanced;
-            
+
             reply = `Genial, ${session.userName}. Sigamos con pasos más avanzados 🔧\n\n`;
-            advanced.forEach((p, i) => {
-              reply += `${i + 1}. ${p}\n`;
-            });
+            advanced.forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
             reply += `\n¿Pudiste probar alguno?`;
-            session.waEligible = true; // Ya pasó básico + avanzado
-          } 
-          else {
+            session.waEligible = true;
+          } else {
             reply = '👍 Perfecto. Si el problema persiste, te paso con un técnico.';
             session.waEligible = true;
             options = ['Enviar a WhatsApp (con ticket)'];
           }
-        } 
-        else {
+        } else {
           reply = '👍 Perfecto. ¿Alguno de esos pasos ayudó a resolver el problema?';
         }
       }
-      
-      // Detectar negaciones (no funcionó)
+      // negaciones
       else if (/\b(no|nada|sigue igual|no cambió|no sirve|no resolvió|tampoco)\b/i.test(t)) {
         session.stepsDone.push('user_says_not_working');
-        
+
         if (session.stage === 'basic_tests') {
           reply = '😔 Entiendo que los pasos básicos no ayudaron.\n\nProbemos pasos más técnicos 🔧';
           session.stage = 'advanced_tests';
-          
+
           const advSteps = CHAT?.nlp?.advanced_steps?.[session.issueKey] || [];
           const advanced = advSteps.slice(3, 6);
           session.tests.advanced = advanced;
-          
+
           if (advanced.length > 0) {
             reply += '\n\n**Pasos avanzados:**\n\n';
-            advanced.forEach((p, i) => {
-              reply += `${i + 1}. ${p}\n`;
-            });
+            advanced.forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
             session.waEligible = true;
-          } 
-          else {
+          } else {
             reply += '\n\nTe paso con un técnico que te va a ayudar personalmente.';
             session.waEligible = true;
             options = ['Enviar a WhatsApp (con ticket)'];
           }
-        } 
-        else {
+        } else {
           reply = '😔 Entiendo. Entonces te paso con un técnico que te va a ayudar personalmente.';
           session.waEligible = true;
           options = ['Enviar a WhatsApp (con ticket)'];
         }
       }
-      
-      // Respuesta genérica con contexto
+      // genérica
       else {
         reply = `Recordá que estamos revisando tu **${session.device}** por ${issueHuman(session.issueKey)} 🔍\n\n`;
         reply += `¿Probaste los pasos que te sugerí?\n\n`;
@@ -635,41 +599,40 @@ else if (!session.issueKey) {
       }
     }
 
-    // 7. Guardar turno del bot en transcript
-    session.transcript.push({ 
-      who: 'bot', 
-      text: reply, 
-      ts: nowIso() 
-    });
+    // 6) Guardar turno del bot
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
 
-    // 8. Persistir sesión en Redis
+    // 7) Persistir sesión
     await saveSession(sessionId, session);
 
-    // 9. Guardar transcript también en disco (backup)
+    // 8) Backup en disco
     const tf = path.join(TRANSCRIPTS_DIR, `${sessionId}.txt`);
     fs.appendFileSync(tf, `[${nowIso()}] USER: ${t}\n`, 'utf8');
     fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${reply}\n`, 'utf8');
 
-    // 10. Enviar respuesta
+    // 9) Respuesta
     const response = { ok: true, reply, options };
-    
-    // Solo enviar allowWhatsapp si waEligible
-    if (session.waEligible) {
-      response.allowWhatsapp = true;
-    }
+    if (session.waEligible) response.allowWhatsapp = true;
 
     console.log(`[api/chat] 📤 ${sessionId}: waEligible=${session.waEligible}, stage=${session.stage}`);
     return res.json(response);
 
   } catch (e) {
     console.error('[api/chat] ❌ Error:', e);
-    return res.status(200).json({ 
-      ok: true, 
-      reply: '😅 Tuve un problema momentáneo. Probá de nuevo en un segundo.', 
-      options: [] 
+    return res.status(200).json({
+      ok: true,
+      reply: '😅 Tuve un problema momentáneo. Probá de nuevo en un segundo.',
+      options: []
     });
   }
 });
+
+
+
+
+
+
+
 
 // ===== Debug: Listar sesiones activas =====
 app.get('/api/sessions', async (req, res) => {
