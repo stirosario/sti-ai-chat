@@ -144,20 +144,22 @@ function tplDefault({ nombre = '', device = 'equipo', issueKey = null }) {
 
 // ===== ENDPOINTS =====
 
-// Health check con Redis
+// Health check con Redis + OpenAI info (no invoca API externa)
 app.get('/api/health', async (req, res) => {
   const redisHealth = await healthCheck();
-  res.json({ 
-    ok: true, 
-    hasOpenAI: !!process.env.OPENAI_API_KEY, 
-    usingNewFlows: true, 
+  res.json({
+    ok: true,
+    hasOpenAI: !!process.env.OPENAI_API_KEY,
+    openaiReady: !!openai,                // ← cliente instanciado
+    openaiModel: OPENAI_MODEL || null,    // ← modelo activo
+    usingNewFlows: true,
     version: CHAT?.version || '4.7.0',
     redis: redisHealth,
-    paths: { 
-      data: DATA_BASE, 
-      transcripts: TRANSCRIPTS_DIR, 
-      tickets: TICKETS_DIR 
-    } 
+    paths: {
+      data: DATA_BASE,
+      transcripts: TRANSCRIPTS_DIR,
+      tickets: TICKETS_DIR
+    }
   });
 });
 
@@ -432,6 +434,7 @@ else if (!session.issueKey) {
     issueKey = 'no_funciona';
   }
 
+  // 🧠 Si detectamos un issue conocido
   if (issueKey) {
     session.issueKey = issueKey;
     session.stage    = 'basic_tests';
@@ -450,27 +453,34 @@ else if (!session.issueKey) {
     session.stepsDone.push('basic_tests_shown');
     session.tests.basic = pasos.slice(0, 3);
   }
-  else {
-    // Fallback: no se entendió el problema
-    session.fallbackCount = (session.fallbackCount || 0) + 1;
 
-    if (session.fallbackCount >= 3) {
-      reply = '🤔 Parece que necesitás ayuda más directa.\n\nTe paso con un técnico por WhatsApp para que te ayude personalmente.';
-      session.waEligible = true;
-      if (typeof options !== 'undefined') options = ['Enviar a WhatsApp (con ticket)'];
-    }
-    else {
-      reply  = '¿Podés describir el problema con otras palabras? 🤔\n\n';
-      reply += '**Por ejemplo:**\n';
-      reply += '• "no prende"\n';
-      reply += '• "está lento"\n';
-      reply += '• "sin internet"\n';
-      reply += '• "pantalla negra"';
+  // 🧩 Si NO detectamos un issue conocido: pedimos ayuda a OpenAI
+  else {
+    session.stage = 'basic_tests_ai';
+    session.problem = t;
+
+    try {
+      const aiSteps = await aiQuickTests(session.problem, session.device || '');
+      if (aiSteps && aiSteps.length > 0) {
+        reply  = `Entiendo, ${session.userName}. Veamos si podemos solucionarlo rápido 🔍\n\n`;
+        reply += `🔧 **Probá estos pasos iniciales:**\n\n`;
+        aiSteps.forEach(s => { reply += `• ${s}\n`; });
+        reply += `\n¿Pudiste probar alguno?`;
+
+        session.tests.ai = aiSteps;
+        session.stepsDone.push('ai_basic_shown');
+        session.waEligible = true;
+        options = ['Sí, funcionó ✅', 'No, sigue igual ❌', 'Enviar a WhatsApp (con ticket)'];
+      } else {
+        reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame brevemente: ¿qué problema tiene?`;
+      }
+    } catch (e) {
+      console.error('[aiQuickTests] ❌ Error AI:', e.message);
+      reply = 'No pude generar sugerencias automáticas ahora 😅. Contame un poco más del problema para ayudarte mejor.';
     }
   }
+}
 
-
-    }
     
     // ===== FLUJO 4: YA TIENE ISSUE → CONTINUACIÓN =====
     else {
