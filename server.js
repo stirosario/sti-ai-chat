@@ -4,6 +4,61 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import OpenAI from 'openai';
+
+// ====== OpenAI config ======
+import OpenAI from 'openai';
+
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+// ====== OpenAI Quick Tests Helper ======
+async function aiQuickTests(problemText = '', device = '') {
+  if (!openai) {
+    console.warn('[aiQuickTests] ⚠️ Sin API Key activa, usando pasos por defecto');
+    return [
+      'Verificar conexión eléctrica',
+      'Probar con otro cable o toma corriente',
+      'Mantener presionado el botón de encendido 10 segundos',
+      'Conectar el equipo directamente sin estabilizador',
+      'Revisar si el LED de encendido parpadea o no'
+    ];
+  }
+
+  const prompt = [
+    `Sos un técnico informático argentino con lenguaje claro y amable.`,
+    `El usuario tiene un problema: "${problemText}"${device ? ` en ${device}` : ''}.`,
+    `Indicá 4 o 5 pasos simples y seguros para que pruebe él mismo.`,
+    `No expliques, solo listá los pasos con verbos de acción (sin numeración, sin texto fuera del listado).`,
+    `Ejemplo: "Verificar que el cable esté bien conectado", "Probar otro enchufe", etc.`,
+    `Devolvé SOLO un JSON array de strings.`
+  ].join('\n');
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3
+    });
+
+    const raw = resp.choices?.[0]?.message?.content?.trim() || '[]';
+    const jsonText = raw.replace(/```json|```/g, '').trim();
+    const arr = JSON.parse(jsonText);
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
+  } catch (e) {
+    console.error('[aiQuickTests] Error:', e.message);
+    return [
+      'Verificar cable de corriente y fuente',
+      'Probar en otro tomacorriente',
+      'Mantener pulsado el botón de encendido 10 seg',
+      'Probar con otra fuente o cable de energía',
+      'Comprobar si hay luces o sonidos al intentar encender'
+    ];
+  }
+}
+
 
 // ===== IMPORTAR sessionStore =====
 import { 
