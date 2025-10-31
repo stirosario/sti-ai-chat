@@ -2,85 +2,187 @@
   "bot": "STI • Servicio Técnico Inteligente",
   "locale": "es-AR",
   "version": "4.6.0",
-"settings": {
-  "enable_transcripts": true,
-
-  "transcriptsDir": "/data/transcripts",
-  "ticketsDir": "/data/tickets",
-  "publicBaseUrl": "https://sti-rosario-ai.onrender.com",
-
-  "fallback_escalation_after": 3,
-
-  "whatsapp_number": "5493417422422",
-  "whatsapp_ticket": {
-    "max_chars": 1600,
-    "include_timestamp": true,
-    "prefix": "Hola STI 👋. Vengo del chat web. Dejo mi consulta:"
+  "settings": {
+    "enable_transcripts": true,
+    "transcriptsDir": "/data/transcripts",
+    "ticketsDir": "/data/tickets",
+    "publicBaseUrl": "https://sti-rosario-ai.onrender.com",
+    "fallback_escalation_after": 3,
+    "whatsapp_number": "5493417422422",
+    "whatsapp_ticket": {
+      "max_chars": 1600,
+      "include_timestamp": true,
+      "prefix": "Hola STI 👋. Vengo del chat web. Dejo mi consulta:"
+    },
+    "problem_keywords": [
+      "no enciende",
+      "no prende",
+      "no arranca",
+      "no inicia",
+      "no entra a windows",
+      "pantalla",
+      "sin imagen",
+      "pantalla negra",
+      "no da imagen",
+      "sin internet",
+      "no conecta",
+      "sin wifi",
+      "no hay señal",
+      "lento",
+      "trabado",
+      "tildado",
+      "se tilda",
+      "congelado",
+      "se reinicia",
+      "se apaga solo",
+      "no carga",
+      "bateria",
+      "batería",
+      "caliente",
+      "temperatura",
+      "ruido",
+      "ventilador",
+      "cooler",
+      "no detecta",
+      "no reconoce",
+      "usb",
+      "pendrive",
+      "disco",
+      "hdd",
+      "ssd",
+      "error",
+      "falla",
+      "no funca",
+      "no funciona"
+    ]
   },
-
-  "problem_keywords": [
-    "no enciende","no prende","no arranca","no inicia","no entra a windows",
-    "pantalla","sin imagen","pantalla negra","no da imagen",
-    "sin internet","no conecta","sin wifi","no hay señal",
-    "lento","trabado","tildado","se tilda","congelado",
-    "se reinicia","se apaga solo","no carga","bateria","batería",
-    "caliente","temperatura","ruido","ventilador","cooler",
-    "no detecta","no reconoce","usb","pendrive","disco","hdd","ssd",
-    "error","falla","no funca","no funciona"
-  ]
-},
-
-
   "messages_v4": {
     "greeting": {
       "name_request": "👋 ¡Hola! Soy Tecnos 🤖 de STI. ¿Cómo te llamás? (Ej: “soy Juan” o escribí “omitir”).",
       "name_confirm": "¡Genial {NOMBRE}! 👍 Ahora decime con qué dispositivo tenés problemas o describí brevemente el problema.",
       "skip_name": "Listo, seguimos sin nombre. Contame qué dispositivo o problema tenés."
     },
-
     "device_probe": "Perfecto, {{nombre}}. Tomo nota del equipo: {{device}}. Ahora contame brevemente cuál es el problema.",
     "after_steps": "Si el problema continúa, elegí una opción:",
     "default_options": [
       "Realizar pruebas avanzadas",
       "Enviar a WhatsApp (con ticket)"
     ],
-    "default_options_map": { "1": "advanced", "2": "whatsapp_ticket" }
+    "default_options_map": {
+      "1": "advanced",
+      "2": "whatsapp_ticket"
+    }
   },
-
   "_note": "OpenAI lleva la conversación principal (IA total). Este JSON provee NLP + fallbacks y textos de apoyo.",
-
   "nlp": {
     "devices": [
-      { "key": "pc",         "rx": "\\b(pc|escritorio|gabinete|torre|cpu)\\b" },
-      { "key": "notebook",   "rx": "\\b(notebook|laptop|portatil|portátil|netbook|ultrabook)\\b" },
-      { "key": "router",     "rx": "\\b(router|modem|m[óo]dem|ont)\\b" },
-      { "key": "impresora",  "rx": "\\b(impresora|printer|hp|epson|brother|canon)\\b" },
-      { "key": "internet",   "rx": "\\b(internet|wifi|wi-?fi|red|conexi[óo]n)\\b" },
-      { "key": "monitor",    "rx": "\\b(monitor|pantalla|display)\\b" },
-      { "key": "disco",      "rx": "\\b(disco|rigido|r[ií]gido|hdd|ssd|unidad)\\b" },
-      { "key": "teclado",    "rx": "\\b(teclado|keyboard)\\b" },
-      { "key": "mouse",      "rx": "\\b(mouse|rat[óo]n)\\b" },
-      { "key": "audio",      "rx": "\\b(audio|sonido|parlante|auricular|micr[óo]fono)\\b" },
-      { "key": "camara",     "rx": "\\b(c[áa]mara|webcam)\\b" },
-      { "key": "bateria",    "rx": "\\b(bateria|bater[íi]a|carga)\\b" },
-      { "key": "placa_video","rx": "\\b(placa de video|gpu|placa gr[áa]fica|video)\\b" },
-      { "key": "puertos",    "rx": "\\b(puerto[s]?|hdmi|vga|dp|displayport|usb-c|type[- ]?c)\\b" }
+      {
+        "key": "pc",
+        "rx": "\\b(pc|escritorio|gabinete|torre|cpu)\\b"
+      },
+      {
+        "key": "notebook",
+        "rx": "\\b(notebook|laptop|portatil|portátil|netbook|ultrabook)\\b"
+      },
+      {
+        "key": "router",
+        "rx": "\\b(router|modem|m[óo]dem|ont)\\b"
+      },
+      {
+        "key": "impresora",
+        "rx": "\\b(impresora|printer|hp|epson|brother|canon)\\b"
+      },
+      {
+        "key": "internet",
+        "rx": "\\b(internet|wifi|wi-?fi|red|conexi[óo]n)\\b"
+      },
+      {
+        "key": "monitor",
+        "rx": "\\b(monitor|pantalla|display)\\b"
+      },
+      {
+        "key": "disco",
+        "rx": "\\b(disco|rigido|r[ií]gido|hdd|ssd|unidad)\\b"
+      },
+      {
+        "key": "teclado",
+        "rx": "\\b(teclado|keyboard)\\b"
+      },
+      {
+        "key": "mouse",
+        "rx": "\\b(mouse|rat[óo]n)\\b"
+      },
+      {
+        "key": "audio",
+        "rx": "\\b(audio|sonido|parlante|auricular|micr[óo]fono)\\b"
+      },
+      {
+        "key": "camara",
+        "rx": "\\b(c[áa]mara|webcam)\\b"
+      },
+      {
+        "key": "bateria",
+        "rx": "\\b(bateria|bater[íi]a|carga)\\b"
+      },
+      {
+        "key": "placa_video",
+        "rx": "\\b(placa de video|gpu|placa gr[áa]fica|video)\\b"
+      },
+      {
+        "key": "puertos",
+        "rx": "\\b(puerto[s]?|hdmi|vga|dp|displayport|usb-c|type[- ]?c)\\b"
+      }
     ],
-
     "issues": [
-      { "key": "no_enciende",     "rx": "\\b(no enciende|no prende|no arranca|no funca)\\b" },
-      { "key": "no_windows",      "rx": "\\b(no entra a (windows|win)|no inicia (sistema|windows))\\b" },
-      { "key": "sin_imagen",      "rx": "\\b(sin imagen|pantalla negra|no se ve|no da imagen)\\b" },
-      { "key": "sin_internet",    "rx": "\\b(sin internet|sin wifi|no conecta|no hay se[ñn]al|se corta internet)\\b" },
-      { "key": "lento",           "rx": "\\b(lento|trabado|tildado|congelado|va pesado)\\b" },
-      { "key": "no_carga",        "rx": "\\b(no carga|bateri[íi]a muerta|cargador no anda|no mantiene carga)\\b" },
-      { "key": "ruido",           "rx": "\\b(ruido|ventilador|cooler|zumbido)\\b" },
-      { "key": "usb_no_detecta",  "rx": "\\b((no detecta|no reconoce).*(usb|pendrive)|usb.*(no detecta|no reconoce))\\b" },
-      { "key": "se_reinicia",     "rx": "\\b(se reinicia|reinicios|rebootea solo|loop de reinicio)\\b" },
-      { "key": "temperatura",     "rx": "\\b(caliente|sobrecalienta|temperatura|thermal throttling)\\b" },
-      { "key": "error_disco",     "rx": "\\b(disco|hdd|ssd).*(error|ruido|lento|bad|sectores|smart)\\b" }
+      {
+        "key": "no_enciende",
+        "rx": "\\b(no enciende|no prende|no arranca|no funca)\\b"
+      },
+      {
+        "key": "no_windows",
+        "rx": "\\b(no entra a (windows|win)|no inicia (sistema|windows))\\b"
+      },
+      {
+        "key": "sin_imagen",
+        "rx": "\\b(sin imagen|pantalla negra|no se ve|no da imagen)\\b"
+      },
+      {
+        "key": "sin_internet",
+        "rx": "\\b(sin internet|sin wifi|no conecta|no hay se[ñn]al|se corta internet)\\b"
+      },
+      {
+        "key": "lento",
+        "rx": "\\b(lento|trabado|tildado|congelado|va pesado)\\b"
+      },
+      {
+        "key": "no_carga",
+        "rx": "\\b(no carga|bateri[íi]a muerta|cargador no anda|no mantiene carga)\\b"
+      },
+      {
+        "key": "ruido",
+        "rx": "\\b(ruido|ventilador|cooler|zumbido)\\b"
+      },
+      {
+        "key": "usb_no_detecta",
+        "rx": "\\b((no detecta|no reconoce).*(usb|pendrive)|usb.*(no detecta|no reconoce))\\b"
+      },
+      {
+        "key": "se_reinicia",
+        "rx": "\\b(se reinicia|reinicios|rebootea solo|loop de reinicio)\\b"
+      },
+      {
+        "key": "temperatura",
+        "rx": "\\b(caliente|sobrecalienta|temperatura|thermal throttling)\\b"
+      },
+      {
+        "key": "error_disco",
+        "rx": "\\b(disco|hdd|ssd).*(error|ruido|lento|bad|sectores|smart)\\b"
+      },
+      {
+        "key": "no_funciona",
+        "rx": "\\b(no anda|no funciona|no va|no sirve)\\b"
+      }
     ],
-
     "issue_labels": {
       "no_enciende": "no enciende",
       "no_windows": "no entra a Windows",
@@ -92,13 +194,12 @@
       "usb_no_detecta": "no detecta USB",
       "se_reinicia": "se reinicia solo",
       "temperatura": "temperatura alta",
-      "error_disco": "posible problema de disco"
+      "error_disco": "posible problema de disco",
+      "no_funciona": "no funciona"
     },
-
     "response_templates": {
       "default": "Entiendo, {{nombre}}. Revisemos tu {{device}} con {{issue_human}}. A continuación te doy pasos concretos."
     },
-
     "advanced_steps": {
       "no_enciende": [
         "Probar sin batería (solo cargador).",
@@ -135,20 +236,24 @@
         "Copia urgente de datos.",
         "CHKDSK con /F /R.",
         "Considerar clonar a SSD nuevo."
+      ],
+      "no_funciona": [
+        "Para teclados/mouse: probá en otro puerto USB.",
+        "Si es inalámbrico: reemplazá pilas/batería y re-pareá el receptor.",
+        "Probalo en otra PC (descartá falla del periférico).",
+        "Reinstalá/actualizá el driver desde Administrador de Dispositivos.",
+        "Para notebooks: verificá que no esté activada una función de bloqueo (FN + F1..F12, botón de desactivar touchpad/teclado)."
       ]
     },
-
     "followup_texts": {
       "advanced_intro": "Sigamos con chequeos más avanzados, {{nombre}}:"
     }
   },
-
   "sections": {
     "fallbacks": {
       "medio": "¿Podés decirlo con otras palabras o elegir un tema?",
       "hard": "Te ofrezco asistencia por WhatsApp: https://wa.me/5493417422422"
     },
-
     "anydesk": {
       "_note": "Guías rápidas para clientes: instalar, desinstalar o forzar cambio de ID.",
       "instalar": [
