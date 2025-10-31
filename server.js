@@ -355,13 +355,27 @@ app.post('/api/chat', async (req, res) => {
     //   }
     // }
     
-   // ===== FLUJO 1: NOMBRE =====
+// ===== FLUJO 1: NOMBRE o MENSAJE DE PROBLEMA =====
 if (!session.userName) {
-  const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{2,20})$/i);
+  // ¿suena a problema/dispositivo?
+  const seemsProblem = /\b(pc|notebook|netbook|monitor|teclado|mouse|impresora|printer|wifi|wi-?fi|internet|pantalla|no (prende|enciende|funciona|anda)|sin imagen|lento|se apaga)\b/i.test(t);
 
-  if (m && m[1]) {
+  // nombre "real": 3 a 20 letras (evita 'pc', 'ok', etc.)
+  const m = t.match(/^(?:soy\s+)?([a-záéíóúñ]{3,20})$/i);
+
+  if (seemsProblem) {
+    // 👉 tratar como PROBLEMA, no como nombre
+    session.userName = session.userName || 'usuario';
+    session.problem = t;
+    session.stage   = 'ask_device';   // seguimos tu flujo 2
+    if (typeof options !== 'undefined') {
+      options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
+    }
+    reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
+  }
+  else if (m && m[1]) {
     session.userName = m[1].toLowerCase();
-    session.stage = 'ask_problem';  // ← cambiamos a pedir problema
+    session.stage = 'ask_problem';
     reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
   }
   else if (/^omitir$/i.test(t)) {
@@ -372,18 +386,6 @@ if (!session.userName) {
   else {
     reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí "omitir")';
   }
-}
-
-// ===== FLUJO 2: PROBLEMA LIBRE (capturar descripción del cliente) =====
-else if (session.stage === 'ask_problem' && !session.problem) {
-  // Guardamos lo que contó el cliente como problema libre
-  session.problem = t;
-  session.stage   = 'ask_device';   // siguiente paso: identificar equipo
-  // Opciones sugeridas (si usás options en la respuesta)
-  if (typeof options !== 'undefined') {
-    options = ['PC', 'Notebook', 'Teclado', 'Mouse', 'Monitor', 'Internet / Wi-Fi'];
-  }
-  reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
 }
 
 // ===== FLUJO 3: DISPOSITIVO =====
