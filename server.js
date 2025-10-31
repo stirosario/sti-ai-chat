@@ -341,6 +341,9 @@ h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{te
 });
 
 // Greeting inicial (con sesión persistente)
+const sessionId = req.sessionId || (req.body?.sessionId || req.query?.sessionId || '').toString().trim();
+console.log(`[${req.path}] sid=${sessionId}`);
+
 app.post('/api/greeting', async (req, res) => {
   try {
     const sessionId = req.sessionId || getSessionId(req);
