@@ -7,7 +7,7 @@ import path from 'path';
 import OpenAI from 'openai';
 
 // ====== OpenAI config ======
-import OpenAI from 'openai';
+
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const openai = process.env.OPENAI_API_KEY
