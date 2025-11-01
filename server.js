@@ -96,8 +96,10 @@ const STATES = {
   ESCALATE: 'escalate',
 };
 
-const TECH_WORDS = /^(pc|notebook|netbook|laptop|monitor|teclado|mouse|windows|internet|wifi|wi-?fi|problema|compu|celu|telefono|celular|router|modem)$/i;
-const problemHint = /(no (prende|enciende|arranca|funciona|anda)|no inicia|no anda|no funca|lento|sin imagen|pantalla|se apaga|se reinicia|no carga|no da (video|vídeo))/i;
+const TECH_WORDS = /^(pc|notebook|netbook|laptop|ultrabook|macbook|monitor|pantalla|televisor|tv|teclado|mouse|raton|touchpad|trackpad|impresora|printer|scanner|escaner|plotter|fax|router|modem|switch|hub|repetidor|accesspoint|servidor|server|cpu|gabinete|fuente|mother|motherboard|placa|placa madre|gpu|video|grafica|ram|memoria|disco|ssd|hdd|pendrive|usb|auricular|auriculares|headset|microfono|camara|webcam|notch|altavoz|parlante|bocina|red|ethernet|wifi|wi-?fi|bluetooth|internet|nube|cloud|telefono|celular|movil|smartphone|tablet|ipad|android|iphone|ios|windows|linux|macos|problema|error|fallo|bug|reparacion|tecnico|compu|computadora|equipo|hardware|software|programa|sistema)$/i;
+
+const problemHint = /(no (prende|enciende|arranca|funciona|anda|enciende|enciende bien|conecta|detecta|reconoce|responde|da señal|muestra imagen|carga|enciende la pantalla)|no (da|tiene) (video|imagen|sonido|internet|conexion|red|wifi|señal)|no inicia|no arranca|no anda|no funca|lento|va lento|se tilda|se cuelga|se congela|pantalla (negra|azul|blanca|con rayas)|sin imagen|sin sonido|sin señal|se apaga|se reinicia|se reinicia solo|no carga|no enciende|no muestra nada|hace ruido|no hace nada|tiene olor|saca humo|parpadea|no detecta|no reconoce|no conecta|problema|error|fallo|falla|bug|no abre|no responde|bloqueado|traba|lag|pérdida de conexion|sin internet|sin wi[- ]?fi|no se escucha|no se ve|no imprime|no escanea|sin color|no gira|no arranca el ventilador)/i;
+
 
 function isValidName(text) {
   if (!text) return false;
