@@ -439,26 +439,36 @@ app.post('/api/chat', async (req, res) => {
         }
 
         // 3) Si hay confianza suficiente → tests básicos directo
-        if (confidence >= OA_MIN_CONF && (issueKey || device)) {
-          session.device   = session.device || device || 'equipo';
-          session.issueKey = issueKey || session.issueKey || null;
-          session.stage    = STATES.BASIC_TESTS;
+if (confidence >= OA_MIN_CONF && (issueKey || device)) {
+  session.device   = session.device || device || 'equipo';
+  session.issueKey = issueKey || session.issueKey || null;
+  session.stage    = STATES.BASIC_TESTS;
 
-          const key = session.issueKey || 'no_funciona';
-          const pasos = (CHAT?.nlp?.advanced_steps?.[key]) || [
-            'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
-            'Probá otro tomacorriente o cable/cargador',
-            'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo'
-          ];
+  const key = session.issueKey || 'no_funciona';
+  const steps = (CHAT?.nlp?.advanced_steps?.[key])?.slice(0, 4) || [
+    'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
+    'Probá otro tomacorriente o cable/cargador',
+    'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo',
+    'Si hay luces o sonidos, probá desconectar periféricos y volver a encender'
+  ];
 
-          let msg  = `Enseguida te ayudo con ese problema 🔍\n\n`;
-          msg     += `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.\n\n`;
-          msg     += `🔧 **Probemos esto primero:**\n`;
-          pasos.slice(0, 4).forEach((p, i) => msg += `${i + 1}. ${p}\n`);
-          msg     += `\nCuando termines, contame si **sigue igual** o **mejoró**.`;
+  const intro = [
+    'Enseguida te ayudo con ese problema 🔍',
+    `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.`,
+    'Probemos esto primero:'
+  ].join('\n\n');
 
-          return res.json({ ok: true, reply: msg, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] });
-        }
+  // ⚠️ Devolvemos steps como array aparte (nada de numerar en el string)
+  return res.json({
+    ok: true,
+    reply: intro,
+    steps,                // ← array de strings
+    stepsType: 'basic',   // ← pista para el frontend (opcional)
+    options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'],
+    stage: session.stage,
+    allowWhatsapp: true
+  });
+}
 
         // 4) Fallback: pedir equipo si la confianza fue baja
         session.stage = STATES.ASK_DEVICE;
