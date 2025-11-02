@@ -139,4 +139,5 @@ app.post('/api/chat', async (req, res) => {
 // ====== Otros endpoints ======
 app.get('/api/health', (req,res)=>res.json({ok:true,version:'4.8'}));
 
-app.listen(3000, ()=>console.log('STI Chat Server v4.8 activo en puerto 3000'));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`STI Chat Server v4.8 activo en puerto ${PORT}`));
