@@ -381,28 +381,23 @@ app.post('/api/chat', async (req, res) => {
 else if (session.stage === STATES.ASK_PROBLEM) {
   session.problem = t || session.problem;
 
-  // Respuesta inmediata al usuario mientras procesamos el análisis
-  const waitingReply = `Enseguida te ayudo con ese problema 🔍`;
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.write(JSON.stringify({ ok: true, reply: waitingReply }));
-  res.flushHeaders?.(); // (opcional: si usás streaming)
-  
-  // Continuamos el procesamiento en segundo plano
   try {
-    let device   = detectDevice(session.problem);
-    let issueKey = detectIssue(session.problem);
+    // 1) Detección local rápida
+    let device    = detectDevice(session.problem);
+    let issueKey  = detectIssue(session.problem);
     let confidence = issueKey ? 0.6 : 0;
 
+    // 2) OpenAI (si hay API key)
     if (openai) {
       const ai = await analyzeProblemWithOA(session.problem);
       if ((ai.confidence || 0) >= confidence) {
-        device = ai.device || device;
-        issueKey = ai.issueKey || issueKey;
+        device     = ai.device || device;
+        issueKey   = ai.issueKey || issueKey;
         confidence = ai.confidence || confidence;
       }
     }
 
-    // Si logramos identificar el problema con confianza suficiente
+    // 3) Si hay confianza suficiente → tests básicos directo
     if (confidence >= OA_MIN_CONF && (issueKey || device)) {
       session.device   = session.device || device || 'equipo';
       session.issueKey = issueKey || session.issueKey || null;
@@ -412,28 +407,31 @@ else if (session.stage === STATES.ASK_PROBLEM) {
       const pasos = (CHAT?.nlp?.advanced_steps?.[key]) || [
         'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
         'Probá otro tomacorriente o cable/cargador',
-        'Mantené presionado el botón de encendido 15–30 segundos y volvé a probar'
+        'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo'
       ];
 
-      let reply  = `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)} 🔍\\n\\n`;
-      reply     += `🔧 **Probemos esto primero:**\\n`;
-      pasos.slice(0, 4).forEach((p, i) => reply += `${i + 1}. ${p}\\n`);
-      reply     += `\\nCuando termines, contame si **sigue igual** o **mejoró**.`;
+      let reply  = `Enseguida te ayudo con ese problema 🔍\n\n`;
+      reply     += `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.\n\n`;
+      reply     += `🔧 **Probemos esto primero:**\n`;
+      pasos.slice(0, 4).forEach((p, i) => reply += `${i + 1}. ${p}\n`);
+      reply     += `\nCuando termines, contame si **sigue igual** o **mejoró**.`;
 
-      // Enviar respuesta final al cliente (completa)
-      res.end(JSON.stringify({ ok: true, reply, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] }));
-      return;
+      return res.json({ ok: true, reply, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] });
     }
 
-    // Si no hay suficiente confianza, pedir equipo (fallback)
+    // 4) Fallback: pedir equipo si la confianza fue baja
     session.stage = STATES.ASK_DEVICE;
-    const reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\\n\\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
-    res.end(JSON.stringify({ ok: true, reply, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] }));
+    const reply = `Enseguida te ayudo con ese problema 🔍\n\n` +
+                  `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
+                  `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
+    return res.json({ ok: true, reply, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
+
   } catch (err) {
-    console.error('Error al analizar el problema:', err);
-    res.end(JSON.stringify({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá describirme el fallo de nuevo.' }));
+    console.error('diagnóstico ASK_PROBLEM:', err);
+    return res.json({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo en un momento.' });
   }
 }
+
 
     // ===== 3) Equipo + derivación a tests
     else if (session.stage === STATES.ASK_DEVICE || !session.device) {
