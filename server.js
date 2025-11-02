@@ -378,12 +378,62 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // ===== 2) Problema
-    else if (session.stage === STATES.ASK_PROBLEM) {
-      session.problem = t || session.problem;
-      session.stage   = STATES.ASK_DEVICE;
-      options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
-      reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa? (Ej.: PC, notebook, teclado, etc.)`;
+else if (session.stage === STATES.ASK_PROBLEM) {
+  session.problem = t || session.problem;
+
+  // Respuesta inmediata al usuario mientras procesamos el análisis
+  const waitingReply = `Enseguida te ayudo con ese problema 🔍`;
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.write(JSON.stringify({ ok: true, reply: waitingReply }));
+  res.flushHeaders?.(); // (opcional: si usás streaming)
+  
+  // Continuamos el procesamiento en segundo plano
+  try {
+    let device   = detectDevice(session.problem);
+    let issueKey = detectIssue(session.problem);
+    let confidence = issueKey ? 0.6 : 0;
+
+    if (openai) {
+      const ai = await analyzeProblemWithOA(session.problem);
+      if ((ai.confidence || 0) >= confidence) {
+        device = ai.device || device;
+        issueKey = ai.issueKey || issueKey;
+        confidence = ai.confidence || confidence;
+      }
     }
+
+    // Si logramos identificar el problema con confianza suficiente
+    if (confidence >= OA_MIN_CONF && (issueKey || device)) {
+      session.device   = session.device || device || 'equipo';
+      session.issueKey = issueKey || session.issueKey || null;
+      session.stage    = STATES.BASIC_TESTS;
+
+      const key = session.issueKey || 'no_funciona';
+      const pasos = (CHAT?.nlp?.advanced_steps?.[key]) || [
+        'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
+        'Probá otro tomacorriente o cable/cargador',
+        'Mantené presionado el botón de encendido 15–30 segundos y volvé a probar'
+      ];
+
+      let reply  = `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)} 🔍\\n\\n`;
+      reply     += `🔧 **Probemos esto primero:**\\n`;
+      pasos.slice(0, 4).forEach((p, i) => reply += `${i + 1}. ${p}\\n`);
+      reply     += `\\nCuando termines, contame si **sigue igual** o **mejoró**.`;
+
+      // Enviar respuesta final al cliente (completa)
+      res.end(JSON.stringify({ ok: true, reply, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] }));
+      return;
+    }
+
+    // Si no hay suficiente confianza, pedir equipo (fallback)
+    session.stage = STATES.ASK_DEVICE;
+    const reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\\n\\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
+    res.end(JSON.stringify({ ok: true, reply, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] }));
+  } catch (err) {
+    console.error('Error al analizar el problema:', err);
+    res.end(JSON.stringify({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá describirme el fallo de nuevo.' }));
+  }
+}
 
     // ===== 3) Equipo + derivación a tests
     else if (session.stage === STATES.ASK_DEVICE || !session.device) {
