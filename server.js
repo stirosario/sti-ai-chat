@@ -128,6 +128,47 @@ function getSessionId(req) {
 }
 app.use((req, _res, next) => { req.sessionId = getSessionId(req); next(); });
 
+// ===== Config diagnóstico OA =====
+const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || 0.6);
+
+// ===== Análisis con OpenAI (detección de problema y equipo) =====
+// Devuelve { device, issueKey, confidence } o todo nulo si no hay API Key
+async function analyzeProblemWithOA(problemText = '') {
+  if (!openai) return { device: null, issueKey: null, confidence: 0 };
+
+  const prompt = [
+    "Sos técnico informático argentino, claro y profesional.",
+    "Tu tarea: analizar el texto del cliente y detectar:",
+    "• device → equipo involucrado (ej: pc, notebook, monitor, etc.)",
+    "• issueKey → tipo de problema (ej: no_prende, no_internet, pantalla_negra, etc.)",
+    "• confidence → número entre 0 y 1 según tu seguridad.",
+    "",
+    "Respondé SOLO un JSON válido con esas tres claves, sin texto adicional.",
+    "",
+    `Texto del cliente: "${problemText}"`
+  ].join('\n');
+
+  try {
+    const r = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0
+    });
+    const raw = (r.choices?.[0]?.message?.content || '')
+      .trim()
+      .replace(/```json|```/g, '');
+    const obj = JSON.parse(raw);
+    return {
+      device: (obj.device || null),
+      issueKey: (obj.issueKey || null),
+      confidence: Math.max(0, Math.min(1, Number(obj.confidence || 0)))
+    };
+  } catch (e) {
+    console.error('[analyzeProblemWithOA] ❌', e.message);
+    return { device: null, issueKey: null, confidence: 0 };
+  }
+}
+
 // ===== OpenAI quick tests (opcional) =====
 async function aiQuickTests(problemText = '', device = '') {
   if (!openai) {
@@ -378,60 +419,59 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // ===== 2) Problema
-else if (session.stage === STATES.ASK_PROBLEM) {
-  session.problem = t || session.problem;
+    else if (session.stage === STATES.ASK_PROBLEM) {
+      session.problem = t || session.problem;
 
-  try {
-    // 1) Detección local rápida
-    let device    = detectDevice(session.problem);
-    let issueKey  = detectIssue(session.problem);
-    let confidence = issueKey ? 0.6 : 0;
+      try {
+        // 1) Detección local rápida
+        let device    = detectDevice(session.problem);
+        let issueKey  = detectIssue(session.problem);
+        let confidence = issueKey ? 0.6 : 0;
 
-    // 2) OpenAI (si hay API key)
-    if (openai) {
-      const ai = await analyzeProblemWithOA(session.problem);
-      if ((ai.confidence || 0) >= confidence) {
-        device     = ai.device || device;
-        issueKey   = ai.issueKey || issueKey;
-        confidence = ai.confidence || confidence;
+        // 2) OpenAI (si hay API key)
+        if (openai) {
+          const ai = await analyzeProblemWithOA(session.problem);
+          if ((ai.confidence || 0) >= confidence) {
+            device     = ai.device || device;
+            issueKey   = ai.issueKey || issueKey;
+            confidence = ai.confidence || confidence;
+          }
+        }
+
+        // 3) Si hay confianza suficiente → tests básicos directo
+        if (confidence >= OA_MIN_CONF && (issueKey || device)) {
+          session.device   = session.device || device || 'equipo';
+          session.issueKey = issueKey || session.issueKey || null;
+          session.stage    = STATES.BASIC_TESTS;
+
+          const key = session.issueKey || 'no_funciona';
+          const pasos = (CHAT?.nlp?.advanced_steps?.[key]) || [
+            'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
+            'Probá otro tomacorriente o cable/cargador',
+            'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo'
+          ];
+
+          let msg  = `Enseguida te ayudo con ese problema 🔍\n\n`;
+          msg     += `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.\n\n`;
+          msg     += `🔧 **Probemos esto primero:**\n`;
+          pasos.slice(0, 4).forEach((p, i) => msg += `${i + 1}. ${p}\n`);
+          msg     += `\nCuando termines, contame si **sigue igual** o **mejoró**.`;
+
+          return res.json({ ok: true, reply: msg, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] });
+        }
+
+        // 4) Fallback: pedir equipo si la confianza fue baja
+        session.stage = STATES.ASK_DEVICE;
+        const msg = `Enseguida te ayudo con ese problema 🔍\n\n` +
+                    `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
+                    `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
+        return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
+
+      } catch (err) {
+        console.error('diagnóstico ASK_PROBLEM:', err);
+        return res.json({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo en un momento.' });
       }
     }
-
-    // 3) Si hay confianza suficiente → tests básicos directo
-    if (confidence >= OA_MIN_CONF && (issueKey || device)) {
-      session.device   = session.device || device || 'equipo';
-      session.issueKey = issueKey || session.issueKey || null;
-      session.stage    = STATES.BASIC_TESTS;
-
-      const key = session.issueKey || 'no_funciona';
-      const pasos = (CHAT?.nlp?.advanced_steps?.[key]) || [
-        'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
-        'Probá otro tomacorriente o cable/cargador',
-        'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo'
-      ];
-
-      let reply  = `Enseguida te ayudo con ese problema 🔍\n\n`;
-      reply     += `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.\n\n`;
-      reply     += `🔧 **Probemos esto primero:**\n`;
-      pasos.slice(0, 4).forEach((p, i) => reply += `${i + 1}. ${p}\n`);
-      reply     += `\nCuando termines, contame si **sigue igual** o **mejoró**.`;
-
-      return res.json({ ok: true, reply, options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'] });
-    }
-
-    // 4) Fallback: pedir equipo si la confianza fue baja
-    session.stage = STATES.ASK_DEVICE;
-    const reply = `Enseguida te ayudo con ese problema 🔍\n\n` +
-                  `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
-                  `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
-    return res.json({ ok: true, reply, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
-
-  } catch (err) {
-    console.error('diagnóstico ASK_PROBLEM:', err);
-    return res.json({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo en un momento.' });
-  }
-}
-
 
     // ===== 3) Equipo + derivación a tests
     else if (session.stage === STATES.ASK_DEVICE || !session.device) {
