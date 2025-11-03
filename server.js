@@ -343,45 +343,37 @@ app.post('/api/reset', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Greeting — NO reinicia si ya hay nombre/estado
-// IMPORTANTE: devolvemos { greeting } para el front nuevo, y también { reply } por compatibilidad
+// ====== GREETING CON REINICIO FORZADO DE SESIÓN ======
 app.all('/api/greeting', async (req, res) => {
   try {
     const sid = req.sessionId;
-    let session = await getSession(sid);
 
-    if (!session) {
-      session = {
-        id: sid, userName: null, stage: STATES.ASK_NAME,
-        device:null, problem:null, issueKey:null,
-        tests:{ basic:[], advanced:[], ai:[] }, stepsDone:[],
-        fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null
-      };
-    }
+    // Crear SIEMPRE sesión fresca
+    const fresh = {
+      id: sid,
+      userName: null,
+      stage: STATES.ASK_NAME,
+      device: null,
+      problem: null,
+      issueKey: null,
+      tests: { basic: [], advanced: [], ai: [] },
+      stepsDone: [],
+      fallbackCount: 0,
+      waEligible: false,
+      transcript: [],
+      pendingUtterance: null
+    };
 
-    let text;
-    if (!session.userName) {
-      text = CHAT?.messages_v4?.greeting?.name_request
-        || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
-      session.stage = STATES.ASK_NAME; // solo si no hay nombre
-    } else {
-      if (session.stage === STATES.ASK_PROBLEM) {
-        text = `¡Hola de nuevo, ${session.userName}! 😊 Contame: ¿qué problema estás teniendo?`;
-      } else if (session.stage === STATES.ASK_DEVICE) {
-        text = `¡Seguimos, ${session.userName}! ¿En qué equipo te pasa? (PC, notebook, monitor, etc.)`;
-      } else {
-        text = `¡Bienvenido de nuevo, ${session.userName}!`;
-      }
-    }
+    const text = CHAT?.messages_v4?.greeting?.name_request
+      || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás? (o escribí "omitir")';
 
-    session.transcript.push({ who: 'bot', text, ts: nowIso() });
-    await saveSession(sid, session);
-    console.log('[greeting]', { sid, stage: session.stage, userName: session.userName });
+    fresh.transcript.push({ who: 'bot', text, ts: nowIso() });
+    await saveSession(sid, fresh);
+    console.log('[greeting RESET]', { sid, stage: fresh.stage });
 
-    // ← clave para el front inline nuevo
     return res.json({ ok: true, greeting: text, reply: text, options: [] });
   } catch (e) {
-    console.error('[api/greeting] error:', e);
+    console.error('[api/greeting RESET] error:', e);
     const text = '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
     return res.json({ ok: true, greeting: text, reply: text, options: [] });
   }
