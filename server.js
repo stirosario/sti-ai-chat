@@ -67,7 +67,7 @@ import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 // ===== App =====
 const app = express();
 app.set('trust proxy', 1);
-app.use(cors({ origin: true, credentials: true, allowedHeaders: ['Content-Type','x-session-id'] }));
+app.use(cors({ origin: true, credentials: true, allowedHeaders: ['Content-Type','x-session-id','x-session-fresh'] }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -328,7 +328,7 @@ app.post('/api/reset', async (req, res) => {
 });
 
 // Greeting — NO reinicia si ya hay nombre/estado
-app.post('/api/greeting', async (req, res) => {
+app.all('/api/greeting', async (req, res) => {
   try {
     const sid = req.sessionId;
     let session = await getSession(sid);
@@ -360,6 +360,7 @@ app.post('/api/greeting', async (req, res) => {
 
     session.transcript.push({ who: 'bot', text, ts: nowIso() });
     await saveSession(sid, session);
+    console.log('[greeting]', { sid, stage: session.stage, userName: session.userName });
     return res.json({ ok: true, reply: text, options: [] });
   } catch (e) {
     console.error('[api/greeting] error:', e);
