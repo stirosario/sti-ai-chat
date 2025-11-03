@@ -1,4 +1,4 @@
-// server.js V4.8.1 — STI Chat (Redis + Tickets + Transcript) + NameFix + CORS + Reload + GreeterFix
+// server.js V4.8.2 — STI Chat (Redis + Tickets + Transcript) + NameFix + CORS + Reload + GreeterFix
 // - Estados: ASK_NAME → ASK_PROBLEM → ASK_DEVICE → BASIC/ADVANCED/ESCALATE
 // - Sesión por 'x-session-id' / 'sid' (no reinicia si ya hay nombre)
 // - pendingUtterance si describen el problema antes del nombre
@@ -229,7 +229,7 @@ app.get('/api/health', async (_req, res) => {
     openaiReady: !!openai,
     openaiModel: OPENAI_MODEL || null,
     usingNewFlows: true,
-    version: CHAT?.version || '4.8.1',
+    version: CHAT?.version || '4.8.2',
     paths: { data: DATA_BASE, transcripts: TRANSCRIPTS_DIR, tickets: TICKETS_DIR }
   });
 });
@@ -344,6 +344,7 @@ app.post('/api/reset', async (req, res) => {
 });
 
 // Greeting — NO reinicia si ya hay nombre/estado
+// IMPORTANTE: devolvemos { greeting } para el front nuevo, y también { reply } por compatibilidad
 app.all('/api/greeting', async (req, res) => {
   try {
     const sid = req.sessionId;
@@ -361,10 +362,9 @@ app.all('/api/greeting', async (req, res) => {
     let text;
     if (!session.userName) {
       text = CHAT?.messages_v4?.greeting?.name_request
-        || '⚡ ¡Bienvenido a STI! Soy Tecnos 🤖, tu asistente técnico inteligente 😎\n\n¿Cómo te llamás?';
+        || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
       session.stage = STATES.ASK_NAME; // solo si no hay nombre
     } else {
-      // Saludo contextual sin resetear el stage
       if (session.stage === STATES.ASK_PROBLEM) {
         text = `¡Hola de nuevo, ${session.userName}! 😊 Contame: ¿qué problema estás teniendo?`;
       } else if (session.stage === STATES.ASK_DEVICE) {
@@ -377,10 +377,13 @@ app.all('/api/greeting', async (req, res) => {
     session.transcript.push({ who: 'bot', text, ts: nowIso() });
     await saveSession(sid, session);
     console.log('[greeting]', { sid, stage: session.stage, userName: session.userName });
-    return res.json({ ok: true, reply: text, options: [] });
+
+    // ← clave para el front inline nuevo
+    return res.json({ ok: true, greeting: text, reply: text, options: [] });
   } catch (e) {
     console.error('[api/greeting] error:', e);
-    return res.json({ ok: true, reply: '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?', options: [] });
+    const text = '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
+    return res.json({ ok: true, greeting: text, reply: text, options: [] });
   }
 });
 
@@ -455,7 +458,7 @@ app.post('/api/chat', async (req, res) => {
           }
         }
 
-        // 3) Confianza suficiente → tests básicos directo (🔥 persistimos ANTES de responder)
+        // 3) Confianza suficiente → tests básicos directo
         if (confidence >= OA_MIN_CONF && (issueKey || device)) {
           session.device   = session.device || device || 'equipo';
           session.issueKey = issueKey || session.issueKey || null;
@@ -475,7 +478,6 @@ app.post('/api/chat', async (req, res) => {
             'Probemos esto primero:'
           ].join('\n\n');
 
-          // Guardar bot + persistir transcript
           session.tests.basic = steps;
           session.stepsDone.push('basic_tests_shown');
           session.waEligible = true;
@@ -503,7 +505,6 @@ app.post('/api/chat', async (req, res) => {
         const msg = `Enseguida te ayudo con ese problema 🔍\n\n` +
                     `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
                     `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
-        // Persistimos estado antes de responder
         await saveSession(sid, session);
         return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
 
@@ -648,7 +649,7 @@ app.get('/api/sessions', async (_req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log('\n' + '='.repeat(60));
-  console.log(`🚀 [STI Chat V4.8.1-NameFix] Started`);
+  console.log(`🚀 [STI Chat V4.8.2-NameFix] Started`);
   console.log(`📍 Port: ${PORT}`);
   console.log(`📂 Data: ${DATA_BASE}`);
   console.log(`${CHAT?.version ? `📋 Chat config: ${CHAT.version}` : '⚠️  No chat config loaded'}`);
