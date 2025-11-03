@@ -478,26 +478,29 @@ app.post('/api/chat', async (req, res) => {
             'Probemos esto primero:'
           ].join('\n\n');
 
-          session.tests.basic = steps;
-          session.stepsDone.push('basic_tests_shown');
-          session.waEligible = true;
-          session.transcript.push({ who: 'bot', text: intro + '\n\n• ' + steps.join('\n• '), ts: nowIso() });
-          await saveSession(sid, session);
-          try {
-            const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-            fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
-            steps.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
-          } catch {}
+          // ...después de construir const intro y const steps
+session.tests.basic = steps;
+session.stepsDone.push('basic_tests_shown');
+session.waEligible = true;
+session.transcript.push({ who: 'bot', text: intro + '\n\n• ' + steps.join('\n• '), ts: nowIso() });
+await saveSession(sid, session);
+try {
+  const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+  fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
+  steps.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
+} catch {}
 
-          return res.json({
-            ok: true,
-            reply: intro,
-            steps,                // array
-            stepsType: 'basic',
-            options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'],
-            stage: session.stage,
-            allowWhatsapp: true
-          });
+// 👇 DEVOLVEMOS LOS PASOS INCLUIDOS EN reply (además del array)
+return res.json({
+  ok: true,
+  reply: intro + '\n\n• ' + steps.join('\n• '),
+  steps,
+  stepsType: 'basic',
+  options: ['Listo, sigue igual', 'Funcionó 👍', 'WhatsApp'],
+  stage: session.stage,
+  allowWhatsapp: true
+});
+
         }
 
         // 4) Fallback → pedir equipo
