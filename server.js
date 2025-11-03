@@ -363,10 +363,7 @@ app.all('/api/greeting', async (req, res) => {
     if (!session.userName) {
       text = CHAT?.messages_v4?.greeting?.name_request
         || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
-      if (!session.userName) {
-  session.stage = STATES.ASK_NAME;
-  return res.json({ reply: "👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?" });
-}
+      session.stage = STATES.ASK_NAME; // solo si no hay nombre
     } else {
       if (session.stage === STATES.ASK_PROBLEM) {
         text = `¡Hola de nuevo, ${session.userName}! 😊 Contame: ¿qué problema estás teniendo?`;
