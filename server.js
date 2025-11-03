@@ -465,9 +465,7 @@ app.post('/api/chat', async (req, res) => {
           ];
 
           const intro = [
-            'Enseguida te ayudo con ese problema 🔍',
-            `Entiendo, ${session.userName}. Tu **${session.device}** parece tener: ${issueHuman(key)}.`,
-            'Probemos esto primero:'
+            `Entiendo, ${session.userName}. Probemos esto primero:`,
           ].join('\n\n');
 
           // ...después de construir const intro y const steps
