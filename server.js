@@ -365,7 +365,7 @@ app.all('/api/greeting', async (req, res) => {
     };
 
     const text = CHAT?.messages_v4?.greeting?.name_request
-      || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás? (o escribí "omitir")';
+      || '👋 ¡Hola! Soy Tecnos,  tu Asistente Inteligente. Cual es tu nombre?';
 
     fresh.transcript.push({ who: 'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
@@ -374,7 +374,7 @@ app.all('/api/greeting', async (req, res) => {
     return res.json({ ok: true, greeting: text, reply: text, options: [] });
   } catch (e) {
     console.error('[api/greeting RESET] error:', e);
-    const text = '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?';
+    const text = '👋 ¡Hola! Soy Tecnos,  tu Asistente Inteligente. Cual es tu nombre?';
     return res.json({ ok: true, greeting: text, reply: text, options: [] });
   }
 });
