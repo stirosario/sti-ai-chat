@@ -628,15 +628,15 @@ function withOptions(obj) {
   return { ...obj, options: std };
 }
 
+// ===== App =====
+const app = express();
+
 // ===== Middleware: extrae sessionId de header o genera uno nuevo =====
 app.use((req, res, next) => {
   const sid = req.headers['x-session-id'] || req.headers['sid'] || `sess-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
   req.sessionId = sid;
   next();
 });
-
-// ===== App =====
-const app = express();
 app.set('trust proxy', 1); // Confía en cabeceras de proxy (Render/NGINX) para IP real
 
 // CORS fuerte + OPTIONS handler (preflight)
