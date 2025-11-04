@@ -149,6 +149,31 @@ function extractName(text) {
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; // Capitaliza nombre
 const withOptions = (obj) => ({ options: [], ...obj }); // Asegura campo options en respuestas
 
+// === Voseo: convierte instrucciones neutras/usted a voseo rioplatense ===
+// Es seguro: si no encuentra patrones, devuelve el mismo texto.
+function arVoseo(s) {
+  let t = String(s || '').trim();
+  const repl = [
+    [/\bpresione\b/gi, 'apretá'],
+    [/\bpresionar\b/gi, 'apretar'],
+    [/\bhaga\b/gi, 'hacé'],
+    [/\bhaz\b/gi, 'hacé'],
+    [/\bverifique\b/gi, 'verificá'],
+    [/\bintente\b/gi, 'probá'],
+    [/\bpruebe\b/gi, 'probá'],
+    [/\bquiera\b/gi, 'querés'],
+    [/\bpuede\b/gi, 'podés'],
+    [/\bconecte\b/gi, 'conectá'],
+    [/\bdesconecte\b/gi, 'desconectá'],
+    [/\bmantenga\b/gi, 'mantené'],
+    [/\breinicie\b/gi, 'reiniciá'],
+  ];
+  for (const [rx, to] of repl) t = t.replace(rx, to);
+  return t;
+}
+// Map seguro que no rompe si viene undefined/null
+const mapVoseoSafe = (arr) => Array.isArray(arr) ? arr.map(arVoseo) : [];
+
 // Normaliza el sessionId de headers/body/query; genera uno si no viene
 function getSessionId(req) {
   // headers en node están en minúscula
@@ -203,7 +228,7 @@ async function analyzeProblemWithOA(problemText = '') {
 }
 
 // ===== OpenAI quick tests (opcional) =====
-// Genera 4–6 pasos simples de diagnóstico básico (o fallback estático)
+// Genera 4–6 pasos simples de diagnóstico básico (o fallback estándar)
 async function aiQuickTests(problemText = '', device = '') {
   if (!openai) {
     // Fallback local si no hay API
@@ -426,19 +451,18 @@ app.post('/api/chat', async (req, res) => {
     // Log del usuario en transcript (memoria de la conversación)
     session.transcript.push({ who: 'user', text: t, ts: nowIso() });
 
-        // Detección inline de nombre en el mismo mensaje (e.g., "hola, me llamo X")
-        const nmInline = extractName(t);
-        if (nmInline && !session.userName) {
-          session.userName = cap(nmInline);
-          if (session.stage === STATES.ASK_NAME) {
-            session.stage = STATES.ASK_PROBLEM;
-            const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-            session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-            await saveSession(sid, session);
-            return res.json({ ok: true, reply, stage: session.stage, options: [] });
-          }
-        }
-    
+    // Detección inline de nombre en el mismo mensaje (e.g., "hola, me llamo X")
+    const nmInline = extractName(t);
+    if (nmInline && !session.userName) {
+      session.userName = cap(nmInline);
+      if (session.stage === STATES.ASK_NAME) {
+        session.stage = STATES.ASK_PROBLEM;
+        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json({ ok: true, reply, stage: session.stage, options: [] });
+      }
+    }
 
     let reply = ''; let options = [];
 
@@ -502,43 +526,44 @@ app.post('/api/chat', async (req, res) => {
 
           // Toma hasta 4 pasos iniciales del JSON (o fallback estándar)
           const key = session.issueKey || 'no_funciona';
-          const steps = (CHAT?.nlp?.advanced_steps?.[key])?.slice(0, 4) || [
+          const stepsSrc = CHAT?.nlp?.advanced_steps?.[key];
+          const steps = Array.isArray(stepsSrc) ? stepsSrc.slice(0, 4) : [
             'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
             'Probá otro tomacorriente o cable/cargador',
             'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo',
             'Si hay luces o sonidos, probá desconectar periféricos y volver a encender'
           ];
-            // voseo
-            const stepsAr = steps.map(arVoseo);
+          const stepsAr = mapVoseoSafe(steps);
 
           // Introducción + pie ¿Se solucionó?
           const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
           const footer = [
-         '',
-         '🧩 ¿Se solucionó?',
-         'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
-         '',
-         'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
-        ].join('\n');
+            '',
+            '🧩 ¿Se solucionó?',
+            'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
+            '',
+            'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
+          ].join('\n');
 
-session.tests.basic = (typeof stepsAr !== 'undefined' ? stepsAr : steps);
-session.stepsDone.push('basic_tests_shown');
-session.waEligible = true;
+          session.tests.basic = stepsAr;
+          session.stepsDone.push('basic_tests_shown');
+          session.waEligible = true;
 
-const fullMsg = intro + '\n\n• ' + (typeof stepsAr !== 'undefined' ? stepsAr : steps).join('\n• ') + '\n' + footer;
+          const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n' + footer;
 
           // Guardamos transcript de bot
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
 
-// También agregamos a archivo de transcript (debug/soporte)
-try {
-  const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
-  const list = (typeof stepsAr !== 'undefined' ? stepsAr : steps);
-  list.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
-  fs.appendFileSync(tf, `\n${footer}\n`);
-} catch {}
+          // También agregamos a archivo de transcript (debug/soporte)
+          try {
+            const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+            fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
+            stepsAr.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
+            fs.appendFileSync(tf, `\n${footer}\n`);
+          } catch (e) {
+            console.error('[transcript write] error:', e.message);
+          }
 
           // Respondemos con pasos + opciones rápidas unificadas
           return res.json({
@@ -579,12 +604,13 @@ try {
           // Tenemos issue → pasos básicos (3 primeros) + pie ¿Se solucionó?
           session.issueKey = issueKey;
           session.stage    = STATES.BASIC_TESTS;
-          const pasos = CHAT?.nlp?.advanced_steps?.[issueKey] || [
+          const pasosSrc = CHAT?.nlp?.advanced_steps?.[issueKey];
+          const pasos = Array.isArray(pasosSrc) ? pasosSrc : [
             'Reiniciar el equipo',
             'Verificar conexiones físicas',
             'Probar en modo seguro',
           ];
-            const pasosAr = (pasos || []).map(arVoseo);
+          const pasosAr = mapVoseoSafe(pasos);
           reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene el problema: ${issueHuman(issueKey)} 🔍\n\n`;
           reply += `🔧 **Probá estos pasos básicos:**\n\n`;
           pasosAr.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
@@ -604,7 +630,7 @@ try {
           try {
             const ai = await aiQuickTests(session.problem || '', session.device || '');
             if (ai.length) {
-                const aiAr = ai.map(arVoseo);
+              const aiAr = mapVoseoSafe(ai);
               reply  = `Entiendo, ${session.userName}. Probemos esto rápido 🔍\n\n`;
               reply += `🔧 **Pasos iniciales:**\n\n`;
               aiAr.forEach(s => reply += `• ${s}\n`);
@@ -653,28 +679,28 @@ try {
         session.waEligible = true;
 
       } else if (rxNo.test(t)) {
-          session.stepsDone.push('user_says_not_working');
-          const triedAdv = (session.stage === STATES.ADVANCED_TESTS);
-          const noCount = session.stepsDone.filter(x => x === 'user_says_not_working').length;
-          const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
-          const advAr = adv.map(arVoseo);
-          if (triedAdv || noCount >= 2 || advAr.length === 0) {
-            session.stage = STATES.ESCALATE;
-            session.waEligible = true;
-            reply = 'Entiendo. Te paso con un técnico para ayudarte personalmente. Tocá el botón verde y se enviará un ticket con esta conversación para agilizar la atención.';
-            options = ['WhatsApp'];
-          } else {
-            session.stage = STATES.ADVANCED_TESTS;
-            session.tests.advanced = advAr;
-            reply = `Entiendo, ${session.userName} 😔\nEntonces vamos a hacer unas **pruebas más avanzadas** para tratar de solucionarlo. 🔍\n\n`;
-            advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
-            session.waEligible = true
-            options = ['Volver a básicas','WhatsApp'];
-          }
-        } else if (rxAdv.test(t)) {
+        session.stepsDone.push('user_says_not_working');
+        const triedAdv = (session.stage === STATES.ADVANCED_TESTS);
+        const noCount = session.stepsDone.filter(x => x === 'user_says_not_working').length;
+        const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
+        const advAr = mapVoseoSafe(adv);
+        if (triedAdv || noCount >= 2 || advAr.length === 0) {
+          session.stage = STATES.ESCALATE;
+          session.waEligible = true;
+          reply = 'Entiendo. Te paso con un técnico para ayudarte personalmente. Tocá el botón verde y se enviará un ticket con esta conversación para agilizar la atención.';
+          options = ['WhatsApp'];
+        } else {
+          session.stage = STATES.ADVANCED_TESTS;
+          session.tests.advanced = advAr;
+          reply = `Entiendo, ${session.userName} 😔\nEntonces vamos a hacer unas **pruebas más avanzadas** para tratar de solucionarlo. 🔍\n\n`;
+          advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
+          session.waEligible = true;
+          options = ['Volver a básicas','WhatsApp'];
+        }
+      } else if (rxAdv.test(t)) {
         // Ir directo a avanzadas sin repetir el discurso
         const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
-          const advAr = adv.map(arVoseo);
+        const advAr = mapVoseoSafe(adv);
         if (advAr.length > 0) {
           session.stage = STATES.ADVANCED_TESTS;
           session.tests.advanced = advAr;
@@ -700,7 +726,7 @@ try {
         session.stepsDone.push('user_confirmed_basic');
         if (session.stage === STATES.BASIC_TESTS && ((session.tests.basic || []).length >= 2 || (session.tests.ai || []).length >= 2)) {
           const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
-          const advAr = adv.map(arVoseo);
+          const advAr = mapVoseoSafe(adv);
           if (advAr.length > 0) {
             session.stage = STATES.ADVANCED_TESTS;
             session.tests.advanced = advAr;
