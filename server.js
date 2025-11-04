@@ -498,19 +498,18 @@ app.post('/api/chat', async (req, res) => {
           // Introducción + pie ¿Se solucionó?
           const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
           const footer = [
-            '',
-            '🧩 ¿Se solucionó?',
-            'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
-            '',
-            'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
-          ].join('\n');
+         '',
+         '🧩 ¿Se solucionó?',
+         'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
+         '',
+         'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
+        ].join('\n');
 
-          // Persistimos pasos mostrados y habilitamos WA
-          session.tests.basic = steps;
-          session.stepsDone.push('basic_tests_shown');
-          session.waEligible = true;
+session.tests.basic = steps;
+session.stepsDone.push('basic_tests_shown');
+session.waEligible = true;
 
-          const fullMsg = intro + '\n\n• ' + steps.join('\n• ') + '\n' + footer;
+const fullMsg = intro + '\n\n• ' + steps.join('\n• ') + '\n' + footer;
 
           // Guardamos transcript de bot
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
