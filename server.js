@@ -203,40 +203,130 @@ async function analyzeProblemWithOA(problemText = '') {
 }
 
 // ===== OpenAI quick tests (opcional) =====
-// Genera 4–6 pasos simples de diagnóstico básico (o fallback estático)
+// ===== OpenAI quick tests (prioriza pasos específicos por problema) =====
+// Genera 4–6 pasos simples y seguros, contextuales al problema.
+// NUNCA devuelve pasos genéricos de energía/switch a menos que el caso sea "no enciende".
 async function aiQuickTests(problemText = '', device = '') {
-  if (!openai) {
-    // Fallback local si no hay API
-    return [
-      'Verificar conexión eléctrica/toma',
-      'Probar con otro cable o cargador',
-      'Mantener pulsado el botón de encendido 10 segundos',
-      'Conectar directo (sin zapatillas/estabilizador)',
-      'Comprobar si hay luces o sonidos al encender'
-    ];
-  }
-  const prompt = [
-    `Sos técnico informático argentino, claro y amable.`,
-    `Problema: "${problemText}"${device ? ` en ${device}` : ''}.`,
-    `Indicá 4–6 pasos simples y seguros.`,
-    `Devolvé solo un JSON array de strings.`
-  ].join('\n');
+  // Si no hay OpenAI, devolvemos vacío para forzar otros fallbacks (JSON o issue-specific)
+  if (!openai) return [];
+
+  const sys = [
+    'Sos un técnico informático argentino. Escribís claro, conciso y amable.',
+    'Devolvés SOLAMENTE un JSON array de strings (cada string = un paso).',
+    'Prohibido saludar, justificar, explicar o poner formato extra.',
+    'Nunca uses emojis ni numeraciones, solo frases imperativas cortas.',
+    'Adaptá los pasos al problema y al dispositivo indicado.',
+    'No sugieras pasos de energía/enchufe/botón I/O/forzar apagado salvo que el problema sea explícitamente "no enciende / no prende / no power".'
+  ].join(' ');
+
+  const usr = [
+    `Problema: "${(problemText || '').trim()}"${device ? ` en "${device}"` : ''}.`,
+    'Entregá 4 a 6 pasos concretos, seguros y verificables para diagnóstico/solución rápida.',
+    'Ejemplo de temas válidos: red/Internet, periféricos (mouse/teclado), cuelgues, pantalla negra, drivers, impresoras, audio, etc.'
+  ].join(' ');
 
   try {
     const resp = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user',   content: usr }
+      ],
+      temperature: 0.2
     });
+
     const raw = resp.choices?.[0]?.message?.content?.trim() || '[]';
     const jsonText = raw.replace(/```json|```/g, '').trim();
     const arr = JSON.parse(jsonText);
-    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
+
+    // Filtramos a strings, quitamos duplicados triviales y acotamos 6 máx
+    return Array.isArray(arr)
+      ? Array.from(new Set(arr.filter(x => typeof x === 'string' && x.trim()).map(s => s.trim()))).slice(0, 6)
+      : [];
   } catch (e) {
     console.error('[aiQuickTests] Error:', e.message);
-    return ['Verificar cable/fuente', 'Probar otra toma', 'Forzar apagado/encendido', 'Probar otro cable/cargador', 'Chequear luces/sonidos al encender'];
+    // IMPORTANTE: devolvemos [] para que el flujo use los fallbacks específicos por issue
+    return [];
   }
 }
+
+// ===== Fallbacks específicos por issue (sin genéricos de energía) =====
+function getIssueFallbackSteps(issueKey = '') {
+  const MAP = {
+    no_internet: [
+      'Reiniciá el módem/router 30 segundos y esperá 2 minutos',
+      'Probá con datos móviles u otra red para descartar tu ISP',
+      'Conectá por cable Ethernet y probá un sitio conocido',
+      'Ejecutá el solucionador de problemas de red en Windows',
+      'Verificá si otros dispositivos también pierden conexión'
+    ],
+    wifi_lento_o_inestable: [
+      'Ubicá el equipo más cerca del router y probá',
+      'Cambiá la banda a 5 GHz si está disponible',
+      'Olvidá y volvé a conectar la red Wi-Fi',
+      'Actualizá el driver de la tarjeta Wi-Fi',
+      'Probá canal menos congestionado en el router'
+    ],
+    mouse_no_responde: [
+      'Si es inalámbrico, cambiá pilas o recargalo',
+      'Probá otro puerto USB y quitá hubs intermedios',
+      'Probá el mouse en otra PC para descartar falla del mouse',
+      'Reinstalá el driver del mouse desde Administrador de dispositivos',
+      'Limpíá el sensor y cambiá la superficie de apoyo'
+    ],
+    teclado_no_responde: [
+      'Probá otro puerto USB o reconectalo',
+      'Desactivá “Teclas de filtro” en Accesibilidad',
+      'Probá el teclado en otra PC',
+      'Reinstalá el driver del teclado en Administrador de dispositivos',
+      'Si es inalámbrico, cambiá batería o emparejalo de nuevo'
+    ],
+    se_cuelga: [
+      'Medí temperatura con HWInfo; si supera 85°C, limpiá y renová pasta',
+      'Ejecutá SFC /scannow y comprobación de disco',
+      'Probá en Modo seguro para descartar software',
+      'Actualizá drivers de video y chipset',
+      'Desinstalá programas instalados recientemente'
+    ],
+    pantalla_negra: [
+      'Probá otro cable/puerto de video y otro monitor',
+      'Iniciá con periféricos mínimos conectados',
+      'Verificá si aparece BIOS; si sí, el problema es del sistema',
+      'Accedé a reparación de inicio desde entorno de recuperación',
+      'Si hay GPU dedicada, probá la salida de la integrada'
+    ],
+    impresora_no_imprime: [
+      'Verificá cola de impresión y cancelá trabajos atascados',
+      'Reinstalá el driver de la impresora',
+      'Probá impresión de prueba desde el panel de control',
+      'Conectá por USB directo para descartar red',
+      'Revisá nivel de tinta/tóner y papel atascado'
+    ],
+    audio_no_suena: [
+      'Seleccioná el dispositivo de salida correcto en Windows',
+      'Actualizá/reinstalá el driver de audio',
+      'Probá con auriculares y con parlantes externos',
+      'Ejecutá el solucionador de problemas de audio',
+      'Desactivá mejoras de audio que puedan causar conflictos'
+    ],
+    arranque_lento: [
+      'Desactivá programas de inicio innecesarios',
+      'Verificá estado del disco (HDD/SSD) con SMART',
+      'Actualizá Windows y drivers',
+      'Escaneá malware con un antivirus confiable',
+      'Ejecutá limpieza de archivos temporales'
+    ],
+    // Fallback neutral si no hay mapeo: (sin energía)
+    default: [
+      'Probá el componente/servicio en otra PC o puerto si aplica',
+      'Actualizá o reinstalá drivers relacionados',
+      'Probá en Modo seguro o con un usuario limpio',
+      'Desinstalá software reciente que pueda interferir'
+    ]
+  };
+  return MAP[issueKey] || MAP.default;
+}
+
 
 // ===== Endpoints =====
 
