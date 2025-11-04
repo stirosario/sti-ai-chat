@@ -529,15 +529,30 @@ const STATES = {
   ESCALATE: 'ESCALATE'
 };
 
-// ===== Helpers de parseo de nombre =====
-const nameRx = /(?:soy|llamo|nombre|me llaman?)\s+([a-záéíóúñ]{2,})/i;
-function extractName(txt) {
-  const m = txt.match(nameRx);
-  return m ? m[1] : null;
-}
+// ===== Helpers de parseo de nombre (FIX bare name) =====
+const nameRx = /(?:\bsoy\b|\bme\s+llamo\b|\bmi\s+nombre\s+es\b|\bme\s+llaman\b)\s+([a-záéíóúñ]{2,})/i;
+
 function cap(s) {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
+
+function extractName(txt = '') {
+  const t = String(txt).trim();
+
+  // 1) Frases típicas: "soy / me llamo / mi nombre es"
+  const m = t.match(nameRx);
+  if (m && m[1]) return cap(m[1]);
+
+  // 2) Nombre "pelado": solo letras, 2-20 chars, sin espacios
+  //    (evita capturar palabras como "omitir", "hola", etc.)
+  const bare = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // sin acentos para check
+  if (/^[a-zñ]{2,20}$/i.test(bare) && !/^(omitir|hola|buenas|sí|si|no)$/i.test(t)) {
+    return cap(t);
+  }
+
+  return null;
+}
+
 
 // ===== Helpers de voseo y detección =====
 const problemHint = /(no\s+(funciona|anda|detecta|reconoce|enciende|prende)|problema|error|falla|issue)/i;
@@ -769,35 +784,38 @@ app.post('/api/chat', async (req, res) => {
 
     // ===== 1) Estado: pedir nombre =====
     if (session.stage === STATES.ASK_NAME) {
-      // Si describe problema antes del nombre, guardamos para retomarlo
-      if (problemHint.test(t) && !extractName(t)) session.pendingUtterance = t;
+  // Si describen problema antes del nombre, lo guardamos
+  if (problemHint.test(t) && !extractName(t)) {
+    session.pendingUtterance = t;
+  }
 
-      // Detección de nombre u "omitir"
-      const name = extractName(t);
-      if (/^omitir$/i.test(t)) {
-        session.userName = session.userName || 'usuario';
-      } else if (!session.userName && name) {
-        session.userName = cap(name);
-      }
+  // Detectar nombre (con bare-name fix) u "omitir"
+  const name = extractName(t);
+  if (/^omitir$/i.test(t)) {
+    session.userName = session.userName || 'usuario';
+  } else if (!session.userName && name) {
+    session.userName = name; // ya viene capitalizado
+  }
 
-      // Si aún no tenemos nombre, re-preguntamos
-      if (!session.userName) {
-        reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas")';
-      } else {
-        // Tenemos nombre → pasamos a pedir problema
-        session.stage = STATES.ASK_PROBLEM;
-        if (session.pendingUtterance) {
-          // Si ya había contado el problema, lo retomamos y pedimos equipo
-          session.problem = session.pendingUtterance;
-          session.pendingUtterance = null;
-          session.stage = STATES.ASK_DEVICE;
-          options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
-          reply = `Perfecto, ${session.userName}. Anoté: "${session.problem}".\n\n¿En qué equipo te pasa?`;
-        } else {
-          reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-        }
-      }
+  if (!session.userName) {
+    // Aún no tengo nombre → repregunto una sola vez, con ejemplo
+    reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí tu nombre)';
+  } else {
+    // Ya tengo nombre → avanzar
+    session.stage = STATES.ASK_PROBLEM;
+
+    if (session.pendingUtterance) {
+      session.problem = session.pendingUtterance;
+      session.pendingUtterance = null;
+      session.stage = STATES.ASK_DEVICE;
+      options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
+      reply = `¡Genial, ${session.userName}! 👍\n\nAnoté: "${session.problem}".\n¿En qué equipo te pasa?`;
+    } else {
+      reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
     }
+  }
+}
+
     // ===== 2) Estado: pedir problema (USA DIAGNÓSTICO HÍBRIDO) =====
     else if (session.stage === STATES.ASK_PROBLEM) {
       session.problem = t || session.problem;
