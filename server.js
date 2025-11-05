@@ -792,7 +792,7 @@ app.post('/api/chat', async (req, res) => {
 if (session.stage === STATES.ASK_NAME) {
   try { console.log('[ASK_NAME] input:', t); } catch {}
 
-  // Si describen problema antes del nombre, guardalo temporalmente
+  // Si describen problema antes del nombre, guardalo
   if (!session.userName && problemHint.test(t) && !extractName(t)) {
     session.pendingUtterance = t;
   }
@@ -814,14 +814,17 @@ if (session.stage === STATES.ASK_NAME) {
     if (session.pendingUtterance) {
       session.problem = session.pendingUtterance;
       session.pendingUtterance = null;
+
       session.stage = STATES.ASK_DEVICE;
       options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
+
       reply = `¡Genial, ${session.userName}! 👍\n\nAnoté: "${session.problem}".\n¿En qué equipo te pasa?`;
     } else {
       reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
     }
   }
 }
+
 
     }
 
