@@ -189,101 +189,22 @@ app.use((req, _res, next) => { req.sessionId = getSessionId(req); next(); });
 // Umbral mínimo de confianza para aceptar predicción AI/regex
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || 0.6);
 
-/* =======================================================================
-   ===== Análisis con OpenAI (MEJORADO con normalización y sinónimos) =====
-   - Devuelve {device, issueKey, confidence} con normalización fuerte
-   - Tolerante a ```json y a respuestas no estrictas
-   - Mapea sinónimos (teclado USB/inalámbrico => "teclado")
-   - Completa issueKey específica cuando el modelo queda genérico
-   ======================================================================= */
-
-const CANON_DEVICES = [
-  'pc','notebook','monitor','teclado','mouse','impresora','almacenamiento','red','camara','microfono'
-];
-
-const DEVICE_SYNONYMS = [
-  [/^(pc|computadora|compu|cpu|gabinete)$/i, 'pc'],
-  [/^(notebook|laptop|netbook|ultrabook|macbook)$/i, 'notebook'],
-  [/^(monitor|pantalla)$/i, 'monitor'],
-  [/^(teclado|keyboard|kb)$/i, 'teclado'],
-  [/^(mouse|rat[oó]n|touchpad|trackpad)$/i, 'mouse'],
-  [/^(impresora|printer)$/i, 'impresora'],
-  [/^(disco|ssd|hdd|pendrive|usb|memoria usb|unidad|externo)$/i, 'almacenamiento'],
-  [/^(wifi|wi-?fi|internet|red|ethernet|router|m[óo]dem|modem)$/i, 'red'],
-  [/^(c[aá]mara|webcam)$/i, 'camara'],
-  [/^(microf[oó]no|mic)$/i, 'microfono'],
-];
-
-function normalizeDevice(s) {
-  const t = String(s || '').trim().toLowerCase();
-  for (const [rx, canon] of DEVICE_SYNONYMS) if (rx.test(t)) return canon;
-  return CANON_DEVICES.includes(t) ? t : null;
-}
-
-// Issue keys canónicas que usamos en nlp. Podés ampliar según tu JSON.
-const ISSUE_KEYS = [
-  'no_prende','no_internet','wifi_no_conecta','pantalla_negra','no_imagen','sin_sonido',
-  'teclado_no_detecta','mouse_no_detecta','impresora_no_detecta','usb_no_detecta',
-  'disco_no_detecta','camara_no_detecta','microfono_no_detecta'
-];
-
-function normalizeIssue(device, issueKey, originalText='') {
-  let k = (issueKey || '').toLowerCase();
-
-  // Si el modelo devuelve algo genérico, afinamos con heurística
-  const txt = String(originalText || '').toLowerCase();
-
-  const has = (rx) => rx.test(txt);
-
-  // Reglas por dispositivo
-  if (device === 'teclado') {
-    if (!k || /no_detecta|no reconoce|no funciona|no anda|no responde/.test(k) || has(/no (detecta|reconoce)|no (anda|funciona|responde)/))
-      k = 'teclado_no_detecta';
-  } else if (device === 'mouse') {
-    if (!k || has(/no (detecta|reconoce)|no (anda|funciona|responde)/)) k = 'mouse_no_detecta';
-  } else if (device === 'impresora') {
-    if (!k || has(/no (detecta|reconoce)/)) k = 'impresora_no_detecta';
-  } else if (device === 'almacenamiento') {
-    if (!k || has(/(disco|ssd|hdd|pendrive|usb).*(no (detecta|reconoce|aparece))/))
-      k = has(/(disco|ssd|hdd)/) ? 'disco_no_detecta' : 'usb_no_detecta';
-  } else if (device === 'monitor') {
-    if (!k && has(/(no (muestra|hay) (imagen|video)|sin imagen)/)) k = 'no_imagen';
-  } else if (device === 'red') {
-    if (!k && has(/(no (tengo|hay) internet|no conecta (el )?wifi|wifi no conecta)/)) k = has(/wifi/) ? 'wifi_no_conecta' : 'no_internet';
-  } else if (device === 'camara') {
-    if (!k || has(/no (detecta|reconoce)/)) k = 'camara_no_detecta';
-  } else if (device === 'microfono') {
-    if (!k || has(/no (detecta|reconoce)/)) k = 'microfono_no_detecta';
-  }
-
-  // Si sigue siendo algo fuera del set, devolvemos lo original o null
-  if (!ISSUE_KEYS.includes(k)) return issueKey || null;
-  return k;
-}
-
-function clamp01(n) {
-  const x = Number(n);
-  if (!isFinite(x)) return 0;
-  return Math.max(0, Math.min(1, x));
-}
-
+// ===== Análisis con OpenAI =====
+// Recibe texto del problema y devuelve {device, issueKey, confidence}
+// Si no hay OpenAI, devuelve nulos para mantener el flujo
 async function analyzeProblemWithOA(problemText = '') {
   if (!openai) return { device: null, issueKey: null, confidence: 0 };
 
-  const allowedDevices = CANON_DEVICES.join(', ');
-  const allowedIssues  = ISSUE_KEYS.join(', ');
-
   const prompt = [
-    'Sos técnico informático argentino, claro y profesional.',
-    'Analizá el texto del cliente y devolvé SOLO un JSON con estas claves:',
-    '  device: uno de [' + allowedDevices + ']',
-    '  issueKey: uno de [' + allowedIssues + '] (elegí la más específica posible)',
-    '  confidence: número 0..1 según tu seguridad',
-    '',
-    'Si el cliente habla de teclado/mouse/impresora/USB/pendrive y dice "no detecta/no reconoce/no funciona",',
-    'tu issueKey debe ser la forma específica: teclado_no_detecta, mouse_no_detecta, impresora_no_detecta, usb_no_detecta, etc.',
-    '',
-    `Texto del cliente: "${String(problemText).trim()}"`
+    "Sos técnico informático argentino, claro y profesional.",
+    "Tu tarea: analizar el texto del cliente y detectar:",
+    "• device → equipo involucrado (ej: pc, notebook, monitor, etc.)",
+    "• issueKey → tipo de problema (ej: no_prende, no_internet, pantalla_negra, etc.)",
+    "• confidence → número entre 0 y 1 según tu seguridad.",
+    "",
+    "Respondé SOLO un JSON válido con esas tres claves, sin texto adicional.",
+    "",
+    `Texto del cliente: "${problemText}"`
   ].join('\n');
 
   try {
@@ -292,28 +213,16 @@ async function analyzeProblemWithOA(problemText = '') {
       messages: [{ role: 'user', content: prompt }],
       temperature: 0
     });
-
-    // Limpieza por si el modelo devuelve en fences
-    let raw = (r.choices?.[0]?.message?.content || '').trim();
-    raw = raw.replace(/^\s*```json\s*|\s*```\s*$/g, '');
+    // Limpieza por si el modelo envuelve en ```json
+    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g, '');
     const obj = JSON.parse(raw);
-
-    // Normalización
-    let dev = normalizeDevice(obj.device);
-    let k   = String(obj.issueKey || '').toLowerCase();
-    let conf = clamp01(obj.confidence);
-
-    // Ajuste por texto si el device vino nulo pero el texto lo sugiere
-    if (!dev) {
-      dev = normalizeDevice(problemText);
-    }
-
-    // Afinado de issueKey específico según device + texto
-    k = normalizeIssue(dev, k, problemText);
-
-    return { device: dev || null, issueKey: k || null, confidence: conf };
+    return {
+      device: (obj.device || null),
+      issueKey: (obj.issueKey || null),
+      confidence: Math.max(0, Math.min(1, Number(obj.confidence || 0)))
+    };
   } catch (e) {
-    console.error('[analyzeProblemWithOA+] ❌', e.message);
+    console.error('[analyzeProblemWithOA] ❌', e.message);
     return { device: null, issueKey: null, confidence: 0 };
   }
 }
@@ -589,40 +498,33 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // ===== 2) Estado: pedir problema (MEJORADO: prioriza OA en ambigüedad/periféricos) =====
+    // ===== 2) Estado: pedir problema =====
     else if (session.stage === STATES.ASK_PROBLEM) {
       session.problem = t || session.problem;
 
       try {
-        // 1) Señales de ambigüedad y mención de dispositivos/periféricos
-        const ambiguous = /(no (reconoce|detecta|anda|funciona|responde|enciende|arranca|inicia)|problema|error|falla)/i;
-        const hasDeviceWord = /(teclado|keyboard|mouse|rat[oó]n|monitor|pantalla|impresora|printer|usb|pendrive|disco|ssd|hdd|c[aá]mara|webcam|microf[oó]no|mic|wifi|wi-?fi|internet|red|ethernet|router|m[óo]dem|modem)/i;
-
-        // 2) Inicializamos con detección local mínima
-        let device     = detectDevice(session.problem);
-        let issueKey   = detectIssue(session.problem);
+        // (1) Detección local por regex
+        let device    = detectDevice(session.problem);
+        let issueKey  = detectIssue(session.problem);
         let confidence = issueKey ? 0.6 : 0;
 
-        // 3) Si hay OpenAI y el texto es ambiguo o menciona periféricos, priorizar OA
-        if (openai && (ambiguous.test(session.problem) || hasDeviceWord.test(session.problem))) {
+        // (2) OpenAI si está disponible (puede mejorar device/issueKey/confianza)
+        if (openai) {
           const ai = await analyzeProblemWithOA(session.problem);
-          if (ai.device)   device = ai.device;
-          if (ai.issueKey) issueKey = ai.issueKey;
-          confidence = Math.max(confidence, ai.confidence || 0);
-        } else if (openai && (!issueKey || !device)) {
-          // Si la regex local no fue concluyente, consultá a OA igual como refuerzo
-          const ai = await analyzeProblemWithOA(session.problem);
-          if (ai.device && !device)   device = ai.device;
-          if (ai.issueKey && !issueKey) issueKey = ai.issueKey;
-          confidence = Math.max(confidence, ai.confidence || 0);
+          if ((ai.confidence || 0) >= confidence) {
+            device     = ai.device || device;
+            issueKey   = ai.issueKey || issueKey;
+            confidence = ai.confidence || confidence;
+          }
         }
 
-        // 4) Si la confianza alcanza el umbral → ir directo a pasos básicos
+        // (3) Si la confianza alcanza el umbral → ir directo a pasos básicos
         if (confidence >= OA_MIN_CONF && (issueKey || device)) {
           session.device   = session.device || device || 'equipo';
           session.issueKey = issueKey || session.issueKey || null;
           session.stage    = STATES.BASIC_TESTS;
 
+          // Toma hasta 4 pasos iniciales del JSON (o fallback estándar)
           const key = session.issueKey || 'no_funciona';
           const stepsSrc = CHAT?.nlp?.advanced_steps?.[key];
           const steps = Array.isArray(stepsSrc) ? stepsSrc.slice(0, 4) : [
@@ -633,6 +535,7 @@ app.post('/api/chat', async (req, res) => {
           ];
           const stepsAr = mapVoseoSafe(steps);
 
+          // Introducción + pie ¿Se solucionó?
           const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
           const footer = [
             '',
@@ -648,16 +551,21 @@ app.post('/api/chat', async (req, res) => {
 
           const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n' + footer;
 
+          // Guardamos transcript de bot
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
 
+          // También agregamos a archivo de transcript (debug/soporte)
           try {
             const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
             fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
             stepsAr.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
             fs.appendFileSync(tf, `\n${footer}\n`);
-          } catch (e) { console.error('[transcript write] error:', e.message); }
+          } catch (e) {
+            console.error('[transcript write] error:', e.message);
+          }
 
+          // Respondemos con pasos + opciones rápidas unificadas
           return res.json({
             ok: true,
             reply: fullMsg,
@@ -669,20 +577,16 @@ app.post('/api/chat', async (req, res) => {
           });
         }
 
-        // 5) Si no hay confianza suficiente → pedimos equipo (sin perder el problema)
+        // (4) Si no hay confianza suficiente → pedir equipo
         session.stage = STATES.ASK_DEVICE;
         const msg = `Enseguida te ayudo con ese problema 🔍\n\n` +
                     `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
                     `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
         await saveSession(sid, session);
-        return res.json({
-          ok: true,
-          reply: msg,
-          options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi']
-        });
+        return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
 
       } catch (err) {
-        console.error('diagnóstico ASK_PROBLEM+', err);
+        console.error('diagnóstico ASK_PROBLEM:', err);
         return res.json({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo en un momento.' });
       }
     }
@@ -714,7 +618,7 @@ app.post('/api/chat', async (req, res) => {
           // Pie unificado
           reply += `\n🧩 ¿Se solucionó?\n`;
           reply += `Si no, puedo ofrecerte algunas **pruebas más avanzadas**.\n\n`;
-          reply += `Decime: **"sí"** o **"no"**.\n`;
+          reply += `Decime: **"sí"**, **"no"** o **"avanzadas"**.\n`;
 
           session.tests.basic = pasosAr.slice(0, 3);
           session.stepsDone.push('basic_tests_shown');
