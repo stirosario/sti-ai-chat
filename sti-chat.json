@@ -1,7 +1,7 @@
 {
   "bot": "STI • Servicio Técnico Inteligente",
   "locale": "es-AR",
-  "version": "4.6.0",
+  "version": "4.8.0",
   "settings": {
     "enable_transcripts": true,
     "transcriptsDir": "/data/transcripts",
@@ -58,7 +58,7 @@
   },
   "messages_v4": {
     "greeting": {
-      "name_request": "",
+      "name_request": "👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?",
       "name_confirm": "¡Genial {NOMBRE}! 👍 Ahora decime con qué dispositivo tenés problemas o describí brevemente el problema.",
       "skip_name": "Listo, seguimos sin nombre. Contame qué dispositivo o problema tenés."
     },
@@ -71,6 +71,25 @@
     "default_options_map": {
       "1": "advanced",
       "2": "whatsapp_ticket"
+    },
+
+    "basic_intro": "Entiendo, {{nombre}}. Probemos esto primero:",
+    "basic_footer": [
+      "🧩 Si necesitas ayuda para realizarlas, solo dime con cuál!",
+      "🤔 Si las pudiste realizar, contame cómo te fue?"
+    ],
+    "basic_instructions_note": "Decime: \"ayuda [nombre del paso]\", \"sí\", \"no\" o \"avanzadas\".",
+    "basic_options": [
+      "Necesito ayuda con un paso",
+      "Sí, lo solucioné",
+      "No, sigue igual",
+      "Avanzadas"
+    ],
+
+    "help_prompts": {
+      "ask_which": "Decime con cuál de estos pasos necesitás ayuda:\n\n{steps}\n\nO escribí el nombre del paso (ej. \"ayuda eliminar archivos temporales\").",
+      "no_help_key": "No logro identificar exactamente qué paso. Escribí el nombre del paso tal como aparece en la lista o elegí una de las opciones.",
+      "confirm_send_whatsapp": "¿Querés que genere el ticket y lo envíe por WhatsApp ahora?"
     }
   },
   "_note": "OpenAI lleva la conversación principal (IA total). Este JSON provee NLP + fallbacks y textos de apoyo.",
@@ -257,6 +276,27 @@
         "Asegurate de que no haya permisos o políticas (especialmente en entornos corporativos) que bloqueen el portapapeles."
       ]
     },
+
+    "help_steps": {
+      "eliminar archivos temporales": [
+        "Windows: Abrí el Explorador de archivos → clic derecho en la unidad C: → Propiedades → Liberar espacio → seleccioná Archivos temporales y presioná \"Limpiar archivos\".",
+        "Windows (alternativa): Ejecutá \"Liberador de espacio en disco\" desde el menú Inicio y elegí la unidad C:.",
+        "macOS: Usá la utilidad de almacenamiento (menú Apple → Acerca de esta Mac → Almacenamiento → Administrar) y revisá la sección \"Archivos temporales\"."
+      ],
+      "cerrar programas innecesarios": [
+        "Windows: Abrí el Administrador de Tareas (Ctrl+Shift+Esc), en la pestaña \"Procesos\" seleccioná las aplicaciones que no estés usando y clic en \"Finalizar tarea\".",
+        "macOS: Usá Forzar salida (Cmd+Option+Esc) o cerrá apps desde el Dock.",
+        "Linux: Usá System Monitor o comandos como `top`/`htop` para identificar procesos y `kill` para terminarlos."
+      ],
+      "reiniciar el explorador": [
+        "Windows: Abrí el Administrador de Tareas (Ctrl+Shift+Esc) → pestaña \"Procesos\" → buscá \"Explorador de Windows\" → clic derecho → Reiniciar."
+      ],
+      "desfragmentar": [
+        "Sólo aplicable a discos duros mecánicos (HDD). Windows: Inicio → Defragmentar y optimizar unidades → seleccioná la unidad y \"Optimizar\".",
+        "Si tenés SSD, NO desfragmentes; usá TRIM (el sistema suele manejarlo automáticamente)."
+      ]
+    },
+
     "followup_texts": {
       "advanced_intro": "Sigamos con chequeos más avanzados, {{nombre}}:"
     }
