@@ -179,6 +179,10 @@
         "rx": "\\b(disco|hdd|ssd).*(error|ruido|lento|bad|sectores|smart)\\b"
       },
       {
+        "key": "clipboard",
+        "rx": "\\b(cortar y pegar|copiar y pegar|copiar-?pegar|copiar\\s*y\\s*pegar|portapapeles|clipboard|pegar no funciona|copiar no funciona)\\b"
+      },
+      {
         "key": "no_funciona",
         "rx": "\\b(no anda|no funciona|no va|no sirve)\\b"
       }
@@ -195,7 +199,8 @@
       "se_reinicia": "se reinicia solo",
       "temperatura": "temperatura alta",
       "error_disco": "posible problema de disco",
-      "no_funciona": "no funciona"
+      "no_funciona": "no funciona",
+      "clipboard": "problema con copiar/pegar (portapapeles)"
     },
     "response_templates": {
       "default": "Entiendo, {{nombre}}. Revisemos tu {{device}} con {{issue_human}}. A continuación te doy pasos concretos."
@@ -243,6 +248,13 @@
         "Probalo en otra PC (descartá falla del periférico).",
         "Reinstalá/actualizá el driver desde Administrador de Dispositivos.",
         "Para notebooks: verificá que no esté activada una función de bloqueo (FN + F1..F12, botón de desactivar touchpad/teclado)."
+      ],
+      "clipboard": [
+        "Probá si el copiar/pegar falla en una sola aplicación o en todas (ej. Word vs. navegador).",
+        "Intentá usar atajos: Ctrl+C / Ctrl+V (o Cmd+C/Cmd+V en macOS) y también el menú contextual (clic derecho → copiar/pegar).",
+        "Reiniciá la aplicación afectada; si es Windows, probá reiniciar el Explorador (explorer.exe).",
+        "Comprobá si tenés alguna extensión o gestor de portapapeles que interfiera; desactivala temporalmente.",
+        "Asegurate de que no haya permisos o políticas (especialmente en entornos corporativos) que bloqueen el portapapeles."
       ]
     },
     "followup_texts": {
@@ -264,12 +276,12 @@
       ],
       "desinstalar": [
         "Windows: Panel de Control → Programas → Desinstalar AnyDesk.",
-        "Eliminar (si existe) la carpeta: C:\\\\Program Files (x86)\\\\AnyDesk o C:\\\\Program Files\\\\AnyDesk.",
+        "Eliminar (si existe) la carpeta: C:\\Program Files (x86)\\AnyDesk o C:\\Program Files\\AnyDesk.",
         "Reiniciar la PC para limpiar el servicio."
       ],
       "cambiar_id": [
         "Desinstalar AnyDesk como arriba.",
-        "Borrar restos en: C:\\\\ProgramData\\\\AnyDesk y %AppData%\\\\AnyDesk (si existen).",
+        "Borrar restos en: C:\\ProgramData\\AnyDesk y %AppData%\\AnyDesk (si existen).",
         "Reiniciar y volver a instalar desde anydesk.com (se genera un ID nuevo)."
       ],
       "macOS": [

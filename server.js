@@ -1,12 +1,14 @@
-// server.js V4.8.3 — STI Chat (Redis + Tickets + Transcript) + NameFix + CORS + Reload + GreeterFix + FlowFix
-// Resumen del flujo y features implementadas
-// - Estados: ASK_NAME → ASK_PROBLEM → ASK_DEVICE → BASIC/ADVANCED/ESCALATE
-// - Sesión por 'x-session-id' / 'sid' (si ya hay nombre no reinicia)
-// - pendingUtterance: guarda el problema si lo mandan antes del nombre
-// - CORS sólido con OPTIONS para preflight
-// - Endpoints: /  /api/health  /api/reload(GET/POST)  /api/greeting  /api/chat
-//              /api/transcript/:sid  /api/whatsapp-ticket  /ticket/:id  /api/sessions  /api/reset
-// - OpenAI opcional para análisis/steps; si no hay API Key usa fallback local
+/**
+ * server.js V4.8.3 — STI Chat (Redis + Tickets + Transcript)
+ * Updated patch (2025-11-05) — evita avanzar a BASIC_TESTS cuando se detecta un issueKey
+ * pero NO existen pasos configurados para ese issue y no se detectó el device.
+ *
+ * Comentarios extensos incluidos para explicar qué hace cada parte del código.
+ *
+ * NOTA: Este archivo es una versión completa y auto-contenida del server.js con la
+ * corrección solicitada y abundantes comentarios. Revisá las variables de entorno
+ * y el archivo sti-chat.json para que las detecciones y pasos funcionen correctamente.
+ */
 
 import 'dotenv/config';            // Carga variables de entorno desde .env
 import express from 'express';     // Framework HTTP
@@ -16,29 +18,30 @@ import path from 'path';           // Utilidades de rutas
 import OpenAI from 'openai';       // SDK OpenAI (opcional)
 
 // ===== OpenAI (opcional) =====
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';  // Modelo por defecto
+// Modelo por defecto (puede redefinirse vía OPENAI_MODEL env var)
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 // Instancia de cliente OpenAI solo si hay API key (evita crashear en local)
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // ===== Persistencia / paths =====
-// Carpetas base (se pueden mapear a volúmenes en Render/Docker)
+// Directorios base y rutas para almacenar datos locales (se pueden mapear a volúmenes en Render/Docker)
 const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
-// URL pública del backend para construir links (tickets, og:image, etc.)
+// URL pública del backend (usado para construir links a tickets, imágenes sociales, etc.)
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com';
-// Número de WhatsApp destino para derivaciones
+// Número de WhatsApp destino para derivaciones (configurable vía env var)
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
-// Crea directorios si no existen (recursivo)
+// Crear directorios si no existen (modo seguro: try/catch para no romper en entornos restrictivos)
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
-  try { fs.mkdirSync(d, { recursive: true }); } catch {}
+  try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 const nowIso = () => new Date().toISOString();  // Helper timestamp ISO
 
 // ===== Carga chat JSON =====
-// Ruta al archivo de configuración conversacional (nlp, steps, labels)
+// El archivo sti-chat.json contiene la configuración conversacional (NLP: regex, pasos, templates, labels)
 const CHAT_JSON_PATH = process.env.CHAT_JSON || path.join(process.cwd(), 'sti-chat.json');
 let CHAT = {};             // Objeto con todo el JSON cargado
 let deviceMatchers = [];   // Cache de regex para dispositivos
@@ -48,7 +51,9 @@ let issueMatchers  = [];   // Cache de regex para issues
 function loadChat() {
   try {
     CHAT = JSON.parse(fs.readFileSync(CHAT_JSON_PATH, 'utf8'));
-    console.log('[chat] ✅ Cargado', CHAT.version, 'desde', CHAT_JSON_PATH);
+    console.log('[chat] ✅ Cargado', CHAT.version || '(sin version)', 'desde', CHAT_JSON_PATH);
+
+    // Compilamos regex para detección rápida en memoria
     deviceMatchers = (CHAT?.nlp?.devices || []).map(d => ({ key: d.key, rx: new RegExp(d.rx, 'i') }));
     issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => ({ key: i.key, rx: new RegExp(i.rx, 'i') }));
   } catch (e) {
@@ -59,6 +64,7 @@ function loadChat() {
 loadChat();
 
 // Helpers de NLP (humanización de issue y detecciones por regex)
+// issueHuman: devuelve etiqueta legible para un issueKey (si existe en JSON)
 const issueHuman = (k) => CHAT?.nlp?.issue_labels?.[k] || 'el problema';
 function detectDevice(txt = '') { for (const d of deviceMatchers) if (d.rx.test(txt)) return d.key; return null; }
 function detectIssue (txt = '') { for (const i of issueMatchers)  if (i.rx.test(txt)) return i.key; return null; }
@@ -114,7 +120,7 @@ app.get('/', (_req, res) => {
 });
 
 // ===== Estados / helpers =====
-// Máquina de estados de la conversación
+// Máquina de estados de la conversación (valores usados en session.stage)
 const STATES = {
   ASK_NAME: 'ask_name',           // pedir nombre
   ASK_PROBLEM: 'ask_problem',     // pedir problema
@@ -231,13 +237,13 @@ async function analyzeProblemWithOA(problemText = '') {
 // Genera 4–6 pasos simples de diagnóstico básico (o fallback estándar)
 async function aiQuickTests(problemText = '', device = '') {
   if (!openai) {
-    // Fallback local si no hay API
+    // Fallback local si no hay API: pasos más neutrales (no centrar en 'energía' si es problema de software)
     return [
-      'Verificar conexión eléctrica/toma',
-      'Probar con otro cable o cargador',
-      'Mantener pulsado el botón de encendido 10 segundos',
-      'Conectar directo (sin zapatillas/estabilizador)',
-      'Comprobar si hay luces o sonidos al encender'
+      'Reiniciar la aplicación donde ocurre el problema',
+      'Probar en otro documento o programa para ver si persiste',
+      'Reiniciar el equipo',
+      'Comprobar actualizaciones del sistema y de la aplicación',
+      'Verificar si hay conflictos con extensiones o plugins'
     ];
   }
   const prompt = [
@@ -259,7 +265,7 @@ async function aiQuickTests(problemText = '', device = '') {
     return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
   } catch (e) {
     console.error('[aiQuickTests] Error:', e.message);
-    return ['Verificar cable/fuente', 'Probar otra toma', 'Forzar apagado/encendido', 'Probar otro cable/cargador', 'Chequear luces/sonidos al encender'];
+    return ['Reiniciar la aplicación', 'Probar otra instancia', 'Reiniciar el equipo', 'Comprobar actualizaciones', 'Chequear extensiones/plug-ins'];
   }
 }
 
@@ -500,13 +506,18 @@ app.post('/api/chat', async (req, res) => {
 
     // ===== 2) Estado: pedir problema =====
     else if (session.stage === STATES.ASK_PROBLEM) {
+      // Guardamos el problema en la sesión (puede venir vacío si ya había uno)
       session.problem = t || session.problem;
 
       try {
-        // (1) Detección local por regex
+        // (1) Detección local por regex (rápida y determinista)
         let device    = detectDevice(session.problem);
         let issueKey  = detectIssue(session.problem);
+        // Heurística: si detectamos un issue por regex le damos una confianza inicial
         let confidence = issueKey ? 0.6 : 0;
+
+        // Registro diagnósticos para debugging: qué se detectó inicialmente
+        console.log(`[diag] initial detect - device=${device} issueKey=${issueKey} confidence=${confidence}`);
 
         // (2) OpenAI si está disponible (puede mejorar device/issueKey/confianza)
         if (openai) {
@@ -516,23 +527,65 @@ app.post('/api/chat', async (req, res) => {
             issueKey   = ai.issueKey || issueKey;
             confidence = ai.confidence || confidence;
           }
+          console.log(`[diag] after OA - device=${device} issueKey=${issueKey} confidence=${confidence}`);
         }
 
-        // (3) Si la confianza alcanza el umbral → ir directo a pasos básicos
-        if (confidence >= OA_MIN_CONF && (issueKey || device)) {
+        // Nuevo: comprobar si existen pasos configurados para el issue detectado
+        const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length > 0);
+        console.log(`[diag] hasConfiguredSteps=${hasConfiguredSteps}`);
+
+        /**
+         * PUNTO CRÍTICO (corrección aplicada):
+         * Antes: si detectIssue devolvía algo, confidence se ponía 0.6 y se avanzaba a BASIC_TESTS,
+         * lo que hacía que problemas claramente de software (ej: cortar y pegar) recibieran
+         * pasos de fallback orientados a "energía" (enchufe/cable), generando respuestas erróneas.
+         *
+         * Ahora: sólo avanzamos automáticamente a BASIC_TESTS si:
+         *   - confidence >= OA_MIN_CONF  (la predicción es lo bastante segura)  AND
+         *   - (device detectado) OR (existen pasos configurados para el issueKey)
+         *
+         * Esto evita mostrar pasos físicos cuando el problema es de software y no tenemos
+         * pasos específicos configurados para ese issue.
+         */
+
+        // (3) Sólo avanzar a BASIC_TESTS si tenemos device O pasos configurados para el issue
+        if (confidence >= OA_MIN_CONF && (device || hasConfiguredSteps)) {
+          // Normalizamos device/issueKey en la sesión
           session.device   = session.device || device || 'equipo';
           session.issueKey = issueKey || session.issueKey || null;
           session.stage    = STATES.BASIC_TESTS;
 
-          // Toma hasta 4 pasos iniciales del JSON (o fallback estándar)
-          const key = session.issueKey || 'no_funciona';
-          const stepsSrc = CHAT?.nlp?.advanced_steps?.[key];
-          const steps = Array.isArray(stepsSrc) ? stepsSrc.slice(0, 4) : [
-            'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
-            'Probá otro tomacorriente o cable/cargador',
-            'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo',
-            'Si hay luces o sonidos, probá desconectar periféricos y volver a encender'
-          ];
+          // Toma hasta 4 pasos iniciales del JSON si existen
+          const key = session.issueKey || null;
+          const stepsSrc = key ? CHAT?.nlp?.advanced_steps?.[key] : null;
+
+          // Si hay pasos configurados para el issue -> úsalos
+          let steps;
+          if (Array.isArray(stepsSrc) && stepsSrc.length > 0) {
+            steps = stepsSrc.slice(0, 4);
+          } else {
+            // Si no hay pasos configurados, preferimos generar pasos rápidos por IA (si está disponible)
+            // o caer en un fallback NEUTRO orientado a software/híbrido (no sólo energía)
+            let aiSteps = [];
+            try {
+              aiSteps = await aiQuickTests(session.problem || '', session.device || '');
+            } catch (e) {
+              console.warn('[diag] aiQuickTests falló, usando fallback neutral');
+            }
+
+            if (Array.isArray(aiSteps) && aiSteps.length > 0) {
+              steps = aiSteps.slice(0, 4);
+            } else {
+              // Fallback neutral (no suponer que es un problema de energía)
+              steps = [
+                'Reiniciar la aplicación donde ocurre el problema',
+                'Probar en otro documento o programa para ver si el problema persiste',
+                'Reiniciar el equipo',
+                'Comprobar actualizaciones del sistema y de la aplicación'
+              ];
+            }
+          }
+
           const stepsAr = mapVoseoSafe(steps);
 
           // Introducción + pie ¿Se solucionó?
@@ -577,7 +630,26 @@ app.post('/api/chat', async (req, res) => {
           });
         }
 
-        // (4) Si no hay confianza suficiente → pedir equipo
+        /**
+         * Si llegamos acá hay varios casos:
+         *  - confidence >= OA_MIN_CONF pero issueKey SIN steps configurados Y NO detectamos device
+         *    --> pedimos clarificación de device (evita suposiciones incorrectas)
+         *  - confidence < OA_MIN_CONF
+         *    --> pedimos device
+         *
+         * Esto reemplaza la conducta previa de mostrar un fallback orientado a "energía".
+         */
+
+        // (4) Si tenemos un issueKey pero NO hay pasos configurados y NO detectamos device,
+        // pedimos clarificación del equipo para poder dar pasos precisos (evita suposiciones)
+        if (confidence >= OA_MIN_CONF && issueKey && !hasConfiguredSteps && !device) {
+          session.stage = STATES.ASK_DEVICE;
+          const msg = `Gracias. Parece que el problema es: ${issueHuman(issueKey)}.\n\n¿En qué equipo te pasa (PC, notebook, etc.) para darte pasos más precisos?`;
+          await saveSession(sid, session);
+          return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
+        }
+
+        // (5) Si no hay confianza suficiente → pedir equipo (flujo normal previo)
         session.stage = STATES.ASK_DEVICE;
         const msg = `Enseguida te ayudo con ese problema 🔍\n\n` +
                     `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
