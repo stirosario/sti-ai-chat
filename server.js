@@ -531,10 +531,43 @@ const STATES = {
 
 // ===== Helpers de parseo de nombre =====
 const nameRx = /(?:soy|llamo|nombre|me llaman?)\s+([a-záéíóúñ]{2,})/i;
-function extractName(txt) {
-  const m = txt.match(nameRx);
-  return m ? m[1] : null;
+
+// ===== Nombre: parser hiper-tolerante =====
+const NAME_STOPWORDS = /^(omitir|hola|buenas|buenos|buenas\s*d[ií]as|buenas\s*tardes|buenas\s*noches|si|s[ií]|no|ok|dale|gracias|listo|ayuda|t[eé]cnico|quiero)$/i;
+
+function capWord(w) {
+  if (!w) return w;
+  w = w.toLowerCase();
+  return w.charAt(0).toUpperCase() + w.slice(1);
 }
+
+function extractName(txt = '') {
+  let t = String(txt || '').trim();
+
+  // Limpieza básica
+  t = t.replace(/[“”«»]/g,'"').replace(/[’‘]/g,"'")
+       .replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s'-]/g,' ')
+       .replace(/\s+/g,' ').trim();
+
+  if (!t) return null;
+
+  // Frases típicas
+  const m = t.match(/(?:\bsoy\b|\bme\s+llamo\b|\bmi\s+nombre\s+es\b|\bme\s+llaman\b)\s+([a-záéíóúñ'-]{2,})(?:\s+[a-záéíóúñ'-]{2,})?/i);
+  if (m && m[1] && !NAME_STOPWORDS.test(m[1])) {
+    return capWord(m[1]);
+  }
+
+  // Nombre “pelado” (1 palabra)
+  const words = t.split(' ').filter(Boolean);
+  if (words.length >= 1) {
+    const w = words[0];
+    if (!NAME_STOPWORDS.test(w) && /^[a-záéíóúñ'-]{2,20}$/i.test(w)) {
+      return capWord(w);
+    }
+  }
+  return null;
+}
+
 function cap(s) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
@@ -755,13 +788,41 @@ app.post('/api/chat', async (req, res) => {
     const nmInline = extractName(t);
     if (nmInline && !session.userName) {
       session.userName = cap(nmInline);
-      if (session.stage === STATES.ASK_NAME) {
-        session.stage = STATES.ASK_PROBLEM;
-        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json({ ok: true, reply, stage: session.stage, options: [] });
-      }
+      
+if (session.stage === STATES.ASK_NAME) {
+  try { console.log('[ASK_NAME] input:', t); } catch {}
+
+  // Si describen problema antes del nombre, guardalo temporalmente
+  if (!session.userName && problemHint.test(t) && !extractName(t)) {
+    session.pendingUtterance = t;
+  }
+
+  if (!session.userName) {
+    if (/^omitir$/i.test(t)) {
+      session.userName = 'usuario';
+    } else {
+      const nm = extractName(t);
+      if (nm) session.userName = nm;
+    }
+  }
+
+  if (!session.userName) {
+    reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas" o escribí tu nombre)';
+  } else {
+    session.stage = STATES.ASK_PROBLEM;
+
+    if (session.pendingUtterance) {
+      session.problem = session.pendingUtterance;
+      session.pendingUtterance = null;
+      session.stage = STATES.ASK_DEVICE;
+      options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
+      reply = `¡Genial, ${session.userName}! 👍\n\nAnoté: "${session.problem}".\n¿En qué equipo te pasa?`;
+    } else {
+      reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+    }
+  }
+}
+
     }
 
     let reply = '';
@@ -1086,6 +1147,94 @@ app.get('/api/transcript/:sid', async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+
+
+
+// ====== WHATSAPP TICKET ======
+app.post('/api/whatsapp-ticket', async (req, res) => {
+  try {
+    const sid = req.sessionId;
+    const session = await getSession(sid);
+    if (!session) return res.status(200).json({ ok:false, error:'No hay sesión activa.' });
+    if (!session.transcript || session.transcript.length === 0) {
+      return res.status(200).json({ ok:false, error:'No hay historial para adjuntar.' });
+    }
+
+    const d = new Date();
+    const y = String(d.getFullYear());
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const shortSid = String(sid).slice(-4).toUpperCase();
+    const ticketId = `TCK-${y}${m}${day}-${shortSid}`;
+
+    const header = [
+      `STI • Servicio Técnico Inteligente — Ticket ${ticketId}`,
+      `Generado: ${nowIso()}`,
+      `Session: ${sid}`,
+      '',
+      '=== RESUMEN ===',
+      `Nombre: ${session.userName || '-'}`,
+      `Equipo: ${session.device || '-'}`,
+      `Problema: ${session.problem || '-'}`,
+      `IssueKey: ${session.issueKey || '-'}`,
+      '',
+      '=== HISTORIAL DE CONVERSACIÓN ==='
+    ].join('\n');
+
+    const hist = session.transcript.map(t =>
+      `[${t.ts}] ${t.who === 'user' ? 'USER' : 'ASSISTANT'}: ${t.text}`
+    ).join('\n');
+
+    const body = header + '\n' + hist + '\n';
+    try { fs.writeFileSync(path.join(TICKETS_DIR, `${ticketId}.txt`), body, 'utf8'); } catch {}
+
+    const baseUrl = (PUBLIC_BASE_URL || '').replace(/\/+$/,'');
+    const ticketUrl = `${baseUrl}/ticket/${ticketId}`;
+
+    const waText = 
+      `Hola 👋 Quiero soporte técnico.\n` +
+      `Ticket: ${ticketId}\n` +
+      `${ticketUrl}\n\n` +
+      `Mi nombre: ${session.userName || '-'}\n` +
+      `Equipo: ${session.device || '-'}\n` +
+      `Problema: ${session.problem || '-'}`;
+
+    const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(waText)}`;
+
+    return res.json({ ok:true, ticketId, ticketUrl, url: waUrl });
+  } catch (e) {
+    console.error('[api/whatsapp-ticket] error:', e);
+    return res.status(200).json({ ok:false, error:'No pude generar el ticket ahora.' });
+  }
+});
+
+// ===== Vista pública del ticket =====
+app.get('/ticket/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '').replace(/[^A-Z0-9\-]/gi,'');
+    const filePath = path.join(TICKETS_DIR, `${id}.txt`);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).type('text/plain').send('Ticket no encontrado.');
+    }
+    const txt = fs.readFileSync(filePath, 'utf8');
+    res.type('html').send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>${id} • STI</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:system-ui;max-width:900px;margin:32px auto;padding:16px">
+<h1>📄 ${id}</h1>
+<p><a href="/">Volver</a></p>
+<pre style="white-space:pre-wrap;background:#f6f7f9;border:1px solid #e5e7eb;padding:16px;border-radius:8px;">${
+  (txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'))
+}</pre>
+</body></html>`);
+  } catch (e) {
+    console.error('[GET /ticket/:id] error:', e);
+    res.status(500).type('text/plain').send('Error interno.');
+  }
+});
+
+
+
 
 // ===== Server =====
 const PORT = process.env.PORT || 3001; // Puerto (Render suele inyectar PORT)
