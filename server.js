@@ -1,7 +1,7 @@
 /**
  * server.js V4.8.4 — STI Chat (Redis + Tickets + Transcript)
- * Completa y auto-contenida: incluye corrección de flujo (no avanzar a BASIC_TESTS si falta device y no hay pasos)
- * y mejoras en manejo de tickets: /ticket/:id (legacy) + /api/ticket/:id (más robusto), logging y apiPublicUrl en /api/whatsapp-ticket.
+ * Actualizado: soporte para botones (action: 'button' + value token),
+ * registro de botón en transcript y mapeo de tokens a texto para la lógica existente.
  *
  * Reemplazá tu server.js con este archivo (hacé backup antes).
  */
@@ -458,8 +458,49 @@ app.all('/api/greeting', async (req, res) => {
 // ===== Chat principal =====
 app.post('/api/chat', async (req, res) => {
   try {
-    const { text = '' } = req.body || {};
-    const t = String(text).trim();
+    // --- nuevo: soportar botones (action: 'button') ---
+    const body = req.body || {};
+    // map tokens a texto procesable
+    const tokenMap = {
+      'BTN_BASIC_YES': 'sí',
+      'BTN_BASIC_NO' : 'no',
+      'BTN_ADVANCED' : 'avanzadas',
+      'BTN_WHATSAPP' : 'whatsapp',
+      'BTN_DEVICE_PC': 'pc',
+      'BTN_DEVICE_NOTEBOOK': 'notebook',
+      'BTN_DEVICE_MONITOR': 'monitor',
+      'BTN_DEVICE_TECLADO': 'teclado',
+      'BTN_DEVICE_MOUSE': 'mouse',
+      'BTN_OTHER': '' // frontend deberá abrir input libre
+    };
+
+    let incomingText = String(body.text || '').trim();
+    let buttonToken = null;
+    let buttonLabel = null;
+    if (body.action === 'button' && body.value) {
+      buttonToken = String(body.value);
+      if (tokenMap[buttonToken] !== undefined) {
+        incomingText = tokenMap[buttonToken];
+      } else if (buttonToken.startsWith('BTN_HELP_')) {
+        const slug = buttonToken.slice('BTN_HELP_'.length).replace(/_/g, ' ');
+        incomingText = `ayuda ${slug}`;
+      } else {
+        incomingText = buttonToken; // fallback
+      }
+      buttonLabel = body.label || ( () => {
+        try {
+          const btns = CHAT?.ui?.buttons;
+          if (!btns) return buttonToken;
+          for (const listName of Object.keys(btns)) {
+            const found = (btns[listName] || []).find(b => b.value === buttonToken);
+            if (found) return found.label;
+          }
+        } catch (e) {}
+        return buttonToken;
+      })();
+    }
+    const t = String(incomingText || '').trim();
+
     const sid = req.sessionId;
 
     let session = await getSession(sid);
@@ -473,7 +514,12 @@ app.post('/api/chat', async (req, res) => {
       console.log(`[api/chat] ✨ Nueva sesión: ${sid}`);
     }
 
-    session.transcript.push({ who: 'user', text: t, ts: nowIso() });
+    // Registrar en transcript la entrada del usuario.
+    if (buttonToken) {
+      session.transcript.push({ who: 'user', text: `[BOTON] ${buttonLabel || buttonToken} (${buttonToken})`, ts: nowIso() });
+    } else {
+      session.transcript.push({ who: 'user', text: t, ts: nowIso() });
+    }
 
     const nmInline = extractName(t);
     if (nmInline && !session.userName) {
@@ -568,19 +614,19 @@ app.post('/api/chat', async (req, res) => {
 
           const stepsAr = mapVoseoSafe(steps);
           const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
-          const footer = [
+          const footer = CHAT?.messages_v4?.basic_footer ? CHAT.messages_v4.basic_footer.join('\n') : [
             '',
             '🧩 ¿Se solucionó?',
-            'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
+            'Si no, puedo ofrecerte algunas pruebas más avanzadas.',
             '',
-            'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
+            'Usá los botones: Lo solucioné / No lo solucioné'
           ].join('\n');
 
           session.tests.basic = stepsAr;
           session.stepsDone.push('basic_tests_shown');
           session.waEligible = true;
 
-          const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n' + footer;
+          const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n\n' + footer;
 
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
@@ -599,7 +645,7 @@ app.post('/api/chat', async (req, res) => {
             reply: fullMsg,
             steps,
             stepsType: 'basic',
-            options: ['Sí, se solucionó ✅', 'No, sigue igual ❌', 'Avanzadas 🔧', 'WhatsApp'],
+            options: (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅', 'No, sigue igual ❌', 'Avanzadas 🔧', 'WhatsApp']),
             stage: session.stage,
             allowWhatsapp: true
           });
@@ -610,7 +656,7 @@ app.post('/api/chat', async (req, res) => {
           session.stage = STATES.ASK_DEVICE;
           const msg = `Gracias. Parece que el problema es: ${issueHuman(issueKey)}.\n\n¿En qué equipo te pasa (PC, notebook, etc.) para darte pasos más precisos?`;
           await saveSession(sid, session);
-          return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
+          return res.json({ ok: true, reply: msg, options: (CHAT?.ui?.buttons?.ask_device || ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi']) });
         }
 
         // Si no hay confianza suficiente -> pedir device
@@ -619,7 +665,7 @@ app.post('/api/chat', async (req, res) => {
                     `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
                     `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
         await saveSession(sid, session);
-        return res.json({ ok: true, reply: msg, options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi'] });
+        return res.json({ ok: true, reply: msg, options: (CHAT?.ui?.buttons?.ask_device || ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi']) });
 
       } catch (err) {
         console.error('diagnóstico ASK_PROBLEM:', err);
@@ -650,12 +696,11 @@ app.post('/api/chat', async (req, res) => {
           pasosAr.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
 
           reply += `\n🧩 ¿Se solucionó?\n`;
-          reply += `Si no, puedo ofrecerte algunas **pruebas más avanzadas**.\n\n`;
-          reply += `Decime: **"sí"**, **"no"** o **"avanzadas"**.\n`;
+          reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucioné".\n`;
 
           session.tests.basic = pasosAr.slice(0, 3);
           session.stepsDone.push('basic_tests_shown');
-          options = ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp'];
+          options = (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp']);
           session.waEligible = true;
         } else {
           session.stage = STATES.BASIC_TESTS_AI;
@@ -668,13 +713,12 @@ app.post('/api/chat', async (req, res) => {
               aiAr.forEach(s => reply += `• ${s}\n`);
 
               reply += `\n🧩 ¿Se solucionó?\n`;
-              reply += `Si no, puedo ofrecerte algunas **pruebas más avanzadas**.\n\n`;
-              reply += `Decime: **"sí"**, **"no"** o **"avanzadas"**.\n`;
+              reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucioné".\n`;
 
               session.tests.ai = aiAr;
               session.stepsDone.push('ai_basic_shown');
               session.waEligible = true;
-              options = ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp'];
+              options = (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp']);
             } else {
               reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame un poco más del problema.`;
             }
@@ -685,7 +729,7 @@ app.post('/api/chat', async (req, res) => {
         }
       } else {
         reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
-        options = ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'];
+        options = (CHAT?.ui?.buttons?.ask_device || ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi']);
       }
     }
 
@@ -700,7 +744,7 @@ app.post('/api/chat', async (req, res) => {
         reply += `Me alegra que se haya solucionado 💪\n`;
         reply += `Si vuelve a ocurrir o necesitás revisar otro equipo, podés contactarnos nuevamente cuando quieras.\n\n`;
         reply += `¡Gracias por confiar en STI! ⚡\n\n`;
-        reply += `Si querés hacerle algún comentario al cuerpo técnico, pulsá el botón verde y se enviará un ticket por WhatsApp con esta conversación.\n`;
+        reply += `Si querés hacerle algún comentario al cuerpo técnico, tocá el botón para enviar un ticket por WhatsApp con esta conversación.\n`;
         options = ['WhatsApp'];
         session.stage = STATES.ESCALATE;
         session.waEligible = true;
@@ -769,7 +813,7 @@ app.post('/api/chat', async (req, res) => {
       } else {
         reply = `Recordá que estamos revisando tu **${session.device || 'equipo'}** por ${issueHuman(session.issueKey)} 🔍\n\n` +
                 `¿Probaste los pasos que te sugerí?\n\n` +
-                'Decime:\n• **"sí"** si los probaste\n• **"no"** si no funcionaron\n• **"avanzadas"** para ver más pruebas\n• **"ayuda"** para hablar con un técnico';
+                'Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n';
         options = ['Avanzadas 🔧','WhatsApp'];
       }
     }
@@ -779,13 +823,15 @@ app.post('/api/chat', async (req, res) => {
 
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      fs.appendFileSync(tf, `[${nowIso()}] USER: ${t}\n`);
+      fs.appendFileSync(tf, `[${nowIso()}] USER: ${buttonToken ? `[BOTON] ${buttonLabel || buttonToken}` : t}\n`);
       fs.appendFileSync(tf,  `[${nowIso()}] ASSISTANT: ${reply}\n`);
     } catch (e) { console.warn('[transcript] no pude escribir:', e.message); }
 
     const response = withOptions({ ok: true, reply, sid, stage: session.stage });
     if (options && options.length) response.options = options;
     if (session.waEligible) response.allowWhatsapp = true;
+    // Also include available ui buttons (frontend can use these to render tokens)
+    if (CHAT?.ui) response.ui = CHAT.ui;
     return res.json(response);
 
   } catch (e) {

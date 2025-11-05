@@ -75,15 +75,15 @@
 
     "basic_intro": "Entiendo, {{nombre}}. Probemos esto primero:",
     "basic_footer": [
-      "🧩 Si necesitas ayuda para realizarlas, solo dime con cuál!",
-      "🤔 Si las pudiste realizar, contame cómo te fue?"
+      "🧩 Si necesitás ayuda para realizar algún paso, tocá un botón abajo.",
+      "🤔 Contanos cómo te fue usando los botones: \"Lo solucioné\" o \"No lo solucioné\"."
     ],
-    "basic_instructions_note": "Decime: \"ayuda [nombre del paso]\", \"sí\", \"no\" o \"avanzadas\".",
+    "basic_instructions_note": "Usá los botones: \"Lo solucioné\" o \"No lo solucioné\". También podés pedir ayuda con \"ayuda [nombre del paso]\".",
     "basic_options": [
-      "Necesito ayuda con un paso",
-      "Sí, lo solucioné",
-      "No, sigue igual",
-      "Avanzadas"
+      "Lo solucioné ✅",
+      "No lo solucioné ❌",
+      "Avanzadas 🔧",
+      "Enviar a WhatsApp (con ticket)"
     ],
 
     "help_prompts": {
@@ -93,6 +93,24 @@
     }
   },
   "_note": "OpenAI lleva la conversación principal (IA total). Este JSON provee NLP + fallbacks y textos de apoyo.",
+  "ui": {
+    "buttons": {
+      "basic_options": [
+        { "label": "Lo solucioné ✅", "value": "BTN_BASIC_YES" },
+        { "label": "No lo solucioné ❌", "value": "BTN_BASIC_NO" },
+        { "label": "Avanzadas 🔧", "value": "BTN_ADVANCED" },
+        { "label": "Enviar a WhatsApp (con ticket)", "value": "BTN_WHATSAPP" }
+      ],
+      "ask_device": [
+        { "label": "PC", "value": "BTN_DEVICE_PC" },
+        { "label": "Notebook", "value": "BTN_DEVICE_NOTEBOOK" },
+        { "label": "Monitor", "value": "BTN_DEVICE_MONITOR" },
+        { "label": "Teclado", "value": "BTN_DEVICE_TECLADO" },
+        { "label": "Mouse", "value": "BTN_DEVICE_MOUSE" },
+        { "label": "Otra", "value": "BTN_OTHER" }
+      ]
+    }
+  },
   "nlp": {
     "devices": [
       {
