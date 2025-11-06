@@ -281,13 +281,47 @@ app.post('/api/whatsapp-ticket', async (req, res) => {
       if (s?.transcript) transcript = s.transcript;
     }
 
+    // Generar ticketId (fecha y sufijo aleatorio)
     const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
     const rand = Math.random().toString(36).slice(2,6).toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
 
+    // Formatear fecha/hora en horario Argentina (dd-mm-yyyy hh:mm)
+    const now = new Date();
+    const dateFormatter = new Intl.DateTimeFormat('es-AR', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+    const timeFormatter = new Intl.DateTimeFormat('es-AR', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const datePart = dateFormatter.format(now);               // e.g. "06/11/2025"
+    const timePart = timeFormatter.format(now);               // e.g. "04:28"
+    const dateNormalized = datePart.replace(/\//g, '-');      // "06-11-2025"
+    const generatedLabel = `${dateNormalized} ${timePart} (ART)`;
+
+    // Sanitizar nombre para incluir en título (si llega)
+    let safeName = '';
+    if (name) {
+      safeName = String(name || '')
+        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (safeName) {
+        safeName = safeName.toUpperCase();
+      }
+    }
+
+    // Construir líneas del ticket (contenido del .txt)
     const lines = [];
-    lines.push(`STI • Servicio Técnico Inteligente — Ticket ${ticketId}`);
-    lines.push(`Generado: ${nowIso()}`);
+    const title = safeName ? `STI • Servicio Técnico Inteligente — Ticket ${ticketId}-${safeName}` :
+                             `STI • Servicio Técnico Inteligente — Ticket ${ticketId}`;
+    lines.push(title);
+
+    // Fecha generada en formato solicitado
+    lines.push(`Generado: ${generatedLabel}`);
+
     if (name)   lines.push(`Cliente: ${name}`);
     if (device) lines.push(`Equipo: ${device}`);
     if (sid)    lines.push(`Session: ${sid}`);
@@ -295,7 +329,7 @@ app.post('/api/whatsapp-ticket', async (req, res) => {
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
     for (const m of transcript || []) {
       const who = m.who === 'user' ? 'USER' : 'ASSISTANT';
-      lines.push(`[${m.ts || nowIso()}] ${who}: ${m.text || ''}`);
+      lines.push(`[${m.ts || now.toISOString()}] ${who}: ${m.text || ''}`);
     }
     const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
     fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
@@ -619,7 +653,7 @@ app.post('/api/chat', async (req, res) => {
             '🧩 ¿Se solucionó?',
             'Si no, puedo ofrecerte algunas pruebas más avanzadas.',
             '',
-            'Usá los botones: Lo solucioné / No lo solucioné'
+            'Usá los botones: Lo solucioné / No lo solucionó'
           ].join('\n');
 
           session.tests.basic = stepsAr;
@@ -696,7 +730,7 @@ app.post('/api/chat', async (req, res) => {
           pasosAr.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
 
           reply += `\n🧩 ¿Se solucionó?\n`;
-          reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucioné".\n`;
+          reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n`;
 
           session.tests.basic = pasosAr.slice(0, 3);
           session.stepsDone.push('basic_tests_shown');
@@ -713,7 +747,7 @@ app.post('/api/chat', async (req, res) => {
               aiAr.forEach(s => reply += `• ${s}\n`);
 
               reply += `\n🧩 ¿Se solucionó?\n`;
-              reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucioné".\n`;
+              reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n`;
 
               session.tests.ai = aiAr;
               session.stepsDone.push('ai_basic_shown');
