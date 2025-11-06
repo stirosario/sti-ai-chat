@@ -308,20 +308,17 @@ app.post('/api/whatsapp-ticket', async (req, res) => {
         .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
-      if (safeName) {
-        safeName = safeName.toUpperCase();
-      }
+      if (safeName) safeName = safeName.toUpperCase();
     }
 
-    // Construir líneas del ticket (contenido del .txt)
+    // Construir título y líneas del ticket (contenido del .txt)
+    // Título incluirá nombre si fue enviado: "STI • Servicio Técnico Inteligente — Ticket TCK-...-NOMBRE"
+    const titleLine = safeName ? `STI • Servicio Técnico Inteligente — Ticket ${ticketId}-${safeName}` :
+                                 `STI • Servicio Técnico Inteligente — Ticket ${ticketId}`;
+
     const lines = [];
-    const title = safeName ? `STI • Servicio Técnico Inteligente — Ticket ${ticketId}-${safeName}` :
-                             `STI • Servicio Técnico Inteligente — Ticket ${ticketId}`;
-    lines.push(title);
-
-    // Fecha generada en formato solicitado
+    lines.push(titleLine);
     lines.push(`Generado: ${generatedLabel}`);
-
     if (name)   lines.push(`Cliente: ${name}`);
     if (device) lines.push(`Equipo: ${device}`);
     if (sid)    lines.push(`Session: ${sid}`);
@@ -331,15 +328,21 @@ app.post('/api/whatsapp-ticket', async (req, res) => {
       const who = m.who === 'user' ? 'USER' : 'ASSISTANT';
       lines.push(`[${m.ts || now.toISOString()}] ${who}: ${m.text || ''}`);
     }
+
+    // Guardar archivo con nombre TCK-YYYYMMDD-XXXX.txt (sin el nombre) para mantener compatibilidad de rutas
     const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
     fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
     console.log(`[ticket] creado: ${ticketPath}`);
 
+    // URLs públicas (no cambian)
     const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/ticket/${ticketId}`;
+
+    // Construir texto para WhatsApp: incluir título (con nombre si aplica) y fecha formateada
     let waText = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI 👋. Vengo del chat web. Dejo mi consulta:';
-    waText += '\n';
-    if (name)   waText += `\n👤 Cliente: ${name}\n`;
+    waText = `${titleLine}\n${waText}\n`;
+    waText += `\nGenerado: ${generatedLabel}\n`;
+    if (name)   waText += `👤 Cliente: ${name}\n`;
     if (device) waText += `💻 Equipo: ${device}\n`;
     waText += `\n🎫 Ticket: ${ticketId}\n📄 Detalle completo (API): ${apiPublicUrl}\n(Enlace alternativo: ${publicUrl})`;
 
@@ -352,6 +355,8 @@ app.post('/api/whatsapp-ticket', async (req, res) => {
 });
 
 // Página pública del ticket (legacy)
+// Ahora: usar la primera línea del .txt como title (si existe) y NO repetirla dentro del <pre>
+// Esto evita previews que muestran "STI • STI • ..." (título + primera línea del contenido).
 app.get('/ticket/:id', (req, res) => {
   const idRaw = String(req.params.id || '');
   const id = String(idRaw).replace(/[^A-Z0-9-]/gi, '');
@@ -367,25 +372,32 @@ app.get('/ticket/:id', (req, res) => {
     }
     return res.status(404).send('Ticket no encontrado');
   }
-  const content = fs.readFileSync(file, 'utf8');
-  const title = `STI • Servicio Técnico Inteligente — Ticket ${id}`;
-  const desc = (content.split('\n').slice(0, 8).join(' ') || '').slice(0, 200);
+
+  const contentRaw = fs.readFileSync(file, 'utf8');
+  const parts = contentRaw.split('\n');
+  // primera línea -> título (si no existe usamos fallback)
+  const titleFromFile = (parts[0] && parts[0].trim()) ? parts[0].trim() : `STI • Servicio Técnico Inteligente — Ticket ${id}`;
+  // el resto del contenido (sin la primera línea) para mostrar en <pre>
+  const rest = parts.slice(1).join('\n').trim();
+
+  const title = titleFromFile;
+  const desc = (rest.split('\n').slice(0, 8).join(' ') || '').slice(0, 200);
   const url  = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/ticket/${id}`;
   const logo = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/logo.png`;
 
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!doctype html>
 <html lang="es"><head>
-<meta charset="utf-8"><title>${title}</title>
+<meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta property="og:type" content="article">
-<meta property="og:title" content="${title}">
-<meta property="og:description" content="${desc}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(desc)}">
 <meta property="og:url" content="${url}">
 <meta property="og:image" content="${logo}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${title}">
-<meta name="twitter:description" content="${desc}">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(desc)}">
 <meta name="twitter:image" content="${logo}">
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;margin:24px;background:#f5f5f5}
@@ -393,9 +405,9 @@ pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:16px;border-ra
 h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
 </style></head>
 <body>
-<h1>${title}</h1>
+<h1>${escapeHtml(title)}</h1>
 <p><a href="https://stia.com.ar" target="_blank">stia.com.ar</a> • <a href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank">WhatsApp</a></p>
-<pre>${content.replace(/[&<>]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))}</pre>
+<pre>${escapeHtml(rest)}</pre>
 </body></html>`);
 });
 
@@ -415,25 +427,30 @@ app.get('/api/ticket/:id', (req, res) => {
     }
     return res.status(404).json({ ok: false, error: 'Ticket no encontrado', id });
   }
-  const content = fs.readFileSync(file, 'utf8');
-  const title = `STI • Servicio Técnico Inteligente — Ticket ${id}`;
-  const desc = (content.split('\n').slice(0, 8).join(' ') || '').slice(0, 200);
+
+  const contentRaw = fs.readFileSync(file, 'utf8');
+  const parts = contentRaw.split('\n');
+  const titleFromFile = (parts[0] && parts[0].trim()) ? parts[0].trim() : `STI • Servicio Técnico Inteligente — Ticket ${id}`;
+  const rest = parts.slice(1).join('\n').trim();
+
+  const title = titleFromFile;
+  const desc = (rest.split('\n').slice(0, 8).join(' ') || '').slice(0, 200);
   const url  = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/ticket/${id}`;
   const logo = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/logo.png`;
 
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!doctype html>
 <html lang="es"><head>
-<meta charset="utf-8"><title>${title}</title>
+<meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta property="og:type" content="article">
-<meta property="og:title" content="${title}">
-<meta property="og:description" content="${desc}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(desc)}">
 <meta property="og:url" content="${url}">
 <meta property="og:image" content="${logo}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${title}">
-<meta name="twitter:description" content="${desc}">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(desc)}">
 <meta name="twitter:image" content="${logo}">
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;margin:24px;background:#f5f5f5}
@@ -441,9 +458,9 @@ pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:16px;border-ra
 h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
 </style></head>
 <body>
-<h1>${title}</h1>
+<h1>${escapeHtml(title)}</h1>
 <p><a href="https://stia.com.ar" target="_blank">stia.com.ar</a> • <a href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank">WhatsApp</a></p>
-<pre>${content.replace(/[&<>]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))}</pre>
+<pre>${escapeHtml(rest)}</pre>
 </body></html>`);
 });
 
@@ -490,6 +507,7 @@ app.all('/api/greeting', async (req, res) => {
 });
 
 // ===== Chat principal =====
+// (mismo que tenías — no lo toco aquí para no romper flujo)
 app.post('/api/chat', async (req, res) => {
   try {
     // --- nuevo: soportar botones (action: 'button') ---
@@ -879,6 +897,12 @@ app.get('/api/sessions', async (_req, res) => {
   const sessions = await listActiveSessions();
   res.json({ ok: true, count: sessions.length, sessions });
 });
+
+// ===== utils =====
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+}
 
 // ===== Server =====
 const PORT = process.env.PORT || 3001;
