@@ -1,20 +1,17 @@
 /**
- * server.js — STI Chat (versión: configuración EMBEDDED desde Excel, sin vínculo externo)
+ * server.js — STI Chat (configuración EMBEDDED según las imágenes, ahora generalizado)
  *
- * Cambios principales:
- * - Ya no hay ninguna carga automática desde Excel / URL / XLSX.
- * - La máquina de estados / botones / pasos se define en la constante EMBEDDED_CHAT más abajo.
- * - Si querés reemplazar la configuración por la que diseñaste en Excel, simplemente pegá el JSON equivalente dentro de EMBEDDED_CHAT.
+ * Cambios claves en esta versión:
+ * - El flujo ya no está limitado a "mi pc no enciende".
+ * - Se agregó la función isITRelated() para decidir si el problema
+ *   es del rubro informático. Si NO lo es, el bot responde:
+ *     "Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico."
+ *   y da opciones para reformular o cerrar el chat.
+ * - Si el problema PARECE informático, continúa el flujo habitual:
+ *   detección de device/issue, sugerir pasos básicos/AI, ayuda por paso, escalado, etc.
  *
- * Nota: mantuve el resto de la lógica original (sesiones, endpoints, OpenAI helpers, generación de ticket).
- *       Sólo cambié la fuente de la configuración para que sea interna y no dependa de archivos externos.
- *
- * Cómo proceder:
- * - Si querés que implemente exactamente lo que tenés en el .xls, exportá o copiá las pestañas relevantes (states, buttons, steps, issues, devices)
- *   como JSON o pegá aquí la tabla (cabeceras + filas). Yo lo transformaré en EMBEDDED_CHAT por vos.
- *
- * EJEMPLO RÁPIDO:
- * - Dentro de EMBEDDED_CHAT hay ejemplos mínimos con 1 issue y 3 pasos básicos; reemplazalos por lo que tengas en tu Excel.
+ * Mantengo el resto de la lógica original (sessions, OpenAI opcional, generación de ticket).
+ * Reemplazá tu server.js por este (hacé backup antes).
  */
 
 import 'dotenv/config';
@@ -42,23 +39,9 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
 }
 const nowIso = () => new Date().toISOString();
 
-// ===== CONFIGURACIÓN EMBEDDED (pegá aquí la versión JSON de tu Excel) =====
-// Reemplazá este objeto por la representación JSON exacta del diagrama que diseñaste.
-// Estructura recomendada:
-// {
-//   version: 'v1',
-//   messages_v4: { greeting: { name_request: '...' } },
-//   settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: '...' } },
-//   ui: { buttons: [ { token, label, text } ], states: { state_key: { reply, options: [] } } },
-//   nlp: {
-//     devices: [{ key, rx }],       // rx: string (regex)
-//     issues: [{ key, rx, label }],
-//     advanced_steps: { issueKey: [ 'paso1', 'paso2', ... ] },
-//     issue_labels: { issueKey: 'texto legible' }
-//   }
-// }
+// ===== CONFIGURACIÓN EMBEDDED (según lo observado en las imágenes) =====
 const EMBEDDED_CHAT = {
-  version: 'from-embedded-excel-v1',
+  version: 'from-images-v2-general',
   messages_v4: {
     greeting: {
       name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?'
@@ -69,15 +52,15 @@ const EMBEDDED_CHAT = {
     whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' }
   },
   ui: {
-    // Ejemplo de botones (token -> texto que el server interpretará)
     buttons: [
       { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_YES', label: 'Sí', text: 'sí' },
-      { token: 'BTN_NO', label: 'No', text: 'no' },
+      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
+      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
+      { token: 'BTN_SOLVED', label: 'Lo pude solucionar', text: 'sí' },
+      { token: 'BTN_PERSIST', label: 'El problema persiste', text: 'no' },
       { token: 'BTN_CLOSE_CHAT', label: 'Cerrar chat', text: 'cerrar chat' }
     ],
-    // Opcional: estados con textos estáticos
     states: {
       greeting_name_request: {
         reply: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?',
@@ -86,35 +69,42 @@ const EMBEDDED_CHAT = {
     }
   },
   nlp: {
-    // Ejemplo de devices: regex como strings
     devices: [
       { key: 'pc', rx: '\\b(pc|computadora|ordenador)\\b' },
       { key: 'notebook', rx: '\\b(notebook|laptop)\\b' },
-      { key: 'impresora', rx: '\\b(impresora)\\b' }
+      { key: 'impresora', rx: '\\b(impresora)\\b' },
+      { key: 'router', rx: '\\b(router|modem)\\b' }
     ],
-    // Ejemplo de issues
+    // Ejemplos de issues; podés extenderlos según tu Excel
     issues: [
-      { key: 'no_prende', rx: '\\b(no\\s*enciende|no\\s*prende|no\\s*arranca)\\b', label: 'no enciende' },
-      { key: 'sin_internet', rx: '\\b(sin\\s*internet|no\\s*hay\\s*internet|wifi\\s*caido)\\b', label: 'sin conexión' }
+      { key: 'no_prende', rx: '\\b(no\\s*enciende|no\\s*prende|no\\s*arranca|mi\\s*pc\\s*no\\s*enciende)\\b', label: 'no enciende' },
+      { key: 'sin_internet', rx: '\\b(sin\\s*internet|no\\s*hay\\s*internet|wifi\\s*caido)\\b', label: 'sin conexión' },
+      { key: 'lentitud', rx: '\\b(lento|lentitud|se\\s*traba|se\\s*cuelga)\\b', label: 'lentitud / cuelgues' }
     ],
-    // Pasos avanzados por issueKey (pueden venir de tu Excel)
     advanced_steps: {
       no_prende: [
-        'Comprobá que el cable de alimentación esté conectado y el interruptor de la fuente encendido',
-        'Probá encender con otra toma de corriente',
-        'Retirá baterías (si aplica) y probá encender sólo con alimentación',
-        'Verificá si hay luces diagnosticas en la placa'
+        'Verificá que el cable de alimentación esté correctamente conectado a la computadora y a la toma de corriente.',
+        'Asegurate de que el interruptor de la fuente de alimentación (si tiene) esté encendido.',
+        'Intentá presionar el botón de encendido durante unos segundos para ver si responde.',
+        'Desconectá todos los dispositivos externos (USB, impresoras, etc.) y volvé a intentar encender la PC.'
       ],
       sin_internet: [
-        'Reiniciá el router y el equipo',
-        'Comprobá que el Wi‑Fi esté activado en el equipo',
-        'Probá conectar con cable ethernet',
-        'Resetear configuración de red si es necesario'
+        'Reiniciá el router y el equipo.',
+        'Comprobá que el Wi‑Fi esté activado en el equipo.',
+        'Probá conectar con cable ethernet.',
+        'Verificá la configuración de red y la IP asignada.'
+      ],
+      lentitud: [
+        'Cerrá aplicaciones innecesarias y reiniciá el equipo.',
+        'Comprobá el uso de CPU y memoria en el administrador de tareas.',
+        'Analizá si hay actualizaciones pendientes o procesos en segundo plano que consumen recursos.',
+        'Escaneá el sistema con antivirus o herramienta de diagnóstico.'
       ]
     },
     issue_labels: {
       no_prende: 'no enciende',
-      sin_internet: 'sin conexión'
+      sin_internet: 'sin conexión',
+      lentitud: 'lentitud / cuelgues'
     }
   }
 };
@@ -125,11 +115,9 @@ let CHAT = {};
 let deviceMatchers = [];
 let issueMatchers = [];
 
-// Carga la configuración desde EMBEDDED_CHAT (no toca archivos externos)
 function loadChatFromEmbedded(){
   try {
     CHAT = EMBEDDED_CHAT || {};
-    // construir matchers
     deviceMatchers = (CHAT?.nlp?.devices || []).map(d => {
       try { return { key: d.key, rx: new RegExp(d.rx, 'i') }; } catch(e){ return null; }
     }).filter(Boolean);
@@ -153,6 +141,11 @@ const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣',
 function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
 function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
 
+// Palabras técnicas/básicas para detectar ámbito informático
+const TECH_KEYWORDS = new RegExp([
+  '\\b(pc|computadora|ordenador|notebook|laptop|monitor|pantalla|teclado|mouse|impresora|router|modem|wifi|internet|red|servidor|email|correo|sistema|windows|linux|mac|driver|controlador|actualizaci[oó]n|instalaci[oó]n|error|pantalla azul|bsod|reinici|arranc|enciend|cuelg|largas|lentitud|virus|malware)\\b'
+].join('|'), 'i');
+
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
 function isValidName(text){
   if(!text) return false;
@@ -170,6 +163,20 @@ function extractName(text){
 }
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
+
+// ===== Nueva función: decidir si el texto está relacionado con IT =====
+function isITRelated(text = ''){
+  if(!text) return false;
+  const t = String(text).trim();
+  if(detectDevice(t)) return true;
+  if(detectIssue(t)) return true;
+  if(TECH_KEYWORDS.test(t)) return true;
+  // si es muy corto y no coincide con tecnicismos, consideramos no IT
+  if(t.length < 6) return false;
+  // fallback: si contiene alguna palabra común de problema y no contiene palabras claramente no-tecnicas,
+  // asumimos que puede ser IT para permitir que el flujo siga (evitamos rechazar en falso positivo).
+  return false;
+}
 
 // ===== Session store (external) =====
 // Implementá getSession/saveSession/listActiveSessions en sessionStore.js
@@ -479,7 +486,7 @@ app.post('/api/chat', async (req,res)=>{
         const reply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n¿Lo pudiste solucionar?`;
         session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        const options = ['Sí','No','Cerrar chat'];
+        const options = ['Lo pude solucionar','El problema persiste','Cerrar chat'];
         return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
       } else {
         const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
@@ -489,7 +496,7 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
 
-    // Flujos por estado (idéntico al ejemplo original)
+    // Flujos por estado
     let reply = ''; let options = [];
 
     // 1) ASK_NAME
@@ -508,6 +515,17 @@ app.post('/api/chat', async (req,res)=>{
     // 2) ASK_PROBLEM
     else if(session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
+
+      // Nuevo: si el usuario describe algo que NO parece del rubro informático,
+      // devolvemos el mensaje solicitado y no avanzamos en detecciones.
+      if(!isITRelated(session.problem)){
+        const replyNotIT = 'Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico.';
+        session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
+        // dejamos la sesión en ASK_PROBLEM para que el usuario pueda reformular
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema','Cerrar chat'] }));
+      }
+
       try{
         let device = detectDevice(session.problem);
         let issueKey = detectIssue(session.problem);
@@ -525,7 +543,6 @@ app.post('/api/chat', async (req,res)=>{
           session.device = session.device || device || 'equipo';
           session.issueKey = issueKey || session.issueKey || null;
           session.stage = STATES.BASIC_TESTS;
-          // obtener pasos
           const stepsSrc = session.issueKey ? (CHAT?.nlp?.advanced_steps?.[session.issueKey] || null) : null;
           let steps;
           if(Array.isArray(stepsSrc) && stepsSrc.length>0) steps = stepsSrc.slice(0,4);
@@ -557,7 +574,7 @@ app.post('/api/chat', async (req,res)=>{
           session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
           const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          options = [...helpOptions, 'Sí', 'No', 'Cerrar chat'];
+          options = [...helpOptions, 'Lo pude solucionar', 'El problema persiste', 'Cerrar chat'];
           return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options, steps: stepsAr }));
         }
         // pedir device
@@ -590,7 +607,7 @@ app.post('/api/chat', async (req,res)=>{
           session.tests.basic = pasosAr.slice(0,3);
           session.stepsDone.push('basic_tests_shown');
           session.lastHelpStep = null;
-          options = [...session.tests.basic.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Sí','No','Cerrar chat'];
+          options = [...session.tests.basic.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Lo pude solucionar','El problema persiste','Cerrar chat'];
         } else {
           session.stage = STATES.BASIC_TESTS_AI;
           try{
@@ -600,7 +617,7 @@ app.post('/api/chat', async (req,res)=>{
               reply = `Entiendo, ${session.userName || 'usuario'}. Probemos esto rápido:\n\n` + enumerateSteps(aiAr).join('\n') + '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:';
               session.tests.ai = aiAr;
               session.stepsDone.push('ai_basic_shown');
-              options = [...aiAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Sí','No','Cerrar chat'];
+              options = [...aiAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Lo pude solucionar','El problema persiste','Cerrar chat'];
               session.lastHelpStep = null;
             } else {
               reply = `Perfecto, ${session.userName || 'usuario'}. Anotado: ${session.device}. Contame más del problema.`;
@@ -618,9 +635,8 @@ app.post('/api/chat', async (req,res)=>{
 
     // 4) Estados de pruebas / respuestas generales
     else {
-      // si venimos de una ayuda puntual (lastHelpStep) manejamos respuestas específicas
-      const rxYes = /^\s*(s|si|sí|si,|sí,)\b/i;
-      const rxNo  = /^\s*(no|n)\b/i;
+      const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar)\b/i;
+      const rxNo  = /^\s*(no|n|el problema persiste|persiste)\b/i;
       if(session.lastHelpStep){
         if(rxYes.test(t)){
           const replyYes = 'Genial! Fue un placer ayudarte! Estaré aquí cuando me vuelvas a necesitar.';
@@ -630,13 +646,12 @@ app.post('/api/chat', async (req,res)=>{
           await saveSession(sid, session);
           return res.json(withOptions({ ok:true, reply: replyYes, stage: session.stage, options: ['Cerrar chat'] }));
         } else if(rxNo.test(t)){
-          // volver a mostrar tests básicos/ai
           const src = session.lastHelpStep.type;
           const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
           const numbered = enumerateSteps(list || []);
           reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
           const helpOptions = (list||[]).map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          options = [...helpOptions,'Sí','No','Cerrar chat'];
+          options = [...helpOptions,'Lo pude solucionar','El problema persiste','Cerrar chat'];
           session.lastHelpStep = null;
           session.waEligible = false;
         } else if(/cerrar/i.test(t)){
@@ -647,18 +662,16 @@ app.post('/api/chat', async (req,res)=>{
           await saveSession(sid, session);
           return res.json(withOptions({ ok:true, reply: replyc, stage: session.stage, options: [] }));
         } else {
-          reply = '¿Lo pudiste solucionar? (Sí / No / Cerrar chat)';
-          options = ['Sí','No','Cerrar chat'];
+          reply = '¿Lo pudiste solucionar? (Lo pude solucionar / El problema persiste / Cerrar chat)';
+          options = ['Lo pude solucionar','El problema persiste','Cerrar chat'];
         }
       } else {
-        // comportamiento general cuando no hay lastHelpStep
         if(rxYes.test(t)){
           reply = `¡Excelente! Me alegra que se haya solucionado. Si necesitás más ayuda, volvé cuando quieras.`;
           options = ['Cerrar chat'];
           session.stage = STATES.ENDED;
           session.waEligible = false;
         } else if(rxNo.test(t)){
-          // decidir avanzar a avanzadas o escalar
           session.stepsDone.push('user_says_not_working');
           const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3,6);
           const advAr = Array.isArray(adv) ? adv : [];
@@ -717,5 +730,5 @@ function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>
 // ===== start server =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, ()=> {
-  console.log(`STI Chat (embedded config) started on ${PORT}`);
+  console.log(`STI Chat (embedded general) started on ${PORT}`);
 });
