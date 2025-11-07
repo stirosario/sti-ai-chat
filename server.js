@@ -1,13 +1,8 @@
 /**
- * server.js — STI Chat (adaptado)
+ * server.js — STI Chat (versión ejemplo)
  * - Flujo genérico para cualquier problema (ej. "mi pc no enciende")
  * - Soporta botones (action: 'button' + value token)
  * - Soporta ayuda por paso (consulta OpenAI si está disponible)
- * - Comportamiento solicitado:
- *   * Si el usuario resuelve con las pruebas de primera instancia (presiona "Sí" / "Lo solucioné"),
- *     mostrar la caja con opciones (imagen 4).
- *   * Si elige "Comentario" mostrar confirmación (imagen 5).
- *   * Si confirma "Comentario" mostrar panel para generar/Enviar ticket (imagen 6).
  *
  * Reemplazá tu server.js con este archivo (hacé backup antes).
  */
@@ -224,7 +219,7 @@ app.get('/api/transcript/:sid', (req,res)=>{
   res.send(fs.readFileSync(file,'utf8'));
 });
 
-// WhatsApp ticket generator
+// WhatsApp ticket generator (keeps compatibility)
 app.post('/api/whatsapp-ticket', async (req,res)=>{
   try{
     const { name, device, sessionId, history = [] } = req.body || {};
@@ -276,8 +271,7 @@ app.post('/api/reset', async (req,res)=>{
     id: sid, userName: null, stage: STATES.ASK_NAME,
     device:null, problem:null, issueKey:null,
     tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-    waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null,
-    pendingCommentConfirm: false
+    waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
   };
   await saveSession(sid, empty);
   res.json({ ok:true });
@@ -291,8 +285,7 @@ app.all('/api/greeting', async (req,res)=>{
       id: sid, userName: null, stage: STATES.ASK_NAME,
       device:null, problem:null, issueKey:null,
       tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-      waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null,
-      pendingCommentConfirm: false
+      waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
     };
     const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
@@ -316,9 +309,6 @@ app.post('/api/chat', async (req,res)=>{
       'BTN_CLOSE_CHAT': 'cerrar chat',
       'BTN_DEVICE_PC': 'pc',
       'BTN_DEVICE_NOTEBOOK': 'notebook',
-      'BTN_DEVICE_MONITOR': 'monitor',
-      'BTN_COMMENT': 'comentario',
-      'BTN_SEND_TICKET': 'enviar mensaje',
       'BTN_OTHER': ''
     };
 
@@ -343,8 +333,7 @@ app.post('/api/chat', async (req,res)=>{
         id: sid, userName: null, stage: STATES.ASK_NAME,
         device:null, problem:null, issueKey:null,
         tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-        waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null,
-        pendingCommentConfirm: false
+        waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
       };
       console.log('[api/chat] nueva session', sid);
     }
@@ -374,7 +363,6 @@ app.post('/api/chat', async (req,res)=>{
       const replyc = 'Cerrando chat. ¡Hasta luego! 👋';
       session.stage = STATES.ENDED;
       session.transcript.push({ who:'bot', text: replyc, ts: nowIso() });
-      session.pendingCommentConfirm = false;
       await saveSession(sid, session);
       return res.json(withOptions({ ok:true, reply: replyc, stage: session.stage, options: [] }));
     }
@@ -392,7 +380,6 @@ app.post('/api/chat', async (req,res)=>{
         const helpContent = await getHelpForStep(stepText, idx, session.device||'', session.problem||'');
         const reply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n¿Lo pudiste solucionar?`;
         session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        session.pendingCommentConfirm = false;
         await saveSession(sid, session);
         const options = ['Sí','No','Cerrar chat'];
         return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
@@ -404,73 +391,7 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
 
-    // ----- Manejo específico para "Comentario" flow -----
-    // If user selected "Comentario" from the post-success options, show confirmation (image 5).
-    if(/^\s*(comentario)\s*$/i.test(t) && session.stepsDone.includes('basic_tests_shown') && !session.pendingCommentConfirm){
-      // First "Comentario" click -> show small confirmation with option to proceed (image 5)
-      const reply = `✔️ ¡Excelente, me alegra saberlo!\nSi más adelante necesitás ayuda, acá voy a estar las 24 hs.\nAhora podés cerrar el chat, o enviar algún comentario al cuerpo técnico.`;
-      session.pendingCommentConfirm = true; // waiting for user to press Comentario again to send
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Comentario','Cerrar chat'] }));
-    }
-
-    // If user confirms Comentario (presses Comentario again) -> show ticket prompt (image 6)
-    if(/^\s*(comentario)\s*$/i.test(t) && session.pendingCommentConfirm){
-      const reply = `🧾 Generaremos un ticket con el historial de esta conversación, que será enviado por mensaje de WhatsApp.\n✏️ Envíalo sin modificarlo. Luego escribinos tu comentario.`;
-      session.pendingCommentConfirm = false; // reset
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      // Keep the session. Frontend can call /api/whatsapp-ticket to get waUrl.
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Enviar Mensaje','Cerrar chat'] }));
-    }
-
-    // If user presses "Enviar Mensaje" (from ticket panel) -> generate wa link and reply
-    if(/^\s*(enviar mensaje|enviar|enviar ticket)\s*$/i.test(t)){
-      // produce wa ticket using /api/whatsapp-ticket semantic
-      // We'll call internal logic: create ticket file and return waUrl inline (same as /api/whatsapp-ticket)
-      const s = session;
-      // Build a minimal history for ticket
-      const history = s.transcript || [];
-      // Generate ticket
-      try {
-        const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-        const rand = Math.random().toString(36).slice(2,6).toUpperCase();
-        const ticketId = `TCK-${ymd}-${rand}`;
-        const now = new Date();
-        const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-        const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-        const datePart = dateFormatter.format(now).replace(/\//g,'-');
-        const timePart = timeFormatter.format(now);
-        const generatedLabel = `${datePart} ${timePart} (ART)`;
-        const titleLine = session.userName ? `STI • Ticket ${ticketId}-${session.userName.toUpperCase()}` : `STI • Ticket ${ticketId}`;
-        const lines = [];
-        lines.push(titleLine);
-        lines.push(`Generado: ${generatedLabel}`);
-        if(session.userName) lines.push(`Cliente: ${session.userName}`);
-        if(session.device) lines.push(`Equipo: ${session.device}`);
-        lines.push('');
-        lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-        for(const m of history || []) lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`);
-        const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
-        fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-        const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-        const waText = `${titleLine}\nHola, dejo comentario desde el chat web.\n\nGenerado: ${generatedLabel}\n\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
-        const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(waText)}`;
-        const reply = '✅ Ticket generado. Podés abrir WhatsApp para enviar el mensaje prellenado.';
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Cerrar chat'], waUrl }));
-      } catch (e) {
-        console.error('[send-ticket]', e);
-        const reply = 'No pude generar el ticket ahora. Probá de nuevo en un momento.';
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Cerrar chat'] }));
-      }
-    }
-
-    // ----- Normal flows (states) -----
+    // Flujos por estado
     let reply = ''; let options = [];
 
     // 1) ASK_NAME
@@ -534,22 +455,11 @@ app.post('/api/chat', async (req,res)=>{
           session.stepsDone.push('basic_tests_shown');
           session.waEligible = false;
           session.lastHelpStep = null;
-          session.pendingCommentConfirm = false;
           const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footer;
           session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
-          // Build options: help buttons + result buttons + device buttons + "Avanzadas" + "Enviar a WhatsApp (con ticket)" + Comentario
           const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          const deviceBtns = ['PC','Notebook','Monitor','Teclado','Mouse','Otra'];
-          options = [
-            ...helpOptions,
-            'Lo solucioné ✅',
-            'No lo solucionó ❌',
-            'Avanzadas 🔧',
-            'Enviar a WhatsApp (con ticket)',
-            'Comentario',
-            ...deviceBtns
-          ];
+          options = [...helpOptions, 'Sí', 'No', 'Cerrar chat'];
           return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options, steps: stepsAr }));
         }
         // pedir device
@@ -582,8 +492,7 @@ app.post('/api/chat', async (req,res)=>{
           session.tests.basic = pasosAr.slice(0,3);
           session.stepsDone.push('basic_tests_shown');
           session.lastHelpStep = null;
-          session.pendingCommentConfirm = false;
-          options = [...session.tests.basic.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Lo solucioné ✅','No lo solucionó ❌','Avanzadas 🔧','Enviar a WhatsApp (con ticket)','Comentario','PC','Notebook','Monitor','Teclado','Mouse','Otra'];
+          options = [...session.tests.basic.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Sí','No','Cerrar chat'];
         } else {
           session.stage = STATES.BASIC_TESTS_AI;
           try{
@@ -593,8 +502,8 @@ app.post('/api/chat', async (req,res)=>{
               reply = `Entiendo, ${session.userName || 'usuario'}. Probemos esto rápido:\n\n` + enumerateSteps(aiAr).join('\n') + '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:';
               session.tests.ai = aiAr;
               session.stepsDone.push('ai_basic_shown');
-              session.pendingCommentConfirm = false;
-              options = [...aiAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Lo solucioné ✅','No lo solucionó ❌','Avanzadas 🔧','Enviar a WhatsApp (con ticket)','Comentario','PC','Notebook','Monitor','Teclado','Mouse','Otra'];
+              options = [...aiAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Sí','No','Cerrar chat'];
+              session.lastHelpStep = null;
             } else {
               reply = `Perfecto, ${session.userName || 'usuario'}. Anotado: ${session.device}. Contame más del problema.`;
             }
@@ -611,76 +520,69 @@ app.post('/api/chat', async (req,res)=>{
 
     // 4) Estados de pruebas / respuestas generales
     else {
-      // Basic yes/no detection
-      const rxYes = /^\s*(s|si|sí|lo solucion[eó]|lo soluciono|lo solucioné|lo solucioné✅|lo solucioné✅|lo solucioné)\b/i;
-      const rxNo  = /^\s*(no|n|no lo solucion[oó]|no lo soluciono|no lo solucioné)\b/i;
-      // If the user indicates they solved the problem (from the first-instance tests)
-      if(rxYes.test(t) && session.stepsDone.includes('basic_tests_shown')){
-        // Show image 4 style message
-        const replyYes = `¡Excelente! Me alegra que se haya solucionado. Si necesitás más ayuda, volv&eacute; cuando quieras.`;
-        session.stage = STATES.ENDED; // conversation can be considered finished but keep session for comment/ticket actions
-        // Keep session open for Comentario / ticket actions: do not force close
-        session.pendingCommentConfirm = false;
-        // Options per image 4: confirmation buttons, advanced, whatsapp ticket, device quick buttons
-        const optionsYes = [
-          'Lo solucioné ✅',
-          'No lo solucionó ❌',
-          'Avanzadas 🔧',
-          'Enviar a WhatsApp (con ticket)',
-          'PC','Notebook','Monitor','Teclado','Mouse','Otra',
-          'Comentario','Cerrar chat'
-        ];
-        session.transcript.push({ who:'bot', text: replyYes, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyYes, stage: session.stage, options: optionsYes }));
-      }
-
-      // If user says No (didn't fix) behave as before: either advanced tests or escalate
-      if(rxNo.test(t)){
-        session.stepsDone.push('user_says_not_working');
-        const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
-        const advAr = Array.isArray(adv) ? adv : [];
-        if(advAr.length>0){
-          session.stage = STATES.ADVANCED_TESTS;
-          session.tests.advanced = advAr;
-          reply = `Entiendo, ${session.userName || 'usuario'} 😔\nEntonces vamos a hacer unas pruebas más avanzadas para tratar de solucionarlo. 🔍\n\n` + advAr.map((p,i)=>`${i+1}. ${p}`).join('\n');
-          options = ['Volver a básicas','Enviar a WhatsApp (con ticket)','Cerrar chat'];
+      // si venimos de una ayuda puntual (lastHelpStep) manejamos respuestas específicas
+      const rxYes = /^\s*(s|si|sí|si,|sí,)\b/i;
+      const rxNo  = /^\s*(no|n)\b/i;
+      if(session.lastHelpStep){
+        if(rxYes.test(t)){
+          const replyYes = 'Genial! Fue un placer ayudarte! Estaré aquí cuando me vuelvas a necesitar.';
+          session.stage = STATES.ENDED;
+          session.lastHelpStep = null;
+          session.transcript.push({ who:'bot', text: replyYes, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:true, reply: replyYes, stage: session.stage, options: ['Cerrar chat'] }));
+        } else if(rxNo.test(t)){
+          // volver a mostrar tests básicos/ai
+          const src = session.lastHelpStep.type;
+          const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
+          const numbered = enumerateSteps(list || []);
+          reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
+          const helpOptions = (list||[]).map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+          options = [...helpOptions,'Sí','No','Cerrar chat'];
+          session.lastHelpStep = null;
+          session.waEligible = false;
+        } else if(/cerrar/i.test(t)){
+          const replyc = 'Cerrando chat. ¡Hasta luego! 👋';
+          session.stage = STATES.ENDED;
+          session.lastHelpStep = null;
+          session.transcript.push({ who:'bot', text: replyc, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:true, reply: replyc, stage: session.stage, options: [] }));
         } else {
-          session.stage = STATES.ESCALATE;
-          reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico para seguimiento por WhatsApp.';
-          options = ['Enviar a WhatsApp (con ticket)','Cerrar chat'];
-          session.waEligible = true;
+          reply = '¿Lo pudiste solucionar? (Sí / No / Cerrar chat)';
+          options = ['Sí','No','Cerrar chat'];
         }
-      }
-
-      // Generic handlers: Avanzadas, Enviar a WhatsApp (con ticket), Volver a básicas
-      else if(/\b(avanzadas|avanzada|pruebas avanzadas|mas pruebas|más pruebas)\b/i.test(t)){
-        const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
-        const advAr = mapVoseoSafe(adv);
-        if(advAr.length>0){
-          session.stage = STATES.ADVANCED_TESTS;
-          session.tests.advanced = advAr;
-          reply  = `Perfecto 👍\nTe muestro las pruebas más avanzadas para este caso:\n\n` + advAr.map((p,i)=>`${i+1}. ${p}`).join('\n');
-          options = ['Volver a básicas','Enviar a WhatsApp (con ticket)','Cerrar chat'];
-        } else {
-          reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico para seguimiento por WhatsApp.';
-          options = ['Enviar a WhatsApp (con ticket)','Cerrar chat'];
-          session.stage = STATES.ESCALATE;
-        }
-      } else if(/\b(enviar a whatsapp|whatsapp|enviar a whatsapp \(con ticket\)|enviar ticket|generar ticket)\b/i.test(t)){
-        session.waEligible = true;
-        reply = '✅ Puedo generar un ticket con esta conversación y prellenar un mensaje para WhatsApp. ¿Querés que lo haga?';
-        options = ['Enviar Mensaje','Cerrar chat'];
-      } else if(/\b(volver a b[aá]sicas|volver a basicas|basicas|básicas)\b/i.test(t)){
-        // re-show basic tests
-        const list = session.tests.basic && session.tests.basic.length ? session.tests.basic : session.tests.ai;
-        const numbered = enumerateSteps(list || []);
-        reply = `Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.`;
-        options = [...(list||[]).map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`),'Lo solucioné ✅','No lo solucionó ❌','Comentario','Cerrar chat'];
       } else {
-        // fallback small reply
-        reply = `Recordá que estamos revisando tu ${session.device||'equipo'} por ${issueHuman(session.issueKey)}.\n\n¿Probaste los pasos que te sugerí?`;
-        options = ['Volver a básicas','Enviar a WhatsApp (con ticket)','Cerrar chat'];
+        // comportamiento general cuando no hay lastHelpStep
+        if(rxYes.test(t)){
+          reply = `¡Excelente! Me alegra que se haya solucionado. Si necesitás más ayuda, volvé cuando quieras.`;
+          options = ['Cerrar chat'];
+          session.stage = STATES.ENDED;
+          session.waEligible = false;
+        } else if(rxNo.test(t)){
+          // decidir avanzar a avanzadas o escalar
+          session.stepsDone.push('user_says_not_working');
+          const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3,6);
+          const advAr = Array.isArray(adv) ? adv : [];
+          if(advAr.length>0){
+            session.stage = STATES.ADVANCED_TESTS;
+            session.tests.advanced = advAr;
+            reply = `Entiendo. Vamos con algunas pruebas más avanzadas:\n\n` + advAr.map((p,i)=>`${i+1}. ${p}`).join('\n') + '\n\nSi querés, también puedo generar un ticket para que te atienda un técnico.';
+            options = ['Volver a básicas','Generar ticket'];
+          } else {
+            session.stage = STATES.ESCALATE;
+            reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico o genero un ticket con el historial.';
+            options = ['Generar ticket','Cerrar chat'];
+            session.waEligible = true;
+          }
+        } else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
+          session.waEligible = true;
+          reply = '✅ Puedo generar un ticket con esta conversación y enviarlo por WhatsApp. ¿Querés que lo haga?';
+          options = ['Generar ticket','Cerrar chat'];
+        } else {
+          reply = `Recordá que estamos revisando tu ${session.device||'equipo'} por ${issueHuman(session.issueKey)}.\n\n¿Probaste los pasos que te sugerí?`;
+          options = ['Volver a básicas','Generar ticket','Cerrar chat'];
+        }
       }
     }
 
@@ -712,11 +614,10 @@ app.get('/api/sessions', async (_req,res)=>{
 });
 
 // ===== utils =====
-function mapVoseoSafe(arr) { return Array.isArray(arr) ? arr.map(s => { let t = String(s||''); t = t.replace(/\bverifique\b/gi,'verificá').replace(/\bintente\b/gi,'probá').replace(/\breinicie\b/gi,'reiniciá'); return t; }) : []; }
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
 
 // ===== start server =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, ()=> {
-  console.log(`STI Chat adapted server started on ${PORT}`);
+  console.log(`STI Chat example started on ${PORT}`);
 });
