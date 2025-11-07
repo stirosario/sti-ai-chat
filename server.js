@@ -239,6 +239,17 @@ async function aiQuickTests(problemText = '', device = '') {
   }
 }
 
+// ===== small helpers for numbering steps =====
+const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+function emojiForIndex(i) {
+  const n = i + 1;
+  return NUM_EMOJIS[n] || `${n}.`;
+}
+function enumerateSteps(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((s, i) => `${emojiForIndex(i)} ${s}`);
+}
+
 // ===== Endpoints =====
 
 // Health
@@ -516,8 +527,8 @@ app.post('/api/chat', async (req, res) => {
     const tokenMap = {
       'BTN_BASIC_YES': 'sí',
       'BTN_BASIC_NO' : 'no',
-      'BTN_ADVANCED' : 'avanzadas',
-      'BTN_WHATSAPP' : 'whatsapp',
+      // 'BTN_ADVANCED' : 'avanzadas',   <- removido según requerimiento
+      // 'BTN_WHATSAPP' : 'whatsapp',    <- removido (sacar boton verde en primera instancia)
       'BTN_DEVICE_PC': 'pc',
       'BTN_DEVICE_NOTEBOOK': 'notebook',
       'BTN_DEVICE_MONITOR': 'monitor',
@@ -664,21 +675,24 @@ app.post('/api/chat', async (req, res) => {
             ];
           }
 
-          const stepsAr = mapVoseoSafe(steps);
+          const stepsAr = mapVoseoSafe(steps);            // plain steps
+          const numbered = enumerateSteps(stepsAr);       // numbered strings for display
+
           const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
+          // FOOTER: actualizados según pedido del usuario
           const footer = CHAT?.messages_v4?.basic_footer ? CHAT.messages_v4.basic_footer.join('\n') : [
             '',
-            '🧩 ¿Se solucionó?',
-            'Si no, puedo ofrecerte algunas pruebas más avanzadas.',
+            '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
             '',
-            'Usá los botones: Lo solucioné / No lo solucionó'
+            '🤔 Contanos cómo te fue utilizando los botones:'
           ].join('\n');
 
           session.tests.basic = stepsAr;
           session.stepsDone.push('basic_tests_shown');
-          session.waEligible = true;
+          // Quitar boton verde whatsapp en primera instancia -> don't mark waEligible yet
+          session.waEligible = false;
 
-          const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n\n' + footer;
+          const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footer;
 
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
@@ -686,20 +700,28 @@ app.post('/api/chat', async (req, res) => {
           try {
             const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
             fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
-            stepsAr.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
+            numbered.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
             fs.appendFileSync(tf, `\n${footer}\n`);
           } catch (e) {
             console.error('[transcript write] error:', e.message);
           }
+
+          // Build options: numbered help buttons for each step + solved/not solved
+          const helpOptions = stepsAr.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+          const defaultOptions = [
+            ...helpOptions,
+            'Lo solucioné ✅',
+            'No, sigue igual ❌'
+          ];
 
           return res.json({
             ok: true,
             reply: fullMsg,
             steps,
             stepsType: 'basic',
-            options: (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅', 'No, sigue igual ❌', 'Avanzadas 🔧', 'WhatsApp']),
+            options: defaultOptions,
             stage: session.stage,
-            allowWhatsapp: true
+            allowWhatsapp: false
           });
         }
 
@@ -742,35 +764,51 @@ app.post('/api/chat', async (req, res) => {
             'Probar en modo seguro',
           ];
           const pasosAr = mapVoseoSafe(pasos);
+          const numbered = enumerateSteps(pasosAr);
 
-          reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene el problema: ${issueHuman(issueKey)} 🔍\n\n`;
-          reply += `🔧 **Probá estos pasos básicos:**\n\n`;
-          pasosAr.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+          reply  = `Entiendo, ${session.userName}. Tu ${session.device} tiene el problema: ${issueHuman(issueKey)} 🔍\n\n`;
+          reply += `🔧 Pasos básicos:\n\n`;
+          numbered.slice(0, 3).forEach((p) => { reply += `${p}\n`; });
 
-          reply += `\n🧩 ¿Se solucionó?\n`;
-          reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n`;
+          reply += `\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n`;
+          reply += `\n🤔 Contanos cómo te fue utilizando los botones:\n`;
 
           session.tests.basic = pasosAr.slice(0, 3);
           session.stepsDone.push('basic_tests_shown');
-          options = (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp']);
-          session.waEligible = true;
+          // don't enable whatsapp yet in this first moment
+          session.waEligible = false;
+
+          // build options: numbered help for each shown step + solved/not solved
+          const helpOptions = session.tests.basic.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+          options = [
+            ...helpOptions,
+            'Lo solucioné ✅',
+            'No, sigue igual ❌'
+          ];
         } else {
           session.stage = STATES.BASIC_TESTS_AI;
           try {
             const ai = await aiQuickTests(session.problem || '', session.device || '');
             if (ai.length) {
               const aiAr = mapVoseoSafe(ai);
+              const numbered = enumerateSteps(aiAr);
               reply  = `Entiendo, ${session.userName}. Probemos esto rápido 🔍\n\n`;
-              reply += `🔧 **Pasos iniciales:**\n\n`;
-              aiAr.forEach(s => reply += `• ${s}\n`);
+              reply += `🔧 Pasos iniciales:\n\n`;
+              aiAr.forEach((s, i) => reply += `${emojiForIndex(i)} ${s}\n`);
 
-              reply += `\n🧩 ¿Se solucionó?\n`;
-              reply += `Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n`;
+              reply += `\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n`;
+              reply += `\n🤔 Contanos cómo te fue utilizando los botones:\n`;
 
               session.tests.ai = aiAr;
               session.stepsDone.push('ai_basic_shown');
-              session.waEligible = true;
-              options = (CHAT?.ui?.buttons?.basic_options || ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp']);
+              session.waEligible = false;
+
+              const helpOptions = aiAr.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+              options = [
+                ...helpOptions,
+                'Lo solucioné ✅',
+                'No, sigue igual ❌'
+              ];
             } else {
               reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame un poco más del problema.`;
             }
@@ -797,7 +835,7 @@ app.post('/api/chat', async (req, res) => {
         reply += `Si vuelve a ocurrir o necesitás revisar otro equipo, podés contactarnos nuevamente cuando quieras.\n\n`;
         reply += `¡Gracias por confiar en STI! ⚡\n\n`;
         reply += `Si querés hacerle algún comentario al cuerpo técnico, tocá el botón para enviar un ticket por WhatsApp con esta conversación.\n`;
-        options = ['WhatsApp'];
+        options = ['Enviar ticket por WhatsApp'];
         session.stage = STATES.ESCALATE;
         session.waEligible = true;
 
@@ -810,15 +848,15 @@ app.post('/api/chat', async (req, res) => {
         if (triedAdv || noCount >= 2 || advAr.length === 0) {
           session.stage = STATES.ESCALATE;
           session.waEligible = true;
-          reply = 'Entiendo. Te paso con un técnico para ayudarte personalmente. Tocá el botón verde y se enviará un ticket con esta conversación para agilizar la atención.';
-          options = ['WhatsApp'];
+          reply = 'Entiendo. Te paso con un técnico para ayudarte personalmente. Tocá el botón y se enviará un ticket con esta conversación para agilizar la atención.';
+          options = ['Enviar ticket por WhatsApp'];
         } else {
           session.stage = STATES.ADVANCED_TESTS;
           session.tests.advanced = advAr;
-          reply = `Entiendo, ${session.userName} 😔\nEntonces vamos a hacer unas **pruebas más avanzadas** para tratar de solucionarlo. 🔍\n\n`;
+          reply = `Entiendo, ${session.userName} 😔\nEntonces vamos a hacer unas pruebas más avanzadas para tratar de solucionarlo. 🔍\n\n`;
           advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
           session.waEligible = true;
-          options = ['Volver a básicas','WhatsApp'];
+          options = ['Volver a básicas','Enviar ticket por WhatsApp'];
         }
       } else if (rxAdv.test(t)) {
         const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
@@ -827,19 +865,19 @@ app.post('/api/chat', async (req, res) => {
           session.stage = STATES.ADVANCED_TESTS;
           session.tests.advanced = advAr;
           reply  = `Perfecto 👍\n`;
-          reply += `Te muestro las **pruebas más avanzadas** para este caso:\n\n`;
+          reply += `Te muestro las pruebas más avanzadas para este caso:\n\n`;
           advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
           session.waEligible = true;
-          options = ['Volver a básicas','WhatsApp'];
+          options = ['Volver a básicas','Enviar ticket por WhatsApp'];
         } else {
           reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico para seguimiento por WhatsApp.';
-          session.waEligible = true; options = ['WhatsApp'];
+          session.waEligible = true; options = ['Enviar ticket por WhatsApp'];
           session.stage = STATES.ESCALATE;
         }
       } else if (/\b(whatsapp|t[ée]cnico|derivar|persona|humano)\b/i.test(t)) {
         session.waEligible = true;
         reply = '✅ Te preparo un ticket con el historial para WhatsApp.';
-        options = ['Enviar a WhatsApp (con ticket)'];
+        options = ['Enviar ticket por WhatsApp'];
       } else if (/\b(dale|ok|bueno|joya|b[áa]rbaro|listo|perfecto|prob[ée]|hice)\b/i.test(t)) {
         session.stepsDone.push('user_confirmed_basic');
         if (session.stage === STATES.BASIC_TESTS && ((session.tests.basic || []).length >= 2 || (session.tests.ai || []).length >= 2)) {
@@ -852,21 +890,21 @@ app.post('/api/chat', async (req, res) => {
             advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
             reply += `\n¿Pudiste probar alguno?`;
             session.waEligible = true;
-            options = ['Volver a básicas','WhatsApp'];
+            options = ['Volver a básicas','Enviar ticket por WhatsApp'];
           } else {
             reply = '👍 Perfecto. Si persiste, te paso con un técnico.';
             session.waEligible = true;
-            options = ['WhatsApp'];
+            options = ['Enviar ticket por WhatsApp'];
           }
         } else {
           reply = '👍 Perfecto. ¿Alguno de esos pasos ayudó?';
-          options = ['Pasar a avanzadas','WhatsApp'];
+          options = ['Pasar a avanzadas','Enviar ticket por WhatsApp'];
         }
       } else {
-        reply = `Recordá que estamos revisando tu **${session.device || 'equipo'}** por ${issueHuman(session.issueKey)} 🔍\n\n` +
+        reply = `Recordá que estamos revisando tu ${session.device || 'equipo'} por ${issueHuman(session.issueKey)} 🔍\n\n` +
                 `¿Probaste los pasos que te sugerí?\n\n` +
-                'Usá los botones abajo: "Lo solucioné" o "No lo solucionó".\n';
-        options = ['Avanzadas 🔧','WhatsApp'];
+                '🤔 Contanos cómo te fue utilizando los botones:\n';
+        options = ['Volver a básicas','Enviar ticket por WhatsApp'];
       }
     }
 
