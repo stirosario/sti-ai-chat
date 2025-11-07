@@ -1,10 +1,20 @@
 /**
- * server.js — STI Chat (versión ejemplo)
- * - Flujo genérico para cualquier problema (ej. "mi pc no enciende")
- * - Soporta botones (action: 'button' + value token)
- * - Soporta ayuda por paso (consulta OpenAI si está disponible)
+ * server.js — STI Chat (versión: configuración EMBEDDED desde Excel, sin vínculo externo)
  *
- * Reemplazá tu server.js con este archivo (hacé backup antes).
+ * Cambios principales:
+ * - Ya no hay ninguna carga automática desde Excel / URL / XLSX.
+ * - La máquina de estados / botones / pasos se define en la constante EMBEDDED_CHAT más abajo.
+ * - Si querés reemplazar la configuración por la que diseñaste en Excel, simplemente pegá el JSON equivalente dentro de EMBEDDED_CHAT.
+ *
+ * Nota: mantuve el resto de la lógica original (sesiones, endpoints, OpenAI helpers, generación de ticket).
+ *       Sólo cambié la fuente de la configuración para que sea interna y no dependa de archivos externos.
+ *
+ * Cómo proceder:
+ * - Si querés que implemente exactamente lo que tenés en el .xls, exportá o copiá las pestañas relevantes (states, buttons, steps, issues, devices)
+ *   como JSON o pegá aquí la tabla (cabeceras + filas). Yo lo transformaré en EMBEDDED_CHAT por vos.
+ *
+ * EJEMPLO RÁPIDO:
+ * - Dentro de EMBEDDED_CHAT hay ejemplos mínimos con 1 issue y 3 pasos básicos; reemplazalos por lo que tengas en tu Excel.
  */
 
 import 'dotenv/config';
@@ -32,24 +42,107 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
 }
 const nowIso = () => new Date().toISOString();
 
-// ===== Carga de configuración (sti-chat.json opcional) =====
-const CHAT_JSON_PATH = process.env.CHAT_JSON || path.join(process.cwd(), 'sti-chat.json');
+// ===== CONFIGURACIÓN EMBEDDED (pegá aquí la versión JSON de tu Excel) =====
+// Reemplazá este objeto por la representación JSON exacta del diagrama que diseñaste.
+// Estructura recomendada:
+// {
+//   version: 'v1',
+//   messages_v4: { greeting: { name_request: '...' } },
+//   settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: '...' } },
+//   ui: { buttons: [ { token, label, text } ], states: { state_key: { reply, options: [] } } },
+//   nlp: {
+//     devices: [{ key, rx }],       // rx: string (regex)
+//     issues: [{ key, rx, label }],
+//     advanced_steps: { issueKey: [ 'paso1', 'paso2', ... ] },
+//     issue_labels: { issueKey: 'texto legible' }
+//   }
+// }
+const EMBEDDED_CHAT = {
+  version: 'from-embedded-excel-v1',
+  messages_v4: {
+    greeting: {
+      name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?'
+    }
+  },
+  settings: {
+    OA_MIN_CONF: '0.6',
+    whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' }
+  },
+  ui: {
+    // Ejemplo de botones (token -> texto que el server interpretará)
+    buttons: [
+      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
+      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
+      { token: 'BTN_YES', label: 'Sí', text: 'sí' },
+      { token: 'BTN_NO', label: 'No', text: 'no' },
+      { token: 'BTN_CLOSE_CHAT', label: 'Cerrar chat', text: 'cerrar chat' }
+    ],
+    // Opcional: estados con textos estáticos
+    states: {
+      greeting_name_request: {
+        reply: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?',
+        options: []
+      }
+    }
+  },
+  nlp: {
+    // Ejemplo de devices: regex como strings
+    devices: [
+      { key: 'pc', rx: '\\b(pc|computadora|ordenador)\\b' },
+      { key: 'notebook', rx: '\\b(notebook|laptop)\\b' },
+      { key: 'impresora', rx: '\\b(impresora)\\b' }
+    ],
+    // Ejemplo de issues
+    issues: [
+      { key: 'no_prende', rx: '\\b(no\\s*enciende|no\\s*prende|no\\s*arranca)\\b', label: 'no enciende' },
+      { key: 'sin_internet', rx: '\\b(sin\\s*internet|no\\s*hay\\s*internet|wifi\\s*caido)\\b', label: 'sin conexión' }
+    ],
+    // Pasos avanzados por issueKey (pueden venir de tu Excel)
+    advanced_steps: {
+      no_prende: [
+        'Comprobá que el cable de alimentación esté conectado y el interruptor de la fuente encendido',
+        'Probá encender con otra toma de corriente',
+        'Retirá baterías (si aplica) y probá encender sólo con alimentación',
+        'Verificá si hay luces diagnosticas en la placa'
+      ],
+      sin_internet: [
+        'Reiniciá el router y el equipo',
+        'Comprobá que el Wi‑Fi esté activado en el equipo',
+        'Probá conectar con cable ethernet',
+        'Resetear configuración de red si es necesario'
+      ]
+    },
+    issue_labels: {
+      no_prende: 'no enciende',
+      sin_internet: 'sin conexión'
+    }
+  }
+};
+// ===== FIN EMBEDDED CONFIG =====
+
+/* ===== Chat state derived from EMBEDDED_CHAT ===== */
 let CHAT = {};
 let deviceMatchers = [];
 let issueMatchers = [];
 
-function loadChat() {
+// Carga la configuración desde EMBEDDED_CHAT (no toca archivos externos)
+function loadChatFromEmbedded(){
   try {
-    CHAT = JSON.parse(fs.readFileSync(CHAT_JSON_PATH, 'utf8'));
-    deviceMatchers = (CHAT?.nlp?.devices || []).map(d => ({ key: d.key, rx: new RegExp(d.rx, 'i') }));
-    issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => ({ key: i.key, rx: new RegExp(i.rx, 'i') }));
-    console.log('[chat] cargado', CHAT.version || '(sin version)');
+    CHAT = EMBEDDED_CHAT || {};
+    // construir matchers
+    deviceMatchers = (CHAT?.nlp?.devices || []).map(d => {
+      try { return { key: d.key, rx: new RegExp(d.rx, 'i') }; } catch(e){ return null; }
+    }).filter(Boolean);
+    issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => {
+      try { return { key: i.key, rx: new RegExp(i.rx, 'i') }; } catch(e){ return null; }
+    }).filter(Boolean);
+    console.log('[chat] cargado desde EMBEDDED_CHAT', CHAT.version || '(sin version)');
   } catch (e) {
     CHAT = {}; deviceMatchers = []; issueMatchers = [];
-    console.log('[chat] no se cargó sti-chat.json (opcional)');
+    console.log('[chat] no se cargó EMBEDDED_CHAT (ver variable)');
   }
 }
-loadChat();
+loadChatFromEmbedded();
 
 // ===== Helpers simples =====
 function detectDevice(txt = '') { for (const d of deviceMatchers) if (d.rx.test(txt)) return d.key; return null; }
@@ -83,7 +176,7 @@ const withOptions = obj => ({ options: [], ...obj });
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 
 // ===== Config OA =====
-const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || 0.6);
+const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
 
 // ===== OpenAI helpers =====
 async function analyzeProblemWithOA(problemText = ''){
@@ -203,12 +296,12 @@ app.get('/api/health', (_req,res) => {
     ok: true,
     hasOpenAI: !!process.env.OPENAI_API_KEY,
     openaiModel: OPENAI_MODEL,
-    version: CHAT?.version || 'example'
+    version: CHAT?.version || 'embedded'
   });
 });
 
-// Reload chat config
-app.post('/api/reload', (_req,res)=>{ try{ loadChat(); res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
+// Reload chat config (relee EMBEDDED_CHAT en memoria)
+app.post('/api/reload', (_req,res)=>{ try{ loadChatFromEmbedded(); res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
 
 // Transcript plain
 app.get('/api/transcript/:sid', (req,res)=>{
@@ -298,19 +391,24 @@ app.all('/api/greeting', async (req,res)=>{
 app.post('/api/chat', async (req,res)=>{
   try{
     const body = req.body || {};
-    // Mapa tokens -> texto
-    const tokenMap = {
-      'BTN_HELP_1': 'ayuda paso 1',
-      'BTN_HELP_2': 'ayuda paso 2',
-      'BTN_HELP_3': 'ayuda paso 3',
-      'BTN_HELP_4': 'ayuda paso 4',
-      'BTN_YES': 'sí',
-      'BTN_NO' : 'no',
-      'BTN_CLOSE_CHAT': 'cerrar chat',
-      'BTN_DEVICE_PC': 'pc',
-      'BTN_DEVICE_NOTEBOOK': 'notebook',
-      'BTN_OTHER': ''
-    };
+    // Mapa tokens -> texto (ahora cargado desde CHAT.ui.buttons)
+    const tokenMap = {};
+    if(Array.isArray(CHAT?.ui?.buttons)){
+      for(const b of CHAT.ui.buttons) if(b.token) tokenMap[b.token] = b.text || '';
+    } else {
+      Object.assign(tokenMap, {
+        'BTN_HELP_1': 'ayuda paso 1',
+        'BTN_HELP_2': 'ayuda paso 2',
+        'BTN_HELP_3': 'ayuda paso 3',
+        'BTN_HELP_4': 'ayuda paso 4',
+        'BTN_YES': 'sí',
+        'BTN_NO' : 'no',
+        'BTN_CLOSE_CHAT': 'cerrar chat',
+        'BTN_DEVICE_PC': 'pc',
+        'BTN_DEVICE_NOTEBOOK': 'notebook',
+        'BTN_OTHER': ''
+      });
+    }
 
     let incomingText = String(body.text || '').trim();
     let buttonToken = null;
@@ -391,7 +489,7 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
 
-    // Flujos por estado
+    // Flujos por estado (idéntico al ejemplo original)
     let reply = ''; let options = [];
 
     // 1) ASK_NAME
@@ -619,5 +717,5 @@ function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>
 // ===== start server =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, ()=> {
-  console.log(`STI Chat example started on ${PORT}`);
+  console.log(`STI Chat (embedded config) started on ${PORT}`);
 });
