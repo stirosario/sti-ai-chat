@@ -427,20 +427,44 @@ if (/^\s*reformular\s*problema\s*$/i.test(t)) {
     }
 
     // intercept help buttons "ayuda paso N"
-  // === Ayuda paso a paso: generar mensaje personalizado ===
-  const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
+  // intercept help buttons "ayuda paso N"
+const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
+if (helpMatch) {
+  const idx = Math.max(1, Number(helpMatch[1] || 1));
+  const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length > 0)
+    ? 'basic'
+    : (Array.isArray(session.tests.ai) && session.tests.ai.length > 0) ? 'ai' : null;
 
-  // Mostrar nombre del cliente y preguntar cómo le fue tras el paso
-  const whoName = session.userName ? cap(session.userName) : 'usuario';
+  if (srcType) {
+    // obtener el texto del paso correspondiente
+    const list = session.tests[srcType] || [];
+    const stepText = list[idx - 1] || null;
 
-  // Texto final: una sola plantilla bien formada (variable renombrada a helpReply para evitar colisiones)
-const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
+    // marcar que venimos de una ayuda puntual
+    session.lastHelpStep = { type: srcType, index: idx };
 
-session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
-await saveSession(sid, session);
+    // generar contenido de ayuda (puede venir de OpenAI)
+    const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
 
-const replyOptions = ['Lo pude solucionar ✔️', 'El problema persiste ❌', 'Cerrar Chat 🔒'];
-return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptions }));
+    // nombre para el saludo
+    const whoName = session.userName ? cap(session.userName) : 'usuario';
+
+    // construir reply (variable local helpReply para evitar colisiones)
+    const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
+
+    // guardar y devolver sólo las tres opciones solicitadas
+    session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
+    await saveSession(sid, session);
+
+    const replyOptions = ['Lo pude solucionar ✔️', 'El problema persiste ❌', 'Cerrar Chat 🔒'];
+    return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptions }));
+  } else {
+    const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    await saveSession(sid, session);
+    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+  }
+}
   // === fin Ayuda paso a paso ===
 
     // main state logic
