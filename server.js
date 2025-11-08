@@ -526,29 +526,49 @@ if (helpMatch) {
           ];
         }
 
-        const stepsAr = steps.map(s => s);
-        const numbered = enumerateSteps(stepsAr);
-        const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
-        const footer = [
-          '',
-          '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
-          '',
-          '🤔 Contanos cómo te fue utilizando los botones:'
-        ].join('\n');
+        // 529..551 Reemplazar por este bloque:
+const stepsAr = steps.map(s => s);
+const numbered = enumerateSteps(stepsAr);
+const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
 
-        session.tests.basic = stepsAr;
-        session.stepsDone.push('basic_tests_shown');
-        session.waEligible = false;
-        session.lastHelpStep = null;
-        session.stage = STATES.BASIC_TESTS;
+// Preparar el texto que mostrará las indicaciones y las opciones de ayuda (como texto)
+const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+const helpOptionsText = helpOptions.join('\n');
 
-        const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footer;
-        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
-        await saveSession(sid, session);
+// Construir el mensaje con las secciones en el orden solicitado:
+//  - pasos numerados
+//  - indicación para pedir ayuda
+//  - listado de "Ayuda paso N" (como texto visible)
+//  - sección final "Contanos cómo te fue..."
+const footerTop = [
+  '',
+  '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
+  ''
+].join('\n');
 
-        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-        options = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
-        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options, steps: stepsAr }));
+const footerBottom = [
+  '',
+  '🤔 Contanos cómo te fue utilizando los botones:'
+].join('\n');
+
+const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + helpOptionsText + '\n\n' + footerBottom;
+
+// Guardar estado/transcript como antes
+session.tests.basic = stepsAr;
+session.stepsDone.push('basic_tests_shown');
+session.waEligible = false;
+session.lastHelpStep = null;
+session.stage = STATES.BASIC_TESTS;
+
+session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+await saveSession(sid, session);
+
+// En options devolvemos BOTH: las opciones de ayuda (para que sean botones interactivos)
+// y los botones finales "Lo pude solucionar / El problema persiste"
+const options = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options, steps: stepsAr }));
+// fin reemplazo 529..551
+
       } catch(err){
         console.error('diagnóstico ASK_PROBLEM', err);
         return res.json(withOptions({ ok:true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
