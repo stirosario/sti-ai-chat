@@ -1,26 +1,12 @@
 /**
- * server.js — STI Chat (OpenAI as primer único filtro) — v8 -> revised
+ * server.js — STI Chat (OpenAI first-only filter) — fix: improved name extraction
  *
- * Cambios importantes realizados:
- * - OpenAI se usa como PRIMER y ÚNICO filtro para decidir si una consulta es del rubro
- *   informático. Si la respuesta de OpenAI (analyzeProblemWithOA) devuelve
- *   confidence >= OA_MIN_CONF Y (device o issueKey) continuamos el flujo.
- *   En caso contrario, devolvemos:
- *     "Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico."
+ * Fix applied:
+ * - Replaced the restrictive inline name regex with the robust extractName() helper
+ *   so single-word names like "walter" or "lucas" are recognized.
+ * - Kept OpenAI-as-first-filter behavior and session store imports intact.
  *
- * - Se incluyeron correctamente las importaciones de sessionStore.js:
- *     import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
- *   (Con esto se corrigen los ReferenceError que aparecían en logs.)
- *
- * - Se mantienen los botones con los emojis pedidos:
- *     "Lo pude solucionar ✔️"  (BTN_SOLVED)
- *     "El problema persiste ❌" (BTN_PERSIST)
- *   Y se REMOVIÓ el botón "Cerrar chat" de las opciones devueltas.
- *
- * - Se mejoró el parsing de la respuesta de OpenAI (protección ante JSON no parseable).
- *
- * Nota: Este archivo asume que sessionStore.js existe y exporta getSession/saveSession/listActiveSessions.
- *       Hacé backup del server.js actual antes de reemplazar.
+ * Reemplazá tu server.js por este (hacé backup antes).
  */
 
 import 'dotenv/config';
@@ -52,10 +38,8 @@ const nowIso = () => new Date().toISOString();
 
 // ===== EMBEDDED CONFIG (con botones actualizados) =====
 const EMBEDDED_CHAT = {
-  version: 'from-images-openai-first-filter-v8',
-  messages_v4: {
-    greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' }
-  },
+  version: 'from-images-openai-first-filter-v8-fix-name',
+  messages_v4: { greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' } },
   settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' } },
   ui: {
     buttons: [
@@ -112,15 +96,39 @@ function loadChatFromEmbedded(){
 loadChatFromEmbedded();
 
 // ===== Helpers simples =====
-function emojiForIndex(i){ const n = i+1; const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟']; return NUM_EMOJIS[n] || `${n}.`; }
+function detectDevice(txt = '') { for (const d of deviceMatchers) if (d.rx.test(txt)) return d.key; return null; }
+function detectIssue (txt = '') { for (const i of issueMatchers)  if (i.rx.test(txt)) return i.key; return null; }
+const issueHuman = (k) => CHAT?.nlp?.issue_labels?.[k] || 'el problema';
+
+const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
 function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
+
+const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
+function isValidName(text){
+  if(!text) return false;
+  const t = String(text).trim();
+  if(TECH_WORDS.test(t)) return false;
+  return /^[a-záéíóúñ]{2,20}$/i.test(t); // accept 2+ letters
+}
+function extractName(text){
+  if(!text) return null;
+  const t = String(text).trim();
+  // phrases: "soy X", "me llamo X", "mi nombre es X"
+  let m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{2,20})$/i);
+  if(m) return m[1];
+  // single-word name
+  if(isValidName(t)) return t;
+  return null;
+}
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
 
-// ===== OpenAI helpers (analyzeProblemWithOA usado como PRIMER filtro) =====
+// ===== OpenAI helpers (analyzeProblemWithOA used as FIRST filter) =====
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
 
 async function analyzeProblemWithOA(problemText = ''){
-  if(!openai) return { device: null, issueKey: null, confidence: 0 };
+  if(!openai) return { isIT: false, device: null, issueKey: null, confidence: 0 };
   const prompt = [
     "Sos técnico informático argentino, claro y profesional.",
     "Decidí si el siguiente texto corresponde a un problema del rubro informático.",
@@ -145,7 +153,6 @@ async function analyzeProblemWithOA(problemText = ''){
       };
     } catch(parseErr){
       console.error('[analyzeProblemWithOA] parse error', parseErr.message, 'raw:', raw);
-      // Fallback: try to parse loose JSON with regex extracting keys
       return { isIT: false, device: null, issueKey: null, confidence: 0 };
     }
   } catch (e) {
@@ -154,15 +161,16 @@ async function analyzeProblemWithOA(problemText = ''){
   }
 }
 
-// Reuso aiQuickTests/getHelpForStep (idénticos a previos)
 async function aiQuickTests(problemText = '', device = ''){
-  if(!openai) return [
-    'Reiniciar la aplicación donde ocurre el problema',
-    'Probar en otro documento o programa para ver si persiste',
-    'Reiniciar el equipo',
-    'Comprobar actualizaciones del sistema',
-    'Verificar conexiones físicas'
-  ];
+  if(!openai){
+    return [
+      'Reiniciar la aplicación donde ocurre el problema',
+      'Probar en otro documento o programa para ver si persiste',
+      'Reiniciar el equipo',
+      'Comprobar actualizaciones del sistema',
+      'Verificar conexiones físicas'
+    ];
+  }
   const prompt = [
     "Sos técnico informático argentino, claro y amable.",
     `Problema: "${problemText}"${device ? ` en ${device}` : ''}.`,
@@ -243,12 +251,7 @@ app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
 // Health
 app.get('/api/health', (_req,res) => {
-  res.json({
-    ok: true,
-    hasOpenAI: !!process.env.OPENAI_API_KEY,
-    openaiModel: OPENAI_MODEL,
-    version: CHAT?.version || 'embedded'
-  });
+  res.json({ ok: true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
 });
 
 // Reload config
@@ -311,12 +314,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
 // Reset session
 app.post('/api/reset', async (req,res)=>{
   const sid = req.sessionId;
-  const empty = {
-    id: sid, userName: null, stage: STATES.ASK_NAME,
-    device:null, problem:null, issueKey:null,
-    tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-    waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
-  };
+  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
   await saveSession(sid, empty);
   res.json({ ok:true });
 });
@@ -325,12 +323,7 @@ app.post('/api/reset', async (req,res)=>{
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
-    const fresh = {
-      id: sid, userName: null, stage: STATES.ASK_NAME,
-      device:null, problem:null, issueKey:null,
-      tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-      waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
-    };
+    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
     const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
@@ -374,12 +367,7 @@ app.post('/api/chat', async (req,res)=>{
 
     let session = await getSession(sid);
     if(!session){
-      session = {
-        id: sid, userName: null, stage: STATES.ASK_NAME,
-        device:null, problem:null, issueKey:null,
-        tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0,
-        waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null
-      };
+      session = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
       console.log('[api/chat] nueva session', sid);
     }
 
@@ -390,10 +378,10 @@ app.post('/api/chat', async (req,res)=>{
       session.transcript.push({ who:'user', text: t, ts: nowIso() });
     }
 
-    // quick name extraction
-    const nmInline = (t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{3,20})$/i) || [])[1];
+    // Use robust extractName() so plain names like "walter" / "lucas" are captured
+    const nmInline = extractName(t);
     if(nmInline && !session.userName){
-      session.userName = nmInline.charAt(0).toUpperCase() + nmInline.slice(1).toLowerCase();
+      session.userName = cap(nmInline);
       if(session.stage === STATES.ASK_NAME){
         session.stage = STATES.ASK_PROBLEM;
         const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
@@ -447,29 +435,25 @@ app.post('/api/chat', async (req,res)=>{
       session.problem = t || session.problem;
 
       if(!openai){
-        // If OpenAI is not configured, fall back to previous behavior but warn
         const fallbackMsg = 'OpenAI no está configurado. No puedo aplicar el filtro solicitado. Configure OPENAI_API_KEY.';
         session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
         await saveSession(sid, session);
         return res.json(withOptions({ ok:false, reply: fallbackMsg, stage: session.stage, options: [] }));
       }
 
-      // Llamamos a OpenAI y pedimos decisión (isIT, device, issueKey, confidence)
       const ai = await analyzeProblemWithOA(session.problem || '');
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
+
       if(!isIT){
         const replyNotIT = 'Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico.';
         session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
-        // Permitimos que el usuario reformule sin cerrar chat
         return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema'] }));
       }
 
-      // Si OpenAI considera IT, usamos lo detectado por OpenAI (device/issueKey) si existe.
       if(ai.device) session.device = session.device || ai.device;
       if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
-      // Ahora continuamos con la generación de pasos, priorizando los pasos configurados en EMBEDDED_CHAT
       try{
         const issueKey = session.issueKey;
         const device = session.device || null;
@@ -478,7 +462,6 @@ app.post('/api/chat', async (req,res)=>{
         let steps;
         if(hasConfiguredSteps) steps = CHAT.nlp.advanced_steps[issueKey].slice(0,4);
         else {
-          // fallback to AI-generated quick tests
           let aiSteps = [];
           try{ aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
           if(Array.isArray(aiSteps) && aiSteps.length>0) steps = aiSteps.slice(0,4);
@@ -519,9 +502,8 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
 
-    // 3) ASK_DEVICE (si llegara a usarse)
+    // 3) ASK_DEVICE
     else if(session.stage === STATES.ASK_DEVICE || !session.device){
-      // keep behavior: ask for device
       const msg = `Perfecto. Anoté: “${session.problem || ''}”.\n\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
       session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
       await saveSession(sid, session);
@@ -542,7 +524,6 @@ app.post('/api/chat', async (req,res)=>{
           await saveSession(sid, session);
           return res.json(withOptions({ ok:true, reply: replyYes, stage: session.stage, options: [] }));
         } else if(rxNo.test(t)){
-          // volver a mostrar tests básicos/ai
           const src = session.lastHelpStep.type;
           const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
           const numbered = enumerateSteps(list || []);
