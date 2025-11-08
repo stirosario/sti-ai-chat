@@ -47,8 +47,9 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
       { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
       { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: 'El problema persiste ❌', text: 'el problema persiste' }
+      { token: 'BTN_SOLVED', label: 'Lo pude Solucionar ✔️', text: 'lo pude solucionar' },
+      { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
+      { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' }
     ],
     states: {}
   },
@@ -346,7 +347,8 @@ app.post('/api/chat', async (req,res)=>{
         'BTN_HELP_3': 'ayuda paso 3',
         'BTN_HELP_4': 'ayuda paso 4',
         'BTN_SOLVED': 'lo pude solucionar',
-        'BTN_PERSIST': 'el problema persiste'
+        'BTN_PERSIST': 'el problema persiste',
+        'BTN_REPHRASE': 'reformular problema'
       });
     }
 
@@ -377,6 +379,37 @@ app.post('/api/chat', async (req,res)=>{
     } else {
       session.transcript.push({ who:'user', text: t, ts: nowIso() });
     }
+
+    // === Manejo: Reformular problema (botón/text) ===
+if (/^\s*reformular\s*problema\s*$/i.test(t)) {
+  // Usar el nombre si existe, con capitalización
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
+
+  const reply = `¡Intentemos nuevamente, ${whoName}! 👍
+  
+¿Qué problema estás teniendo?`;
+
+  // Dejamos la sesión en ASK_PROBLEM para que el usuario reescriba
+  session.stage = STATES.ASK_PROBLEM;
+
+  // Limpiamos datos previos del problema (opcional, mantener nombre)
+  session.problem = null;
+  session.issueKey = null;
+  session.tests = { basic: [], ai: [], advanced: [] };
+  session.lastHelpStep = null;
+
+  session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+  await saveSession(sid, session);
+
+  return res.json(withOptions({
+    ok: true,
+    reply,
+    stage: session.stage,
+    options: []
+  }));
+}
+// === fin Manejo Reformular problema ===
+
 
     // Use robust extractName() so plain names like "walter" / "lucas" are captured
     const nmInline = extractName(t);
