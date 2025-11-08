@@ -49,7 +49,8 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
       { token: 'BTN_SOLVED', label: 'Lo pude Solucionar ✔️', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
-      { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' }
+      { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
+      { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' }
     ],
     states: {}
   },
@@ -348,7 +349,8 @@ app.post('/api/chat', async (req,res)=>{
         'BTN_HELP_4': 'ayuda paso 4',
         'BTN_SOLVED': 'lo pude solucionar',
         'BTN_PERSIST': 'el problema persiste',
-        'BTN_REPHRASE': 'reformular problema'
+        'BTN_REPHRASE': 'reformular problema',
+        'BTN_CLOSE': 'cerrar chat'
       });
     }
 
@@ -425,27 +427,21 @@ if (/^\s*reformular\s*problema\s*$/i.test(t)) {
     }
 
     // intercept help buttons "ayuda paso N"
-    const helpMatch = String(t||'').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
-    if(helpMatch){
-      const idx = Math.max(1, Number(helpMatch[1]||1));
-      const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length>0) ? 'basic' : (Array.isArray(session.tests.ai) && session.tests.ai.length>0) ? 'ai' : null;
-      if(srcType){
-        const list = session.tests[srcType] || [];
-        const stepText = list[idx-1] || null;
-        session.lastHelpStep = { type: srcType, index: idx };
-        const helpContent = await getHelpForStep(stepText, idx, session.device||'', session.problem||'');
-        const reply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n¿Lo pudiste solucionar?`;
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        const options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
-      } else {
-        const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
-      }
-    }
+  // === Ayuda paso a paso: generar mensaje personalizado ===
+  const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
+
+  // Mostrar nombre del cliente y preguntar cómo le fue tras el paso
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
+
+  // Texto final: una sola plantilla bien formada (variable renombrada a helpReply para evitar colisiones)
+const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
+
+session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
+await saveSession(sid, session);
+
+const replyOptions = ['Lo pude solucionar ✔️', 'El problema persiste ❌', 'Cerrar Chat 🔒'];
+return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptions }));
+  // === fin Ayuda paso a paso ===
 
     // main state logic
     let reply = ''; let options = [];
