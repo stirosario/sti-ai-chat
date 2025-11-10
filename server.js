@@ -579,6 +579,7 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
     }
 
 // 4) BASIC_TESTS / follow-ups
+// 4) BASIC_TESTS / follow-ups
 else {
   const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
   const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
@@ -619,55 +620,53 @@ else {
       const whoName = session.userName ? cap(session.userName) : 'usuario';
       reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
       options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
-      // dejamos la sesión en ESCALATE para que el frontend sepa que puede ofrecer ticket/wa
+      // NO mostramos el botón verde desde este punto
       session.stage = STATES.ESCALATE;
-      session.waEligible = true;
-    }
-    // detección explícita de la acción "2️⃣ 🧑‍💻 Conectar con Técnico" (por botón o texto)
-    else if (/^(?:2️⃣\s*🧑‍💻|2️⃣\s*Conectar con Técnico|conectar con t[eé]cnico|hablar con un t[eé]cnico|hablar con un técnico|hablar con un tecnico)$/i.test(t)) {
-      const whoName = session.userName ? cap(session.userName) : 'usuario';
-      const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
-
-      // Guardamos y devolvemos de inmediato (evita doble guardado al final del flujo)
-      session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
-      await saveSession(sid, session);
-
-      reply = replyTech;
-      options = ['Hablar con un Técnico']; // botón verde que mostrará el frontend
-      session.waEligible = true;
-      session.stage = STATES.ESCALATE;
-
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
-    } else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
-      session.waEligible = true;
-      reply = '✅ Puedo generar un ticket con esta conversación y enviarlo por WhatsApp. ¿Querés que lo haga?';
-      options = ['Generar ticket'];
+      session.waEligible = false;
     } else {
-      reply = `Recordá que estamos revisando tu ${session.device||'equipo'} por ${CHAT?.nlp?.issue_labels?.[session.issueKey] || 'el problema'}.\n\n¿Probaste los pasos que te sugerí?`;
-      options = ['Volver a básicas','Generar ticket'];
+      // detectar selección explícita de opción 1 o 2 (por texto, número o emoji)
+      const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
+      const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
+
+      if (opt1.test(t)) {
+        const reply1 = 'Seleccionaste opcion 1';
+        // guardar y responder inmediatamente
+        session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
+      } else if (opt2.test(t)) {
+        const reply2 = 'Seleccionaste opcion 2';
+        // guardar y responder inmediatamente
+        session.transcript.push({ who: 'bot', text: reply2, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply: reply2, stage: session.stage, options: [] }));
+      }
+      // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
     }
   }
 }
 
-    // Guardar respuesta y transcript
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-    await saveSession(sid, session);
-    try {
-      const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      fs.appendFileSync(tf, `[${nowIso()}] USER: ${buttonToken ? `[BOTON] ${buttonLabel}` : t}\n`);
-      fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${reply}\n`);
-    } catch(e){ /* noop */ }
+// Guardar respuesta y transcript
+session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+await saveSession(sid, session);
+try {
+  const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+  const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
+  const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
+  fs.appendFileSync(tf, userLine);
+  fs.appendFileSync(tf, botLine);
+} catch(e){ /* noop */ }
 
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-    if(options && options.length) response.options = options;
-    if(session.waEligible) response.allowWhatsapp = true;
-    if(CHAT?.ui) response.ui = CHAT.ui;
-    return res.json(response);
+const response = withOptions({ ok:true, reply, sid, stage: session.stage });
+if(options && options.length) response.options = options;
+if(session.waEligible) response.allowWhatsapp = true;
+if(CHAT?.ui) response.ui = CHAT.ui;
+return res.json(response);
 
-  } catch(e){
-    console.error('[api/chat] Error', e);
-    return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
-  }
+} catch(e){
+  console.error('[api/chat] Error', e);
+  return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
+}
 });
 
 // List active sessions
