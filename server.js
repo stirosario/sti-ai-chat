@@ -617,22 +617,13 @@ if (rxYes.test(t)) {
   session.waEligible = false;
   // (se guardará y enviará más abajo en el flujo; si preferís retorno inmediato,
   // podés copiar también el push/save/return del bloque anterior)
-} else if(rxNo.test(t)){
-          session.stepsDone.push('user_says_not_working');
-          const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3,6);
-          const advAr = Array.isArray(adv) ? adv : [];
-          if(advAr.length>0){
-            session.stage = STATES.ADVANCED_TESTS;
-            session.tests.advanced = advAr;
-            reply = `Entiendo. Vamos con algunas pruebas más avanzadas:\n\n` + advAr.map((p,i)=>`${i+1}. ${p}`).join('\n') + '\n\nSi querés, también puedo generar un ticket para que te atienda un técnico.';
-            options = ['Volver a básicas','Generar ticket'];
-          } else {
-            session.stage = STATES.ESCALATE;
-            reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico o genero un ticket con el historial.';
-            options = ['Generar ticket'];
-            session.waEligible = true;
-          }
-        } else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
+} else if (rxNo.test(t)) {
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
+  reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
+  options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+  session.stage = STATES.ESCALATE;
+  session.waEligible = true;
+} else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
           session.waEligible = true;
           reply = '✅ Puedo generar un ticket con esta conversación y enviarlo por WhatsApp. ¿Querés que lo haga?';
           options = ['Generar ticket'];
