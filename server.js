@@ -584,14 +584,16 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
       const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
 
       if(session.lastHelpStep){
-        if(rxYes.test(t)){
-          const replyYes = 'Genial! Fue un placer ayudarte! Estaré aquí cuando me vuelvas a necesitar.';
-          session.stage = STATES.ENDED;
-          session.lastHelpStep = null;
-          session.transcript.push({ who:'bot', text: replyYes, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply: replyYes, stage: session.stage, options: [] }));
-        } else if(rxNo.test(t)){
+        if (rxYes.test(t)) {
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
+  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram  @sti.rosario\n o en 🌐 stia.com.ar ⚡`;
+  session.stage = STATES.ENDED;
+  session.lastHelpStep = null;
+  session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
+  await saveSession(sid, session);
+  return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
+} 
+        else if(rxNo.test(t)){
           const src = session.lastHelpStep.type;
           const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
           const numbered = enumerateSteps(list || []);
@@ -605,12 +607,17 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
           options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
         }
       } else {
-        if(rxYes.test(t)){
-          reply = `¡Excelente! Me alegra que se haya solucionado. Si necesitás más ayuda, volvé cuando quieras.`;
-          options = [];
-          session.stage = STATES.ENDED;
-          session.waEligible = false;
-        } else if(rxNo.test(t)){
+        // reemplazar líneas 609..613 con:
+if (rxYes.test(t)) {
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
+  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram  @sti.rosario\n o en 🌐 stia.com.ar ⚡`;
+  reply = replyYes;
+  options = [];
+  session.stage = STATES.ENDED;
+  session.waEligible = false;
+  // (se guardará y enviará más abajo en el flujo; si preferís retorno inmediato,
+  // podés copiar también el push/save/return del bloque anterior)
+} else if(rxNo.test(t)){
           session.stepsDone.push('user_says_not_working');
           const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3,6);
           const advAr = Array.isArray(adv) ? adv : [];
