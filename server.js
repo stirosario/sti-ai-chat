@@ -586,7 +586,7 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
       if(session.lastHelpStep){
         if (rxYes.test(t)) {
   const whoName = session.userName ? cap(session.userName) : 'usuario';
-  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram  @sti.rosario\n o en 🌐 stia.com.ar ⚡`;
+  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
   session.stage = STATES.ENDED;
   session.lastHelpStep = null;
   session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
@@ -610,7 +610,7 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
         // reemplazar líneas 609..613 con:
 if (rxYes.test(t)) {
   const whoName = session.userName ? cap(session.userName) : 'usuario';
-  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram  @sti.rosario\n o en 🌐 stia.com.ar ⚡`;
+  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
   reply = replyYes;
   options = [];
   session.stage = STATES.ENDED;

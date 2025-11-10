@@ -38,4 +38,3 @@ echo ✅ Listo! Render va a detectar el cambio y hacer el deploy automático.
 echo.
 echo 🔍 Podes ver el progreso en: https://render.com/dashboard
 echo -----------------------------------------------
-pause
