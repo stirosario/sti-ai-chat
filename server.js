@@ -639,16 +639,63 @@ else {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
 
-        // Guardamos y devolvemos de inmediato (el frontend deberá mostrar el botón verde "Hablar con un Técnico")
-        session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
-        await saveSession(sid, session);
+        // Generar ticket y link público (igual que /api/whatsapp-ticket)
+        try {
+          const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+          const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+          const ticketId = `TCK-${ymd}-${rand}`;
+          const now = new Date();
+          const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
+          const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
+          const datePart = dateFormatter.format(now).replace(/\//g,'-');
+          const timePart = timeFormatter.format(now);
+          const generatedLabel = `${datePart} ${timePart} (ART)`;
+          let safeName = '';
+          if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+          const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
+          const lines = [];
+          lines.push(titleLine);
+          lines.push(`Generado: ${generatedLabel}`);
+          if(session.userName) lines.push(`Cliente: ${session.userName}`);
+          if(session.device) lines.push(`Equipo: ${session.device}`);
+          if(sid) lines.push(`Session: ${sid}`);
+          lines.push('');
+          lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
+          for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+          const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
+          fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
 
-        reply = replyTech;
-        options = ['Hablar con un Técnico']; // botón verde que mostrará el frontend
-        session.waEligible = true;
-        session.stage = STATES.ESCALATE;
+          const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
+          // Número de WhatsApp pedido: 3417422422 (sin prefijo). Si tu frontend necesita prefijo, ajustalo ahí.
+          const waNumber = '3417422422';
+          let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+          if(session.userName) waText += `Cliente: ${session.userName}\n`;
+          if(session.device) waText += `Equipo: ${session.device}\n`;
+          waText += `\nTicket: ${ticketId}\nDetalle: ${publicUrl}`;
 
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
+          const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+
+          // Guardamos la respuesta en transcript y session
+          session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
+          await saveSession(sid, session);
+
+          // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
+          reply = replyTech;
+          options = ['Hablar con un Técnico'];
+          session.waEligible = true;
+          session.stage = STATES.ESCALATE;
+
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl }));
+        } catch (errTick) {
+          console.error('[create-ticket]', errTick);
+          // Si falla la creación del ticket, informamos y dejamos la opción de generar ticket manual
+          session.waEligible = false;
+          reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
+          options = ['Generar ticket','Volver'];
+          session.stage = STATES.ESCALATE;
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply, stage: session.stage, options }));
+        }
       }
       // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
     }
