@@ -578,62 +578,76 @@ return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, opt
       return res.json(withOptions({ ok:true, reply: msg, stage: session.stage, options: ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'] }));
     }
 
-    // 4) BASIC_TESTS / follow-ups
-    else {
-      const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+// 4) BASIC_TESTS / follow-ups
+else {
+  const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
+  const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
 
-      if(session.lastHelpStep){
-        if (rxYes.test(t)) {
-  const whoName = session.userName ? cap(session.userName) : 'usuario';
-  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-  session.stage = STATES.ENDED;
-  session.lastHelpStep = null;
-  session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
-  await saveSession(sid, session);
-  return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
-} 
-        else if(rxNo.test(t)){
-          const src = session.lastHelpStep.type;
-          const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
-          const numbered = enumerateSteps(list || []);
-          reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
-          const helpOptions = (list||[]).map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          options = [...helpOptions,'Lo pude solucionar ✔️','El problema persiste ❌'];
-          session.lastHelpStep = null;
-          session.waEligible = false;
-        } else {
-          reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
-          options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
-        }
-      } else {
-        // reemplazar líneas 609..613 con:
-if (rxYes.test(t)) {
-  const whoName = session.userName ? cap(session.userName) : 'usuario';
-  const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-  reply = replyYes;
-  options = [];
-  session.stage = STATES.ENDED;
-  session.waEligible = false;
-  // (se guardará y enviará más abajo en el flujo; si preferís retorno inmediato,
-  // podés copiar también el push/save/return del bloque anterior)
-} else if (rxNo.test(t)) {
-  const whoName = session.userName ? cap(session.userName) : 'usuario';
-  reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-  options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
-  // dejamos el estado para escalamiento para que el flujo posterior pueda generar ticket/conexión
-  session.stage = STATES.ESCALATE;
-  session.waEligible = true;
-} else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
-          session.waEligible = true;
-          reply = '✅ Puedo generar un ticket con esta conversación y enviarlo por WhatsApp. ¿Querés que lo haga?';
-          options = ['Generar ticket'];
-        } else {
-          reply = `Recordá que estamos revisando tu ${session.device||'equipo'} por ${CHAT?.nlp?.issue_labels?.[session.issueKey] || 'el problema'}.\n\n¿Probaste los pasos que te sugerí?`;
-          options = ['Volver a básicas','Generar ticket'];
-        }
-      }
+  if(session.lastHelpStep){
+    if (rxYes.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
+      session.stage = STATES.ENDED;
+      session.lastHelpStep = null;
+      session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
+    } else if(rxNo.test(t)){
+      const src = session.lastHelpStep.type;
+      const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
+      const numbered = enumerateSteps(list || []);
+      reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
+      const helpOptions = (list||[]).map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+      options = [...helpOptions,'Lo pude solucionar ✔️','El problema persiste ❌'];
+      session.lastHelpStep = null;
+      session.waEligible = false;
+    } else {
+      reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
+      options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
     }
+  } else {
+    // rama sin lastHelpStep (aquí aplicamos los cambios solicitados)
+    if (rxYes.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
+      reply = replyYes;
+      options = [];
+      session.stage = STATES.ENDED;
+      session.waEligible = false;
+      // el guardado y el envío se hacen más abajo (flujo normal)
+    } else if (rxNo.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
+      options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+      // dejamos la sesión en ESCALATE para que el frontend sepa que puede ofrecer ticket/wa
+      session.stage = STATES.ESCALATE;
+      session.waEligible = true;
+    }
+    // detección explícita de la acción "2️⃣ 🧑‍💻 Conectar con Técnico" (por botón o texto)
+    else if (/^(?:2️⃣\s*🧑‍💻|2️⃣\s*Conectar con Técnico|conectar con t[eé]cnico|hablar con un t[eé]cnico|hablar con un técnico|hablar con un tecnico)$/i.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+
+      // Guardamos y devolvemos de inmediato (evita doble guardado al final del flujo)
+      session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
+      await saveSession(sid, session);
+
+      reply = replyTech;
+      options = ['Hablar con un Técnico']; // botón verde que mostrará el frontend
+      session.waEligible = true;
+      session.stage = STATES.ESCALATE;
+
+      return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
+    } else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
+      session.waEligible = true;
+      reply = '✅ Puedo generar un ticket con esta conversación y enviarlo por WhatsApp. ¿Querés que lo haga?';
+      options = ['Generar ticket'];
+    } else {
+      reply = `Recordá que estamos revisando tu ${session.device||'equipo'} por ${CHAT?.nlp?.issue_labels?.[session.issueKey] || 'el problema'}.\n\n¿Probaste los pasos que te sugerí?`;
+      options = ['Volver a básicas','Generar ticket'];
+    }
+  }
+}
 
     // Guardar respuesta y transcript
     session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
