@@ -635,11 +635,20 @@ else {
         await saveSession(sid, session);
         return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
       } else if (opt2.test(t)) {
-        const reply2 = 'Seleccionaste opcion 2';
-        // guardar y responder inmediatamente
-        session.transcript.push({ who: 'bot', text: reply2, ts: nowIso() });
+        // Cuando el usuario elige la opción 2 mostramos el texto de ticket y el botón verde
+        const whoName = session.userName ? cap(session.userName) : 'usuario';
+        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+
+        // Guardamos y devolvemos de inmediato (el frontend deberá mostrar el botón verde "Hablar con un Técnico")
+        session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: reply2, stage: session.stage, options: [] }));
+
+        reply = replyTech;
+        options = ['Hablar con un Técnico']; // botón verde que mostrará el frontend
+        session.waEligible = true;
+        session.stage = STATES.ESCALATE;
+
+        return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
       }
       // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
     }
