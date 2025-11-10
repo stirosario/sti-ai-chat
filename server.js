@@ -621,6 +621,7 @@ if (rxYes.test(t)) {
   const whoName = session.userName ? cap(session.userName) : 'usuario';
   reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
   options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+  // dejamos el estado para escalamiento para que el flujo posterior pueda generar ticket/conexión
   session.stage = STATES.ESCALATE;
   session.waEligible = true;
 } else if(/generar ticket|whatsapp|t[eé]cnico|humano/i.test(t)){
