@@ -308,8 +308,9 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
 
-    // Enviar únicamente el link público en el texto que se pre‑llena en WhatsApp
-    const waText = publicUrl;
+    // Enviar texto con el formato solicitado (prefijo + Ticket + Detalle completo)
+    const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
+    const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
@@ -431,8 +432,9 @@ app.post('/api/chat', async (req,res)=>{
         const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
         const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
 
-        // Enviar sólo el link público al ticket en WhatsApp
-        const waText = publicUrl;
+        // Enviar texto con el formato solicitado (prefijo + Ticket + Detalle completo)
+        const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
+        const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
         const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
         const waNumber = String(waNumberRaw).replace(/\D+/g, '');
         const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
@@ -748,8 +750,9 @@ if (helpMatch) {
             const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
             const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
 
-            // Enviar únicamente el link público al ticket en WhatsApp
-            const waText = publicUrl;
+            // Enviar texto con el formato solicitado (prefijo + Ticket + Detalle completo)
+            const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
+            const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
             const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
             const waNumber = String(waNumberRaw).replace(/\D+/g, '');
             const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
