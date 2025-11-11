@@ -308,15 +308,12 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
 
-    let waText = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
-    waText = `${titleLine}\n${waText}\n\nGenerado: ${generatedLabel}\n`;
-    if(name) waText += `Cliente: ${name}\n`;
-    if(device) waText += `Equipo: ${device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
-
+    // Enviar únicamente el link público en el texto que se pre‑llena en WhatsApp
+    const waText = publicUrl;
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+
     // <-- include allowWhatsapp to help frontend know it can show the WA action
     res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, allowWhatsapp: true });
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
@@ -434,17 +431,14 @@ app.post('/api/chat', async (req,res)=>{
         const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
         const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
 
-        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
-        if(session.userName) waText += `Cliente: ${session.userName}\n`;
-        if(session.device) waText += `Equipo: ${session.device}\n`;
-        waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
-
+        // Enviar sólo el link público al ticket en WhatsApp
+        const waText = publicUrl;
         const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
         const waNumber = String(waNumberRaw).replace(/\D+/g, '');
         const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
 
         const whoName = session.userName ? cap(session.userName) : 'usuario';
-        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
 
         session.transcript.push({ who:'bot', text: replyTech, ts: nowIso() });
         session.waEligible = true;
@@ -722,7 +716,7 @@ if (helpMatch) {
         } else if (opt2.test(t)) {
           // (Reemplazado) Cuando el usuario elige la opción 2: creamos el ticket con la lógica probada
           const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+          const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
 
           try {
             const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -753,11 +747,9 @@ if (helpMatch) {
 
             const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
             const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-            let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
-            if(session.userName) waText += `Cliente: ${session.userName}\n`;
-            if(session.device) waText += `Equipo: ${session.device}\n`;
-            waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
 
+            // Enviar únicamente el link público al ticket en WhatsApp
+            const waText = publicUrl;
             const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
             const waNumber = String(waNumberRaw).replace(/\D+/g, '');
             const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
