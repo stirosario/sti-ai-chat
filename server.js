@@ -755,7 +755,7 @@ if (helpMatch) {
             const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
             const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
             const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-            const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+            const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)};`;
 
             // Guardamos la respuesta en transcript y session
             session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
