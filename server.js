@@ -283,7 +283,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const rand = Math.random().toString(36).slice(2,6).toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
     const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
+    const dateFormatter = new Intl.DateTimeFormat('es-AR',{ time Zone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
     const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
     const datePart = dateFormatter.format(now).replace(/\//g,'-');
     const timePart = timeFormatter.format(now);
@@ -313,7 +313,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-    const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+    const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
     // <-- include allowWhatsapp to help frontend know it can show the WA action
     res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, allowWhatsapp: true });
@@ -437,7 +437,7 @@ app.post('/api/chat', async (req,res)=>{
         const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
         const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
         const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-        const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+        const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
@@ -755,7 +755,7 @@ if (helpMatch) {
             const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
             const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
             const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-            const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)};`;
+            const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
             // Guardamos la respuesta en transcript y session
             session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
