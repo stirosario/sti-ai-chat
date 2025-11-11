@@ -317,7 +317,8 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl });
+    // <-- include allowWhatsapp to help frontend know it can show the WA action
+    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, allowWhatsapp: true });
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
 });
 
@@ -450,7 +451,8 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
+        // incluir allowWhatsapp y waUrl para el frontend
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrl, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -546,7 +548,7 @@ if (helpMatch) {
     const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSession(sid, session);
-    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    return res.json(withOptions({ ok: true, reply: reply, stage: session.stage, options: [] }));
   }
 }
   // === fin Ayuda paso a paso ===
@@ -770,7 +772,8 @@ if (helpMatch) {
             session.waEligible = true;
             session.stage = STATES.ESCALATE;
 
-            return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl }));
+            // DEVOLVEMOS la waUrl y allowWhatsapp para que el frontend lo use (y lo muestre)
+            return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
           } catch (errTick) {
             console.error('[create-ticket]', errTick);
             session.waEligible = false;
