@@ -406,7 +406,7 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // If BTN_WHATSAPP pressed (creates ticket immediately)
-    if (buttonToken === 'BTN_WHATSAPP') {
+    if (buttonToken === 'BTN_WHATSAPP' || buttonToken === 'BTN_CONNECT_TECH') {
       try {
         const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
         const rand = Math.random().toString(36).slice(2,6).toUpperCase();
@@ -734,16 +734,16 @@ reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones p
 
 // definimos los botones como objetos token+label (los guardamos en options_objects por compatibilidad)
 // pero dejamos response.options COMO ARRAY DE STRINGS (labels) — que es lo que el widget renderiza.
-const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
-const btnMore  = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
+const btnMore   = { token: 'BTN_MORE_TESTS',   label: '🔍 Más pruebas' };
+const btnTech   = { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico' };
 
 // PRIMARY for the widget: options must be labels (strings) so the UI draws the buttons
-options = [ btnWhats.label, btnMore.label ];        // <-- array de strings que el frontend renderiza
+options = [ btnMore.label, btnTech.label ];    // <-- array de strings que el frontend renderiza
 
 // Extras (no rompen nada): guardamos objetos y tokens para otros clientes o debugging
-options_objects = [ btnWhats, btnMore ];
-options_simple = options.slice();
-options_tokens = [ btnWhats.token, btnMore.token ];
+options_objects = [ btnMore, btnTech ];
+options_simple  = options.slice();
+options_tokens  = [ btnMore.token, btnTech.token ];
 
 // estado
 session.stage = STATES.ESCALATE;
