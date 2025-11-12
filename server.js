@@ -7,14 +7,13 @@
  *
  * Reemplazá tu server.js por este (hacé backup antes).
  *
- * Cambios recientes integrados en este archivo:
- * - Nuevos tokens de botones: BTN_MORE_TESTS, BTN_CONNECT_TECH.
- * - Se devuelven `options` como objetos { token, label } cuando corresponde para que el frontend
- *   pueda renderizar botones nativos; además se incluye `options_simple` (array de labels) como fallback.
- * - Se añadió `options_tokens` (array de strings) para compatibilidad con frontends que solo aceptan tokens.
- * - Cuando se crea ticket se devuelven waUrlWeb (https://web.whatsapp.com/...) y waUrlDesktop (whatsapp://...) para
- *   que el frontend pueda intentar abrir la app nativa/desktop y, si falla, usar WhatsApp Web.
- * - Correcciones menores (timeZone, safeName) ya incluidas.
+ * Cambios: ahora, cuando se devuelven opciones, el servidor incluye:
+ *  - response.options: array de labels (strings) — para frontends simples
+ *  - response.options_objects: array de { token, label } — para frontends que usan tokens
+ *  - response.options_simple: fallback labels (igual a response.options)
+ *  - response.options_tokens: fallback tokens
+ *
+ * Esto garantiza que la mayoría de frontends muestren botones (aunque esperen formatos distintos).
  */
 
 import 'dotenv/config';
@@ -50,7 +49,6 @@ const EMBEDDED_CHAT = {
   messages_v4: { greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' } },
   settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' } },
   ui: {
-    // botones incluidos: los nuevos tokens permiten render en frontend y envío de token en body.value
     buttons: [
       { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
@@ -367,7 +365,6 @@ app.all('/api/greeting', async (req,res)=>{
 app.post('/api/chat', async (req,res)=>{
   try{
     const body = req.body || {};
-    // token map from embedded buttons
     const tokenMap = {};
     if(Array.isArray(CHAT?.ui?.buttons)){
       for(const b of CHAT.ui.buttons) if(b.token) tokenMap[b.token] = b.text || '';
@@ -458,12 +455,15 @@ app.post('/api/chat', async (req,res)=>{
         await saveSession(sid, session);
 
         // return both URLs and structured options (object + simple labels)
+        // Also include options_tokens for token-only frontends
         return res.json(withOptions({
           ok:true,
           reply: replyTech,
           stage: session.stage,
-          options: [btnWhats],
+          options: [btnWhats].map(o=>o.label),        // ensure options contains label-strings for old frontends
+          options_objects: [btnWhats],                // also include objects
           options_simple: [btnWhats.label],
+          options_tokens: [btnWhats.token],
           waUrlWeb,
           waUrlDesktop,
           ticketId,
@@ -537,11 +537,18 @@ app.post('/api/chat', async (req,res)=>{
           { token: 'BTN_CLOSE',  label: 'Cerrar Chat 🔒' }
         ];
         const replyOptionsSimple = replyOptionsObjs.map(x=>x.label);
+        const replyOptionsTokens = replyOptionsObjs.map(x=>x.token);
 
         session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
         await saveSession(sid, session);
 
-        return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptionsObjs, options_simple: replyOptionsSimple }));
+        // return labels in response.options for compatibility, but include objects + tokens
+        return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage,
+          options: replyOptionsSimple,
+          options_objects: replyOptionsObjs,
+          options_simple: replyOptionsSimple,
+          options_tokens: replyOptionsTokens
+        }));
       } else {
         const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -552,11 +559,11 @@ app.post('/api/chat', async (req,res)=>{
     // === fin Ayuda paso a paso ===
 
     // main state logic
-    // NOTE: options may be an array of objects { token, label } or strings (device list).
     let reply = '';
     let options = [];
     let options_simple = null; // fallback labels list for simple frontends
-    let options_tokens = null;  // <-- DECLARED HERE so it's always in scope for final response
+    let options_tokens = null;
+    let options_objects = null;
 
     // 1) ASK_NAME
     if(session.stage === STATES.ASK_NAME){
@@ -624,6 +631,7 @@ app.post('/api/chat', async (req,res)=>{
           label: `${emojiForIndex(i)} Ayuda paso ${i+1}`
         }));
         const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
+        const helpOptionsTokens = helpOptionsObjs.map(x=>x.token);
 
         const footerTop = [
           '',
@@ -647,11 +655,18 @@ app.post('/api/chat', async (req,res)=>{
         session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
         await saveSession(sid, session);
 
-        // Return help step buttons as objects + a simple fallback labels array
-        const finalOptions = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-        const finalOptionsSimple = finalOptions.map(x=> x.label || x);
+        // Return help step buttons as labels for compatibility, but include objects and tokens too
+        const finalOptionsObjs = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
+        const finalOptionsSimple = finalOptionsObjs.map(x=>x.label);
+        const finalOptionsTokens = finalOptionsObjs.map(x=>x.token);
 
-        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: finalOptions, options_simple: finalOptionsSimple, steps: stepsAr }));
+        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage,
+          options: finalOptionsSimple,
+          options_objects: finalOptionsObjs,
+          options_simple: finalOptionsSimple,
+          options_tokens: finalOptionsTokens,
+          steps: stepsAr
+        }));
       } catch(err){
         console.error('diagnóstico ASK_PROBLEM', err);
         return res.json(withOptions({ ok:true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
@@ -685,19 +700,24 @@ app.post('/api/chat', async (req,res)=>{
           const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
           const numbered = enumerateSteps(list || []);
 
-          // Build helpOptions as objects so frontend can render "Ayuda paso N" buttons
           const helpOptionsObjs = (list||[]).map((_,i)=>({ token:`BTN_HELP_${i+1}`, label:`${emojiForIndex(i)} Ayuda paso ${i+1}` }));
           const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
+          const helpOptionsTokens = helpOptionsObjs.map(x=>x.token);
 
           reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
-          options = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-          options_simple = options.map(x => x.label || x);
+          options = helpOptionsSimple;
+          options_objects = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
+          options_simple = options;
+          options_tokens = options_objects.map(x=>x.token);
           session.lastHelpStep = null;
           session.waEligible = false;
         } else {
           reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
-          options = [{ token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-          options_simple = options.map(x=>x.label);
+          const replyObjs = [{ token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
+          options = replyObjs.map(x=>x.label);
+          options_objects = replyObjs;
+          options_simple = options;
+          options_tokens = replyObjs.map(x=>x.token);
         }
       } else {
         if (rxYes.test(t)) {
@@ -712,21 +732,15 @@ app.post('/api/chat', async (req,res)=>{
           const whoName = session.userName ? cap(session.userName) : 'usuario';
           reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
-          // Botón para abrir WhatsApp / conectar con técnico
           const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
           const btnMore = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
 
-          // 1) options: objetos (frontend moderno los renderiza directamente)
-          options = [ btnWhats, btnMore ];
+          // prepare all representations
+          options = [btnWhats.label, btnMore.label];          // labels for simple frontends
+          options_objects = [btnWhats, btnMore];              // objects (token+label)
+          options_simple = options.slice();
+          options_tokens = [btnWhats.token, btnMore.token];
 
-          // 2) options_simple: fallback, solo etiquetas (frontends que aceptan strings)
-          options_simple = [ btnWhats.label, btnMore.label ];
-
-          // 3) options_tokens: fallback, solo tokens (frontends que trabajan con tokens)
-          // NOTE: assign to the outer-scope variable (not const in block) so final response includes it
-          options_tokens = [ btnWhats.token, btnMore.token ];
-
-          // marcar estado y no activar waEligible hasta que se genere ticket
           session.stage = STATES.ESCALATE;
           session.waEligible = false;
         } else {
@@ -734,13 +748,11 @@ app.post('/api/chat', async (req,res)=>{
           const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
 
           if (opt1.test(t)) {
-            // Placeholder: selección "más pruebas" -> podrías extender para llamar aiQuickTests, etc.
             const reply1 = 'Seleccionaste opcion 1';
             session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
             await saveSession(sid, session);
             return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
           } else if (opt2.test(t)) {
-            // User asked to connect with technician -> create ticket and return wa URLs
             const whoName = session.userName ? cap(session.userName) : 'usuario';
             const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
 
@@ -788,13 +800,14 @@ app.post('/api/chat', async (req,res)=>{
               await saveSession(sid, session);
 
               reply = replyTech;
-              options = [ btnWhats ];
+              options = [ btnWhats.label ];
+              options_objects = [ btnWhats ];
               options_simple = [ btnWhats.label ];
-              options_tokens = [ btnWhats.token ]; // ensure tokens returned too
+              options_tokens = [ btnWhats.token ];
               session.waEligible = true;
               session.stage = STATES.ESCALATE;
 
-              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, options_simple, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
+              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, options_objects, options_simple, options_tokens, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
             } catch (errTick) {
               console.error('[create-ticket]', errTick);
               session.waEligible = false;
@@ -820,9 +833,10 @@ app.post('/api/chat', async (req,res)=>{
       fs.appendFileSync(tf, botLine);
     } catch(e){ /* noop */ }
 
-    // Construcción final de la respuesta: incluimos options (objetos), options_simple y options_tokens (fallbacks)
+    // Construcción final de la respuesta: incluimos options (labels), options_objects, options_simple y options_tokens
     const response = withOptions({ ok:true, reply, sid, stage: session.stage });
     if(options && options.length) response.options = options;
+    if(options_objects && options_objects.length) response.options_objects = options_objects;
     if(typeof options_simple !== 'undefined' && options_simple !== null) response.options_simple = options_simple;
     if(typeof options_tokens !== 'undefined' && options_tokens !== null) response.options_tokens = options_tokens;
     if(session.waEligible) response.allowWhatsapp = true;
