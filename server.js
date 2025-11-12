@@ -1,904 +1,891 @@
-/**
- * server.js — STI Chat (OpenAI first-only filter) — fix: improved name extraction + ticket fixes from working version
- *
- * Integración mínima: se extrajo la lógica de generación de ticket probada desde la versión vieja
- * y se aplicó en server(actual).js. Se añadió soporte para el token BTN_WHATSAPP y mapeo
- * sin alterar el resto del flujo.
- *
- * Reemplazá tu server.js por este (hacé backup antes).
- *
- * Cambios: ahora, cuando se devuelven opciones, el servidor incluye:
- *  - response.options: array de labels (strings) — para frontends simples
- *  - response.options_objects: array de { token, label } — para frontends que usan tokens
- *  - response.options_simple: fallback labels (igual a response.options)
- *  - response.options_tokens: fallback tokens
- *
- * Esto garantiza que la mayoría de frontends muestren botones (aunque esperen formatos distintos).
- */
+// server.js V4.8.3 — STI Chat (Redis + Tickets + Transcript) + NameFix + CORS + Reload + GreeterFix + FlowFix
+// Resumen del flujo y features implementadas
+// - Estados: ASK_NAME → ASK_PROBLEM → ASK_DEVICE → BASIC/ADVANCED/ESCALATE
+// - Sesión por 'x-session-id' / 'sid' (si ya hay nombre no reinicia)
+// - pendingUtterance: guarda el problema si lo mandan antes del nombre
+// - CORS sólido con OPTIONS para preflight
+// - Endpoints: /  /api/health  /api/reload(GET/POST)  /api/greeting  /api/chat
+//              /api/transcript/:sid  /api/whatsapp-ticket  /ticket/:id  /api/sessions  /api/reset
+// - OpenAI opcional para análisis/steps; si no hay API Key usa fallback local
 
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import fs from 'fs';
-import path from 'path';
-import OpenAI from 'openai';
+import 'dotenv/config';            // Carga variables de entorno desde .env
+import express from 'express';     // Framework HTTP
+import cors from 'cors';           // Middleware CORS
+import fs from 'fs';               // FileSystem para logs, tickets y transcripts
+import path from 'path';           // Utilidades de rutas
+import OpenAI from 'openai';       // SDK OpenAI (opcional)
 
-// ===== Session store (external) =====
-import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
-
-// ===== OpenAI (requerido como filtro) =====
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+// ===== OpenAI (opcional) =====
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';  // Modelo por defecto
+// Instancia de cliente OpenAI solo si hay API key (evita crashear en local)
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
-// ===== Paths / persistencia =====
+// ===== Persistencia / paths =====
+// Carpetas base (se pueden mapear a volúmenes en Render/Docker)
 const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
+// URL pública del backend para construir links (tickets, og:image, etc.)
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com';
+// Número de WhatsApp destino para derivaciones
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
+// Crea directorios si no existen (recursivo)
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
-  try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
+  try { fs.mkdirSync(d, { recursive: true }); } catch {}
 }
-const nowIso = () => new Date().toISOString();
+const nowIso = () => new Date().toISOString();  // Helper timestamp ISO
 
-// ===== EMBEDDED CONFIG (con botones actualizados) =====
-const EMBEDDED_CHAT = {
-  version: 'from-images-openai-first-filter-v8-fix-name',
-  messages_v4: { greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' } },
-  settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' } },
-  ui: {
-    buttons: [
-      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
-      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
-      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_SOLVED', label: 'Lo pude Solucionar ✔️', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
-      { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
-      { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
+// ===== Carga chat JSON =====
+// Ruta al archivo de configuración conversacional (nlp, steps, labels)
+const CHAT_JSON_PATH = process.env.CHAT_JSON || path.join(process.cwd(), 'sti-chat.json');
+let CHAT = {};             // Objeto con todo el JSON cargado
+let deviceMatchers = [];   // Cache de regex para dispositivos
+let issueMatchers  = [];   // Cache de regex para issues
 
-      // Nuevos botones para el flujo "persiste"
-      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico', text: 'conectar con tecnico' },
-
-      // botón para abrir WhatsApp con el ticket ya generado (frontend usa waUrlWeb/waUrlDesktop)
-      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' }
-    ],
-    states: {}
-  },
-  nlp: {
-    devices: [
-      { key: 'pc', rx: '\\b(pc|computadora|ordenador)\\b' },
-      { key: 'notebook', rx: '\\b(notebook|laptop)\\b' },
-      { key: 'router', rx: '\\b(router|modem)\\b' }
-    ],
-    issues: [
-      { key: 'no_prende', rx: '\\b(no\\s*enciende|no\\s*prende|no\\s*arranca|mi\\s*pc\\s*no\\s*enciende)\\b', label: 'no enciende' }
-    ],
-    advanced_steps: {
-      no_prende: [
-        'Verificá que el cable de alimentación esté correctamente conectado a la computadora y a la toma de corriente.',
-        'Asegurate de que el interruptor de la fuente de alimentación (si tiene) esté encendido.',
-        'Intentá presionar el botón de encendido durante unos segundos para ver si responde.',
-        'Desconectá todos los dispositivos externos (USB, impresoras, etc.) y volvé a intentar encender la PC.'
-      ]
-    },
-    issue_labels: { no_prende: 'no enciende' }
-  }
-};
-
-// ===== Chat state derived from EMBEDDED_CHAT =====
-let CHAT = {};
-let deviceMatchers = [];
-let issueMatchers = [];
-
-function loadChatFromEmbedded(){
+// Carga/parsing de sti-chat.json, compila regex de devices/issues para rendimiento
+function loadChat() {
   try {
-    CHAT = EMBEDDED_CHAT || {};
-    deviceMatchers = (CHAT?.nlp?.devices || []).map(d => {
-      try { return { key: d.key, rx: new RegExp(d.rx, 'i') }; } catch(e){ return null; }
-    }).filter(Boolean);
-    issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => {
-      try { return { key: i.key, rx: new RegExp(i.rx, 'i') }; } catch(e){ return null; }
-    }).filter(Boolean);
-    console.log('[chat] cargado desde EMBEDDED_CHAT', CHAT.version || '(sin version)');
+    CHAT = JSON.parse(fs.readFileSync(CHAT_JSON_PATH, 'utf8'));
+    console.log('[chat] ✅ Cargado', CHAT.version, 'desde', CHAT_JSON_PATH);
+    deviceMatchers = (CHAT?.nlp?.devices || []).map(d => ({ key: d.key, rx: new RegExp(d.rx, 'i') }));
+    issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => ({ key: i.key, rx: new RegExp(i.rx, 'i') }));
   } catch (e) {
+    console.error('[chat] ❌ No pude cargar sti-chat.json:', e.message);
     CHAT = {}; deviceMatchers = []; issueMatchers = [];
-    console.log('[chat] no se cargó EMBEDDED_CHAT (ver variable)');
   }
 }
-loadChatFromEmbedded();
+loadChat();
 
-// ===== Helpers simples =====
+// Helpers de NLP (humanización de issue y detecciones por regex)
+const issueHuman = (k) => CHAT?.nlp?.issue_labels?.[k] || 'el problema';
 function detectDevice(txt = '') { for (const d of deviceMatchers) if (d.rx.test(txt)) return d.key; return null; }
 function detectIssue (txt = '') { for (const i of issueMatchers)  if (i.rx.test(txt)) return i.key; return null; }
-const issueHuman = (k) => CHAT?.nlp?.issue_labels?.[k] || 'el problema';
 
-const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
-function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
-
-const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
-function isValidName(text){
-  if(!text) return false;
-  const t = String(text).trim();
-  if(TECH_WORDS.test(t)) return false;
-  return /^[a-záéíóúñ]{2,20}$/i.test(t); // accept 2+ letters
+// Template de respuesta por defecto (permite personalizar en JSON)
+function tplDefault({ nombre = '', device = 'equipo', issueKey = null }) {
+  const base = CHAT?.nlp?.response_templates?.default ||
+    'Entiendo, {{nombre}}. Revisemos tu {{device}} con {{issue_human}}.';
+  return base.replace('{{nombre}}', nombre || '')
+             .replace('{{device}}', device || 'equipo')
+             .replace('{{issue_human}}', issueHuman(issueKey));
 }
-function extractName(text){
-  if(!text) return null;
+
+// ===== Store de sesiones (Redis u otro) =====
+// getSession/saveSession/listActiveSessions están abstraídos en sessionStore.js
+import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+
+// ===== App =====
+const app = express();
+app.set('trust proxy', 1);  // Confía en cabeceras de proxy (Render/NGINX) para IP real
+
+// CORS fuerte + OPTIONS handler (preflight)
+app.use(cors({
+  origin: true,                 // Permite cualquier origen (o ajustá a tu dominio)
+  credentials: true,            // Permite cookies/headers de auth
+  methods: ['GET','POST','OPTIONS'],
+  allowedHeaders: ['Content-Type','x-session-id','x-session-fresh'] // headers custom
+}));
+app.options('*', cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET','POST','OPTIONS'],
+  allowedHeaders: ['Content-Type','x-session-id','x-session-fresh']
+}));
+
+// Body parsers (JSON + urlencoded)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: false }));
+
+// No cache global (evita que proxies sirvan saludos viejos)
+app.use((req, res, next) => { res.set('Cache-Control','no-store'); next(); });
+
+// Landing amigable (útil para verificar deploy vivo)
+app.get('/', (_req, res) => {
+  res.type('html').send(`<!doctype html><meta charset="utf-8">
+  <style>body{font:14px system-ui;margin:24px}a{color:#2563eb;text-decoration:none}</style>
+  <h1>🚀 STI Rosario AI</h1>
+  <p>Servicio en línea. Endpoints útiles:</p>
+  <ul>
+    <li><a href="/api/health">/api/health</a></li>
+    <li><a href="/api/sessions">/api/sessions</a></li>
+  </ul>`);
+});
+
+// ===== Estados / helpers =====
+// Máquina de estados de la conversación
+const STATES = {
+  ASK_NAME: 'ask_name',           // pedir nombre
+  ASK_PROBLEM: 'ask_problem',     // pedir problema
+  ASK_DEVICE: 'ask_device',       // pedir equipo/dispositivo
+  BASIC_TESTS: 'basic_tests',     // pasos básicos (desde JSON o AI)
+  BASIC_TESTS_AI: 'basic_tests_ai', // pasos básicos generados por AI
+  ADVANCED_TESTS: 'advanced_tests', // pasos avanzados
+  ESCALATE: 'escalate',           // derivar a humano/WhatsApp
+};
+
+// Palabras que NO deben interpretarse como nombre (evita “pc”, “router”, etc.)
+const TECH_WORDS = /^(pc|notebook|netbook|laptop|ultrabook|macbook|monitor|pantalla|teclado|mouse|raton|touchpad|trackpad|impresora|printer|scanner|escaner|router|modem|switch|hub|repetidor|accesspoint|servidor|server|cpu|gabinete|fuente|mother|motherboard|placa|placa madre|gpu|video|grafica|ram|memoria|disco|ssd|hdd|pendrive|usb|auricular|auriculares|headset|microfono|camara|webcam|altavoz|parlante|red|ethernet|wifi|wi-?fi|bluetooth|internet|nube|cloud|telefono|celular|movil|smartphone|tablet|ipad|android|iphone|ios|windows|linux|macos|bios|uefi|driver|controlador|actualizacion|formateo|virus|malware|pantallazo|backup|respaldo|sistema operativo|office|problema|error|fallo|falla|bug|reparacion|tecnico|compu|computadora|equipo|hardware|software|programa|sistema)$/i;
+
+// Heurística para detectar que el texto describe un problema (no un nombre)
+const problemHint = /(no (prende|enciende|arranca|funciona|anda|conecta|detecta|reconoce|responde|da señal|muestra imagen|carga|enciende la pantalla)|no (da|tiene) (video|imagen|sonido|internet|conexion|red|wifi|señal)|no inicia|no arranca|no anda|no funca|lento|va lento|se tilda|se cuelga|se congela|pantalla (negra|azul|blanca|con rayas)|sin imagen|sin sonido|sin señal|se apaga|se reinicia|se reinicia solo|no carga|no enciende|no muestra nada|hace ruido|no hace nada|tiene olor|saca humo|parpadea|no detecta|no reconoce|no conecta|problema|error|fallo|falla|bug|no abre|no responde|bloqueado|traba|lag|p(é|e)rdida de conexi(ó|o)n|sin internet|sin wi[- ]?fi|no se escucha|no se ve|no imprime|no escanea|sin color|no gira|no arranca el ventilador)/i;
+
+// Validación y extracción de nombre (conformidad básica y frases “soy/mi nombre es”)
+function isValidName(text) {
+  if (!text) return false;
   const t = String(text).trim();
-  let m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{2,20})$/i);
-  if(m) return m[1];
-  if(isValidName(t)) return t;
+  if (TECH_WORDS.test(t)) return false;
+  return /^[a-záéíóúñ]{3,20}$/i.test(t);
+}
+function extractName(text) {
+  if (!text) return null;
+  const t = String(text).trim();
+  const m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{3,20})$/i);
+  if (m) return m[1];
+  if (isValidName(t)) return t;
   return null;
 }
-const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
-const withOptions = obj => ({ options: [], ...obj });
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; // Capitaliza nombre
+const withOptions = (obj) => ({ options: [], ...obj }); // Asegura campo options en respuestas
 
-// ===== OpenAI helpers (analyzeProblemWithOA used as FIRST filter) =====
-const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
+// === Voseo: convierte instrucciones neutras/usted a voseo rioplatense ===
+// Es seguro: si no encuentra patrones, devuelve el mismo texto.
+function arVoseo(s) {
+  let t = String(s || '').trim();
+  const repl = [
+    [/\bpresione\b/gi, 'apretá'],
+    [/\bpresionar\b/gi, 'apretar'],
+    [/\bhaga\b/gi, 'hacé'],
+    [/\bhaz\b/gi, 'hacé'],
+    [/\bverifique\b/gi, 'verificá'],
+    [/\bintente\b/gi, 'probá'],
+    [/\bpruebe\b/gi, 'probá'],
+    [/\bquiera\b/gi, 'querés'],
+    [/\bpuede\b/gi, 'podés'],
+    [/\bconecte\b/gi, 'conectá'],
+    [/\bdesconecte\b/gi, 'desconectá'],
+    [/\bmantenga\b/gi, 'mantené'],
+    [/\breinicie\b/gi, 'reiniciá'],
+  ];
+  for (const [rx, to] of repl) t = t.replace(rx, to);
+  return t;
+}
+// Map seguro que no rompe si viene undefined/null
+const mapVoseoSafe = (arr) => Array.isArray(arr) ? arr.map(arVoseo) : [];
 
-async function analyzeProblemWithOA(problemText = ''){
-  if(!openai) return { isIT: false, device: null, issueKey: null, confidence: 0 };
+// Normaliza el sessionId de headers/body/query; genera uno si no viene
+function getSessionId(req) {
+  // headers en node están en minúscula
+  const hSid = (req.headers['x-session-id'] || '').toString().trim();
+  const bSid = (req.body && (req.body.sessionId || req.body.sid)) ? String(req.body.sessionId || req.body.sid).trim() : '';
+  const qSid = (req.query && (req.query.sessionId || req.query.sid)) ? String(req.query.sessionId || req.query.sid).trim() : '';
+  const raw = hSid || bSid || qSid;
+  return raw || `srv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+}
+app.use((req, _res, next) => { req.sessionId = getSessionId(req); next(); });
+
+// ===== Config diagnóstico OA =====
+// Umbral mínimo de confianza para aceptar predicción AI/regex
+const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || 0.6);
+
+/* =======================================================================
+   ===== Análisis con OpenAI (MEJORADO con normalización y sinónimos) =====
+   - Devuelve {device, issueKey, confidence} con normalización fuerte
+   - Tolerante a ```json y a respuestas no estrictas
+   - Mapea sinónimos (teclado USB/inalámbrico => "teclado")
+   - Completa issueKey específica cuando el modelo queda genérico
+   ======================================================================= */
+
+const CANON_DEVICES = [
+  'pc','notebook','monitor','teclado','mouse','impresora','almacenamiento','red','camara','microfono'
+];
+
+const DEVICE_SYNONYMS = [
+  [/^(pc|computadora|compu|cpu|gabinete)$/i, 'pc'],
+  [/^(notebook|laptop|netbook|ultrabook|macbook)$/i, 'notebook'],
+  [/^(monitor|pantalla)$/i, 'monitor'],
+  [/^(teclado|keyboard|kb)$/i, 'teclado'],
+  [/^(mouse|rat[oó]n|touchpad|trackpad)$/i, 'mouse'],
+  [/^(impresora|printer)$/i, 'impresora'],
+  [/^(disco|ssd|hdd|pendrive|usb|memoria usb|unidad|externo)$/i, 'almacenamiento'],
+  [/^(wifi|wi-?fi|internet|red|ethernet|router|m[óo]dem|modem)$/i, 'red'],
+  [/^(c[aá]mara|webcam)$/i, 'camara'],
+  [/^(microf[oó]no|mic)$/i, 'microfono'],
+];
+
+function normalizeDevice(s) {
+  const t = String(s || '').trim().toLowerCase();
+  for (const [rx, canon] of DEVICE_SYNONYMS) if (rx.test(t)) return canon;
+  return CANON_DEVICES.includes(t) ? t : null;
+}
+
+// Issue keys canónicas que usamos en nlp. Podés ampliar según tu JSON.
+const ISSUE_KEYS = [
+  'no_prende','no_internet','wifi_no_conecta','pantalla_negra','no_imagen','sin_sonido',
+  'teclado_no_detecta','mouse_no_detecta','impresora_no_detecta','usb_no_detecta',
+  'disco_no_detecta','camara_no_detecta','microfono_no_detecta'
+];
+
+function normalizeIssue(device, issueKey, originalText='') {
+  let k = (issueKey || '').toLowerCase();
+
+  // Si el modelo devuelve algo genérico, afinamos con heurística
+  const txt = String(originalText || '').toLowerCase();
+
+  const has = (rx) => rx.test(txt);
+
+  // Reglas por dispositivo
+  if (device === 'teclado') {
+    if (!k || /no_detecta|no reconoce|no funciona|no anda|no responde/.test(k) || has(/no (detecta|reconoce)|no (anda|funciona|responde)/))
+      k = 'teclado_no_detecta';
+  } else if (device === 'mouse') {
+    if (!k || has(/no (detecta|reconoce)|no (anda|funciona|responde)/)) k = 'mouse_no_detecta';
+  } else if (device === 'impresora') {
+    if (!k || has(/no (detecta|reconoce)/)) k = 'impresora_no_detecta';
+  } else if (device === 'almacenamiento') {
+    if (!k || has(/(disco|ssd|hdd|pendrive|usb).*(no (detecta|reconoce|aparece))/))
+      k = has(/(disco|ssd|hdd)/) ? 'disco_no_detecta' : 'usb_no_detecta';
+  } else if (device === 'monitor') {
+    if (!k && has(/(no (muestra|hay) (imagen|video)|sin imagen)/)) k = 'no_imagen';
+  } else if (device === 'red') {
+    if (!k && has(/(no (tengo|hay) internet|no conecta (el )?wifi|wifi no conecta)/)) k = has(/wifi/) ? 'wifi_no_conecta' : 'no_internet';
+  } else if (device === 'camara') {
+    if (!k || has(/no (detecta|reconoce)/)) k = 'camara_no_detecta';
+  } else if (device === 'microfono') {
+    if (!k || has(/no (detecta|reconoce)/)) k = 'microfono_no_detecta';
+  }
+
+  // Si sigue siendo algo fuera del set, devolvemos lo original o null
+  if (!ISSUE_KEYS.includes(k)) return issueKey || null;
+  return k;
+}
+
+function clamp01(n) {
+  const x = Number(n);
+  if (!isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+async function analyzeProblemWithOA(problemText = '') {
+  if (!openai) return { device: null, issueKey: null, confidence: 0 };
+
+  const allowedDevices = CANON_DEVICES.join(', ');
+  const allowedIssues  = ISSUE_KEYS.join(', ');
+
   const prompt = [
-    "Sos técnico informático argentino, claro y profesional.",
-    "Decidí si el siguiente texto corresponde a un problema del rubro informático.",
-    "Si es informático, detectá device (equipo), issueKey (tipo de problema) y confidence (0..1).",
-    "Respondé SOLO un JSON con {isIT: true|false, device, issueKey, confidence}.",
-    `Texto: "${problemText}"`
+    'Sos técnico informático argentino, claro y profesional.',
+    'Analizá el texto del cliente y devolvé SOLO un JSON con estas claves:',
+    '  device: uno de [' + allowedDevices + ']',
+    '  issueKey: uno de [' + allowedIssues + '] (elegí la más específica posible)',
+    '  confidence: número 0..1 según tu seguridad',
+    '',
+    'Si el cliente habla de teclado/mouse/impresora/USB/pendrive y dice "no detecta/no reconoce/no funciona",',
+    'tu issueKey debe ser la forma específica: teclado_no_detecta, mouse_no_detecta, impresora_no_detecta, usb_no_detecta, etc.',
+    '',
+    `Texto del cliente: "${String(problemText).trim()}"`
   ].join('\n');
+
   try {
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0
     });
-    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g,'');
-    try {
-      const obj = JSON.parse(raw);
-      return {
-        isIT: !!obj.isIT,
-        device: obj.device || null,
-        issueKey: obj.issueKey || null,
-        confidence: Math.max(0, Math.min(1, Number(obj.confidence || 0)))
-      };
-    } catch(parseErr){
-      console.error('[analyzeProblemWithOA] parse error', parseErr.message, 'raw:', raw);
-      return { isIT: false, device: null, issueKey: null, confidence: 0 };
+
+    // Limpieza por si el modelo devuelve en fences
+    let raw = (r.choices?.[0]?.message?.content || '').trim();
+    raw = raw.replace(/^\s*```json\s*|\s*```\s*$/g, '');
+    const obj = JSON.parse(raw);
+
+    // Normalización
+    let dev = normalizeDevice(obj.device);
+    let k   = String(obj.issueKey || '').toLowerCase();
+    let conf = clamp01(obj.confidence);
+
+    // Ajuste por texto si el device vino nulo pero el texto lo sugiere
+    if (!dev) {
+      dev = normalizeDevice(problemText);
     }
+
+    // Afinado de issueKey específico según device + texto
+    k = normalizeIssue(dev, k, problemText);
+
+    return { device: dev || null, issueKey: k || null, confidence: conf };
   } catch (e) {
-    console.error('[analyzeProblemWithOA]', e.message);
-    return { isIT: false, device: null, issueKey: null, confidence: 0 };
+    console.error('[analyzeProblemWithOA+] ❌', e.message);
+    return { device: null, issueKey: null, confidence: 0 };
   }
 }
 
-async function aiQuickTests(problemText = '', device = ''){
-  if(!openai){
+// ===== OpenAI quick tests (opcional) =====
+// Genera 4–6 pasos simples de diagnóstico básico (o fallback estándar)
+async function aiQuickTests(problemText = '', device = '') {
+  if (!openai) {
+    // Fallback local si no hay API
     return [
-      'Reiniciar la aplicación donde ocurre el problema',
-      'Probar en otro documento o programa para ver si persiste',
-      'Reiniciar el equipo',
-      'Comprobar actualizaciones del sistema',
-      'Verificar conexiones físicas'
+      'Verificar conexión eléctrica/toma',
+      'Probar con otro cable o cargador',
+      'Mantener pulsado el botón de encendido 10 segundos',
+      'Conectar directo (sin zapatillas/estabilizador)',
+      'Comprobar si hay luces o sonidos al encender'
     ];
   }
   const prompt = [
-    "Sos técnico informático argentino, claro y amable.",
+    `Sos técnico informático argentino, claro y amable.`,
     `Problema: "${problemText}"${device ? ` en ${device}` : ''}.`,
-    "Indicá 4–6 pasos simples y seguros.",
-    "Devolvé solo un JSON array de strings."
+    `Indicá 4–6 pasos simples y seguros.`,
+    `Devolvé solo un JSON array de strings.`
   ].join('\n');
+
   try {
     const resp = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3
     });
-    const raw = (resp.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(x=>typeof x==='string').slice(0,6) : [];
+    const raw = resp.choices?.[0]?.message?.content?.trim() || '[]';
+    const jsonText = raw.replace(/```json|```/g, '').trim();
+    const arr = JSON.parse(jsonText);
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
   } catch (e) {
-    console.error('[aiQuickTests] Error', e.message);
-    return ['Reiniciar la aplicación','Reiniciar el equipo','Comprobar actualizaciones','Verificar conexiones físicas'];
+    console.error('[aiQuickTests] Error:', e.message);
+    return ['Verificar cable/fuente', 'Probar otra toma', 'Forzar apagado/encendido', 'Probar otro cable/cargador', 'Chequear luces/sonidos al encender'];
   }
 }
-
-async function getHelpForStep(stepText='', stepIndex=1, device='', problem=''){
-  if(!stepText) return 'No tengo el detalle de ese paso. Revisá los pasos que te ofrecí anteriormente.';
-  if(!openai){
-    return `Para realizar el paso ${stepIndex}:\n\n${stepText}\n\nConsejos: hacelo con calma, verificá conexiones y avisame cualquier mensaje de error.`;
-  }
-  const prompt = [
-    "Sos técnico informático argentino, claro y amable.",
-    `Explicá cómo ejecutar este paso para un usuario no técnico: "${stepText}"`,
-    device ? `Equipo: ${device}.` : '',
-    problem ? `Problema: ${problem}.` : '',
-    "Dalo en 3–6 acciones claras, en español rioplatense (voseo).",
-    "Si hay precauciones mínimas, indicálas."
-  ].filter(Boolean).join('\n');
-  try {
-    const resp = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.25,
-      max_tokens: 400
-    });
-    return (resp.choices?.[0]?.message?.content || '').trim();
-  } catch (e) {
-    console.error('[getHelpForStep] Error', e.message);
-    return `Para realizar el paso ${stepIndex}: ${stepText}\nSi necesitás más ayuda decímelo.`;
-  }
-}
-
-// ===== App =====
-const app = express();
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: false }));
-app.use((req,res,next)=>{ res.set('Cache-Control','no-store'); next(); });
-
-// ===== States =====
-const STATES = {
-  ASK_NAME: 'ask_name',
-  ASK_PROBLEM: 'ask_problem',
-  ASK_DEVICE: 'ask_device',
-  BASIC_TESTS: 'basic_tests',
-  BASIC_TESTS_AI: 'basic_tests_ai',
-  ADVANCED_TESTS: 'advanced_tests',
-  ESCALATE: 'escalate',
-  ENDED: 'ended'
-};
-
-// Normaliza sessionId
-function getSessionId(req){
-  const h = (req.headers['x-session-id']||'').toString().trim();
-  const b = (req.body && (req.body.sessionId||req.body.sid)) ? String(req.body.sessionId||req.body.sid).trim() : '';
-  const q = (req.query && (req.query.sessionId||req.query.sid)) ? String(req.query.sessionId||req.query.sid).trim() : '';
-  return h || b || q || `srv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-}
-app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
 // ===== Endpoints =====
 
-// Health
-app.get('/api/health', (_req,res) => {
-  res.json({ ok: true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
+// Health: status del servicio y paths útiles
+app.get('/api/health', async (_req, res) => {
+  res.json({
+    ok: true,
+    hasOpenAI: !!process.env.OPENAI_API_KEY,
+    openaiReady: !!openai,
+    openaiModel: OPENAI_MODEL || null,
+    usingNewFlows: true,
+    version: CHAT?.version || '4.8.3',
+    paths: { data: DATA_BASE, transcripts: TRANSCRIPTS_DIR, tickets: TICKETS_DIR }
+  });
 });
 
-// Reload config
-app.post('/api/reload', (_req,res)=>{ try{ loadChatFromEmbedded(); res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
+// Reload chat config (GET/POST): vuelve a leer sti-chat.json sin reiniciar server
+app.all('/api/reload', (_req, res) => {
+  try { loadChat(); res.json({ ok: true, version: CHAT.version }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 
-// Transcript plain
-app.get('/api/transcript/:sid', (req,res)=>{
-  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
+// Transcript plano: devuelve el .txt del historial de una sesión (debug/soporte)
+app.get('/api/transcript/:sid', (req, res) => {
+  const sid = String(req.params.sid || '').replace(/[^a-zA-Z0-9._-]/g, '');
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
-  res.set('Content-Type','text/plain; charset=utf-8');
-  res.send(fs.readFileSync(file,'utf8'));
+  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.send(fs.readFileSync(file, 'utf8'));
 });
 
-// WhatsApp ticket generator (API)
-app.post('/api/whatsapp-ticket', async (req,res)=>{
-  try{
+// WhatsApp ticket: genera ticket .txt + link público + URL wa.me con texto prellenado
+app.post('/api/whatsapp-ticket', async (req, res) => {
+  try {
     const { name, device, sessionId, history = [] } = req.body || {};
     let transcript = history;
     const sid = sessionId || req.sessionId;
-    if((!transcript || transcript.length===0) && sid){
+
+    // Si no mandan history explícito, intenta sacarlo de la sesión guardada
+    if ((!transcript || transcript.length === 0) && sid) {
       const s = await getSession(sid);
-      if(s?.transcript) transcript = s.transcript;
+      if (s?.transcript) transcript = s.transcript;
     }
+
+    // ID legible: TCK-YYYYMMDD-XXXX
     const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
     const rand = Math.random().toString(36).slice(2,6).toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
-    const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-    const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-    const datePart = dateFormatter.format(now).replace(/\//g,'-');
-    const timePart = timeFormatter.format(now);
-    const generatedLabel = `${datePart} ${timePart} (ART)`;
-    let safeName = '';
-    if(name){ safeName = String(name).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
-    const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
+
+    // Render del contenido del ticket (simple texto)
     const lines = [];
-    lines.push(titleLine);
-    lines.push(`Generado: ${generatedLabel}`);
-    if(name) lines.push(`Cliente: ${name}`);
-    if(device) lines.push(`Equipo: ${device}`);
-    if(sid) lines.push(`Session: ${sid}`);
+    lines.push(`STI • Servicio Técnico Inteligente — Ticket ${ticketId}`);
+    lines.push(`Generado: ${nowIso()}`);
+    if (name)   lines.push(`Cliente: ${name}`);
+    if (device) lines.push(`Equipo: ${device}`);
+    if (sid)    lines.push(`Session: ${sid}`);
     lines.push('');
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-    for(const m of transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
-    const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-    const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-    const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-    const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
-    const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
-    const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
-    const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-    const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrlWeb, waUrlDesktop, allowWhatsapp: true });
-  } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
-});
-
-// Rutas públicas para tickets (API + vista)
-app.get('/api/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).json({ ok:false, error: 'not_found' });
-  res.json({ ok:true, ticketId: tid, content: fs.readFileSync(file,'utf8') });
-});
-app.get('/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
-  res.set('Content-Type','text/plain; charset=utf-8');
-  res.send(fs.readFileSync(file,'utf8'));
-});
-
-// Reset session
-app.post('/api/reset', async (req,res)=>{
-  const sid = req.sessionId;
-  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
-  await saveSession(sid, empty);
-  res.json({ ok:true });
-});
-
-// Greeting (start)
-app.all('/api/greeting', async (req,res)=>{
-  try{
-    const sid = req.sessionId;
-    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
-    const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
-    fresh.transcript.push({ who:'bot', text, ts: nowIso() });
-    await saveSession(sid, fresh);
-    return res.json({ ok:true, greeting:text, reply:text, options: [] });
-  } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
-});
-
-// ===== Core chat endpoint =====
-app.post('/api/chat', async (req,res)=>{
-  try{
-    const body = req.body || {};
-    const tokenMap = {};
-    if(Array.isArray(CHAT?.ui?.buttons)){
-      for(const b of CHAT.ui.buttons) if(b.token) tokenMap[b.token] = b.text || '';
-    } else {
-      Object.assign(tokenMap, {
-        'BTN_HELP_1': 'ayuda paso 1',
-        'BTN_HELP_2': 'ayuda paso 2',
-        'BTN_HELP_3': 'ayuda paso 3',
-        'BTN_HELP_4': 'ayuda paso 4',
-        'BTN_SOLVED': 'lo pude solucionar',
-        'BTN_PERSIST': 'el problema persiste',
-        'BTN_REPHRASE': 'reformular problema',
-        'BTN_CLOSE': 'cerrar chat',
-        'BTN_WHATSAPP': 'hablar con un tecnico',
-        'BTN_MORE_TESTS': 'más pruebas',
-        'BTN_CONNECT_TECH': 'conectar con tecnico'
-      });
+    for (const m of transcript || []) {
+      const who = m.who === 'user' ? 'USER' : 'ASSISTANT';
+      lines.push(`[${m.ts || nowIso()}] ${who}: ${m.text || ''}`);
     }
+    fs.writeFileSync(path.join(TICKETS_DIR, `${ticketId}.txt`), lines.join('\n'), 'utf8');
 
-    let incomingText = String(body.text || '').trim();
-    let buttonToken = null;
-    let buttonLabel = null;
-    if(body.action === 'button' && body.value){
-      buttonToken = String(body.value);
-      if(tokenMap[buttonToken] !== undefined) incomingText = tokenMap[buttonToken];
-      else if(buttonToken.startsWith('BTN_HELP_')){
-        const n = buttonToken.split('_').pop();
-        incomingText = `ayuda paso ${n}`;
-      } else incomingText = buttonToken;
-      buttonLabel = body.label || buttonToken;
-    }
-    const t = String(incomingText || '').trim();
-    const sid = req.sessionId;
+    // Construye link público y texto para WhatsApp
+    const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
+    let waText = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI 👋. Vengo del chat web. Dejo mi consulta:';
+    waText += '\n';
+    if (name)   waText += `\n👤 Cliente: ${name}\n`;
+    if (device) waText += `💻 Equipo: ${device}\n`;
+    waText += `\n🎫 Ticket: ${ticketId}\n📄 Detalle completo: ${publicUrl}`;
 
-    let session = await getSession(sid);
-    if(!session){
-      session = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
-      console.log('[api/chat] nueva session', sid);
-    }
-
-    // If BTN_WHATSAPP or BTN_CONNECT_TECH pressed (creates ticket immediately)
-    if (buttonToken === 'BTN_WHATSAPP' || buttonToken === 'BTN_CONNECT_TECH') {
-      try {
-        const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-        const rand = Math.random().toString(36).slice(2,6).toUpperCase();
-        const ticketId = `TCK-${ymd}-${rand}`;
-        const now = new Date();
-        const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-        const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-        const datePart = dateFormatter.format(now).replace(/\//g,'-');
-        const timePart = timeFormatter.format(now);
-        const generatedLabel = `${datePart} ${timePart} (ART)`;
-        let safeName = '';
-        if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
-        const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
-        const lines = [];
-        lines.push(titleLine);
-        lines.push(`Generado: ${generatedLabel}`);
-        if(session.userName) lines.push(`Cliente: ${session.userName}`);
-        if(session.device) lines.push(`Equipo: ${session.device}`);
-        if(sid) lines.push(`Session: ${sid}`);
-        lines.push('');
-        lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-        for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
-        try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
-        const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
-        fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-
-        const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-        const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-
-        const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
-        const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
-        const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
-        const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-        const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-        const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-
-        const whoName = session.userName ? cap(session.userName) : 'usuario';
-        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
-
-        // prepare button object for frontend
-        const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
-
-        session.transcript.push({ who:'bot', text: replyTech, ts: nowIso() });
-        session.waEligible = true;
-        session.stage = STATES.ESCALATE;
-        await saveSession(sid, session);
-
-        // return both URLs and structured options (object + simple labels)
-        // Also include options_tokens for token-only frontends
-        return res.json(withOptions({
-          ok:true,
-          reply: replyTech,
-          stage: session.stage,
-          options: [ { token: btnWhats.token, label: btnWhats.label } ], // opciones como objetos
-          options_objects: [btnWhats],
-          options_simple: [btnWhats.label],
-          options_tokens: [btnWhats.token],
-          waUrlWeb,
-          waUrlDesktop,
-          ticketId,
-          publicUrl,
-          apiPublicUrl,
-          allowWhatsapp: true
-        }));
-      } catch (errBtn) {
-        console.error('[BTN_WHATSAPP]', errBtn);
-        session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
-      }
-    }
-
-    // === Handler directo para BTN_MORE_TESTS (sugerencia #3) ===
-    if (buttonToken === 'BTN_MORE_TESTS') {
-      const device = session.device || '';
-      const problem = session.problem || '';
-      const steps = await aiQuickTests(problem, device);
-      const stepsAr = Array.isArray(steps) && steps.length ? steps.slice(0,4) : [
-        'Reiniciá el equipo',
-        'Probá en otro programa o documento',
-        'Actualizá el sistema',
-        'Verificá conexiones'
-      ];
-      const numbered = enumerateSteps(stepsAr);
-      const intro = `Perfecto, ${session.userName || 'usuario'}. Probemos con más pasos:`;
-
-      const helpOptionsObjs = stepsAr.map((_,i)=>({ token:`BTN_HELP_${i+1}`, label:`${emojiForIndex(i)} Ayuda paso ${i+1}` }));
-      const finalObjs = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-
-      const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' +
-                      '🧩 Si necesitás ayuda para realizar algún paso, tocá el número.\n\n' +
-                      '🤔 Contanos cómo te fue usando los botones:';
-
-      session.tests.ai = stepsAr;
-      session.lastHelpStep = null;
-      session.stage = STATES.ADVANCED_TESTS;
-      await saveSession(sid, session);
-
-      return res.json(withOptions({
-        ok: true,
-        reply: fullMsg,
-        stage: session.stage,
-        // Enviamos en todos los formatos
-        options: finalObjs.map(o => ({ token:o.token, label:o.label })), // objetos
-        options_objects: finalObjs,
-        options_simple: finalObjs.map(o => o.label),
-        options_tokens: finalObjs.map(o => o.token),
-      }));
-    }
-
-    // save user message in transcript
-    if(buttonToken){
-      session.transcript.push({ who:'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
-    } else {
-      session.transcript.push({ who:'user', text: t, ts: nowIso() });
-    }
-
-    // === Manejo: Reformular problema (botón/text) ===
-    if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      const whoName = session.userName ? cap(session.userName) : 'usuario';
-      const reply = `¡Intentemos nuevamente, ${whoName}! 👍\n\n¿Qué problema estás teniendo?`;
-      session.stage = STATES.ASK_PROBLEM;
-      session.problem = null;
-      session.issueKey = null;
-      session.tests = { basic: [], ai: [], advanced: [] };
-      session.lastHelpStep = null;
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
-    }
-    // === fin Manejo Reformular problema ===
-
-    // Name extraction
-    const nmInline = extractName(t);
-    if(nmInline && !session.userName){
-      session.userName = cap(nmInline);
-      if(session.stage === STATES.ASK_NAME){
-        session.stage = STATES.ASK_PROBLEM;
-        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json({ ok:true, reply, stage: session.stage, options: [] });
-      }
-    }
-
-    // intercept help buttons "ayuda paso N"
-    const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
-    if (helpMatch) {
-      const idx = Math.max(1, Number(helpMatch[1] || 1));
-      const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length > 0)
-        ? 'basic'
-        : (Array.isArray(session.tests.ai) && session.tests.ai.length > 0) ? 'ai' : null;
-
-      if (srcType) {
-        const list = session.tests[srcType] || [];
-        const stepText = list[idx - 1] || null;
-        session.lastHelpStep = { type: srcType, index: idx };
-        const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
-        const whoName = session.userName ? cap(session.userName) : 'usuario';
-        const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
-
-        // prepare options as structured objects + simple fallback
-        const replyOptionsObjs = [
-          { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️' },
-          { token: 'BTN_PERSIST', label: 'El problema persiste ❌' },
-          { token: 'BTN_CLOSE',  label: 'Cerrar Chat 🔒' }
-        ];
-        const replyOptionsSimple = replyOptionsObjs.map(x=>x.label);
-        const replyOptionsTokens = replyOptionsObjs.map(x=>x.token);
-
-        session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
-        await saveSession(sid, session);
-
-        // return labels in response.options for compatibility, but include objects + tokens
-        return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage,
-          options: replyOptionsSimple,
-          options_objects: replyOptionsObjs,
-          options_simple: replyOptionsSimple,
-          options_tokens: replyOptionsTokens
-        }));
-      } else {
-        const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: reply, stage: session.stage, options: [] }));
-      }
-    }
-    // === fin Ayuda paso a paso ===
-
-    // main state logic
-    let reply = '';
-    let options = [];
-    let options_simple = null; // fallback labels list for simple frontends
-    let options_tokens = null;
-    let options_objects = null;
-
-    // 1) ASK_NAME
-    if(session.stage === STATES.ASK_NAME){
-      if(!session.userName){
-        reply = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
-      } else {
-        session.stage = STATES.ASK_PROBLEM;
-        reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-      }
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json({ ok:true, reply, stage: session.stage, options });
-    }
-
-    // 2) ASK_PROBLEM -> OPENAI as FIRST and ONLY FILTER
-    else if(session.stage === STATES.ASK_PROBLEM){
-      session.problem = t || session.problem;
-
-      if(!openai){
-        const fallbackMsg = 'OpenAI no está configurado. No puedo aplicar el filtro solicitado. Configure OPENAI_API_KEY.';
-        session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: fallbackMsg, stage: session.stage, options: [] }));
-      }
-
-      const ai = await analyzeProblemWithOA(session.problem || '');
-      const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
-
-      if(!isIT){
-        const replyNotIT = 'Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico.';
-        session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema'] }));
-      }
-
-      if(ai.device) session.device = session.device || ai.device;
-      if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
-
-      try{
-        const issueKey = session.issueKey;
-        const device = session.device || null;
-        const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
-
-        let steps;
-        if(hasConfiguredSteps) steps = CHAT.nlp.advanced_steps[issueKey].slice(0,4);
-        else {
-          let aiSteps = [];
-          try{ aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
-          if(Array.isArray(aiSteps) && aiSteps.length>0) steps = aiSteps.slice(0,4);
-          else steps = [
-            'Reiniciar la aplicación donde ocurre el problema',
-            'Probar en otro documento o programa para ver si persiste',
-            'Reiniciar el equipo',
-            'Comprobar actualizaciones del sistema'
-          ];
-        }
-
-        const stepsAr = steps.map(s => s);
-        const numbered = enumerateSteps(stepsAr);
-        const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
-
-        // help options: convert to objects (token + label) for the frontend
-        const helpOptionsObjs = stepsAr.map((_,i)=>({
-          token: `BTN_HELP_${i+1}`,
-          label: `${emojiForIndex(i)} Ayuda paso ${i+1}`
-        }));
-        const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
-        const helpOptionsTokens = helpOptionsObjs.map(x=>x.token);
-
-        const footerTop = [
-          '',
-          '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
-          ''
-        ].join('\n');
-
-        const footerBottom = [
-          '',
-          '🤔 Contanos cómo te fue utilizando los botones:'
-        ].join('\n');
-
-        const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
-
-        session.tests.basic = stepsAr;
-        session.stepsDone.push('basic_tests_shown');
-        session.waEligible = false;
-        session.lastHelpStep = null;
-        session.stage = STATES.BASIC_TESTS;
-
-        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
-        await saveSession(sid, session);
-
-        // Return help step buttons as labels for compatibility, but include objects and tokens too
-        const finalOptionsObjs = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-        const finalOptionsSimple = finalOptionsObjs.map(x=>x.label);
-        const finalOptionsTokens = finalOptionsObjs.map(x=>x.token);
-
-        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage,
-          options: finalOptionsSimple,
-          options_objects: finalOptionsObjs,
-          options_simple: finalOptionsSimple,
-          options_tokens: finalOptionsTokens,
-          steps: stepsAr
-        }));
-      } catch(err){
-        console.error('diagnóstico ASK_PROBLEM', err);
-        return res.json(withOptions({ ok:true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
-      }
-    }
-
-    // 3) ASK_DEVICE
-    else if(session.stage === STATES.ASK_DEVICE || !session.device){
-      const msg = `Perfecto. Anoté: “${session.problem || ''}”.\n\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
-      session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply: msg, stage: session.stage, options: ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'] }));
-    }
-
-    // 4) BASIC_TESTS / follow-ups
-    else {
-      const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
-
-      if(session.lastHelpStep){
-        if (rxYes.test(t)) {
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-          session.stage = STATES.ENDED;
-          session.lastHelpStep = null;
-          session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
-        } else if(rxNo.test(t)){
-          const src = session.lastHelpStep.type;
-          const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
-          const numbered = enumerateSteps(list || []);
-
-          const helpOptionsObjs = (list||[]).map((_,i)=>({ token:`BTN_HELP_${i+1}`, label:`${emojiForIndex(i)} Ayuda paso ${i+1}` }));
-          const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
-          const helpOptionsTokens = helpOptionsObjs.map(x=>x.token);
-
-          reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
-          options = helpOptionsSimple;
-          options_objects = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-          options_simple = options;
-          options_tokens = options_objects.map(x=>x.token);
-          session.lastHelpStep = null;
-          session.waEligible = false;
-        } else {
-          reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
-          const replyObjs = [{ token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-          options = replyObjs.map(x=>x.label);
-          options_objects = replyObjs;
-          options_simple = options;
-          options_tokens = replyObjs.map(x=>x.token);
-        }
-      } else {
-        if (rxYes.test(t)) {
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-          reply = replyYes;
-          options = [];
-          session.stage = STATES.ENDED;
-          session.waEligible = false;
-        } else if (rxNo.test(t)) {
-          // User indicates problem persists: present structured buttons (tokens + labels)
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
-
-          const btnMore   = { token: 'BTN_MORE_TESTS',   label: '🔍 Más pruebas' };
-          const btnTech   = { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico' };
-
-          // === Compatibilidad máxima: mandamos en todos los formatos ===
-          options_objects = [ btnMore, btnTech ];
-          options = options_objects.map(o => ({ token: o.token, label: o.label })); // <- objetos en options
-          options_simple  = options_objects.map(o => o.label);
-          options_tokens  = options_objects.map(o => o.token);
-
-          // estado
-          session.stage = STATES.ESCALATE;
-          session.waEligible = false;
-        } else {
-          const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
-          const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
-
-          if (opt1.test(t)) {
-            const reply1 = 'Seleccionaste opcion 1';
-            session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
-            await saveSession(sid, session);
-            return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
-          } else if (opt2.test(t)) {
-            const whoName = session.userName ? cap(session.userName) : 'usuario';
-            const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
-
-            try {
-              const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-              const rand = Math.random().toString(36).slice(2,6).toUpperCase();
-              const ticketId = `TCK-${ymd}-${rand}`;
-              const now = new Date();
-              const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-              const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-              const datePart = dateFormatter.format(now).replace(/\//g,'-');
-              const timePart = timeFormatter.format(now);
-              const generatedLabel = `${datePart} ${timePart} (ART)`;
-              let safeName = '';
-              if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
-              const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
-              const lines = [];
-              lines.push(titleLine);
-              lines.push(`Generado: ${generatedLabel}`);
-              if(session.userName) lines.push(`Cliente: ${session.userName}`);
-              if(session.device) lines.push(`Equipo: ${session.device}`);
-              if(sid) lines.push(`Session: ${sid}`);
-              lines.push('');
-              lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-              for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
-
-              try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
-              const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
-              fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-
-              const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-              const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-
-              const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
-              const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
-              const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
-              const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-
-              const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-              const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-
-              const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
-
-              session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
-              await saveSession(sid, session);
-
-              reply = replyTech;
-              options = [ { token: btnWhats.token, label: btnWhats.label } ];
-              options_objects = [ btnWhats ];
-              options_simple = [ btnWhats.label ];
-              options_tokens = [ btnWhats.token ];
-              session.waEligible = true;
-              session.stage = STATES.ESCALATE;
-
-              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, options_objects, options_simple, options_tokens, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
-            } catch (errTick) {
-              console.error('[create-ticket]', errTick);
-              session.waEligible = false;
-              reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
-              options = ['Generar ticket','Volver'];
-              session.stage = STATES.ESCALATE;
-              await saveSession(sid, session);
-              return res.json(withOptions({ ok:false, reply, stage: session.stage, options }));
-            }
-          }
-        }
-      }
-    }
-
-    // Guardar respuesta y transcript
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-    await saveSession(sid, session);
-    try {
-      const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
-      fs.appendFileSync(tf, userLine);
-      fs.appendFileSync(tf, botLine);
-    } catch(e){ /* noop */ }
-
-    // Construcción final de la respuesta: incluimos options (labels), options_objects, options_simple y options_tokens
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-    if(options && options.length) response.options = options;
-    if(options_objects && options_objects.length) response.options_objects = options_objects;
-    if(typeof options_simple !== 'undefined' && options_simple !== null) response.options_simple = options_simple;
-    if(typeof options_tokens !== 'undefined' && options_tokens !== null) response.options_tokens = options_tokens;
-    if(session.waEligible) response.allowWhatsapp = true;
-    if(CHAT?.ui) response.ui = CHAT.ui;
-    return res.json(response);
-
-  } catch(e){
-    console.error('[api/chat] Error', e);
-    return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
+    const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(waText)}`;
+    res.json({ ok: true, ticketId, publicUrl, waUrl });
+  } catch (e) {
+    console.error('[whatsapp-ticket] ❌', e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// List active sessions
-app.get('/api/sessions', async (_req,res)=>{
-  const sessions = await listActiveSessions();
-  res.json({ ok:true, count: sessions.length, sessions });
+// Página pública del ticket (HTML básico con metadatos sociales)
+app.get('/ticket/:id', (req, res) => {
+  const id = String(req.params.id || '').replace(/[^A-Z0-9-]/g, '');
+  const file = path.join(TICKETS_DIR, `${id}.txt`);
+  if (!fs.existsSync(file)) return res.status(404).send('Ticket no encontrado');
+  const content = fs.readFileSync(file, 'utf8');
+  const title = `STI • Servicio Técnico Inteligente — Ticket ${id}`;
+  const desc = (content.split('\n').slice(0, 8).join(' ') || '').slice(0, 200);
+  const url  = `${PUBLIC_BASE_URL}/ticket/${id}`;
+  const logo = `${PUBLIC_BASE_URL}/logo.png`;
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><title>${title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${desc}">
+<meta property="og:url" content="${url}">
+<meta property="og:image" content="${logo}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${title}">
+<meta name="twitter:description" content="${desc}">
+<meta name="twitter:image" content="${logo}">
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;margin:24px;background:#f5f5f5}
+pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:16px;border-radius:12px;line-height:1.4;overflow:auto}
+h1{font-size:20px;margin:0 0 6px}a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
+</style></head>
+<body>
+<h1>${title}</h1>
+<p><a href="https://stia.com.ar" target="_blank">stia.com.ar</a> • <a href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank">WhatsApp</a></p>
+<pre>${content.replace(/[&<>]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))}</pre>
+</body></html>`);
 });
 
-// ===== utils =====
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+// Reset de sesión: útil para botón “Nueva conversación” en el front
+app.post('/api/reset', async (req, res) => {
+  const sid = req.sessionId;
+  const empty = {
+    id: sid, userName: null, stage: STATES.ASK_NAME,
+    device:null, problem:null, issueKey:null,
+    tests:{ basic:[], advanced:[], ai:[] }, stepsDone:[],
+    fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null
+  };
+  await saveSession(sid, empty);
+  res.json({ ok: true });
+});
 
-// ===== start server =====
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, ()=> {
-  console.log(`STI Chat (OpenAI first-only filter) started on ${PORT}`);
+// ====== GREETING CON REINICIO FORZADO DE SESIÓN ======
+// Siempre arranca “limpio”: resetea sesión y devuelve el saludo con pedido de nombre
+app.all('/api/greeting', async (req, res) => {
+  try {
+    const sid = req.sessionId;
+
+    // Crea SIEMPRE una sesión fresca (evita estados pegados)
+    const fresh = {
+      id: sid,
+      userName: null,
+      stage: STATES.ASK_NAME,
+      device: null,
+      problem: null,
+      issueKey: null,
+      tests: { basic: [], advanced: [], ai: [] },
+      stepsDone: [],
+      fallbackCount: 0,
+      waEligible: false,
+      transcript: [],
+      pendingUtterance: null
+    };
+
+    // Texto configurable desde JSON; fallback literal
+    const text = CHAT?.messages_v4?.greeting?.name_request
+      || '👋 ¡Hola! Soy Tecnos,  tu Asistente Inteligente. ¿Cuál es tu nombre?';
+
+    fresh.transcript.push({ who: 'bot', text, ts: nowIso() });
+    await saveSession(sid, fresh);
+
+    return res.json({ ok: true, greeting: text, reply: text, options: [] });
+  } catch (e) {
+    console.error('[api/greeting RESET] error:', e);
+    const text = '👋 ¡Hola! Soy Tecnos,  tu Asistente Inteligente. ¿Cuál es tu nombre?';
+    return res.json({ ok: true, greeting: text, reply: text, options: [] });
+  }
+});
+
+// Chat principal: corazón del flujo conversacional
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { text = '' } = req.body || {};
+    const t = String(text).trim();
+    const sid = req.sessionId;
+
+    // Carga o crea sesión si no existe (primer mensaje)
+    let session = await getSession(sid);
+    if (!session) {
+      session = {
+        id: sid, userName: null, stage: STATES.ASK_NAME,
+        device:null, problem:null, issueKey:null,
+        tests:{ basic:[], advanced:[], ai:[] }, stepsDone:[],
+        fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null
+      };
+      console.log(`[api/chat] ✨ Nueva sesión: ${sid}`);
+    }
+
+    // Log del usuario en transcript (memoria de la conversación)
+    session.transcript.push({ who: 'user', text: t, ts: nowIso() });
+
+    // Detección inline de nombre en el mismo mensaje (e.g., "hola, me llamo X")
+    const nmInline = extractName(t);
+    if (nmInline && !session.userName) {
+      session.userName = cap(nmInline);
+      if (session.stage === STATES.ASK_NAME) {
+        session.stage = STATES.ASK_PROBLEM;
+        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json({ ok: true, reply, stage: session.stage, options: [] });
+      }
+    }
+
+    let reply = ''; let options = [];
+
+    // ===== 1) Estado: pedir nombre =====
+    if (session.stage === STATES.ASK_NAME) {
+      // Si describe problema antes del nombre, guardamos para retomarlo
+      if (problemHint.test(t) && !extractName(t)) session.pendingUtterance = t;
+
+      // Detección de nombre u “omitir”
+      const name = extractName(t);
+      if (/^omitir$/i.test(t)) {
+        session.userName = session.userName || 'usuario';
+      } else if (!session.userName && name) {
+        session.userName = cap(name);
+      }
+
+      // Si aún no tenemos nombre, re-preguntamos
+      if (!session.userName) {
+        reply = '😊 ¿Cómo te llamás?\n\n(Ejemplo: "soy Lucas")';
+      } else {
+        // Tenemos nombre → pasamos a pedir problema
+        session.stage = STATES.ASK_PROBLEM;
+        if (session.pendingUtterance) {
+          // Si ya había contado el problema, lo retomamos y pedimos equipo
+          session.problem = session.pendingUtterance;
+          session.pendingUtterance = null;
+          session.stage = STATES.ASK_DEVICE;
+          options = ['PC','Notebook','Teclado','Mouse','Monitor','Internet / Wi-Fi'];
+          reply = `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n¿En qué equipo te pasa?`;
+        } else {
+          reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+        }
+      }
+    }
+
+    // ===== 2) Estado: pedir problema (MEJORADO: prioriza OA en ambigüedad/periféricos) =====
+    else if (session.stage === STATES.ASK_PROBLEM) {
+      session.problem = t || session.problem;
+
+      try {
+        // 1) Señales de ambigüedad y mención de dispositivos/periféricos
+        const ambiguous = /(no (reconoce|detecta|anda|funciona|responde|enciende|arranca|inicia)|problema|error|falla)/i;
+        const hasDeviceWord = /(teclado|keyboard|mouse|rat[oó]n|monitor|pantalla|impresora|printer|usb|pendrive|disco|ssd|hdd|c[aá]mara|webcam|microf[oó]no|mic|wifi|wi-?fi|internet|red|ethernet|router|m[óo]dem|modem)/i;
+
+        // 2) Inicializamos con detección local mínima
+        let device     = detectDevice(session.problem);
+        let issueKey   = detectIssue(session.problem);
+        let confidence = issueKey ? 0.6 : 0;
+
+        // 3) Si hay OpenAI y el texto es ambiguo o menciona periféricos, priorizar OA
+        if (openai && (ambiguous.test(session.problem) || hasDeviceWord.test(session.problem))) {
+          const ai = await analyzeProblemWithOA(session.problem);
+          if (ai.device)   device = ai.device;
+          if (ai.issueKey) issueKey = ai.issueKey;
+          confidence = Math.max(confidence, ai.confidence || 0);
+        } else if (openai && (!issueKey || !device)) {
+          // Si la regex local no fue concluyente, consultá a OA igual como refuerzo
+          const ai = await analyzeProblemWithOA(session.problem);
+          if (ai.device && !device)   device = ai.device;
+          if (ai.issueKey && !issueKey) issueKey = ai.issueKey;
+          confidence = Math.max(confidence, ai.confidence || 0);
+        }
+
+        // 4) Si la confianza alcanza el umbral → ir directo a pasos básicos
+        if (confidence >= OA_MIN_CONF && (issueKey || device)) {
+          session.device   = session.device || device || 'equipo';
+          session.issueKey = issueKey || session.issueKey || null;
+          session.stage    = STATES.BASIC_TESTS;
+
+          const key = session.issueKey || 'no_funciona';
+          const stepsSrc = CHAT?.nlp?.advanced_steps?.[key];
+          const steps = Array.isArray(stepsSrc) ? stepsSrc.slice(0, 4) : [
+            'Verificá la energía (enchufe / zapatilla / botón I/O de la fuente)',
+            'Probá otro tomacorriente o cable/cargador',
+            'Mantené presionado el botón de encendido 15–30 segundos y probá de nuevo',
+            'Si hay luces o sonidos, probá desconectar periféricos y volver a encender'
+          ];
+          const stepsAr = mapVoseoSafe(steps);
+
+          const intro = `Entiendo, ${session.userName}. Probemos esto primero:`;
+          const footer = [
+            '',
+            '🧩 ¿Se solucionó?',
+            'Si no, puedo ofrecerte algunas **pruebas más avanzadas**.',
+            '',
+            'Decime: **"sí"**, **"no"** o **"avanzadas"**.'
+          ].join('\n');
+
+          session.tests.basic = stepsAr;
+          session.stepsDone.push('basic_tests_shown');
+          session.waEligible = true;
+
+          const fullMsg = intro + '\n\n• ' + stepsAr.join('\n• ') + '\n' + footer;
+
+          session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
+          await saveSession(sid, session);
+
+          try {
+            const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+            fs.appendFileSync(tf, `[${nowIso()}] ASSISTANT: ${intro}\n`);
+            stepsAr.forEach(s => fs.appendFileSync(tf, ` - ${s}\n`));
+            fs.appendFileSync(tf, `\n${footer}\n`);
+          } catch (e) { console.error('[transcript write] error:', e.message); }
+
+          return res.json({
+            ok: true,
+            reply: fullMsg,
+            steps,
+            stepsType: 'basic',
+            options: ['Sí, se solucionó ✅', 'No, sigue igual ❌', 'Avanzadas 🔧', 'WhatsApp'],
+            stage: session.stage,
+            allowWhatsapp: true
+          });
+        }
+
+        // 5) Si no hay confianza suficiente → pedimos equipo (sin perder el problema)
+        session.stage = STATES.ASK_DEVICE;
+        const msg = `Enseguida te ayudo con ese problema 🔍\n\n` +
+                    `Perfecto, ${session.userName}. Anoté: “${session.problem}”.\n\n` +
+                    `¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
+        await saveSession(sid, session);
+        return res.json({
+          ok: true,
+          reply: msg,
+          options: ['PC','Notebook','Monitor','Teclado','Internet / Wi-Fi']
+        });
+
+      } catch (err) {
+        console.error('diagnóstico ASK_PROBLEM+', err);
+        return res.json({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo en un momento.' });
+      }
+    }
+
+    // ===== 3) Estado: pedir equipo y derivar a tests =====
+    else if (session.stage === STATES.ASK_DEVICE || !session.device) {
+      // Usa regex o limpia texto (solo letras/espacios) para determinar el equipo
+      const dev = detectDevice(t) || t.toLowerCase().replace(/[^a-záéíóúñ\s]/gi, '').trim();
+      if (dev && dev.length >= 2) {
+        session.device = dev;
+
+        // Intento de deducir issue combinando problema + equipo
+        const issueKey = detectIssue(`${session.problem || ''} ${t}`.trim());
+        if (issueKey) {
+          // Tenemos issue → pasos básicos (3 primeros) + pie ¿Se solucionó?
+          session.issueKey = issueKey;
+          session.stage    = STATES.BASIC_TESTS;
+          const pasosSrc = CHAT?.nlp?.advanced_steps?.[issueKey];
+          const pasos = Array.isArray(pasosSrc) ? pasosSrc : [
+            'Reiniciar el equipo',
+            'Verificar conexiones físicas',
+            'Probar en modo seguro',
+          ];
+          const pasosAr = mapVoseoSafe(pasos);
+          reply  = `Entiendo, ${session.userName}. Tu **${session.device}** tiene el problema: ${issueHuman(issueKey)} 🔍\n\n`;
+          reply += `🔧 **Probá estos pasos básicos:**\n\n`;
+          pasosAr.slice(0, 3).forEach((p, i) => { reply += `${i + 1}. ${p}\n`; });
+
+          // Pie unificado
+          reply += `\n🧩 ¿Se solucionó?\n`;
+          reply += `Si no, puedo ofrecerte algunas **pruebas más avanzadas**.\n\n`;
+          reply += `Decime: **"sí"** o **"no"**.\n`;
+
+          session.tests.basic = pasosAr.slice(0, 3);
+          session.stepsDone.push('basic_tests_shown');
+          options = ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp'];
+          session.waEligible = true;
+        } else {
+          // No hay issue claro → pedir AI quick tests + pie ¿Se solucionó?
+          session.stage = STATES.BASIC_TESTS_AI;
+          try {
+            const ai = await aiQuickTests(session.problem || '', session.device || '');
+            if (ai.length) {
+              const aiAr = mapVoseoSafe(ai);
+              reply  = `Entiendo, ${session.userName}. Probemos esto rápido 🔍\n\n`;
+              reply += `🔧 **Pasos iniciales:**\n\n`;
+              aiAr.forEach(s => reply += `• ${s}\n`);
+
+              // Pie unificado
+              reply += `\n🧩 ¿Se solucionó?\n`;
+              reply += `Si no, puedo ofrecerte algunas **pruebas más avanzadas**.\n\n`;
+              reply += `Decime: **"sí"**, **"no"** o **"avanzadas"**.\n`;
+
+              session.tests.ai = aiAr;
+              session.stepsDone.push('ai_basic_shown');
+              session.waEligible = true;
+              options = ['Sí, se solucionó ✅','No, sigue igual ❌','Avanzadas 🔧','WhatsApp'];
+            } else {
+              reply = `Perfecto, ${session.userName}. Anotado: **${session.device}** 📝\n\nContame un poco más del problema.`;
+            }
+          } catch (e) {
+            console.error('[aiQuickTests] ❌', e.message);
+            reply = 'No pude generar sugerencias ahora 😅. Contame un poco más del problema.';
+          }
+        }
+      } else {
+        // Si no reconoce el equipo, ofrece opciones clicables
+        reply = '¿Podés decirme el tipo de equipo?\n\n(Ejemplo: PC, notebook, monitor, teclado, etc.)';
+        options = ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'];
+      }
+    }
+
+    // ===== 4) Estados de pruebas y escalación =====
+    else {
+      // --- NUEVO: manejo explícito de "sí / no / avanzadas" luego del pie ---
+      const rxYes = /\b(s[ií]|sí se solucion[oó]|se solucion[oó]|funcion[oó]|ya anda|listo funcion[oó])\b/i;
+      const rxNo  = /\b(no|todav[ií]a no|no funcion[oó]|sigue igual|no cambi[oó]|tampoco)\b/i;
+      const rxAdv = /\b(avanzadas?|m[aá]s pruebas|pruebas t[eé]cnicas|continuar|seguir)\b/i;
+
+      if (rxYes.test(t)) {
+        // Cierre amable + CTA WhatsApp según texto acordado
+        reply  = `¡Excelente, ${session.userName}! 🙌\n`;
+        reply += `Me alegra que se haya solucionado 💪\n`;
+        reply += `Si vuelve a ocurrir o necesitás revisar otro equipo, podés contactarnos nuevamente cuando quieras.\n\n`;
+        reply += `¡Gracias por confiar en STI! ⚡\n\n`;
+        reply += `Si querés hacerle algún comentario al cuerpo técnico, pulsá el botón verde y se enviará un ticket por WhatsApp con esta conversación.\n`;
+        reply += `Enviá el mensaje sin modificarlo, y luego podés hacer el comentario que quieras. 📨`;
+        options = ['WhatsApp'];
+        session.stage = STATES.ESCALATE;     // marcamos fin del flujo automático
+        session.waEligible = true;
+
+      } else if (rxNo.test(t)) {
+        session.stepsDone.push('user_says_not_working');
+        const triedAdv = (session.stage === STATES.ADVANCED_TESTS);
+        const noCount = session.stepsDone.filter(x => x === 'user_says_not_working').length;
+        const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
+        const advAr = mapVoseoSafe(adv);
+        if (triedAdv || noCount >= 2 || advAr.length === 0) {
+          session.stage = STATES.ESCALATE;
+          session.waEligible = true;
+          reply = 'Entiendo. Te paso con un técnico para ayudarte personalmente. Tocá el botón verde y se enviará un ticket con esta conversación para agilizar la atención.';
+          options = ['WhatsApp'];
+        } else {
+          session.stage = STATES.ADVANCED_TESTS;
+          session.tests.advanced = advAr;
+          reply = `Entiendo, ${session.userName} 😔\nEntonces vamos a hacer unas **pruebas más avanzadas** para tratar de solucionarlo. 🔍\n\n`;
+          advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
+          session.waEligible = true;
+          options = ['Volver a básicas','WhatsApp'];
+        }
+      } else if (rxAdv.test(t)) {
+        // Ir directo a avanzadas sin repetir el discurso
+        const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
+        const advAr = mapVoseoSafe(adv);
+        if (advAr.length > 0) {
+          session.stage = STATES.ADVANCED_TESTS;
+          session.tests.advanced = advAr;
+          reply  = `Perfecto 👍\n`;
+          reply += `Te muestro las **pruebas más avanzadas** para este caso:\n\n`;
+          advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
+          session.waEligible = true;
+          options = ['Volver a básicas','WhatsApp'];
+        } else {
+          reply = 'No tengo más pasos automáticos para este caso. Te paso con un técnico para seguimiento por WhatsApp.';
+          session.waEligible = true; options = ['WhatsApp'];
+          session.stage = STATES.ESCALATE;
+        }
+
+      // Petición directa de derivación a humano/WhatsApp (atajo)
+      } else if (/\b(whatsapp|t[ée]cnico|derivar|persona|humano)\b/i.test(t)) {
+        session.waEligible = true;
+        reply = '✅ Te preparo un ticket con el historial para WhatsApp.';
+        options = ['Enviar a WhatsApp (con ticket)'];
+
+      // Confirmación genérica “ok/dale/listo/probé” → intenta avanzar a avanzadas si corresponde
+      } else if (/\b(dale|ok|bueno|joya|b[áa]rbaro|listo|perfecto|prob[ée]|hice)\b/i.test(t)) {
+        session.stepsDone.push('user_confirmed_basic');
+        if (session.stage === STATES.BASIC_TESTS && ((session.tests.basic || []).length >= 2 || (session.tests.ai || []).length >= 2)) {
+          const adv = (CHAT?.nlp?.advanced_steps?.[session.issueKey] || []).slice(3, 6);
+          const advAr = mapVoseoSafe(adv);
+          if (advAr.length > 0) {
+            session.stage = STATES.ADVANCED_TESTS;
+            session.tests.advanced = advAr;
+            reply = `Genial, ${session.userName}. Sigamos con pasos más avanzados 🔧\n\n`;
+            advAr.forEach((p, i) => reply += `${i + 1}. ${p}\n`);
+            reply += `\n¿Pudiste probar alguno?`;
+            session.waEligible = true;
+            options = ['Volver a básicas','WhatsApp'];
+          } else {
+            reply = '👍 Perfecto. Si persiste, te paso con un técnico.';
+            session.waEligible = true;
+            options = ['WhatsApp'];
+          }
+        } else {
+          reply = '👍 Perfecto. ¿Alguno de esos pasos ayudó?';
+          options = ['Pasar a avanzadas','WhatsApp'];
+        }
+
+      // Mensaje genérico de loop cuando espera acción del usuario
+      } else {
+        reply = `Recordá que estamos revisando tu **${session.device || 'equipo'}** por ${issueHuman(session.issueKey)} 🔍\n\n` +
+                `¿Probaste los pasos que te sugerí?\n\n` +
+                'Decime:\n• **"sí"** si los probaste\n• **"no"** si no funcionaron\n• **"avanzadas"** para ver más pruebas\n• **"ayuda"** para hablar con un técnico';
+        options = ['Avanzadas 🔧','WhatsApp'];
+      }
+    }
+
+    // Persistencia del mensaje del bot
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    await saveSession(sid, session);
+
+    // Además, guarda en archivo .txt para auditoría
+    try {
+      const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+      fs.appendFileSync(tf, `[${nowIso()}] USER: ${t}\n`);
+      fs.appendFileSync(tf,  `[${nowIso()}] ASSISTANT: ${reply}\n`);
+    } catch (e) { console.warn('[transcript] no pude escribir:', e.message); }
+
+    // Arma respuesta HTTP (incluye options y flag allowWhatsapp si aplica)
+    const response = withOptions({ ok: true, reply, sid, stage: session.stage });
+    if (options && options.length) response.options = options;
+    if (session.waEligible) response.allowWhatsapp = true;
+    return res.json(response);
+
+  } catch (e) {
+    console.error('[api/chat] ❌ Error:', e);
+    return res.status(200).json(withOptions({ ok: true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
+  }
+});
+
+// Listar sesiones activas (debug/admin)
+app.get('/api/sessions', async (_req, res) => {
+  const sessions = await listActiveSessions();
+  res.json({ ok: true, count: sessions.length, sessions });
+});
+
+// ===== Server =====
+const PORT = process.env.PORT || 3001;     // Puerto (Render suele inyectar PORT)
+app.listen(PORT, () => {
+  console.log('\n' + '='.repeat(60));
+  console.log(`🚀 [STI Chat V4.8.3-FlowFix] Started`);
+  console.log(`📍 Port: ${PORT}`);
+  console.log(`📂 Data: ${DATA_BASE}`);
+  console.log(`${CHAT?.version ? `📋 Chat config: ${CHAT.version}` : '⚠️  No chat config loaded'}`);
+  console.log('='.repeat(60) + '\n');
 });
