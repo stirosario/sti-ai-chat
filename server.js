@@ -729,20 +729,24 @@ app.post('/api/chat', async (req,res)=>{
           session.waEligible = false;
         } else if (rxNo.test(t)) {
           // User indicates problem persists: present structured buttons (tokens + labels)
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
+const whoName = session.userName ? cap(session.userName) : 'usuario';
+reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
-          const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
-          const btnMore = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
+// definimos los botones como objetos token+label (forma que el frontend ya procesa)
+const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
+const btnMore  = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
 
-          // prepare all representations
-          options = [btnWhats.label, btnMore.label];          // labels for simple frontends
-          options_objects = [btnWhats, btnMore];              // objects (token+label)
-          options_simple = options.slice();
-          options_tokens = [btnWhats.token, btnMore.token];
+// PRIMARY: response.options debe ser ARRAY DE OBJETOS { token, label }
+options = [ btnWhats, btnMore ];
 
-          session.stage = STATES.ESCALATE;
-          session.waEligible = false;
+// EXTRA: mantener fallbacks por compatibilidad
+options_objects = [ btnWhats, btnMore ];           // idéntico a options, por si el frontend lo usa
+options_simple = options.map(o => o.label);        // array de labels (strings)
+options_tokens = options.map(o => o.token);        // array de tokens (strings)
+
+// estado
+session.stage = STATES.ESCALATE;
+session.waEligible = false;
         } else {
           const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
           const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
