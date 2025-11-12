@@ -405,7 +405,7 @@ app.post('/api/chat', async (req,res)=>{
       console.log('[api/chat] nueva session', sid);
     }
 
-    // If BTN_WHATSAPP pressed (creates ticket immediately)
+    // If BTN_WHATSAPP or BTN_CONNECT_TECH pressed (creates ticket immediately)
     if (buttonToken === 'BTN_WHATSAPP' || buttonToken === 'BTN_CONNECT_TECH') {
       try {
         const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -460,8 +460,8 @@ app.post('/api/chat', async (req,res)=>{
           ok:true,
           reply: replyTech,
           stage: session.stage,
-          options: [btnWhats].map(o=>o.label),        // ensure options contains label-strings for old frontends
-          options_objects: [btnWhats],                // also include objects
+          options: [ { token: btnWhats.token, label: btnWhats.label } ], // opciones como objetos
+          options_objects: [btnWhats],
           options_simple: [btnWhats.label],
           options_tokens: [btnWhats.token],
           waUrlWeb,
@@ -477,6 +477,44 @@ app.post('/api/chat', async (req,res)=>{
         await saveSession(sid, session);
         return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
       }
+    }
+
+    // === Handler directo para BTN_MORE_TESTS (sugerencia #3) ===
+    if (buttonToken === 'BTN_MORE_TESTS') {
+      const device = session.device || '';
+      const problem = session.problem || '';
+      const steps = await aiQuickTests(problem, device);
+      const stepsAr = Array.isArray(steps) && steps.length ? steps.slice(0,4) : [
+        'Reiniciá el equipo',
+        'Probá en otro programa o documento',
+        'Actualizá el sistema',
+        'Verificá conexiones'
+      ];
+      const numbered = enumerateSteps(stepsAr);
+      const intro = `Perfecto, ${session.userName || 'usuario'}. Probemos con más pasos:`;
+
+      const helpOptionsObjs = stepsAr.map((_,i)=>({ token:`BTN_HELP_${i+1}`, label:`${emojiForIndex(i)} Ayuda paso ${i+1}` }));
+      const finalObjs = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
+
+      const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' +
+                      '🧩 Si necesitás ayuda para realizar algún paso, tocá el número.\n\n' +
+                      '🤔 Contanos cómo te fue usando los botones:';
+
+      session.tests.ai = stepsAr;
+      session.lastHelpStep = null;
+      session.stage = STATES.ADVANCED_TESTS;
+      await saveSession(sid, session);
+
+      return res.json(withOptions({
+        ok: true,
+        reply: fullMsg,
+        stage: session.stage,
+        // Enviamos en todos los formatos
+        options: finalObjs.map(o => ({ token:o.token, label:o.label })), // objetos
+        options_objects: finalObjs,
+        options_simple: finalObjs.map(o => o.label),
+        options_tokens: finalObjs.map(o => o.token),
+      }));
     }
 
     // save user message in transcript
@@ -729,25 +767,21 @@ app.post('/api/chat', async (req,res)=>{
           session.waEligible = false;
         } else if (rxNo.test(t)) {
           // User indicates problem persists: present structured buttons (tokens + labels)
-const whoName = session.userName ? cap(session.userName) : 'usuario';
-reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
+          const whoName = session.userName ? cap(session.userName) : 'usuario';
+          reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
-// definimos los botones como objetos token+label (los guardamos en options_objects por compatibilidad)
-// pero dejamos response.options COMO ARRAY DE STRINGS (labels) — que es lo que el widget renderiza.
-const btnMore   = { token: 'BTN_MORE_TESTS',   label: '🔍 Más pruebas' };
-const btnTech   = { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico' };
+          const btnMore   = { token: 'BTN_MORE_TESTS',   label: '🔍 Más pruebas' };
+          const btnTech   = { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico' };
 
-// PRIMARY for the widget: options must be labels (strings) so the UI draws the buttons
-options = [ btnMore.label, btnTech.label ];    // <-- array de strings que el frontend renderiza
+          // === Compatibilidad máxima: mandamos en todos los formatos ===
+          options_objects = [ btnMore, btnTech ];
+          options = options_objects.map(o => ({ token: o.token, label: o.label })); // <- objetos en options
+          options_simple  = options_objects.map(o => o.label);
+          options_tokens  = options_objects.map(o => o.token);
 
-// Extras (no rompen nada): guardamos objetos y tokens para otros clientes o debugging
-options_objects = [ btnMore, btnTech ];
-options_simple  = options.slice();
-options_tokens  = [ btnMore.token, btnTech.token ];
-
-// estado
-session.stage = STATES.ESCALATE;
-session.waEligible = false;
+          // estado
+          session.stage = STATES.ESCALATE;
+          session.waEligible = false;
         } else {
           const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
           const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
@@ -805,7 +839,7 @@ session.waEligible = false;
               await saveSession(sid, session);
 
               reply = replyTech;
-              options = [ btnWhats.label ];
+              options = [ { token: btnWhats.token, label: btnWhats.label } ];
               options_objects = [ btnWhats ];
               options_simple = [ btnWhats.label ];
               options_tokens = [ btnWhats.token ];
