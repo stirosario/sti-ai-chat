@@ -31,10 +31,10 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // ===== Paths / persistencia =====
-const DATA_BASE       = process.env.DATA_BASE       || '/data';
+const DATA_BASE = process.env.DATA_BASE || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
-const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
-const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
+const TICKETS_DIR = process.env.TICKETS_DIR || path.join(DATA_BASE, 'tickets');
+const LOGS_DIR = process.env.LOGS_DIR || path.join(DATA_BASE, 'logs');
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com';
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
@@ -95,14 +95,14 @@ let CHAT = {};
 let deviceMatchers = [];
 let issueMatchers = [];
 
-function loadChatFromEmbedded(){
+function loadChatFromEmbedded() {
   try {
     CHAT = EMBEDDED_CHAT || {};
     deviceMatchers = (CHAT?.nlp?.devices || []).map(d => {
-      try { return { key: d.key, rx: new RegExp(d.rx, 'i') }; } catch(e){ return null; }
+      try { return { key: d.key, rx: new RegExp(d.rx, 'i') }; } catch (e) { return null; }
     }).filter(Boolean);
-    issueMatchers  = (CHAT?.nlp?.issues  || []).map(i => {
-      try { return { key: i.key, rx: new RegExp(i.rx, 'i') }; } catch(e){ return null; }
+    issueMatchers = (CHAT?.nlp?.issues || []).map(i => {
+      try { return { key: i.key, rx: new RegExp(i.rx, 'i') }; } catch (e) { return null; }
     }).filter(Boolean);
     console.log('[chat] cargado desde EMBEDDED_CHAT', CHAT.version || '(sin version)');
   } catch (e) {
@@ -114,26 +114,26 @@ loadChatFromEmbedded();
 
 // ===== Helpers simples =====
 function detectDevice(txt = '') { for (const d of deviceMatchers) if (d.rx.test(txt)) return d.key; return null; }
-function detectIssue (txt = '') { for (const i of issueMatchers)  if (i.rx.test(txt)) return i.key; return null; }
+function detectIssue(txt = '') { for (const i of issueMatchers) if (i.rx.test(txt)) return i.key; return null; }
 const issueHuman = (k) => CHAT?.nlp?.issue_labels?.[k] || 'el problema';
 
-const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
-function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
+const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+function emojiForIndex(i) { const n = i + 1; return NUM_EMOJIS[n] || `${n}.`; }
+function enumerateSteps(arr) { if (!Array.isArray(arr)) return []; return arr.map((s, i) => `${emojiForIndex(i)} ${s}`); }
 
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
-function isValidName(text){
-  if(!text) return false;
+function isValidName(text) {
+  if (!text) return false;
   const t = String(text).trim();
-  if(TECH_WORDS.test(t)) return false;
+  if (TECH_WORDS.test(t)) return false;
   return /^[a-záéíóúñ]{2,20}$/i.test(t);
 }
-function extractName(text){
-  if(!text) return null;
+function extractName(text) {
+  if (!text) return null;
   const t = String(text).trim();
   let m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{2,20})$/i);
-  if(m) return m[1];
-  if(isValidName(t)) return t;
+  if (m) return m[1];
+  if (isValidName(t)) return t;
   return null;
 }
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
@@ -142,8 +142,8 @@ const withOptions = obj => ({ options: [], ...obj });
 // ===== OpenAI helpers (analyzeProblemWithOA used as FIRST filter) =====
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
 
-async function analyzeProblemWithOA(problemText = ''){
-  if(!openai) return { isIT: false, device: null, issueKey: null, confidence: 0 };
+async function analyzeProblemWithOA(problemText = '') {
+  if (!openai) return { isIT: false, device: null, issueKey: null, confidence: 0 };
   const prompt = [
     "Sos técnico informático argentino, claro y profesional.",
     "Decidí si el siguiente texto corresponde a un problema del rubro informático.",
@@ -157,7 +157,7 @@ async function analyzeProblemWithOA(problemText = ''){
       messages: [{ role: 'user', content: prompt }],
       temperature: 0
     });
-    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g,'');
+    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g, '');
     try {
       const obj = JSON.parse(raw);
       return {
@@ -166,7 +166,7 @@ async function analyzeProblemWithOA(problemText = ''){
         issueKey: obj.issueKey || null,
         confidence: Math.max(0, Math.min(1, Number(obj.confidence || 0)))
       };
-    } catch(parseErr){
+    } catch (parseErr) {
       console.error('[analyzeProblemWithOA] parse error', parseErr.message, 'raw:', raw);
       return { isIT: false, device: null, issueKey: null, confidence: 0 };
     }
@@ -176,8 +176,8 @@ async function analyzeProblemWithOA(problemText = ''){
   }
 }
 
-async function aiQuickTests(problemText = '', device = ''){
-  if(!openai){
+async function aiQuickTests(problemText = '', device = '') {
+  if (!openai) {
     return [
       'Reiniciar la aplicación donde ocurre el problema',
       'Probar en otro documento o programa para ver si persiste',
@@ -198,18 +198,18 @@ async function aiQuickTests(problemText = '', device = ''){
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3
     });
-    const raw = (resp.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+    const raw = (resp.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(x=>typeof x==='string').slice(0,6) : [];
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
   } catch (e) {
     console.error('[aiQuickTests] Error', e.message);
-    return ['Reiniciar la aplicación','Reiniciar el equipo','Comprobar actualizaciones','Verificar conexiones físicas'];
+    return ['Reiniciar la aplicación', 'Reiniciar el equipo', 'Comprobar actualizaciones', 'Verificar conexiones físicas'];
   }
 }
 
-async function getHelpForStep(stepText='', stepIndex=1, device='', problem=''){
-  if(!stepText) return 'No tengo el detalle de ese paso. Revisá los pasos que te ofrecí anteriormente.';
-  if(!openai){
+async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem = '') {
+  if (!stepText) return 'No tengo el detalle de ese paso. Revisá los pasos que te ofrecí anteriormente.';
+  if (!openai) {
     return `Para realizar el paso ${stepIndex}:\n\n${stepText}\n\nConsejos: hacelo con calma, verificá conexiones y avisame cualquier mensaje de error.`;
   }
   const prompt = [
@@ -239,7 +239,7 @@ const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false }));
-app.use((req,res,next)=>{ res.set('Cache-Control','no-store'); next(); });
+app.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 // ===== States =====
 const STATES = {
@@ -254,122 +254,122 @@ const STATES = {
 };
 
 // Normaliza sessionId
-function getSessionId(req){
-  const h = (req.headers['x-session-id']||'').toString().trim();
-  const b = (req.body && (req.body.sessionId||req.body.sid)) ? String(req.body.sessionId||req.body.sid).trim() : '';
-  const q = (req.query && (req.query.sessionId||req.query.sid)) ? String(req.query.sessionId||req.query.sid).trim() : '';
-  return h || b || q || `srv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+function getSessionId(req) {
+  const h = (req.headers['x-session-id'] || '').toString().trim();
+  const b = (req.body && (req.body.sessionId || req.body.sid)) ? String(req.body.sessionId || req.body.sid).trim() : '';
+  const q = (req.query && (req.query.sessionId || req.query.sid)) ? String(req.query.sessionId || req.query.sid).trim() : '';
+  return h || b || q || `srv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
+app.use((req, _res, next) => { req.sessionId = getSessionId(req); next(); });
 
 // ===== Endpoints =====
 
 // Health
-app.get('/api/health', (_req,res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ ok: true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
 });
 
 // Reload config
-app.post('/api/reload', (_req,res)=>{ try{ loadChatFromEmbedded(); res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
+app.post('/api/reload', (_req, res) => { try { loadChatFromEmbedded(); res.json({ ok: true, version: CHAT.version || null }); } catch (e) { res.status(500).json({ ok: false, error: e.message }); } });
 
 // Transcript plain
-app.get('/api/transcript/:sid', (req,res)=>{
-  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
+app.get('/api/transcript/:sid', (req, res) => {
+  const sid = String(req.params.sid || '').replace(/[^a-zA-Z0-9._-]/g, '');
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
-  res.set('Content-Type','text/plain; charset=utf-8');
-  res.send(fs.readFileSync(file,'utf8'));
+  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.send(fs.readFileSync(file, 'utf8'));
 });
 
 // WhatsApp ticket generator (API)
-app.post('/api/whatsapp-ticket', async (req,res)=>{
-  try{
+app.post('/api/whatsapp-ticket', async (req, res) => {
+  try {
     const { name, device, sessionId, history = [] } = req.body || {};
     let transcript = history;
     const sid = sessionId || req.sessionId;
-    if((!transcript || transcript.length===0) && sid){
+    if ((!transcript || transcript.length === 0) && sid) {
       const s = await getSession(sid);
-      if(s?.transcript) transcript = s.transcript;
+      if (s?.transcript) transcript = s.transcript;
     }
-    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-    const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
     const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-    const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-    const datePart = dateFormatter.format(now).replace(/\//g,'-');
+    const dateFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+    const datePart = dateFormatter.format(now).replace(/\//g, '-');
     const timePart = timeFormatter.format(now);
     const generatedLabel = `${datePart} ${timePart} (ART)`;
     let safeName = '';
-    if(name){ safeName = String(name).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+    if (name) { safeName = String(name).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); }
     const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
     const lines = [];
     lines.push(titleLine);
     lines.push(`Generado: ${generatedLabel}`);
-    if(name) lines.push(`Cliente: ${name}`);
-    if(device) lines.push(`Equipo: ${device}`);
-    if(sid) lines.push(`Session: ${sid}`);
+    if (name) lines.push(`Cliente: ${name}`);
+    if (device) lines.push(`Equipo: ${device}`);
+    if (sid) lines.push(`Session: ${sid}`);
     lines.push('');
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-    for(const m of transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+    for (const m of transcript || []) { lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${m.text || ''}`); }
+    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
     const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
     fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-    const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-    const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
+    const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/ticket/${ticketId}`;
+    const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/ticket/${ticketId}`;
     const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
     const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
     const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrlWeb, waUrlDesktop, allowWhatsapp: true });
-  } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
+    res.json({ ok: true, ticketId, publicUrl, apiPublicUrl, waUrlWeb, waUrlDesktop, allowWhatsapp: true });
+  } catch (e) { console.error('[whatsapp-ticket]', e); res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // Rutas públicas para tickets (API + vista)
 app.get('/api/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
+  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).json({ ok:false, error: 'not_found' });
-  res.json({ ok:true, ticketId: tid, content: fs.readFileSync(file,'utf8') });
+  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.json({ ok: true, ticketId: tid, content: fs.readFileSync(file, 'utf8') });
 });
 app.get('/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
+  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
-  res.set('Content-Type','text/plain; charset=utf-8');
-  res.send(fs.readFileSync(file,'utf8'));
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.send(fs.readFileSync(file, 'utf8'));
 });
 
 // Reset session
-app.post('/api/reset', async (req,res)=>{
+app.post('/api/reset', async (req, res) => {
   const sid = req.sessionId;
-  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
+  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device: null, problem: null, issueKey: null, tests: { basic: [], ai: [], advanced: [] }, stepsDone: [], fallbackCount: 0, waEligible: false, transcript: [], pendingUtterance: null, lastHelpStep: null };
   await saveSession(sid, empty);
-  res.json({ ok:true });
+  res.json({ ok: true });
 });
 
 // Greeting (start)
-app.all('/api/greeting', async (req,res)=>{
-  try{
+app.all('/api/greeting', async (req, res) => {
+  try {
     const sid = req.sessionId;
-    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
+    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device: null, problem: null, issueKey: null, tests: { basic: [], ai: [], advanced: [] }, stepsDone: [], fallbackCount: 0, waEligible: false, transcript: [], pendingUtterance: null, lastHelpStep: null };
     const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
-    fresh.transcript.push({ who:'bot', text, ts: nowIso() });
+    fresh.transcript.push({ who: 'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
-    return res.json({ ok:true, greeting:text, reply:text, options: [] });
-  } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
+    return res.json({ ok: true, greeting: text, reply: text, options: [] });
+  } catch (e) { console.error(e); return res.json({ ok: true, greeting: '👋 Hola', reply: '👋 Hola', options: [] }); }
 });
 
 // ===== Core chat endpoint =====
-app.post('/api/chat', async (req,res)=>{
-  try{
+app.post('/api/chat', async (req, res) => {
+  try {
     const body = req.body || {};
     // token map from embedded buttons
     const tokenMap = {};
-    if(Array.isArray(CHAT?.ui?.buttons)){
-      for(const b of CHAT.ui.buttons) if(b.token) tokenMap[b.token] = b.text || '';
+    if (Array.isArray(CHAT?.ui?.buttons)) {
+      for (const b of CHAT.ui.buttons) if (b.token) tokenMap[b.token] = b.text || '';
     } else {
       Object.assign(tokenMap, {
         'BTN_HELP_1': 'ayuda paso 1',
@@ -389,10 +389,10 @@ app.post('/api/chat', async (req,res)=>{
     let incomingText = String(body.text || '').trim();
     let buttonToken = null;
     let buttonLabel = null;
-    if(body.action === 'button' && body.value){
+    if (body.action === 'button' && body.value) {
       buttonToken = String(body.value);
-      if(tokenMap[buttonToken] !== undefined) incomingText = tokenMap[buttonToken];
-      else if(buttonToken.startsWith('BTN_HELP_')){
+      if (tokenMap[buttonToken] !== undefined) incomingText = tokenMap[buttonToken];
+      else if (buttonToken.startsWith('BTN_HELP_')) {
         const n = buttonToken.split('_').pop();
         incomingText = `ayuda paso ${n}`;
       } else incomingText = buttonToken;
@@ -402,41 +402,41 @@ app.post('/api/chat', async (req,res)=>{
     const sid = req.sessionId;
 
     let session = await getSession(sid);
-    if(!session){
-      session = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
+    if (!session) {
+      session = { id: sid, userName: null, stage: STATES.ASK_NAME, device: null, problem: null, issueKey: null, tests: { basic: [], ai: [], advanced: [] }, stepsDone: [], fallbackCount: 0, waEligible: false, transcript: [], pendingUtterance: null, lastHelpStep: null };
       console.log('[api/chat] nueva session', sid);
     }
 
     // If BTN_WHATSAPP pressed (creates ticket immediately)
     if (buttonToken === 'BTN_WHATSAPP') {
       try {
-        const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-        const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+        const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
         const ticketId = `TCK-${ymd}-${rand}`;
         const now = new Date();
-        const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-        const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-        const datePart = dateFormatter.format(now).replace(/\//g,'-');
+        const dateFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+        const datePart = dateFormatter.format(now).replace(/\//g, '-');
         const timePart = timeFormatter.format(now);
         const generatedLabel = `${datePart} ${timePart} (ART)`;
         let safeName = '';
-        if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+        if (session.userName) { safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); }
         const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
         const lines = [];
         lines.push(titleLine);
         lines.push(`Generado: ${generatedLabel}`);
-        if(session.userName) lines.push(`Cliente: ${session.userName}`);
-        if(session.device) lines.push(`Equipo: ${session.device}`);
-        if(sid) lines.push(`Session: ${sid}`);
+        if (session.userName) lines.push(`Cliente: ${session.userName}`);
+        if (session.device) lines.push(`Equipo: ${session.device}`);
+        if (sid) lines.push(`Session: ${sid}`);
         lines.push('');
         lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-        for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
-        try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+        for (const m of session.transcript || []) { lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${m.text || ''}`); }
+        try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
         const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
         fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
 
-        const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-        const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
+        const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/ticket/${ticketId}`;
+        const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/ticket/${ticketId}`;
 
         const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
         const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
@@ -451,14 +451,14 @@ app.post('/api/chat', async (req,res)=>{
         // prepare button object for frontend
         const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
 
-        session.transcript.push({ who:'bot', text: replyTech, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
         session.waEligible = true;
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
         // return both URLs and structured options (object + simple labels)
         return res.json(withOptions({
-          ok:true,
+          ok: true,
           reply: replyTech,
           stage: session.stage,
           options: [btnWhats],
@@ -472,17 +472,17 @@ app.post('/api/chat', async (req,res)=>{
         }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
-        session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
+        return res.json(withOptions({ ok: false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
       }
     }
 
     // save user message in transcript
-    if(buttonToken){
-      session.transcript.push({ who:'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
+    if (buttonToken) {
+      session.transcript.push({ who: 'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
     } else {
-      session.transcript.push({ who:'user', text: t, ts: nowIso() });
+      session.transcript.push({ who: 'user', text: t, ts: nowIso() });
     }
 
     // === Manejo: Reformular problema (botón/text) ===
@@ -502,14 +502,14 @@ app.post('/api/chat', async (req,res)=>{
 
     // Name extraction
     const nmInline = extractName(t);
-    if(nmInline && !session.userName){
+    if (nmInline && !session.userName) {
       session.userName = cap(nmInline);
-      if(session.stage === STATES.ASK_NAME){
+      if (session.stage === STATES.ASK_NAME) {
         session.stage = STATES.ASK_PROBLEM;
         const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json({ ok:true, reply, stage: session.stage, options: [] });
+        return res.json({ ok: true, reply, stage: session.stage, options: [] });
       }
     }
 
@@ -533,9 +533,9 @@ app.post('/api/chat', async (req,res)=>{
         const replyOptionsObjs = [
           { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️' },
           { token: 'BTN_PERSIST', label: 'El problema persiste ❌' },
-          { token: 'BTN_CLOSE',  label: 'Cerrar Chat 🔒' }
+          { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒' }
         ];
-        const replyOptionsSimple = replyOptionsObjs.map(x=>x.label);
+        const replyOptionsSimple = replyOptionsObjs.map(x => x.label);
 
         session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
         await saveSession(sid, session);
@@ -556,53 +556,53 @@ app.post('/api/chat', async (req,res)=>{
     let options_simple = null; // fallback labels list for simple frontends
 
     // 1) ASK_NAME
-    if(session.stage === STATES.ASK_NAME){
-      if(!session.userName){
+    if (session.stage === STATES.ASK_NAME) {
+      if (!session.userName) {
         reply = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
       } else {
         session.stage = STATES.ASK_PROBLEM;
         reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
       }
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
-      return res.json({ ok:true, reply, stage: session.stage, options });
+      return res.json({ ok: true, reply, stage: session.stage, options });
     }
 
     // 2) ASK_PROBLEM -> OPENAI as FIRST and ONLY FILTER
-    else if(session.stage === STATES.ASK_PROBLEM){
+    else if (session.stage === STATES.ASK_PROBLEM) {
       session.problem = t || session.problem;
 
-      if(!openai){
+      if (!openai) {
         const fallbackMsg = 'OpenAI no está configurado. No puedo aplicar el filtro solicitado. Configure OPENAI_API_KEY.';
-        session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: fallbackMsg, stage: session.stage, options: [] }));
+        return res.json(withOptions({ ok: false, reply: fallbackMsg, stage: session.stage, options: [] }));
       }
 
       const ai = await analyzeProblemWithOA(session.problem || '');
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
 
-      if(!isIT){
+      if (!isIT) {
         const replyNotIT = 'Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico.';
-        session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema'] }));
+        return res.json(withOptions({ ok: true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema'] }));
       }
 
-      if(ai.device) session.device = session.device || ai.device;
-      if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
+      if (ai.device) session.device = session.device || ai.device;
+      if (ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
-      try{
+      try {
         const issueKey = session.issueKey;
         const device = session.device || null;
-        const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
+        const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length > 0);
 
         let steps;
-        if(hasConfiguredSteps) steps = CHAT.nlp.advanced_steps[issueKey].slice(0,4);
+        if (hasConfiguredSteps) steps = CHAT.nlp.advanced_steps[issueKey].slice(0, 4);
         else {
           let aiSteps = [];
-          try{ aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
-          if(Array.isArray(aiSteps) && aiSteps.length>0) steps = aiSteps.slice(0,4);
+          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch (e) { aiSteps = []; }
+          if (Array.isArray(aiSteps) && aiSteps.length > 0) steps = aiSteps.slice(0, 4);
           else steps = [
             'Reiniciar la aplicación donde ocurre el problema',
             'Probar en otro documento o programa para ver si persiste',
@@ -616,11 +616,11 @@ app.post('/api/chat', async (req,res)=>{
         const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
 
         // help options: convert to objects (token + label) for the frontend
-        const helpOptionsObjs = stepsAr.map((_,i)=>({
-          token: `BTN_HELP_${i+1}`,
-          label: `${emojiForIndex(i)} Ayuda paso ${i+1}`
+        const helpOptionsObjs = stepsAr.map((_, i) => ({
+          token: `BTN_HELP_${i + 1}`,
+          label: `${emojiForIndex(i)} Ayuda paso ${i + 1}`
         }));
-        const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
+        const helpOptionsSimple = helpOptionsObjs.map(x => x.label);
 
         const footerTop = [
           '',
@@ -641,60 +641,60 @@ app.post('/api/chat', async (req,res)=>{
         session.lastHelpStep = null;
         session.stage = STATES.BASIC_TESTS;
 
-        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
         await saveSession(sid, session);
 
         // Return help step buttons as objects + a simple fallback labels array
-        const finalOptions = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-        const finalOptionsSimple = finalOptions.map(x=> x.label || x);
+        const finalOptions = [...helpOptionsObjs, { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️' }, { token: 'BTN_PERSIST', label: 'El problema persiste ❌' }];
+        const finalOptionsSimple = finalOptions.map(x => x.label || x);
 
-        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: finalOptions, options_simple: finalOptionsSimple, steps: stepsAr }));
-      } catch(err){
+        return res.json(withOptions({ ok: true, reply: fullMsg, stage: session.stage, options: finalOptions, options_simple: finalOptionsSimple, steps: stepsAr }));
+      } catch (err) {
         console.error('diagnóstico ASK_PROBLEM', err);
-        return res.json(withOptions({ ok:true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
+        return res.json(withOptions({ ok: true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
       }
     }
 
     // 3) ASK_DEVICE
-    else if(session.stage === STATES.ASK_DEVICE || !session.device){
+    else if (session.stage === STATES.ASK_DEVICE || !session.device) {
       const msg = `Perfecto. Anoté: “${session.problem || ''}”.\n\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
-      session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+      session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
       await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply: msg, stage: session.stage, options: ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'] }));
+      return res.json(withOptions({ ok: true, reply: msg, stage: session.stage, options: ['PC', 'Notebook', 'Monitor', 'Teclado', 'Mouse', 'Internet / Wi-Fi'] }));
     }
 
     // 4) BASIC_TESTS / follow-ups
     else {
       const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
 
-      if(session.lastHelpStep){
+      if (session.lastHelpStep) {
         if (rxYes.test(t)) {
           const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
+          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram https://instagram.com/sti.rosario o en 🌐 https://stia.com.ar ⚡`;
           session.stage = STATES.ENDED;
           session.lastHelpStep = null;
           session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
           await saveSession(sid, session);
           return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
-        } else if(rxNo.test(t)){
+        } else if (rxNo.test(t)) {
           const src = session.lastHelpStep.type;
           const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
           const numbered = enumerateSteps(list || []);
 
           // Build helpOptions as objects so frontend can render "Ayuda paso N" buttons
-          const helpOptionsObjs = (list||[]).map((_,i)=>({ token:`BTN_HELP_${i+1}`, label:`${emojiForIndex(i)} Ayuda paso ${i+1}` }));
-          const helpOptionsSimple = helpOptionsObjs.map(x=>x.label);
+          const helpOptionsObjs = (list || []).map((_, i) => ({ token: `BTN_HELP_${i + 1}`, label: `${emojiForIndex(i)} Ayuda paso ${i + 1}` }));
+          const helpOptionsSimple = helpOptionsObjs.map(x => x.label);
 
           reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
-          options = [...helpOptionsObjs, { token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
+          options = [...helpOptionsObjs, { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️' }, { token: 'BTN_PERSIST', label: 'El problema persiste ❌' }];
           options_simple = options.map(x => x.label || x);
           session.lastHelpStep = null;
           session.waEligible = false;
         } else {
           reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
-          options = [{ token:'BTN_SOLVED', label:'Lo pude solucionar ✔️' }, { token:'BTN_PERSIST', label:'El problema persiste ❌' }];
-          options_simple = options.map(x=>x.label);
+          options = [{ token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️' }, { token: 'BTN_PERSIST', label: 'El problema persiste ❌' }];
+          options_simple = options.map(x => x.label);
         }
       } else {
         if (rxYes.test(t)) {
@@ -709,12 +709,21 @@ app.post('/api/chat', async (req,res)=>{
           const whoName = session.userName ? cap(session.userName) : 'usuario';
           reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
+          // Botón para abrir WhatsApp / conectar con técnico
+          const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
+
+          // Botón para seguir con más pruebas
           const btnMore = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
-          const btnConnect = { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico' };
 
-          options = [ btnMore, btnConnect ];
-          options_simple = [ btnMore.label, btnConnect.label ];
+          // Devolvemos las tres formas para máxima compatibilidad:
+          // - options: objetos {token,label} (frontend moderno)
+          // - options_simple: solo labels (frontend simple)
+          // - options_tokens: solo tokens (frontend que sólo acepta strings/tokens)
+          options = [btnWhats, btnMore];
+          options_simple = [btnWhats.label, btnMore.label];
+          const options_tokens = [btnWhats.token, btnMore.token];
 
+          // estado de escalado y sin waEligible aquí (se activa solo cuando se crea ticket)
           session.stage = STATES.ESCALATE;
           session.waEligible = false;
         } else {
@@ -733,34 +742,34 @@ app.post('/api/chat', async (req,res)=>{
             const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp para abrir el chat y enviar el enlace.`;
 
             try {
-              const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-              const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+              const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+              const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
               const ticketId = `TCK-${ymd}-${rand}`;
               const now = new Date();
-              const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-              const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-              const datePart = dateFormatter.format(now).replace(/\//g,'-');
+              const dateFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' });
+              const timeFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+              const datePart = dateFormatter.format(now).replace(/\//g, '-');
               const timePart = timeFormatter.format(now);
               const generatedLabel = `${datePart} ${timePart} (ART)`;
               let safeName = '';
-              if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+              if (session.userName) { safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); }
               const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
               const lines = [];
               lines.push(titleLine);
               lines.push(`Generado: ${generatedLabel}`);
-              if(session.userName) lines.push(`Cliente: ${session.userName}`);
-              if(session.device) lines.push(`Equipo: ${session.device}`);
-              if(sid) lines.push(`Session: ${sid}`);
+              if (session.userName) lines.push(`Cliente: ${session.userName}`);
+              if (session.device) lines.push(`Equipo: ${session.device}`);
+              if (sid) lines.push(`Session: ${sid}`);
               lines.push('');
               lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-              for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+              for (const m of session.transcript || []) { lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${m.text || ''}`); }
 
-              try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+              try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
               const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
               fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
 
-              const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-              const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
+              const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/ticket/${ticketId}`;
+              const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/ticket/${ticketId}`;
 
               const prefix = CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:';
               const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
@@ -776,20 +785,20 @@ app.post('/api/chat', async (req,res)=>{
               await saveSession(sid, session);
 
               reply = replyTech;
-              options = [ btnWhats ];
-              options_simple = [ btnWhats.label ];
+              options = [btnWhats];
+              options_simple = [btnWhats.label];
               session.waEligible = true;
               session.stage = STATES.ESCALATE;
 
-              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, options_simple, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
+              return res.json(withOptions({ ok: true, reply, stage: session.stage, options, options_simple, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
             } catch (errTick) {
               console.error('[create-ticket]', errTick);
               session.waEligible = false;
               reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
-              options = ['Generar ticket','Volver'];
+              options = ['Generar ticket', 'Volver'];
               session.stage = STATES.ESCALATE;
               await saveSession(sid, session);
-              return res.json(withOptions({ ok:false, reply, stage: session.stage, options }));
+              return res.json(withOptions({ ok: false, reply, stage: session.stage, options }));
             }
           }
         }
@@ -797,41 +806,43 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // Guardar respuesta y transcript
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSession(sid, session);
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
       const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
+      const botLine = `[${nowIso()}] ASSISTANT: ${reply}\n`;
       fs.appendFileSync(tf, userLine);
       fs.appendFileSync(tf, botLine);
-    } catch(e){ /* noop */ }
+    } catch (e) { /* noop */ }
 
     // Construcción final de la respuesta: incluimos options (objetos) y options_simple (fallback)
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-    if(options && options.length) response.options = options;
-    if(typeof options_simple !== 'undefined' && options_simple !== null) response.options_simple = options_simple;
-    if(session.waEligible) response.allowWhatsapp = true;
-    if(CHAT?.ui) response.ui = CHAT.ui;
+    const response = withOptions({ ok: true, reply, sid, stage: session.stage });
+    if (options && options.length) response.options = options;
+    if (typeof options_simple !== 'undefined' && options_simple !== null) response.options_simple = options_simple;
+    // Si definimos options_tokens (fallback tokens), incluilo
+    if (typeof options_tokens !== 'undefined' && Array.isArray(options_tokens)) response.options_tokens = options_tokens;
+    if (session.waEligible) response.allowWhatsapp = true;
+    if (CHAT?.ui) response.ui = CHAT.ui;
     return res.json(response);
 
-  } catch(e){
+  } catch (e) {
     console.error('[api/chat] Error', e);
-    return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
+    return res.status(200).json(withOptions({ ok: true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
   }
 });
 
 // List active sessions
-app.get('/api/sessions', async (_req,res)=>{
+app.get('/api/sessions', async (_req, res) => {
   const sessions = await listActiveSessions();
-  res.json({ ok:true, count: sessions.length, sessions });
+  res.json({ ok: true, count: sessions.length, sessions });
 });
 
 // ===== utils =====
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
 
 // ===== start server =====
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, ()=> {
+app.listen(PORT, () => {
   console.log(`STI Chat (OpenAI first-only filter) started on ${PORT}`);
 });
