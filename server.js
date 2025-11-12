@@ -9,8 +9,14 @@
  */
 
 /*
-  NOTA: Solo agregué comentarios explicativos por todo el código.
-  No modifiqué la lógica ni las líneas de ejecución (solo añadí // o /* ... * /).
+  NOTA: He integrado los reemplazos solicitados:
+  - Botones nuevos (BTN_MORE_TESTS, BTN_CONNECT_TECH) en EMBEDDED_CHAT.ui.buttons.
+  - Fallback tokenMap con esos tokens.
+  - Paso donde se ofrecían "1️⃣ / 2️⃣" ahora devuelve tokens para botones (BTN_MORE_TESTS, BTN_CONNECT_TECH).
+  - En los 3 lugares que crean tickets, además de la URL para WhatsApp Web devuelvo una URL esquema
+    'whatsapp://' (waUrlDesktop) para permitir abrir la app/desktop cuando el sistema tenga handler.
+  - Corrección timeZone y safeName con opción Unicode comentada.
+  - Elementos explicativos en comentarios para que entiendas qué hace cada bloque.
 */
 
 import 'dotenv/config'; // carga variables de entorno desde un .env (si existe)
@@ -65,6 +71,12 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
+
+      // <-- NUEVOS BOTONES: Más pruebas / Conectar con Técnico
+      // token: valor que el frontend enviará en body.value cuando se pulse el botón
+      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
+      { token: 'BTN_CONNECT_TECH', label: '🧑‍💻 Conectar con Técnico', text: 'conectar con tecnico' },
+
       // agregado: botón/token para abrir WhatsApp con el ticket
       { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' }
     ],
@@ -319,7 +331,7 @@ app.get('/api/transcript/:sid', (req,res)=>{
 });
 
 // WhatsApp ticket generator (API)
-// crea ticket en filesystem y devuelve waUrl para abrir chat web.whatsapp.com
+// crea ticket en filesystem y devuelve waUrl para abrir chat web.whatsapp.com y esquema whatsapp://
 app.post('/api/whatsapp-ticket', async (req,res)=>{
   try{
     const { name, device, sessionId, history = [] } = req.body || {};
@@ -332,55 +344,53 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
       if(s?.transcript) transcript = s.transcript;
     }
 
-    // REEMPLAZAR ESTE BLOQUE EN TU server.js
+    // generamos id de ticket único (fecha + random)
+    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+    const ticketId = `TCK-${ymd}-${rand}`;
 
-// generamos id de ticket único (fecha + random)
-const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-const rand = Math.random().toString(36).slice(2,6).toUpperCase();
-const ticketId = `TCK-${ymd}-${rand}`;
+    const now = new Date();
+    // formateadores para mostrar fecha/hora en zona Argentina
+    const dateFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+    const datePart = dateFormatter.format(now).replace(/\//g,'-');
+    const timePart = timeFormatter.format(now);
+    const generatedLabel = `${datePart} ${timePart} (ART)`;
 
-const now = new Date();
-// formateadores para mostrar fecha/hora en zona Argentina
-const dateFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' });
-const timeFormatter = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
-const datePart = dateFormatter.format(now).replace(/\//g,'-');
-const timePart = timeFormatter.format(now);
-const generatedLabel = `${datePart} ${timePart} (ART)`;
+    // safeName: versión sanitizada y uppercase del nombre (si existe)
+    let safeName = '';
+    if (name) {
+      // opción simple (asegurate de guardar el archivo en UTF-8)
+      safeName = String(name)
+        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
 
-// safeName: versión sanitizada y uppercase del nombre (si existe)
-let safeName = '';
-if (name) {
-  // opción simple (asegurate de guardar el archivo en UTF-8)
-  safeName = String(name)
-    .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
+      // alternativa robusta usando Unicode property escapes (requiere soporte en la versión de Node)
+      // if you prefer the Unicode-safe version, uncomment below and comment the previous block:
+      /*
+      safeName = String(name)
+        .replace(/[^\p{L}0-9 _-]+/gu, '') // deja letras (cualquier idioma), números, espacios, _ y -
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+      */
+    }
 
-  // alternativa robusta usando Unicode property escapes (requiere soporte en la versión de Node)
-  // if you prefer the Unicode-safe version, uncomment below and comment the previous block:
-  /*
-  safeName = String(name)
-    .replace(/[^\p{L}0-9 _-]+/gu, '') // deja letras (cualquier idioma), números, espacios, _ y -
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
-  */
-}
-
-// construimos líneas del ticket (texto plano)
-const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
-const lines = [];
-lines.push(titleLine);
-lines.push(`Generado: ${generatedLabel}`);
-if (name) lines.push(`Cliente: ${name}`);
-if (device) lines.push(`Equipo: ${device}`);
-if (sid) lines.push(`Session: ${sid}`);
-lines.push('');
-lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-for (const m of transcript || []) {
-  lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${m.text || ''}`);
-}
+    // construimos líneas del ticket (texto plano)
+    const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
+    const lines = [];
+    lines.push(titleLine);
+    lines.push(`Generado: ${generatedLabel}`);
+    if (name) lines.push(`Cliente: ${name}`);
+    if (device) lines.push(`Equipo: ${device}`);
+    if (sid) lines.push(`Session: ${sid}`);
+    lines.push('');
+    lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
+    for (const m of transcript || []) {
+      lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${m.text || ''}`);
+    }
 
     // guardar ticket en disco
     try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
@@ -396,11 +406,15 @@ for (const m of transcript || []) {
     const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
     const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
     const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-    const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
-    // devolvemos la información para que el frontend pueda abrir WhatsApp
+    // URL para WhatsApp Web (navegador)
+    const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+    // URI scheme para intentar abrir la app/desktop (si el sistema lo soporta)
+    const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+
+    // devolvemos la información para que el frontend pueda abrir WhatsApp (ambas opciones)
     // incluir allowWhatsapp para que el frontend sepa que puede mostrar la acción
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, allowWhatsapp: true });
+    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrlWeb, waUrlDesktop, allowWhatsapp: true });
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
 });
 
@@ -466,7 +480,11 @@ app.post('/api/chat', async (req,res)=>{
         'BTN_PERSIST': 'el problema persiste',
         'BTN_REPHRASE': 'reformular problema',
         'BTN_CLOSE': 'cerrar chat',
-        'BTN_WHATSAPP': 'hablar con un tecnico'
+        'BTN_WHATSAPP': 'hablar con un tecnico',
+
+        // tokens nuevos para manejar las opciones como botones
+        'BTN_MORE_TESTS': 'más pruebas',
+        'BTN_CONNECT_TECH': 'conectar con tecnico'
       });
     }
 
@@ -535,7 +553,11 @@ app.post('/api/chat', async (req,res)=>{
         const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
         const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
         const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-        const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+
+        // WhatsApp Web (navegador)
+        const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+        // Esquema URI para intentar abrir la app/desktop
+        const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
         // respuesta hacia el usuario explicando que se preparó el ticket
         const whoName = session.userName ? cap(session.userName) : 'usuario';
@@ -546,8 +568,8 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        // incluir allowWhatsapp y waUrl para el frontend
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrl, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
+        // incluir allowWhatsapp y ambas URLs para el frontend
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -818,10 +840,18 @@ app.post('/api/chat', async (req,res)=>{
           // el guardado y el envío se hacen más abajo (flujo normal)
         } else if (rxNo.test(t)) {
           // usuario indica que el problema persiste: ofrecemos más pruebas o conectar con técnico
+          // --- REEMPLAZO: en lugar de mostrar "1️⃣ / 2️⃣" como texto, devolvemos TOKENS
+          // para que el frontend pueda mostrar botones nativos y enviar el token cuando el usuario pulse.
           const whoName = session.userName ? cap(session.userName) : 'usuario';
-          reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-          options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
-          // NO mostramos el botón verde desde este punto
+          reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
+
+          // DEVOLVEMOS LOS TOKENS: el frontend debe enviar { action:'button', value: '<token>' }
+          // - BTN_MORE_TESTS => texto "más pruebas"
+          // - BTN_CONNECT_TECH => texto "conectar con tecnico"
+          // Usar tokens es más robusto que depender de labels/emoji.
+          options = ['BTN_MORE_TESTS', 'BTN_CONNECT_TECH'];
+
+          // Marcamos estado de escalado y deshabilitamos botón directo de WhatsApp aquí
           session.stage = STATES.ESCALATE;
           session.waEligible = false;
         } else {
@@ -877,7 +907,12 @@ app.post('/api/chat', async (req,res)=>{
               const waText = `${prefix}\n\nTicket: ${ticketId}\nDetalle completo: ${publicUrl}`;
               const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
               const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-              const waUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+
+              // WhatsApp Web (abrir en navegador)
+              const waUrlWeb = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+
+              // Intentar abrir la app/desktop con esquema URI
+              const waUrlDesktop = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
               // Guardamos la respuesta en transcript y session
               session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
@@ -885,12 +920,12 @@ app.post('/api/chat', async (req,res)=>{
 
               // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
               reply = replyTech;
-              options = ['Hablar con un Técnico'];
+              options = ['Hablar con un Técnico']; // texto visible; frontend puede mapear label->token si lo desea
               session.waEligible = true;
               session.stage = STATES.ESCALATE;
 
-              // DEVOLVEMOS la waUrl y allowWhatsapp para que el frontend lo use (y lo muestre)
-              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
+              // DEVOLVEMOS ambas URLs para que el frontend lo use (y lo muestre)
+              return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrlWeb, waUrlDesktop, ticketId, publicUrl, apiPublicUrl, allowWhatsapp: true }));
             } catch (errTick) {
               // si algo falla creando el ticket, devolvemos mensaje de error
               console.error('[create-ticket]', errTick);
@@ -919,7 +954,6 @@ app.post('/api/chat', async (req,res)=>{
       fs.appendFileSync(tf, botLine);
     } catch(e){ /* noop */ }
 
-    // preparamos la respuesta final
     const response = withOptions({ ok:true, reply, sid, stage: session.stage });
     if(options && options.length) response.options = options;
     if(session.waEligible) response.allowWhatsapp = true;
