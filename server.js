@@ -710,18 +710,22 @@ app.post('/api/chat', async (req, res) => {
           reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
           // Botón para abrir WhatsApp / conectar con técnico
+          // Preparar botones con token (lo que el servidor entiende) y label (lo que el usuario ve)
           const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
-
-          // Botón para seguir con más pruebas
           const btnMore = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
 
-          // Devolvemos las tres formas para máxima compatibilidad:
-          // - options: objetos {token,label} (frontend moderno)
-          // - options_simple: solo labels (frontend simple)
-          // - options_tokens: solo tokens (frontend que sólo acepta strings/tokens)
+          // 1) options: objetos (frontend moderno los renderiza directamente)
           options = [btnWhats, btnMore];
+
+          // 2) options_simple: fallback, solo etiquetas (frontends que aceptan strings)
           options_simple = [btnWhats.label, btnMore.label];
+
+          // 3) options_tokens: fallback, solo tokens (frontends que trabajan con tokens)
           const options_tokens = [btnWhats.token, btnMore.token];
+
+          // marcar estado y no activar waEligible hasta que se genere ticket
+          session.stage = STATES.ESCALATE;
+          session.waEligible = false;
 
           // estado de escalado y sin waEligible aquí (se activa solo cuando se crea ticket)
           session.stage = STATES.ESCALATE;
