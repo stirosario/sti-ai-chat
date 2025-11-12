@@ -682,14 +682,18 @@ else {
       await saveSession(sid, session);
       return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
     } else if (rxNo.test(t)) {
-      const src = session.lastHelpStep.type;
-      const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
-      const numbered = enumerateSteps(list || []);
-      reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá el número de opción.\n\n🤔 Contanos cómo te fue usando los botones:`;
-      const helpOptions = (list || []).map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
-      options = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
-      session.lastHelpStep = null;
-      session.waEligible = false;
+  // Usuario declaró "El problema persiste ❌" — mostramos el mensaje y dos botones
+  reply = `💡 Entiendo, ${whoName}.\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?`;
+
+  // Opciones enviadas como objetos { value, label } para que el frontend muestre botones con la etiqueta deseada
+  options = [
+    { value: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas' },
+    { value: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico' }
+  ];
+
+  session.stage = STATES.ESCALATE;
+  session.waEligible = false;
+
     } else {
       reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
       options = ['Lo pude solucionar ✔️', 'El problema persiste ❌'];
