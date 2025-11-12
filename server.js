@@ -732,17 +732,18 @@ app.post('/api/chat', async (req,res)=>{
 const whoName = session.userName ? cap(session.userName) : 'usuario';
 reply = `💡 Entiendo, ${whoName} 😉\nElegí una de las siguientes opciones para continuar:`;
 
-// definimos los botones como objetos token+label (forma que el frontend ya procesa)
+// definimos los botones como objetos token+label (los guardamos en options_objects por compatibilidad)
+// pero dejamos response.options COMO ARRAY DE STRINGS (labels) — que es lo que el widget renderiza.
 const btnWhats = { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico' };
 const btnMore  = { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas' };
 
-// PRIMARY: response.options debe ser ARRAY DE OBJETOS { token, label }
-options = [ btnWhats, btnMore ];
+// PRIMARY for the widget: options must be labels (strings) so the UI draws the buttons
+options = [ btnWhats.label, btnMore.label ];        // <-- array de strings que el frontend renderiza
 
-// EXTRA: mantener fallbacks por compatibilidad
-options_objects = [ btnWhats, btnMore ];           // idéntico a options, por si el frontend lo usa
-options_simple = options.map(o => o.label);        // array de labels (strings)
-options_tokens = options.map(o => o.token);        // array de tokens (strings)
+// Extras (no rompen nada): guardamos objetos y tokens para otros clientes o debugging
+options_objects = [ btnWhats, btnMore ];
+options_simple = options.slice();
+options_tokens = [ btnWhats.token, btnMore.token ];
 
 // estado
 session.stage = STATES.ESCALATE;
