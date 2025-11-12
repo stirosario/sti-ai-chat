@@ -35,70 +35,6 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
 }
 const nowIso = () => new Date().toISOString();
 
-// ===== Simple logging + SSE streaming for real-time logs =====
-const LOG_FILE = path.join(LOGS_DIR, 'server.log');
-try { if (!fs.existsSync(LOG_FILE)) fs.writeFileSync(LOG_FILE, '', 'utf8'); } catch(e) { /* noop */ }
-
-const sseClients = new Set(); // Set of res objects
-
-function sseSend(res, eventData) {
-  // Ensure each line is sent as data: ...
-  const payload = String(eventData || '');
-  const safe = payload.split(/\r?\n/).map(line => `data: ${line}`).join('\n') + '\n\n';
-  try {
-    res.write(safe);
-  } catch (e) {
-    // ignore
-  }
-}
-
-function broadcastLog(entry) {
-  for (const res of Array.from(sseClients)) {
-    try {
-      sseSend(res, entry);
-    } catch (e) {
-      try { res.end(); } catch (_) {}
-      sseClients.delete(res);
-    }
-  }
-}
-
-function appendLogFile(entry) {
-  try {
-    fs.appendFileSync(LOG_FILE, entry + '\n', 'utf8');
-  } catch (e) { /* noop */ }
-}
-
-function formatLog(level, ...parts) {
-  const text = parts.map(p => {
-    if (typeof p === 'string') return p;
-    try { return JSON.stringify(p); } catch(e) { return String(p); }
-  }).join(' ');
-  return `${new Date().toISOString()} [${level}] ${text}`;
-}
-
-// Wrap console.log/error to also write to our log file and broadcast over SSE
-const _console_log = console.log.bind(console);
-const _console_error = console.error.bind(console);
-
-console.log = (...args) => {
-  try { _console_log(...args); } catch {}
-  try {
-    const entry = formatLog('INFO', ...args);
-    appendLogFile(entry);
-    broadcastLog(entry);
-  } catch (e) { /* noop */ }
-};
-
-console.error = (...args) => {
-  try { _console_error(...args); } catch {}
-  try {
-    const entry = formatLog('ERROR', ...args);
-    appendLogFile(entry);
-    broadcastLog(entry);
-  } catch (e) { /* noop */ }
-};
-
 // ===== EMBEDDED CONFIG (con botones actualizados) =====
 const EMBEDDED_CHAT = {
   version: 'from-images-openai-first-filter-v8-fix-name',
@@ -115,7 +51,10 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
       // agregado: botón/token para abrir WhatsApp con el ticket
-      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' }
+      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' },
+      // nuevos botones solicitados: Más pruebas / Conectar con Técnico
+      { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
+      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
     ],
     states: {}
   },
@@ -333,81 +272,6 @@ app.get('/api/transcript/:sid', (req,res)=>{
   res.send(fs.readFileSync(file,'utf8'));
 });
 
-// ===== Logs endpoints =====
-// SSE stream for real-time logs and simple polling mode (mode=once)
-app.get('/api/logs/stream', (req, res) => {
-  try {
-    // optional token protection (same as chatlog.php usage)
-    const SSE_TOKEN = process.env.SSE_TOKEN || '';
-    if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
-      return res.status(401).send('unauthorized');
-    }
-
-    // If polling mode requested, return the whole log as plain text
-    if (String(req.query.mode || '') === 'once') {
-      if (!fs.existsSync(LOG_FILE)) return res.status(200).send('');
-      res.set('Content-Type', 'text/plain; charset=utf-8');
-      const txt = fs.readFileSync(LOG_FILE, 'utf8');
-      return res.status(200).send(txt);
-    }
-
-    // Setup SSE
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders && res.flushHeaders();
-
-    // Send a first comment
-    res.write(': connected\n\n');
-
-    // Optionally send last N lines on connect
-    try {
-      const LAST_BYTES = 32 * 1024; // last 32KB
-      if (fs.existsSync(LOG_FILE)) {
-        const stat = fs.statSync(LOG_FILE);
-        const start = Math.max(0, stat.size - LAST_BYTES);
-        const fd = fs.openSync(LOG_FILE, 'r');
-        const buf = Buffer.alloc(stat.size - start);
-        fs.readSync(fd, buf, 0, buf.length, start);
-        fs.closeSync(fd);
-        const content = buf.toString('utf8');
-        sseSend(res, content);
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    // Keep the response open
-    sseClients.add(res);
-    console.log('[logs] cliente SSE conectado. total=', sseClients.size);
-
-    req.on('close', () => {
-      sseClients.delete(res);
-      console.log('[logs] cliente SSE desconectado. total=', sseClients.size);
-    });
-  } catch (e) {
-    console.error('[logs/stream] Error', e);
-    res.status(500).end();
-  }
-});
-
-// Also provide simple download/view for a ticket (existing routes use /ticket/:tid and /api/ticket/:tid)
-// Provide a small endpoint to retrieve server log
-app.get('/api/logs', (req, res) => {
-  const SSE_TOKEN = process.env.SSE_TOKEN || '';
-  if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
-    return res.status(401).json({ ok:false, error: 'unauthorized' });
-  }
-  try {
-    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
-    res.set('Content-Type','text/plain; charset=utf-8');
-    res.send(txt);
-  } catch (e) {
-    console.error('[api/logs] Error', e.message);
-    res.status(500).json({ ok:false, error: e.message });
-  }
-});
-
 // WhatsApp ticket generator (API)
 app.post('/api/whatsapp-ticket', async (req,res)=>{
   try{
@@ -514,7 +378,9 @@ app.post('/api/chat', async (req,res)=>{
         'BTN_PERSIST': 'el problema persiste',
         'BTN_REPHRASE': 'reformular problema',
         'BTN_CLOSE': 'cerrar chat',
-        'BTN_WHATSAPP': 'hablar con un tecnico'
+        'BTN_WHATSAPP': 'hablar con un tecnico',
+        'BTN_MORE_TESTS': '1️⃣ 🔍 Más pruebas',
+        'BTN_CONNECT_TECH': '2️⃣ 🧑‍💻 Conectar con Técnico'
       });
     }
 
@@ -589,7 +455,7 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -597,6 +463,74 @@ app.post('/api/chat', async (req,res)=>{
         return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
       }
     }
+
+    // --- Nuevo: manejar clicks en botones Más pruebas / Conectar con Técnico ---
+    if (buttonToken === 'BTN_MORE_TESTS') {
+      // Simular la selección de la "opción 1" (Más pruebas)
+      const reply1 = 'Seleccionaste: Más pruebas. Voy a ofrecerte pruebas adicionales.';
+      session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
+    }
+
+    if (buttonToken === 'BTN_CONNECT_TECH') {
+      // Simular la selección de la "opción 2" (Conectar con Técnico): crear ticket y devolver waUrl
+      try {
+        const whoName = session.userName ? cap(session.userName) : 'usuario';
+        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+
+        const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+        const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+        const ticketId = `TCK-${ymd}-${rand}`;
+        const now = new Date();
+        const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
+        const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
+        const datePart = dateFormatter.format(now).replace(/\//g,'-');
+        const timePart = timeFormatter.format(now);
+        const generatedLabel = `${datePart} ${timePart} (ART)`;
+        let safeName = '';
+        if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+        const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
+        const lines = [];
+        lines.push(titleLine);
+        lines.push(`Generado: ${generatedLabel}`);
+        if(session.userName) lines.push(`Cliente: ${session.userName}`);
+        if(session.device) lines.push(`Equipo: ${session.device}`);
+        if(sid) lines.push(`Session: ${sid}`);
+        lines.push('');
+        lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
+        for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+
+        try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+        const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
+        fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
+
+        const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
+        const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
+        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+        if(session.userName) waText += `Cliente: ${session.userName}\n`;
+        if(session.device) waText += `Equipo: ${session.device}\n`;
+        waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
+
+        const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
+        const waNumber = String(waNumberRaw).replace(/\D+/g, '');
+        const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+
+        session.transcript.push({ who:'bot', text: replyTech, ts: nowIso() });
+        await saveSession(sid, session);
+
+        session.waEligible = true;
+        session.stage = STATES.ESCALATE;
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl }));
+      } catch (errTick) {
+        console.error('[create-ticket]', errTick);
+        session.waEligible = false;
+        const reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok:false, reply, stage: session.stage, options: [] }));
+      }
+    }
+    // --- fin manejo botones nuevos ---
 
     // save user message in transcript
     if(buttonToken){
@@ -749,42 +683,40 @@ if (helpMatch) {
           ];
         }
 
-        // 529..551 Reemplazar por este bloque:
-  // 530..569: construir mensaje sin mostrar la lista de "Ayuda paso N" como texto
-  const stepsAr = steps.map(s => s);
-  const numbered = enumerateSteps(stepsAr);
-  const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
+        // construir mensaje sin mostrar la lista de "Ayuda paso N" como texto
+        const stepsAr = steps.map(s => s);
+        const numbered = enumerateSteps(stepsAr);
+        const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
 
-  // Preparar las opciones de ayuda (se usarán como botones, no como texto)
-  const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+        // Preparar las opciones de ayuda (se usarán como botones, no como texto)
+        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
 
-  // Construir el mensaje con las secciones en el orden solicitado,
-  const footerTop = [
-    '',
-    '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
-    ''
-  ].join('\n');
+        const footerTop = [
+          '',
+          '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
+          ''
+        ].join('\n');
 
-  const footerBottom = [
-    '',
-    '🤔 Contanos cómo te fue utilizando los botones:'
-  ].join('\n');
+        const footerBottom = [
+          '',
+          '🤔 Contanos cómo te fue utilizando los botones:'
+        ].join('\n');
 
-  const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
+        const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
 
-  // Guardar estado/transcript como antes
-  session.tests.basic = stepsAr;
-  session.stepsDone.push('basic_tests_shown');
-  session.waEligible = false;
-  session.lastHelpStep = null;
-  session.stage = STATES.BASIC_TESTS;
+        // Guardar estado/transcript como antes
+        session.tests.basic = stepsAr;
+        session.stepsDone.push('basic_tests_shown');
+        session.waEligible = false;
+        session.lastHelpStep = null;
+        session.stage = STATES.BASIC_TESTS;
 
-  session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
-  await saveSession(sid, session);
+        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+        await saveSession(sid, session);
 
-  // En options devolvemos las opciones de ayuda (botones) y luego los botones finales
-  const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
-  return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
+        // En options devolvemos las opciones de ayuda (botones) y luego los botones finales
+        const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
 
 
       } catch(err){
@@ -841,7 +773,8 @@ if (helpMatch) {
       } else if (rxNo.test(t)) {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-        options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+        // ENVIAR TOKENS DE BOTONES en vez de texto puro para que el frontend renderice botones
+        options = ['BTN_MORE_TESTS', 'BTN_CONNECT_TECH'];
         // NO mostramos el botón verde desde este punto
         session.stage = STATES.ESCALATE;
         session.waEligible = false;
@@ -905,7 +838,7 @@ if (helpMatch) {
 
             // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
             reply = replyTech;
-            options = ['Hablar con un Técnico'];
+            options = ['BTN_WHATSAPP'];
             session.waEligible = true;
             session.stage = STATES.ESCALATE;
 
