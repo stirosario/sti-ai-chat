@@ -704,15 +704,22 @@ if (helpMatch) {
         session.waEligible = false;
         // el guardado y el envío se hacen más abajo (flujo normal)
       } else if (rxNo.test(t)) {
-        const whoName = session.userName ? cap(session.userName) : 'usuario';
-        reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-        // ---- Asegurarse de usar los labels definidos en CHAT.ui.buttons para que el frontend los muestre COMO BOTONES
-        const opt1Label = CHAT?.ui?.buttons?.find(b => b.token === 'BTN_MORE_TESTS')?.label || '1️⃣ 🔍 Más pruebas';
-        const opt2Label = CHAT?.ui?.buttons?.find(b => b.token === 'BTN_CONNECT_TECH')?.label || '2️⃣ 🧑‍💻 Conectar con Técnico';
-        options = [opt1Label, opt2Label];
-        // NO mostramos el botón verde desde este punto
-        session.stage = STATES.ESCALATE;
-        session.waEligible = false;
+    reply = `💡 Entiendo, ${whoName} 😉
+¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?
+
+1️⃣ 🔍 Más pruebas
+
+2️⃣ 🧑‍💻 Conectar con Técnico`;
+
+// En lugar de enviar solo labels, enviamos los TOKENS para que el frontend pueda
+// enviar la acción de botón (value = token). El frontend también recibirá en
+// la respuesta sólo los botones relevantes para renderizarlos como botones.
+const tokenOpt1 = 'BTN_MORE_TESTS';
+const tokenOpt2 = 'BTN_CONNECT_TECH';
+options = [tokenOpt1, tokenOpt2];
+
+session.stage = STATES.ESCALATE;
+session.waEligible = false;
       } else {
         // detectar selección explícita de opción 1 o 2 (por texto, número o emoji)
         const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
@@ -808,6 +815,15 @@ if (helpMatch) {
   if(options && options.length) response.options = options;
   if(session.waEligible) response.allowWhatsapp = true;
   if(CHAT?.ui) response.ui = CHAT.ui;
+  if (response && Array.isArray(response.options) && response.options.length && response.options.every(o => /^BTN_/.test(o))) {
+  // Filtramos los botones del CHAT.ui para devolver solo los relevantes
+  const btns = (CHAT?.ui?.buttons || []).filter(b => response.options.includes(b.token));
+  // Si el frontend espera response.ui.buttons, lo devolvemos así:
+  response.ui = response.ui || {};
+  response.ui.buttons = btns;
+  // (opcional) también podemos convertir options a labels por compatibilidad:
+  response.options = btns.map(b => b.token); // dejamos tokens pero el frontend tiene los objetos en ui.buttons
+}
   return res.json(response);
 
   } catch(e){
