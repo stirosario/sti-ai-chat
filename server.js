@@ -51,7 +51,11 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
       // agregado: botón/token para abrir WhatsApp con el ticket
-      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' }
+      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' },
+
+      // NUEVOS: botones para las dos opciones que querés mostrar como botones
+      { token: 'BTN_MORE_TESTS',   label: '1️⃣ 🔍 Más pruebas',       text: 'más pruebas' },
+      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: 'conectar con tecnico' }
     ],
     states: {}
   },
@@ -117,7 +121,7 @@ function isValidName(text){
 function extractName(text){
   if(!text) return null;
   const t = String(text).trim();
-  // phrases: "soy X", "me llamo X", "mi nombre es X"
+  // phases: "soy X", "me llamo X", "mi nombre es X"
   let m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{2,20})$/i);
   if(m) return m[1];
   // single-word name
@@ -546,7 +550,7 @@ if (helpMatch) {
     const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSession(sid, session);
-    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    return res.json(withOptions({ ok: true, reply: reply, stage: session.stage, options: [] }));
   }
 }
   // === fin Ayuda paso a paso ===
@@ -702,7 +706,10 @@ if (helpMatch) {
       } else if (rxNo.test(t)) {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-        options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+        // ---- Asegurarse de usar los labels definidos en CHAT.ui.buttons para que el frontend los muestre COMO BOTONES
+        const opt1Label = CHAT?.ui?.buttons?.find(b => b.token === 'BTN_MORE_TESTS')?.label || '1️⃣ 🔍 Más pruebas';
+        const opt2Label = CHAT?.ui?.buttons?.find(b => b.token === 'BTN_CONNECT_TECH')?.label || '2️⃣ 🧑‍💻 Conectar con Técnico';
+        options = [opt1Label, opt2Label];
         // NO mostramos el botón verde desde este punto
         session.stage = STATES.ESCALATE;
         session.waEligible = false;
