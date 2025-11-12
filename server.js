@@ -254,19 +254,6 @@ function getSessionId(req){
 }
 app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
-// Helper: attach UI button objects when options are tokens (BTN_...)
-function attachUiButtonsForResponse(response) {
-  if (!response || !Array.isArray(response.options) || response.options.length === 0) return;
-  // If all options look like tokens (BTN_...), attach corresponding button objects from CHAT.ui
-  const allTokens = response.options.every(o => typeof o === 'string' && /^BTN_/.test(o));
-  if (!allTokens) return;
-  const btns = (CHAT?.ui?.buttons || []).filter(b => response.options.includes(b.token));
-  response.ui = response.ui || {};
-  response.ui.buttons = btns;
-  // keep response.options as tokens (frontend should use ui.buttons to render)
-  response.options = btns.map(b => b.token);
-}
-
 // ===== Endpoints =====
 
 // Health
@@ -421,6 +408,7 @@ app.post('/api/chat', async (req,res)=>{
     if (buttonToken === 'BTN_WHATSAPP') {
       try {
         // Create ticket using current session
+        // (reusing working logic from older server)
         const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
         const rand = Math.random().toString(36).slice(2,6).toUpperCase();
         const ticketId = `TCK-${ymd}-${rand}`;
@@ -466,15 +454,12 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        const responseObj = withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl });
-        attachUiButtonsForResponse(responseObj);
-        return res.json(responseObj);
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Hablar con un Técnico'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
         await saveSession(sid, session);
-        const respErr = withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: [] });
-        return res.json(respErr);
+        return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: ['Generar ticket'] }));
       }
     }
 
@@ -486,34 +471,35 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // === Manejo: Reformular problema (botón/text) ===
-    if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      // Usar el nombre si existe, con capitalización
-      const whoName = session.userName ? cap(session.userName) : 'usuario';
+if (/^\s*reformular\s*problema\s*$/i.test(t)) {
+  // Usar el nombre si existe, con capitalización
+  const whoName = session.userName ? cap(session.userName) : 'usuario';
 
-      const reply = `¡Intentemos nuevamente, ${whoName}! 👍
-      
+  const reply = `¡Intentemos nuevamente, ${whoName}! 👍
+  
 ¿Qué problema estás teniendo?`;
 
-      // Dejamos la sesión en ASK_PROBLEM para que el usuario reescriba
-      session.stage = STATES.ASK_PROBLEM;
+  // Dejamos la sesión en ASK_PROBLEM para que el usuario reescriba
+  session.stage = STATES.ASK_PROBLEM;
 
-      // Limpiamos datos previos del problema (opcional, mantener nombre)
-      session.problem = null;
-      session.issueKey = null;
-      session.tests = { basic: [], ai: [], advanced: [] };
-      session.lastHelpStep = null;
+  // Limpiamos datos previos del problema (opcional, mantener nombre)
+  session.problem = null;
+  session.issueKey = null;
+  session.tests = { basic: [], ai: [], advanced: [] };
+  session.lastHelpStep = null;
 
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
+  session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+  await saveSession(sid, session);
 
-      return res.json(withOptions({
-        ok: true,
-        reply,
-        stage: session.stage,
-        options: []
-      }));
-    }
-    // === fin Manejo Reformular problema ===
+  return res.json(withOptions({
+    ok: true,
+    reply,
+    stage: session.stage,
+    options: []
+  }));
+}
+// === fin Manejo Reformular problema ===
+
 
     // Use robust extractName() so plain names like "walter" / "lucas" are captured
     const nmInline = extractName(t);
@@ -529,46 +515,45 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // intercept help buttons "ayuda paso N"
-    const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
-    if (helpMatch) {
-      const idx = Math.max(1, Number(helpMatch[1] || 1));
-      const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length > 0)
-        ? 'basic'
-        : (Array.isArray(session.tests.ai) && session.tests.ai.length > 0) ? 'ai' : null;
+  // intercept help buttons "ayuda paso N"
+const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
+if (helpMatch) {
+  const idx = Math.max(1, Number(helpMatch[1] || 1));
+  const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length > 0)
+    ? 'basic'
+    : (Array.isArray(session.tests.ai) && session.tests.ai.length > 0) ? 'ai' : null;
 
-      if (srcType) {
-        // obtener el texto del paso correspondiente
-        const list = session.tests[srcType] || [];
-        const stepText = list[idx - 1] || null;
+  if (srcType) {
+    // obtener el texto del paso correspondiente
+    const list = session.tests[srcType] || [];
+    const stepText = list[idx - 1] || null;
 
-        // marcar que venimos de una ayuda puntual
-        session.lastHelpStep = { type: srcType, index: idx };
+    // marcar que venimos de una ayuda puntual
+    session.lastHelpStep = { type: srcType, index: idx };
 
-        // generar contenido de ayuda (puede venir de OpenAI)
-        const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
+    // generar contenido de ayuda (puede venir de OpenAI)
+    const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
 
-        // nombre para el saludo
-        const whoName = session.userName ? cap(session.userName) : 'usuario';
+    // nombre para el saludo
+    const whoName = session.userName ? cap(session.userName) : 'usuario';
 
-        // construir reply (variable local helpReply para evitar colisiones)
-        const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
+    // construir reply (variable local helpReply para evitar colisiones)
+    const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
 
-        // guardar y devolver opciones como TOKENS (para que el frontend los muestre como botones)
-        session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
-        await saveSession(sid, session);
+    // guardar y devolver sólo las tres opciones solicitadas
+    session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
+    await saveSession(sid, session);
 
-        const replyOptions = ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CLOSE'];
-        const resp = withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptions });
-        attachUiButtonsForResponse(resp);
-        return res.json(resp);
-      } else {
-        const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: reply, stage: session.stage, options: [] }));
-      }
-    }
-    // === fin Ayuda paso a paso ===
+    const replyOptions = ['Lo pude solucionar ✔️', 'El problema persiste ❌', 'Cerrar Chat 🔒'];
+    return res.json(withOptions({ ok: true, reply: helpReply, stage: session.stage, options: replyOptions }));
+  } else {
+    const reply = 'No tengo los pasos guardados para ese número. Primero te doy los pasos básicos, después puedo explicar cada uno.';
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    await saveSession(sid, session);
+    return res.json(withOptions({ ok: true, reply: reply, stage: session.stage, options: [] }));
+  }
+}
+  // === fin Ayuda paso a paso ===
 
     // main state logic
     let reply = ''; let options = [];
@@ -583,9 +568,7 @@ app.post('/api/chat', async (req,res)=>{
       }
       session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
-      const r = withOptions({ ok:true, reply, stage: session.stage, options });
-      attachUiButtonsForResponse(r);
-      return res.json(r);
+      return res.json({ ok:true, reply, stage: session.stage, options });
     }
 
     // 2) ASK_PROBLEM -> OPENAI as FIRST and ONLY FILTER
@@ -606,9 +589,7 @@ app.post('/api/chat', async (req,res)=>{
         const replyNotIT = 'Disculpa, no entendi tu problema, o no esta relacionado con el rubro informatico.';
         session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
-        const resp = withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['BTN_REPHRASE'] });
-        attachUiButtonsForResponse(resp);
-        return res.json(resp);
+        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular problema'] }));
       }
 
       if(ai.device) session.device = session.device || ai.device;
@@ -633,40 +614,44 @@ app.post('/api/chat', async (req,res)=>{
           ];
         }
 
-        // construir mensaje sin mostrar la lista de "Ayuda paso N" como texto
-        const stepsAr = steps.map(s => s);
-        const numbered = enumerateSteps(stepsAr);
-        const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
+        // 529..551 Reemplazar por este bloque:
+  // 530..569: construir mensaje sin mostrar la lista de "Ayuda paso N" como texto
+  const stepsAr = steps.map(s => s);
+  const numbered = enumerateSteps(stepsAr);
+  const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
 
-        // Guardar estado/transcript como antes
-        session.tests.basic = stepsAr;
-        session.stepsDone.push('basic_tests_shown');
-        session.waEligible = false;
-        session.lastHelpStep = null;
-        session.stage = STATES.BASIC_TESTS;
+  // Preparar las opciones de ayuda (se usarán como botones, no como texto)
+  const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
 
-        const footerTop = [
-          '',
-          '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
-          ''
-        ].join('\n');
+  // Construir el mensaje con las secciones en el orden solicitado,
+  const footerTop = [
+    '',
+    '🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.',
+    ''
+  ].join('\n');
 
-        const footerBottom = [
-          '',
-          '🤔 Contanos cómo te fue utilizando los botones:'
-        ].join('\n');
+  const footerBottom = [
+    '',
+    '🤔 Contanos cómo te fue utilizando los botones:'
+  ].join('\n');
 
-        const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
+  const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
 
-        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
-        await saveSession(sid, session);
+  // Guardar estado/transcript como antes
+  session.tests.basic = stepsAr;
+  session.stepsDone.push('basic_tests_shown');
+  session.waEligible = false;
+  session.lastHelpStep = null;
+  session.stage = STATES.BASIC_TESTS;
 
-        // En options devolvemos TOKENS: BTN_HELP_1..N y BTN_SOLVED / BTN_PERSIST
-        const helpTokens = stepsAr.map((_,i)=> `BTN_HELP_${i+1}`);
-        const optionsResp = [...helpTokens, 'BTN_SOLVED', 'BTN_PERSIST'];
-        const resp = withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr });
-        attachUiButtonsForResponse(resp);
-        return res.json(resp);
+  session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+  await saveSession(sid, session);
+
+  // En options devolvemos las opciones de ayuda (botones) y luego los botones finales
+  const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+  return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
+
+
       } catch(err){
         console.error('diagnóstico ASK_PROBLEM', err);
         return res.json(withOptions({ ok:true, reply: 'Hubo un problema al procesar el diagnóstico. Probá de nuevo.' }));
@@ -678,155 +663,160 @@ app.post('/api/chat', async (req,res)=>{
       const msg = `Perfecto. Anoté: “${session.problem || ''}”.\n\n¿En qué equipo te pasa? (PC, notebook, teclado, etc.)`;
       session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
       await saveSession(sid, session);
-      const resp = withOptions({ ok:true, reply: msg, stage: session.stage, options: ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'] });
-      attachUiButtonsForResponse(resp);
-      return res.json(resp);
+      return res.json(withOptions({ ok:true, reply: msg, stage: session.stage, options: ['PC','Notebook','Monitor','Teclado','Mouse','Internet / Wi-Fi'] }));
     }
 
-    // 4) BASIC_TESTS / follow-ups
-    else {
-      const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+  // 4) BASIC_TESTS / follow-ups
+  // 4) BASIC_TESTS / follow-ups
+else {
+  const rxYes = /^\s*(s|si|sí|si,|sí,|lo pude solucion|lo pude solucionar|lo pude solucionar ✔️)/i;
+  const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
 
-      if(session.lastHelpStep){
-        if (rxYes.test(t)) {
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-          session.stage = STATES.ENDED;
-          session.lastHelpStep = null;
-          session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
-        } else if(rxNo.test(t)){
-          const src = session.lastHelpStep.type;
-          const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
-          const numbered = enumerateSteps(list || []);
-          reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en numero de opcion.\n\n🤔 Contanos cómo te fue utilizando los botones:`;
-          const helpTokens = (list||[]).map((_,i)=> `BTN_HELP_${i+1}`);
-          options = [...helpTokens, 'BTN_SOLVED', 'BTN_PERSIST'];
-          session.lastHelpStep = null;
-          session.waEligible = false;
-        } else {
-          reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
-          options = ['BTN_SOLVED','BTN_PERSIST'];
-        }
-      } else {
-        // rama sin lastHelpStep
-        if (rxYes.test(t)) {
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
-          reply = replyYes;
-          options = [];
-          session.stage = STATES.ENDED;
-          session.waEligible = false;
-        } else if (rxNo.test(t)) {
-          const whoName = session.userName ? cap(session.userName) : 'usuario';
-          reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
+  if (session.lastHelpStep) {
+    if (rxYes.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
+      session.stage = STATES.ENDED;
+      session.lastHelpStep = null;
+      session.transcript.push({ who: 'bot', text: replyYes, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply: replyYes, stage: session.stage, options: [] }));
+    } else if (rxNo.test(t)) {
+      const src = session.lastHelpStep.type;
+      const list = (session.tests[src] && session.tests[src].length) ? session.tests[src] : session.tests.basic;
+      const numbered = enumerateSteps(list || []);
+      reply = `Entiendo. Volvamos a los pasos que te ofrecí:\n\n` + numbered.join('\n') + `\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá el número de opción.\n\n🤔 Contanos cómo te fue usando los botones:`;
+      const helpOptions = (list || []).map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+      options = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+      session.lastHelpStep = null;
+      session.waEligible = false;
+    } else {
+      reply = '¿Lo pudiste solucionar? (Lo pude solucionar ✔️ / El problema persiste ❌)';
+      options = ['Lo pude solucionar ✔️', 'El problema persiste ❌'];
+    }
+  } else {
+    // rama sin lastHelpStep (aquí aplicamos los cambios solicitados)
+    const whoName = session.userName ? cap(session.userName) : 'usuario';
 
-          // Enviar tokens para que el frontend los muestre como botones
-          options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH'];
-          session.stage = STATES.ESCALATE;
-          session.waEligible = false;
-        } else {
-          // detectar selección explícita de opción 1 o 2 (por texto, número o emoji)
-          const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
-          const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
+    if (rxYes.test(t)) {
+      const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
+      reply = replyYes;
+      options = [];
+      session.stage = STATES.ENDED;
+      session.waEligible = false;
 
-          if (opt1.test(t)) {
-            const reply1 = 'Seleccionaste opcion 1';
-            session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
+    } else if (rxNo.test(t)) {
+      // ✅ Mostrar como BOTONES (labels) las dos opciones solicitadas
+      reply = `💡 Entiendo, ${whoName}.\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?`;
+      options = ['1️⃣ 🔍 Más pruebas', '2️⃣ 🧑‍💻 Conectar con Técnico'];
+      session.stage = STATES.ESCALATE;
+      session.waEligible = false;
+
+    } else {
+      // detectar selección explícita de opción 1 o 2 (por texto, número, emoji o label del botón)
+      const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍|1️⃣ 🔍 Más pruebas)$/i;
+      const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻|2️⃣ 🧑‍💻 Conectar con Técnico)$/i;
+
+      if (opt1.test(t)) {
+        const reply1 = '🔍 Perfecto. Te preparo **más pruebas** guiadas paso a paso…';
+        session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
+
+      } else if (opt2.test(t)) {
+        // Cuando el usuario elige la opción 2: creamos el ticket por WhatsApp
+        const whoName = session.userName ? cap(session.userName) : 'usuario';
+        const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp y enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
+
+          try {
+            const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+            const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+            const ticketId = `TCK-${ymd}-${rand}`;
+            const now = new Date();
+            const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
+            const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
+            const datePart = dateFormatter.format(now).replace(/\//g,'-');
+            const timePart = timeFormatter.format(now);
+            const generatedLabel = `${datePart} ${timePart} (ART)`;
+            let safeName = '';
+            if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
+            const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
+            const lines = [];
+            lines.push(titleLine);
+            lines.push(`Generado: ${generatedLabel}`);
+            if(session.userName) lines.push(`Cliente: ${session.userName}`);
+            if(session.device) lines.push(`Equipo: ${session.device}`);
+            if(sid) lines.push(`Session: ${sid}`);
+            lines.push('');
+            lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
+            for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+
+            try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+            const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
+            fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
+
+            const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
+            const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
+            let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+            if(session.userName) waText += `Cliente: ${session.userName}\n`;
+            if(session.device) waText += `Equipo: ${session.device}\n`;
+            waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
+
+            const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
+            const waNumber = String(waNumberRaw).replace(/\D+/g, '');
+            const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
+
+            // Guardamos la respuesta en transcript y session
+            session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
             await saveSession(sid, session);
-            return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
-          } else if (opt2.test(t)) {
-            // Cuando el usuario elige la opción 2: creamos el ticket con la lógica probada
-            const whoName = session.userName ? cap(session.userName) : 'usuario';
-            const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
 
-            try {
-              const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-              const rand = Math.random().toString(36).slice(2,6).toUpperCase();
-              const ticketId = `TCK-${ymd}-${rand}`;
-              const now = new Date();
-              const dateFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric' });
-              const timeFormatter = new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', hour:'2-digit', minute:'2-digit', hour12:false });
-              const datePart = dateFormatter.format(now).replace(/\//g,'-');
-              const timePart = timeFormatter.format(now);
-              const generatedLabel = `${datePart} ${timePart} (ART)`;
-              let safeName = '';
-              if(session.userName){ safeName = String(session.userName).replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'').replace(/\s+/g,' ').trim().toUpperCase(); }
-              const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
-              const lines = [];
-              lines.push(titleLine);
-              lines.push(`Generado: ${generatedLabel}`);
-              if(session.userName) lines.push(`Cliente: ${session.userName}`);
-              if(session.device) lines.push(`Equipo: ${session.device}`);
-              if(sid) lines.push(`Session: ${sid}`);
-              lines.push('');
-              lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-              for(const m of session.transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+            // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
+            reply = replyTech;
+            options = ['Hablar con un Técnico'];
+            session.waEligible = true;
+            session.stage = STATES.ESCALATE;
 
-              try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
-              const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
-              fs.writeFileSync(ticketPath, lines.join('\n'), 'utf8');
-
-              const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
-              const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-              let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
-              if(session.userName) waText += `Cliente: ${session.userName}\n`;
-              if(session.device) waText += `Equipo: ${session.device}\n`;
-              waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
-
-              const waNumberRaw = process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422';
-              const waNumber = String(waNumberRaw).replace(/\D+/g, '');
-              const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
-
-              // Guardamos la respuesta en transcript y session
-              session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
-              await saveSession(sid, session);
-
-              // Preparamos la respuesta con el botón verde (token BTN_WHATSAPP)
-              reply = replyTech;
-              options = ['BTN_WHATSAPP'];
-              session.waEligible = true;
-              session.stage = STATES.ESCALATE;
-
-              const resp = withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl });
-              attachUiButtonsForResponse(resp);
-              return res.json(resp);
-            } catch (errTick) {
-              console.error('[create-ticket]', errTick);
-              session.waEligible = false;
-              reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
-              options = ['BTN_WHATSAPP']; // suggest retry via same button
-              session.stage = STATES.ESCALATE;
-              await saveSession(sid, session);
-              const respErr = withOptions({ ok:false, reply, stage: session.stage, options });
-              attachUiButtonsForResponse(respErr);
-              return res.json(respErr);
-            }
+            return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl }));
+          } catch (errTick) {
+            console.error('[create-ticket]', errTick);
+            session.waEligible = false;
+            reply = '❗ Ocurrió un problema al preparar el ticket. ¿Querés que intente generar uno de nuevo?';
+            options = ['Generar ticket','Volver'];
+            session.stage = STATES.ESCALATE;
+            await saveSession(sid, session);
+            return res.json(withOptions({ ok:false, reply, stage: session.stage, options }));
           }
-          // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
         }
+        // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
       }
     }
+  }
 
-    // Guardar respuesta y transcript
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-    await saveSession(sid, session);
-    try {
-      const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
-      fs.appendFileSync(tf, userLine);
-      fs.appendFileSync(tf, botLine);
-    } catch(e){ /* noop */ }
+  // Guardar respuesta y transcript
+  session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+  await saveSession(sid, session);
+  try {
+    const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
+    const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
+    const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
+    fs.appendFileSync(tf, userLine);
+    fs.appendFileSync(tf, botLine);
+  } catch(e){ /* noop */ }
 
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-    if(options && options.length) response.options = options;
-    if(session.waEligible) response.allowWhatsapp = true;
-    // attach filtered UI buttons when options are tokens
-    attachUiButtonsForResponse(response);
-    return res.json(response);
+  const response = withOptions({ ok:true, reply, sid, stage: session.stage });
+  if(options && options.length) response.options = options;
+  if(session.waEligible) response.allowWhatsapp = true;
+  if(CHAT?.ui) response.ui = CHAT.ui;
+  if (response && Array.isArray(response.options) && response.options.length && response.options.every(o => /^BTN_/.test(o))) {
+  // Filtramos los botones del CHAT.ui para devolver solo los relevantes
+  const btns = (CHAT?.ui?.buttons || []).filter(b => response.options.includes(b.token));
+  // Si el frontend espera response.ui.buttons, lo devolvemos así:
+  response.ui = response.ui || {};
+  response.ui.buttons = btns;
+  // (opcional) también podemos convertir options a labels por compatibilidad:
+  response.options = btns.map(b => b.token); // dejamos tokens pero el frontend tiene los objetos en ui.buttons
+}
+  return res.json(response);
 
   } catch(e){
     console.error('[api/chat] Error', e);
