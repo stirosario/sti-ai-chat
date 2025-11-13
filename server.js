@@ -51,7 +51,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
       // agregado: botón/token para abrir WhatsApp con el ticket
-      { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' },
+      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsAPP', text: 'hablar con un tecnico' },
       // nuevos botones solicitados: Más pruebas / Conectar con Técnico
       { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
       { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
@@ -343,7 +343,7 @@ app.get('/ticket/:tid', (req, res) => {
 // Reset session
 app.post('/api/reset', async (req,res)=>{
   const sid = req.sessionId;
-  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
+  const empty = { id: sid, startedAt: nowIso(), startedAt: nowIso(), userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
   await saveSession(sid, empty);
   res.json({ ok:true });
 });
@@ -352,7 +352,7 @@ app.post('/api/reset', async (req,res)=>{
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
-    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
+    const fresh = { id: sid, startedAt: nowIso(), userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null };
     const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
@@ -406,7 +406,7 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // If the frontend sent the BTN_WHATSAPP token, handle immediately (create ticket + waUrl)
-    if (buttonToken === 'BTN_WHATSAPP') {
+    if (buttonToken === 'BTN_WHATSAPP' || /enviar\s+whats?app/i.test((buttonLabel || incomingText || ''))) {
       try {
         // Create ticket using current session
         // (reusing working logic from older server)
@@ -438,7 +438,12 @@ app.post('/api/chat', async (req,res)=>{
         const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
         const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
 
-        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\n` +
+  `Ingreso al chat: ${session.startedAt ? new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(session.startedAt)) + ' (ART)' : generatedLabel}\n` +
+  `Generado (ticket): ${generatedLabel}\n` +
+  (session.userName ? `Cliente: ${session.userName}\n` : '') +
+  (session.device ? `Equipo: ${session.device}\n` : '') +
+  `\nTicket: ${ticketId}\nLink historial: ${publicUrl}`;
         if(session.userName) waText += `Cliente: ${session.userName}\n`;
         if(session.device) waText += `Equipo: ${session.device}\n`;
         waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
@@ -455,7 +460,7 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Enviar WhatsAPP'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -507,7 +512,12 @@ app.post('/api/chat', async (req,res)=>{
 
         const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
         const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+        let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\n` +
+  `Ingreso al chat: ${session.startedAt ? new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(session.startedAt)) + ' (ART)' : generatedLabel}\n` +
+  `Generado (ticket): ${generatedLabel}\n` +
+  (session.userName ? `Cliente: ${session.userName}\n` : '') +
+  (session.device ? `Equipo: ${session.device}\n` : '') +
+  `\nTicket: ${ticketId}\nLink historial: ${publicUrl}`;
         if(session.userName) waText += `Cliente: ${session.userName}\n`;
         if(session.device) waText += `Equipo: ${session.device}\n`;
         waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
@@ -521,7 +531,7 @@ app.post('/api/chat', async (req,res)=>{
 
         session.waEligible = true;
         session.stage = STATES.ESCALATE;
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl }));
+        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['Enviar WhatsAPP'], waUrl, ticketId, publicUrl, apiPublicUrl }));
       } catch (errTick) {
         console.error('[create-ticket]', errTick);
         session.waEligible = false;
@@ -823,7 +833,12 @@ if (helpMatch) {
 
             const publicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/ticket/${ticketId}`;
             const apiPublicUrl = `${PUBLIC_BASE_URL.replace(/\/$/,'')}/api/ticket/${ticketId}`;
-            let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\nGenerado: ${generatedLabel}\n`;
+            let waText = `${titleLine}\n${CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'}\n\n` +
+  `Ingreso al chat: ${session.startedAt ? new Intl.DateTimeFormat('es-AR',{ timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(session.startedAt)) + ' (ART)' : generatedLabel}\n` +
+  `Generado (ticket): ${generatedLabel}\n` +
+  (session.userName ? `Cliente: ${session.userName}\n` : '') +
+  (session.device ? `Equipo: ${session.device}\n` : '') +
+  `\nTicket: ${ticketId}\nLink historial: ${publicUrl}`;
             if(session.userName) waText += `Cliente: ${session.userName}\n`;
             if(session.device) waText += `Equipo: ${session.device}\n`;
             waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
@@ -838,7 +853,7 @@ if (helpMatch) {
 
             // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
             reply = replyTech;
-            options = ['BTN_WHATSAPP'];
+            options = ['Enviar WhatsAPP'];
             session.waEligible = true;
             session.stage = STATES.ESCALATE;
 
