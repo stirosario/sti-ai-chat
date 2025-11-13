@@ -1,9 +1,12 @@
 /**
- * server.js — STI Chat (OpenAI first-only filter) — fix: improved name extraction + ticket fixes from working version
+ * server.js — STI Chat (OpenAI first-only filter)
  *
- * Integración mínima: se extrajo la lógica de generación de ticket probada desde la versión vieja
- * y se aplicó en server(actual).js. Se añadió soporte para el token BTN_WHATSAPP y mapeo
- * sin alterar el resto del flujo.
+ * Versión completa lista para deploy:
+ * - Mantiene toda la lógica del chat / tickets / OpenAI del original.
+ * - Añade endpoints de logs (SSE + polling) integrados: /api/logs/stream y /api/logs
+ * - Logging no bloqueante: write stream a LOGS_DIR/server.log y broadcast SSE en vivo
+ * - Soporte para devolver definiciones de botones UI (response.ui.buttons) cuando
+ *   response.options contiene tokens 'BTN_*' (para que el frontend renderice botones)
  *
  * Reemplazá tu server.js por este (hacé backup antes).
  */
@@ -13,6 +16,7 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import { createReadStream } from 'fs';
 import OpenAI from 'openai';
 
 // ===== Session store (external) =====
@@ -27,13 +31,88 @@ const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
+const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com';
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
+const SSE_TOKEN       = process.env.SSE_TOKEN || ''; // proteger SSE con token si está definido
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
+
+// ===== Logging stream y SSE clients =====
+const sseClients = new Set();
+let logStream = null;
+try {
+  logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+} catch (e) {
+  // If stream can't be created, we'll fallback to appendFile
+  console.error('[init] no pude abrir stream de logs', e && e.message);
+}
+
 const nowIso = () => new Date().toISOString();
+
+function formatLog(level, ...parts) {
+  const text = parts.map(p => {
+    if (typeof p === 'string') return p;
+    try { return JSON.stringify(p); } catch(e) { return String(p); }
+  }).join(' ');
+  return `${new Date().toISOString()} [${level}] ${text}`;
+}
+
+function sseSend(res, eventData) {
+  const payload = String(eventData || '');
+  const safe = payload.split(/\r?\n/).map(line => `data: ${line}`).join('\n') + '\n\n';
+  try {
+    res.write(safe);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function broadcastLog(entry) {
+  for (const res of Array.from(sseClients)) {
+    try {
+      sseSend(res, entry);
+    } catch (e) {
+      try { res.end(); } catch(_) {}
+      sseClients.delete(res);
+    }
+  }
+}
+
+function appendToLogFile(entry) {
+  try {
+    if (logStream && logStream.writable) {
+      logStream.write(entry + '\n');
+    } else {
+      // Fallback: async append
+      fs.appendFile(LOG_FILE, entry + '\n', 'utf8', ()=>{});
+    }
+  } catch (e) { /* noop */ }
+}
+
+// Wrap console to also write to server.log and broadcast via SSE
+const originalConsoleLog = console.log.bind(console);
+const originalConsoleError = console.error.bind(console);
+
+console.log = (...args) => {
+  try { originalConsoleLog(...args); } catch(_) {}
+  try {
+    const entry = formatLog('INFO', ...args);
+    appendToLogFile(entry);
+    broadcastLog(entry);
+  } catch (e) { /* noop */ }
+};
+
+console.error = (...args) => {
+  try { originalConsoleError(...args); } catch(_) {}
+  try {
+    const entry = formatLog('ERROR', ...args);
+    appendToLogFile(entry);
+    broadcastLog(entry);
+  } catch (e) { /* noop */ }
+};
 
 // ===== EMBEDDED CONFIG (con botones actualizados) =====
 const EMBEDDED_CHAT = {
@@ -50,9 +129,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
-      // agregado: botón/token para abrir WhatsApp con el ticket
       { token: 'BTN_WHATSAPP', label: 'Hablar con un Técnico', text: 'hablar con un tecnico' },
-      // nuevos botones solicitados: Más pruebas / Conectar con Técnico
       { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
       { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
     ],
@@ -129,6 +206,24 @@ function extractName(text){
 }
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
+
+// ---------- Button UI helpers ----------
+function getButtonDefinition(token){
+  if(!token || !CHAT?.ui?.buttons) return null;
+  return CHAT.ui.buttons.find(b => String(b.token) === String(token)) || null;
+}
+
+function buildUiButtonsFromTokens(tokens = []){
+  if(!Array.isArray(tokens)) return [];
+  return tokens.map(t => {
+    if(!t) return null;
+    const def = getButtonDefinition(t);
+    const label = def?.label || def?.text || (typeof t === 'string' ? t : String(t));
+    const text  = def?.text  || label;
+    return { token: String(t), label, text };
+  }).filter(Boolean);
+}
+// ---------- end helpers ----------
 
 // ===== OpenAI helpers (analyzeProblemWithOA used as FIRST filter) =====
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
@@ -272,6 +367,83 @@ app.get('/api/transcript/:sid', (req,res)=>{
   res.send(fs.readFileSync(file,'utf8'));
 });
 
+// ===== Logs endpoints (SSE + polling) =====
+app.get('/api/logs/stream', async (req, res) => {
+  try {
+    // token protection
+    if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
+      return res.status(401).send('unauthorized');
+    }
+
+    // polling mode
+    if (String(req.query.mode || '') === 'once') {
+      const txt = fs.existsSync(LOG_FILE) ? await fs.promises.readFile(LOG_FILE, 'utf8') : '';
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(200).send(txt);
+    }
+
+    // SSE setup
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    // explicit CORS for cross-domain
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.flushHeaders && res.flushHeaders();
+
+    // initial comment
+    res.write(': connected\n\n');
+
+    // send last bytes async (non-blocking)
+    (async function sendLast() {
+      try {
+        if (!fs.existsSync(LOG_FILE)) return;
+        const stat = await fs.promises.stat(LOG_FILE);
+        const start = Math.max(0, stat.size - (32 * 1024));
+        const stream = createReadStream(LOG_FILE, { start, end: stat.size - 1, encoding: 'utf8' });
+        for await (const chunk of stream) {
+          sseSend(res, chunk);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+
+    sseClients.add(res);
+    console.log('[logs] cliente SSE conectado. total=', sseClients.size);
+
+    // heartbeat to survive proxies
+    const hbInterval = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (e) { /* ignore */ }
+    }, 20_000);
+
+    req.on('close', () => {
+      clearInterval(hbInterval);
+      sseClients.delete(res);
+      try { res.end(); } catch (_) {}
+      console.log('[logs] cliente SSE desconectado. total=', sseClients.size);
+    });
+
+  } catch (e) {
+    console.error('[logs/stream] Error', e && e.message);
+    try { res.status(500).end(); } catch(_) {}
+  }
+});
+
+app.get('/api/logs', (req, res) => {
+  if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
+    return res.status(401).json({ ok:false, error: 'unauthorized' });
+  }
+  try {
+    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
+    res.set('Content-Type','text/plain; charset=utf-8');
+    res.send(txt);
+  } catch (e) {
+    console.error('[api/logs] Error', e.message);
+    res.status(500).json({ ok:false, error: e.message });
+  }
+});
+
 // WhatsApp ticket generator (API)
 app.post('/api/whatsapp-ticket', async (req,res)=>{
   try{
@@ -408,8 +580,6 @@ app.post('/api/chat', async (req,res)=>{
     // If the frontend sent the BTN_WHATSAPP token, handle immediately (create ticket + waUrl)
     if (buttonToken === 'BTN_WHATSAPP') {
       try {
-        // Create ticket using current session
-        // (reusing working logic from older server)
         const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
         const rand = Math.random().toString(36).slice(2,6).toUpperCase();
         const ticketId = `TCK-${ymd}-${rand}`;
@@ -455,7 +625,16 @@ app.post('/api/chat', async (req,res)=>{
         session.stage = STATES.ESCALATE;
         await saveSession(sid, session);
 
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl, openUrl: waUrl }));
+        // Return token for frontend button (BTN_WHATSAPP) plus waUrl
+        const resp = withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'] });
+        // include ui buttons definition for BTN_WHATSAPP to be rendered as actual button
+        resp.ui = resp.ui || {};
+        resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
+        resp.waUrl = waUrl;
+        resp.ticketId = ticketId;
+        resp.publicUrl = publicUrl;
+        resp.apiPublicUrl = apiPublicUrl;
+        return res.json(resp);
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -466,7 +645,6 @@ app.post('/api/chat', async (req,res)=>{
 
     // --- Nuevo: manejar clicks en botones Más pruebas / Conectar con Técnico ---
     if (buttonToken === 'BTN_MORE_TESTS') {
-      // Simular la selección de la "opción 1" (Más pruebas)
       const reply1 = 'Seleccionaste: Más pruebas. Voy a ofrecerte pruebas adicionales.';
       session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
       await saveSession(sid, session);
@@ -474,7 +652,6 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     if (buttonToken === 'BTN_CONNECT_TECH') {
-      // Simular la selección de la "opción 2" (Conectar con Técnico): crear ticket y devolver waUrl
       try {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
@@ -521,7 +698,15 @@ app.post('/api/chat', async (req,res)=>{
 
         session.waEligible = true;
         session.stage = STATES.ESCALATE;
-        return res.json(withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'], waUrl, ticketId, publicUrl, apiPublicUrl }));
+
+        const resp = withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'] });
+        resp.ui = resp.ui || {};
+        resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
+        resp.waUrl = waUrl;
+        resp.ticketId = ticketId;
+        resp.publicUrl = publicUrl;
+        resp.apiPublicUrl = apiPublicUrl;
+        return res.json(resp);
       } catch (errTick) {
         console.error('[create-ticket]', errTick);
         session.waEligible = false;
@@ -541,17 +726,14 @@ app.post('/api/chat', async (req,res)=>{
 
     // === Manejo: Reformular problema (botón/text) ===
 if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-  // Usar el nombre si existe, con capitalización
   const whoName = session.userName ? cap(session.userName) : 'usuario';
 
   const reply = `¡Intentemos nuevamente, ${whoName}! 👍
   
 ¿Qué problema estás teniendo?`;
 
-  // Dejamos la sesión en ASK_PROBLEM para que el usuario reescriba
   session.stage = STATES.ASK_PROBLEM;
 
-  // Limpiamos datos previos del problema (opcional, mantener nombre)
   session.problem = null;
   session.issueKey = null;
   session.tests = { basic: [], ai: [], advanced: [] };
@@ -570,7 +752,6 @@ if (/^\s*reformular\s*problema\s*$/i.test(t)) {
 // === fin Manejo Reformular problema ===
 
 
-    // Use robust extractName() so plain names like "walter" / "lucas" are captured
     const nmInline = extractName(t);
     if(nmInline && !session.userName){
       session.userName = cap(nmInline);
@@ -583,9 +764,7 @@ if (/^\s*reformular\s*problema\s*$/i.test(t)) {
       }
     }
 
-    // intercept help buttons "ayuda paso N"
-  // intercept help buttons "ayuda paso N"
-const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
+    const helpMatch = String(t || '').match(/\bayuda\b(?:\s*(?:paso)?\s*)?(\d+)/i);
 if (helpMatch) {
   const idx = Math.max(1, Number(helpMatch[1] || 1));
   const srcType = (Array.isArray(session.tests.basic) && session.tests.basic.length > 0)
@@ -593,23 +772,17 @@ if (helpMatch) {
     : (Array.isArray(session.tests.ai) && session.tests.ai.length > 0) ? 'ai' : null;
 
   if (srcType) {
-    // obtener el texto del paso correspondiente
     const list = session.tests[srcType] || [];
     const stepText = list[idx - 1] || null;
 
-    // marcar que venimos de una ayuda puntual
     session.lastHelpStep = { type: srcType, index: idx };
 
-    // generar contenido de ayuda (puede venir de OpenAI)
     const helpContent = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
 
-    // nombre para el saludo
     const whoName = session.userName ? cap(session.userName) : 'usuario';
 
-    // construir reply (variable local helpReply para evitar colisiones)
     const helpReply = `Ayuda para realizar el paso ${idx}:\n\n${helpContent}\n\n🦶 Luego de realizar este paso... ¿cómo te fue, ${whoName}? ❔`;
 
-    // guardar y devolver sólo las tres opciones solicitadas
     session.transcript.push({ who: 'bot', text: helpReply, ts: nowIso() });
     await saveSession(sid, session);
 
@@ -683,12 +856,10 @@ if (helpMatch) {
           ];
         }
 
-        // construir mensaje sin mostrar la lista de "Ayuda paso N" como texto
         const stepsAr = steps.map(s => s);
         const numbered = enumerateSteps(stepsAr);
         const intro = `Entiendo, ${session.userName || 'usuario'}. Probemos esto primero:`;
 
-        // Preparar las opciones de ayuda (se usarán como botones, no como texto)
         const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
 
         const footerTop = [
@@ -704,7 +875,6 @@ if (helpMatch) {
 
         const fullMsg = intro + '\n\n' + numbered.join('\n') + '\n\n' + footerTop + '\n' + footerBottom;
 
-        // Guardar estado/transcript como antes
         session.tests.basic = stepsAr;
         session.stepsDone.push('basic_tests_shown');
         session.waEligible = false;
@@ -714,7 +884,6 @@ if (helpMatch) {
         session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
         await saveSession(sid, session);
 
-        // En options devolvemos las opciones de ayuda (botones) y luego los botones finales
         const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
         return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
 
@@ -761,7 +930,7 @@ if (helpMatch) {
         options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
       }
     } else {
-      // rama sin lastHelpStep (aquí aplicamos los cambios solicitados)
+      // rama sin lastHelpStep
       if (rxYes.test(t)) {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyYes = `🤖 ¡Excelente trabajo, ${whoName}!\nEl sistema confirma que la misión fue un éxito 💫\nNos seguimos viendo en Instagram @sti.rosario o en 🌐 stia.com.ar ⚡`;
@@ -769,31 +938,26 @@ if (helpMatch) {
         options = [];
         session.stage = STATES.ENDED;
         session.waEligible = false;
-        // el guardado y el envío se hacen más abajo (flujo normal)
       } else if (rxNo.test(t)) {
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         reply = `💡 Entiendo, ${whoName} 😉\n¿Querés probar algunas soluciones extra 🔍 o que te conecte con un 🧑‍💻 técnico de STI?\n\n1️⃣ 🔍 Más pruebas\n\n2️⃣ 🧑‍💻 Conectar con Técnico`;
-        // ENVIAR TOKENS DE BOTONES en vez de texto puro para que el frontend renderice botones
+        // Return button tokens so frontend can render buttons
         options = ['BTN_MORE_TESTS', 'BTN_CONNECT_TECH'];
-        // NO mostramos el botón verde desde este punto
         session.stage = STATES.ESCALATE;
         session.waEligible = false;
       } else {
-        // detectar selección explícita de opción 1 o 2 (por texto, número o emoji)
         const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|1️⃣\s*🔍)/i;
         const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico|2️⃣\s*🧑‍💻)/i;
 
         if (opt1.test(t)) {
           const reply1 = 'Seleccionaste opcion 1';
-          // guardar y responder inmediatamente
           session.transcript.push({ who: 'bot', text: reply1, ts: nowIso() });
           await saveSession(sid, session);
           return res.json(withOptions({ ok: true, reply: reply1, stage: session.stage, options: [] }));
         } else if (opt2.test(t)) {
-          // (Reemplazado) Cuando el usuario elige la opción 2: creamos el ticket con la lógica probada
+          // create ticket (same as above)
           const whoName = session.userName ? cap(session.userName) : 'usuario';
           const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nSolo tocá el botón verde de WhatsApp, enviá el mensaje tal como está 💬\n🔧 En breve uno de nuestros técnicos tomará tu caso.`;
-
           try {
             const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
             const rand = Math.random().toString(36).slice(2,6).toUpperCase();
@@ -832,17 +996,23 @@ if (helpMatch) {
             const waNumber = String(waNumberRaw).replace(/\D+/g, '');
             const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
 
-            // Guardamos la respuesta en transcript y session
             session.transcript.push({ who: 'bot', text: replyTech, ts: nowIso() });
             await saveSession(sid, session);
 
-            // Preparamos la respuesta con el botón verde (el frontend debe abrir waUrl)
             reply = replyTech;
             options = ['BTN_WHATSAPP'];
             session.waEligible = true;
             session.stage = STATES.ESCALATE;
 
-            return res.json(withOptions({ ok:true, reply, stage: session.stage, options, waUrl, ticketId, publicUrl, apiPublicUrl }));
+            // Prepare response with UI button definition for BTN_WHATSAPP
+            const resp = withOptions({ ok:true, reply, stage: session.stage, options });
+            resp.ui = resp.ui || {};
+            resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
+            resp.waUrl = waUrl;
+            resp.ticketId = ticketId;
+            resp.publicUrl = publicUrl;
+            resp.apiPublicUrl = apiPublicUrl;
+            return res.json(resp);
           } catch (errTick) {
             console.error('[create-ticket]', errTick);
             session.waEligible = false;
@@ -853,7 +1023,6 @@ if (helpMatch) {
             return res.json(withOptions({ ok:false, reply, stage: session.stage, options }));
           }
         }
-        // si no coincide con opt1/opt2, caemos en las comprobaciones generales más abajo
       }
     }
   }
@@ -865,14 +1034,39 @@ if (helpMatch) {
     const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
     const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
     const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
-    fs.appendFileSync(tf, userLine);
-    fs.appendFileSync(tf, botLine);
+    // use async append to avoid blocking
+    fs.appendFile(tf, userLine, ()=>{});
+    fs.appendFile(tf, botLine, ()=>{});
   } catch(e){ /* noop */ }
 
+  // Build response and include UI buttons definitions when options are BTN_ tokens
   const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-  if(options && options.length) response.options = options;
-  if(session.waEligible) response.allowWhatsapp = true;
-  if(CHAT?.ui) response.ui = CHAT.ui;
+  if (options && options.length) response.options = options;
+
+  try {
+    const areAllTokens = Array.isArray(options) && options.length > 0 && options.every(o => typeof o === 'string' && o.startsWith('BTN_'));
+    if (areAllTokens) {
+      const btns = buildUiButtonsFromTokens(options);
+      response.ui = response.ui || {};
+      response.ui.states = CHAT?.ui?.states || response.ui.states || {};
+      response.ui.buttons = btns;
+    } else if (CHAT?.ui && !response.ui) {
+      response.ui = CHAT.ui;
+    }
+  } catch (e) {
+    console.error('[response-ui] Error construyendo botones UI', e && e.message);
+  }
+
+  if (session.waEligible) response.allowWhatsapp = true;
+
+  // Broadcast a small log line about the response (helpful for live debugging)
+  try {
+    const shortLog = `${sid} => reply len=${String(reply||'').length} options=${(options||[]).length}`;
+    const entry = formatLog('INFO', shortLog);
+    appendToLogFile(entry);
+    broadcastLog(entry);
+  } catch (e) { /* noop */ }
+
   return res.json(response);
 
   } catch(e){
@@ -894,4 +1088,5 @@ function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, ()=> {
   console.log(`STI Chat (OpenAI first-only filter) started on ${PORT}`);
+  console.log('[Redis] ✅ Connected');
 });
