@@ -501,12 +501,100 @@ app.get('/api/ticket/:tid', (req, res) => {
   if (!fs.existsSync(file)) return res.status(404).json({ ok:false, error: 'not_found' });
   res.json({ ok:true, ticketId: tid, content: fs.readFileSync(file,'utf8') });
 });
+// [STI-CHANGE] Mejor presentación HTML del ticket para lectura humana
 app.get('/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
-  res.set('Content-Type','text/plain; charset=utf-8');
-  res.send(fs.readFileSync(file,'utf8'));
+
+  // Leer contenido original
+  const raw = fs.readFileSync(file,'utf8');
+  const safeRaw = escapeHtml(raw);
+
+  // Construir vista "pretty" simple: título / metadata / historial en párrafos
+  const lines = raw.split(/\r?\n/);
+  let prettyParts = [];
+  for (const ln of lines) {
+    if (!ln || /^\s*$/.test(ln)) { prettyParts.push('<br/>'); continue; }
+    if (/^STI\s*•\s*Ticket/i.test(ln)) {
+      prettyParts.push(`<h1>${escapeHtml(ln)}</h1>`);
+      continue;
+    }
+    if (/^Generado:/i.test(ln)) {
+      prettyParts.push(`<p><strong>${escapeHtml(ln)}</strong></p>`);
+      continue;
+    }
+    if (/^===\s*HISTORIAL/i.test(ln)) {
+      prettyParts.push('<h2>Historial de conversación</h2>');
+      continue;
+    }
+    // líneas del historial (ej: [2025-...] user: ...)
+    const m = ln.match(/^\[([^\]]+)\]\s*(\w+):\s*(.*)$/);
+    if (m) {
+      const ts = escapeHtml(m[1]);
+      const who = escapeHtml(m[2]);
+      const text = escapeHtml(m[3]);
+      prettyParts.push(`<div class="hist-line"><span class="ts">[${ts}]</span> <span class="who">${who}:</span> <span class="txt">${text}</span></div>`);
+      continue;
+    }
+    // fallback: párrafo
+    prettyParts.push(`<p>${escapeHtml(ln)}</p>`);
+  }
+  const prettyHtml = prettyParts.join('\n');
+
+  // Página HTML con estilos simples y toggle para ver raw / pretty
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <title>Ticket ${escapeHtml(tid)}</title>
+      <style>
+        body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:18px; color:#222;}
+        h1{font-size:20px; margin-bottom:6px;}
+        h2{font-size:16px; margin-top:12px; color:#444;}
+        pre{background:#f7f7f8; border:1px solid #e2e2e2; padding:12px; white-space:pre-wrap; word-wrap:break-word; border-radius:6px; max-width:100%;}
+        .controls{margin:10px 0 14px; display:flex; gap:12px; align-items:center;}
+        .hist-line{padding:6px 8px; border-left:3px solid #eee; margin:6px 0; background:#fff;}
+        .hist-line .ts{color:#666; font-size:12px; margin-right:6px;}
+        .hist-line .who{font-weight:600; margin-right:6px;}
+        .hist-line .txt{white-space:pre-wrap;}
+        .meta strong{display:block; margin-bottom:4px;}
+        .btn{background:#0b7cff;color:#fff;padding:6px 10px;border-radius:6px;text-decoration:none;}
+        .note{color:#666;font-size:13px;margin-top:10px;}
+        @media (max-width:600px){ body{margin:10px;} }
+      </style>
+    </head>
+    <body>
+      <div class="controls">
+        <label><input id="fmt" type="checkbox"/> Dar formato al texto</label>
+        <a class="btn" href="/api/ticket/${encodeURIComponent(tid)}" target="_blank" rel="noopener">Ver JSON (API)</a>
+      </div>
+
+      <div id="pretty" style="display:none;">
+        ${prettyHtml}
+      </div>
+
+      <div id="rawView">
+        <pre>${safeRaw}</pre>
+      </div>
+      <div class="note">Nota: podés alternar entre la vista cruda y la vista formateada marcando "Dar formato al texto".</div>
+
+      <script>
+        (function(){
+          const chk = document.getElementById('fmt');
+          const pretty = document.getElementById('pretty');
+          const raw = document.getElementById('rawView');
+          chk.addEventListener('change', ()=> {
+            if (chk.checked) { pretty.style.display='block'; raw.style.display='none'; } else { pretty.style.display='none'; raw.style.display='block'; }
+          });
+        })();
+      </script>
+    </body>
+  </html>`;
+
+  res.set('Content-Type','text/html; charset=utf-8');
+  res.send(html);
 });
 
 // reset session
