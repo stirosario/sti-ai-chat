@@ -1,32 +1,24 @@
 /**
  * server.js — STI Chat (stable) — WhatsApp button + Logs SSE compatible with chatlog.php
  *
- * This is the updated full server.js with fixes to ensure the WhatsApp button is consistently
- * returned to the frontend when a ticket is generated.
+ * This file merges the working parts of the provided servers and ensures:
+ *  - /api/logs/stream supports SSE and polling mode=once (used by chatlog.php)
+ *  - logs are written to LOG_FILE and broadcast to SSE clients
+ *  - /api/chat handles BTN_WHATSAPP and BTN_CONNECT_TECH returning waUrl and ui.buttons
+ *  - /api/whatsapp-ticket remains available as API to generate ticket + waUrl + waWebUrl
  *
- * Changes/fixes applied:
- * - When a ticket is created we now return multiple helper fields so different frontends
- *   can detect and render the WhatsApp action:
- *     - resp.waUrl (unchanged)
- *     - resp.ui.buttons (token/label/text) — existing behaviour
- *     - resp.ui.externalButtons (new): array of { token, label, url, openExternal: true }
- *       — some clients prefer an explicit URL+action button.
- *     - resp.allowWhatsapp = true (unchanged but ensured present)
- * - These fields are added in all ticket-creating branches:
- *     - quick BTN_WHATSAPP branch (when the incoming action is a BTN_WHATSAPP or
- *       the user typed "enviar whatsapp" etc.)
- *     - ESCALATE -> option 2 (Conectar con Técnico) branch
- *     - /api/whatsapp-ticket route
+ * Environment variables:
+ *  - PORT (default 3001)
+ *  - DATA_BASE (default /data)
+ *  - PUBLIC_BASE_URL (used to build public ticket links)
+ *  - WHATSAPP_NUMBER (digits only or with +, default '5493417422422')
+ *  - OPENAI_API_KEY (optional)
+ *  - OPENAI_MODEL (optional)
+ *  - OA_MIN_CONF (optional; 0..1)
+ *  - SSE_TOKEN (optional; if defined, chatlog.php must set same token via GET param token=...)
  *
- * Notes:
- * - I kept the rest of the code identical to your original file where possible.
- * - I only added the externalButtons structure and ensured it's returned together with the
- *   existing ui.buttons and waUrl so clients that expect a direct URL/button will receive it.
- * - No other unrelated logic was changed; if you want me to revert any micro-change or
- *   adjust the exact externalButtons shape to match a specific frontend, tell me which
- *   fields your frontend expects and I'll adapt it.
- *
- * Environment variables and expected sessionStore.js remain the same.
+ * Note: this server expects a sessionStore.js module with getSession/saveSession/listActiveSessions
+ *       (same as your previous versions). If you don't have it, create a simple in-memory fallback.
  */
 
 import 'dotenv/config';
@@ -485,12 +477,18 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
-
-    // Provide ui.buttons and externalButtons so frontend can render a clickable button
+    // [STI-CHANGE] also expose WhatsApp Web URL (prefills input in web.whatsapp.com)
+    const waNumber = waNumberRaw.replace(/\D+/g,'');
+    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+    // Provide ui.buttons and explicit externalButtons so frontend can render a clickable button
     const uiButtons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
-    const externalButtons = buildExternalButtonsFromTokens(['BTN_WHATSAPP'], { 'BTN_WHATSAPP': waUrl });
+    const labelBtn = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
+    const externalButtons = [
+      { token: 'BTN_WHATSAPP', label: labelBtn, url: waUrl, openExternal: true },
+      { token: 'BTN_WHATSAPP_WEB', label: labelBtn + ' (Web)', url: waWebUrl, openExternal: true }
+    ];
 
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, ui: { buttons: uiButtons, externalButtons }, allowWhatsapp: true });
+    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, waWebUrl, ui: { buttons: uiButtons, externalButtons }, allowWhatsapp: true });
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
 });
 
@@ -687,6 +685,9 @@ app.post('/api/chat', async (req,res)=>{
 
         const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
         const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
+        // [STI-CHANGE] Also provide waWebUrl for web.whatsapp.com prefilled input
+        const waNumber = waNumberRaw.replace(/\D+/g,'');
+        const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nTocá el botón verde para abrir WhatsApp y enviar el mensaje.`;
@@ -699,12 +700,16 @@ app.post('/api/chat', async (req,res)=>{
         const resp = withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'] });
         resp.ui = resp.ui || {};
         resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
-        resp.ui.externalButtons = buildExternalButtonsFromTokens(['BTN_WHATSAPP'], { 'BTN_WHATSAPP': waUrl });
+        const labelBtn = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
+        resp.ui.externalButtons = [
+          { token: 'BTN_WHATSAPP', label: labelBtn, url: waUrl, openExternal: true },
+          { token: 'BTN_WHATSAPP_WEB', label: labelBtn + ' (Web)', url: waWebUrl, openExternal: true }
+        ];
         resp.waUrl = waUrl;
+        resp.waWebUrl = waWebUrl;
         resp.ticketId = ticketId;
         resp.publicUrl = publicUrl;
         resp.apiPublicUrl = apiPublicUrl;
-        resp.allowWhatsapp = true;
         return res.json(resp);
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
@@ -878,6 +883,9 @@ app.post('/api/chat', async (req,res)=>{
 
           const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
           const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
+          // [STI-CHANGE] waWebUrl para WhatsApp Web con prefill
+          const waNumber = waNumberRaw.replace(/\D+/g,'');
+          const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
           const whoName = session.userName ? cap(session.userName) : 'usuario';
           const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket. Toca el botón para abrir WhatsApp.`;
@@ -890,8 +898,13 @@ app.post('/api/chat', async (req,res)=>{
           const resp = withOptions({ ok:true, reply: replyTech, stage: session.stage, options: ['BTN_WHATSAPP'] });
           resp.ui = resp.ui || {};
           resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
-          resp.ui.externalButtons = buildExternalButtonsFromTokens(['BTN_WHATSAPP'], { 'BTN_WHATSAPP': waUrl });
+          const labelBtn2 = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
+          resp.ui.externalButtons = [
+            { token: 'BTN_WHATSAPP', label: labelBtn2, url: waUrl, openExternal: true },
+            { token: 'BTN_WHATSAPP_WEB', label: labelBtn2 + ' (Web)', url: waWebUrl, openExternal: true }
+          ];
           resp.waUrl = waUrl;
+          resp.waWebUrl = waWebUrl;
           resp.ticketId = ticketId;
           resp.publicUrl = publicUrl;
           resp.apiPublicUrl = apiPublicUrl;
