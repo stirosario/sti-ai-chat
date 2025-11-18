@@ -480,7 +480,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
     // [STI-CHANGE] also expose WhatsApp Web URL (prefills input in web.whatsapp.com)
     const waNumber = waNumberRaw.replace(/\D+/g,'');
-    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+    const waWebUrl = `https://wa.me.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     // [STI-CHANGE] scheme URL to attempt opening native app with prefilled text (may or may not be supported)
     const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     // [STI-CHANGE] Android intent URL (suele abrir la app nativa desde Chrome/Android con más fiabilidad)
@@ -718,7 +718,7 @@ app.post('/api/chat', async (req,res)=>{
         const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
         // [STI-CHANGE] Also provide waWebUrl for web.whatsapp.com prefilled input
         const waNumber = waNumberRaw.replace(/\D+/g,'');
-        const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+        const waWebUrl = `https://wa.me.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
         // [STI-CHANGE] scheme URL to attempt opening native app with prefilled text (may or may not be supported)
         const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
         // [STI-CHANGE] Android intent URL (suele abrir la app nativa desde Chrome/Android con más fiabilidad)
@@ -925,7 +925,7 @@ app.post('/api/chat', async (req,res)=>{
           const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
           // [STI-CHANGE] waWebUrl para WhatsApp Web con prefill
           const waNumber = waNumberRaw.replace(/\D+/g,'');
-          const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+          const waWebUrl = `https://wa.me.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
           // [STI-CHANGE] waAppUrl to try native app
           const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
           // [STI-CHANGE] waIntentUrl to try Android intent
