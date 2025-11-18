@@ -523,92 +523,96 @@ app.get('/api/ticket/:tid', (req, res) => {
   res.json({ ok:true, ticketId: tid, content: raw, messages });
 });
 
-// [STI-CHANGE] Mejor presentación HTML del ticket para lectura humana
+// [STI-CHANGE] Mejor presentación HTML del ticket: vista cascada estilo conversación
 app.get('/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
 
-  // Leer contenido original
+  // [STI-CHANGE] Nueva vista tipo "cascada" (chat bubbles) para mostrar el historial como conversación
   const raw = fs.readFileSync(file,'utf8');
   const safeRaw = escapeHtml(raw);
 
-  // Construir vista "pretty" simple: título / metadata / historial en párrafos
+  // parse lines into messages array (reutiliza el mismo formato que /api/ticket)
   const lines = raw.split(/\r?\n/);
-  let prettyParts = [];
+  const messages = [];
   for (const ln of lines) {
-    if (!ln || /^\s*$/.test(ln)) { prettyParts.push('<br/>'); continue; }
-    if (/^STI\s*•\s*Ticket/i.test(ln)) {
-      prettyParts.push(`<h1>${escapeHtml(ln)}</h1>`);
-      continue;
-    }
-    if (/^Generado:/i.test(ln)) {
-      prettyParts.push(`<p><strong>${escapeHtml(ln)}</strong></p>`);
-      continue;
-    }
-    if (/^===\s*HISTORIAL/i.test(ln)) {
-      prettyParts.push('<h2>Historial de conversación</h2>');
-      continue;
-    }
-    // líneas del historial (ej: [2025-...] user: ...)
-    const m = ln.match(/^\[([^\]]+)\]\s*(\w+):\s*(.*)$/);
+    if (!ln || /^\s*$/.test(ln)) continue;
+    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
     if (m) {
-      const ts = escapeHtml(m[1]);
-      const who = escapeHtml(m[2]);
-      const text = escapeHtml(m[3]);
-      prettyParts.push(`<div class="hist-line"><span class="ts">[${ts}]</span> <span class="who">${who}:</span> <span class="txt">${text}</span></div>`);
-      continue;
+      messages.push({ ts: m[1], who: String(m[2]).trim().toLowerCase(), text: String(m[3]).trim() });
+    } else {
+      messages.push({ ts: null, who: 'system', text: ln.trim() });
     }
-    // fallback: párrafo
-    prettyParts.push(`<p>${escapeHtml(ln)}</p>`);
   }
-  const prettyHtml = prettyParts.join('\n');
 
-  // Página HTML con estilos simples y toggle para ver raw / pretty
+  // build chat HTML with bubbles (user right, bot left, system centered)
+  const chatLines = messages.map(msg => {
+    if (msg.who === 'system') {
+      return `<div class="sys">${escapeHtml(msg.text)}</div>`;
+    }
+    const side = (msg.who === 'user' || msg.who === 'usuario') ? 'user' : 'bot';
+    const whoLabel = side === 'user' ? 'Vos' : 'Tecnos';
+    const ts = msg.ts ? `<div class="ts">${escapeHtml(msg.ts)}</div>` : '';
+    return `<div class="bubble ${side}">
+      <div class="bubble-inner">
+        <div class="who">${escapeHtml(whoLabel)}</div>
+        <div class="txt">${escapeHtml(msg.text)}</div>
+        ${ts}
+      </div>
+    </div>`;
+  }).join('\n');
+
   const html = `<!doctype html>
   <html>
     <head>
       <meta charset="utf-8"/>
       <meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Ticket ${escapeHtml(tid)}</title>
+      <title>Ticket ${escapeHtml(tid)} — Conversación</title>
       <style>
-        body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:18px; color:#222;}
-        h1{font-size:20px; margin-bottom:6px;}
-        h2{font-size:16px; margin-top:12px; color:#444;}
-        pre{background:#f7f7f8; border:1px solid #e2e2e2; padding:12px; white-space:pre-wrap; word-wrap:break-word; border-radius:6px; max-width:100%;}
-        .controls{margin:10px 0 14px; display:flex; gap:12px; align-items:center;}
-        .hist-line{padding:6px 8px; border-left:3px solid #eee; margin:6px 0; background:#fff;}
-        .hist-line .ts{color:#666; font-size:12px; margin-right:6px;}
-        .hist-line .who{font-weight:600; margin-right:6px;}
-        .hist-line .txt{white-space:pre-wrap;}
-        .meta strong{display:block; margin-bottom:4px;}
-        .btn{background:#0b7cff;color:#fff;padding:6px 10px;border-radius:6px;text-decoration:none;}
-        .note{color:#666;font-size:13px;margin-top:10px;}
-        @media (max-width:600px){ body{margin:10px;} }
+        :root{--bg:#f5f7fb;--bot:#ffffff;--user:#dcf8c6;--accent:#0b7cff;--muted:#777;}
+        body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:12px; background:var(--bg); color:#222;}
+        .controls{display:flex;gap:12px;align-items:center;margin-bottom:10px;}
+        .btn{background:var(--accent);color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;}
+        .chat-wrap{max-width:860px;margin:0 auto;background:transparent;padding:8px;}
+        .chat{background:transparent;padding:10px;display:flex;flex-direction:column;gap:10px;}
+        .bubble{max-width:78%;display:flex;}
+        .bubble.user{align-self:flex-end;justify-content:flex-end;}
+        .bubble.bot{align-self:flex-start;justify-content:flex-start;}
+        .bubble-inner{background:var(--bot);padding:10px 12px;border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,0.05);}
+        .bubble.user .bubble-inner{background:var(--user);border-radius:12px;}
+        .bubble .who{font-weight:700;font-size:13px;margin-bottom:6px;color:#111;}
+        .bubble .txt{white-space:pre-wrap;font-size:15px;line-height:1.3;color:#111;}
+        .bubble .ts{font-size:12px;color:var(--muted);margin-top:6px;text-align:right;}
+        .sys{align-self:center;background:transparent;color:var(--muted);font-size:13px;padding:6px 10px;border-radius:8px;}
+        pre{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:8px;white-space:pre-wrap;}
+        @media (max-width:640px){ .bubble{max-width:92%;} }
       </style>
     </head>
     <body>
       <div class="controls">
-        <label><input id="fmt" type="checkbox"/> Dar formato al texto</label>
+        <label><input id="fmt" type="checkbox"/> Ver vista cruda</label>
         <a class="btn" href="/api/ticket/${encodeURIComponent(tid)}" target="_blank" rel="noopener">Ver JSON (API)</a>
       </div>
 
-      <div id="pretty" style="display:none;">
-        ${prettyHtml}
-      </div>
+      <div class="chat-wrap">
+        <div class="chat" id="chatContent">
+          ${chatLines}
+        </div>
 
-      <div id="rawView">
-        <pre>${safeRaw}</pre>
+        <div id="rawView" style="display:none;margin-top:12px;">
+          <pre>${safeRaw}</pre>
+        </div>
       </div>
-      <div class="note">Nota: podés alternar entre la vista cruda y la vista formateada marcando "Dar formato al texto".</div>
 
       <script>
         (function(){
           const chk = document.getElementById('fmt');
-          const pretty = document.getElementById('pretty');
+          const chat = document.getElementById('chatContent');
           const raw = document.getElementById('rawView');
           chk.addEventListener('change', ()=> {
-            if (chk.checked) { pretty.style.display='block'; raw.style.display='none'; } else { pretty.style.display='none'; raw.style.display='block'; }
+            if (chk.checked) { chat.style.display='none'; raw.style.display='block'; }
+            else { chat.style.display='flex'; raw.style.display='none'; }
           });
         })();
       </script>
