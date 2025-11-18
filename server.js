@@ -6,6 +6,7 @@
  *  - logs are written to LOG_FILE and broadcast to SSE clients
  *  - /api/chat handles BTN_WHATSAPP and BTN_CONNECT_TECH returning waUrl and ui.buttons
  *  - /api/whatsapp-ticket remains available as API to generate ticket + waUrl + waWebUrl
+ *  - /api/ticket/:tid returns content (raw) and messages[] parsed for chat presentation
  *
  * Environment variables:
  *  - PORT (default 3001)
@@ -493,12 +494,31 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
 });
 
 // ticket public routes
+// [STI-CHANGE] /api/ticket/:tid now returns content (raw) AND messages[] parsed to facilitate chat-like rendering in frontend
 app.get('/api/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).json({ ok:false, error: 'not_found' });
-  res.json({ ok:true, ticketId: tid, content: fs.readFileSync(file,'utf8') });
+
+  const raw = fs.readFileSync(file,'utf8');
+
+  // parse lines into messages: expected lines like "[TIMESTAMP] who: text"
+  const lines = raw.split(/\r?\n/);
+  const messages = [];
+  for (const ln of lines) {
+    if (!ln || /^\s*$/.test(ln)) continue;
+    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
+    if (m) {
+      messages.push({ ts: m[1], who: String(m[2]).trim(), text: String(m[3]).trim() });
+    } else {
+      // non timestamp line (title, metadata), push as system message
+      messages.push({ ts: null, who: 'system', text: ln.trim() });
+    }
+  }
+
+  res.json({ ok:true, ticketId: tid, content: raw, messages });
 });
+
 // [STI-CHANGE] Mejor presentación HTML del ticket para lectura humana
 app.get('/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
