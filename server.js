@@ -4,8 +4,8 @@
  * This file merges the working parts of the provided servers and ensures:
  *  - /api/logs/stream supports SSE and polling mode=once (used by chatlog.php)
  *  - logs are written to LOG_FILE and broadcast to SSE clients
- *  - /api/chat handles BTN_WHATSAPP and BTN_CONNECT_TECH returning waUrl/waWebUrl/waAppUrl and ui.buttons
- *  - /api/whatsapp-ticket remains available as API to generate ticket + waUrl/waWebUrl/waAppUrl
+ *  - /api/chat handles BTN_WHATSAPP and BTN_CONNECT_TECH returning waUrl/waWebUrl/waAppUrl/waIntentUrl and ui.buttons
+ *  - /api/whatsapp-ticket remains available as API to generate ticket + waUrl/waWebUrl/waAppUrl/waIntentUrl
  *  - /api/ticket/:tid returns content (raw) and messages[] parsed for chat presentation
  *
  * Environment variables:
@@ -483,17 +483,20 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     // [STI-CHANGE] scheme URL to attempt opening native app with prefilled text (may or may not be supported)
     const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+    // [STI-CHANGE] Android intent URL (suele abrir la app nativa desde Chrome/Android con más fiabilidad)
+    const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
     // Provide ui.buttons and explicit externalButtons so frontend can render a clickable button
     const uiButtons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
     const labelBtn = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
-    // [STI-CHANGE] order: web (best on desktop) -> app-scheme (try native) -> wa.me (legacy)
+    // [STI-CHANGE] order: web (desktop) -> intent (Android) -> app-scheme (whatsapp://) -> wa.me (legacy)
     const externalButtons = [
       { token: 'BTN_WHATSAPP_WEB', label: labelBtn + ' (Web)', url: waWebUrl, openExternal: true },
+      { token: 'BTN_WHATSAPP_INTENT', label: labelBtn + ' (Abrir App - Android)', url: waIntentUrl, openExternal: true },
       { token: 'BTN_WHATSAPP_APP', label: labelBtn + ' (App)', url: waAppUrl, openExternal: true },
       { token: 'BTN_WHATSAPP', label: labelBtn, url: waUrl, openExternal: true }
     ];
 
-    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, waWebUrl, waAppUrl, ui: { buttons: uiButtons, externalButtons }, allowWhatsapp: true });
+    res.json({ ok:true, ticketId, publicUrl, apiPublicUrl, waUrl, waWebUrl, waAppUrl, waIntentUrl, ui: { buttons: uiButtons, externalButtons }, allowWhatsapp: true });
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
 });
 
@@ -718,6 +721,8 @@ app.post('/api/chat', async (req,res)=>{
         const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
         // [STI-CHANGE] scheme URL to attempt opening native app with prefilled text (may or may not be supported)
         const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+        // [STI-CHANGE] Android intent URL (suele abrir la app nativa desde Chrome/Android con más fiabilidad)
+        const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
 
         const whoName = session.userName ? cap(session.userName) : 'usuario';
         const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket de asistencia 🧠\nTocá el botón verde para abrir WhatsApp y enviar el mensaje.`;
@@ -731,15 +736,17 @@ app.post('/api/chat', async (req,res)=>{
         resp.ui = resp.ui || {};
         resp.ui.buttons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
         const labelBtn = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
-        // [STI-CHANGE] order: web (best on desktop) -> app-scheme (try native) -> wa.me (legacy)
+        // [STI-CHANGE] order: web (desktop) -> intent (Android) -> app-scheme (whatsapp://) -> wa.me (legacy)
         resp.ui.externalButtons = [
           { token: 'BTN_WHATSAPP_WEB', label: labelBtn + ' (Web)', url: waWebUrl, openExternal: true },
+          { token: 'BTN_WHATSAPP_INTENT', label: labelBtn + ' (Abrir App - Android)', url: waIntentUrl, openExternal: true },
           { token: 'BTN_WHATSAPP_APP', label: labelBtn + ' (App)', url: waAppUrl, openExternal: true },
           { token: 'BTN_WHATSAPP', label: labelBtn, url: waUrl, openExternal: true }
         ];
         resp.waUrl = waUrl;
         resp.waWebUrl = waWebUrl;
         resp.waAppUrl = waAppUrl;
+        resp.waIntentUrl = waIntentUrl;
         resp.ticketId = ticketId;
         resp.publicUrl = publicUrl;
         resp.apiPublicUrl = apiPublicUrl;
@@ -921,6 +928,8 @@ app.post('/api/chat', async (req,res)=>{
           const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
           // [STI-CHANGE] waAppUrl to try native app
           const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+          // [STI-CHANGE] waIntentUrl to try Android intent
+          const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
 
           const whoName = session.userName ? cap(session.userName) : 'usuario';
           const replyTech = `🤖 Muy bien, ${whoName}.\nEstoy preparando tu ticket. Toca el botón para abrir WhatsApp.`;
@@ -936,12 +945,14 @@ app.post('/api/chat', async (req,res)=>{
           const labelBtn2 = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
           resp.ui.externalButtons = [
             { token: 'BTN_WHATSAPP_WEB', label: labelBtn2 + ' (Web)', url: waWebUrl, openExternal: true },
+            { token: 'BTN_WHATSAPP_INTENT', label: labelBtn2 + ' (Abrir App - Android)', url: waIntentUrl, openExternal: true },
             { token: 'BTN_WHATSAPP_APP', label: labelBtn2 + ' (App)', url: waAppUrl, openExternal: true },
             { token: 'BTN_WHATSAPP', label: labelBtn2, url: waUrl, openExternal: true }
           ];
           resp.waUrl = waUrl;
           resp.waWebUrl = waWebUrl;
           resp.waAppUrl = waAppUrl;
+          resp.waIntentUrl = waIntentUrl;
           resp.ticketId = ticketId;
           resp.publicUrl = publicUrl;
           resp.apiPublicUrl = apiPublicUrl;
