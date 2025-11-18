@@ -474,7 +474,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     waText = `${titleLine}\n${waText}\n\nGenerado: ${generatedLabel}\n`;
     if(name) waText += `Cliente: ${name}\n`;
     if(device) waText += `Equipo: ${device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}\nChat web: ${publicUrl}`;
+    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
@@ -624,6 +624,75 @@ app.get('/ticket/:tid', (req, res) => {
 
   res.set('Content-Type','text/html; charset=utf-8');
   res.send(html);
+});
+
+
+// [STI-CHANGE] Admin endpoint: listar tickets para tickets-admin.php (panel PHP)
+app.get('/api/admin/tickets', async (req, res) => {
+  try {
+    // [STI-CHANGE] Protección con x-admin-token contra SSE_TOKEN (misma variable que usa chatlog.php)
+    const headerToken = (req.header('x-admin-token') || '').trim();
+    const queryToken = (req.query && (req.query.token || '')).toString().trim();
+    const providedToken = headerToken || queryToken;
+    if (SSE_TOKEN && providedToken !== SSE_TOKEN) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    // [STI-CHANGE] Si el directorio no existe, devolvemos lista vacía
+    if (!fs.existsSync(TICKETS_DIR)) {
+      return res.json({ ok: true, tickets: [] });
+    }
+
+    const files = await fs.promises.readdir(TICKETS_DIR);
+    const items = [];
+
+    for (const f of files) {
+      if (!f.startsWith('TCK-') || !f.endsWith('.txt')) continue;
+      const full = path.join(TICKETS_DIR, f);
+
+      try {
+        const stat = await fs.promises.stat(full);
+        const raw = await fs.promises.readFile(full, 'utf8');
+
+        // [STI-CHANGE] Valores por defecto
+        const baseId = f.replace(/\.txt$/i, '');
+        let userName = '';
+        let device = '';
+
+        const lines = raw.split(/\r?\n/);
+        for (const ln of lines) {
+          if (!ln) continue;
+          if (!userName && ln.startsWith('Cliente:')) {
+            userName = ln.slice('Cliente:'.length).trim();
+          } else if (!device && ln.startsWith('Equipo:')) {
+            device = ln.slice('Equipo:'.length).trim();
+          }
+          if (userName && device) break;
+        }
+
+        items.push({
+          id: baseId,
+          createdAt: stat.mtime.toISOString(),
+          userName,
+          device
+        });
+      } catch (e) {
+        console.error('[api/admin/tickets] error leyendo ticket', f, e && e.message);
+      }
+    }
+
+    // [STI-CHANGE] Orden descendente por fecha (más recientes primero)
+    items.sort((a, b) => {
+      const aa = a.createdAt || '';
+      const bb = b.createdAt || '';
+      return aa < bb ? 1 : (aa > bb ? -1 : 0);
+    });
+
+    return res.json({ ok: true, tickets: items });
+  } catch (err) {
+    console.error('[api/admin/tickets] ERROR', err && err.message);
+    return res.status(500).json({ ok: false, error: 'server_error' });
+  }
 });
 
 // reset session
