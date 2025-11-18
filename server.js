@@ -474,7 +474,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     waText = `${titleLine}\n${waText}\n\nGenerado: ${generatedLabel}\n`;
     if(name) waText += `Cliente: ${name}\n`;
     if(device) waText += `Equipo: ${device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
+    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}\nChat web: ${publicUrl}`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
