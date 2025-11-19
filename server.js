@@ -838,7 +838,8 @@ app.post('/api/chat', async (req,res)=>{
           fs.appendFile(tf, botLine, ()=>{});
         } catch(e){ /* noop */ }
 
-        const opts = ['Lo pude solucionar ✔️', 'El problema persiste ❌', 'Conectar con Técnico'];
+        // [STI-CHANGE] mostrar sólo dos botones desde la ayuda: solucionado / volver a mostrar los pasos
+        const opts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
         return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts }));
       } catch (err) {
         console.error('[STI-CHANGE][help_step] Error generando ayuda:', err && err.message);
@@ -961,6 +962,32 @@ app.post('/api/chat', async (req,res)=>{
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
       const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
+      // [STI-CHANGE] detectar petición "Volver a mostrar los pasos" desde la ayuda
+      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i; // [STI-CHANGE]
+
+      // [STI-CHANGE] Si el usuario pide volver a mostrar los pasos, reenviar la lista numerada de session.tests.basic
+      if (rxShowSteps.test(t)) { // [STI-CHANGE]
+        const stepsAr = Array.isArray(session.tests?.basic) ? session.tests.basic : []; // [STI-CHANGE]
+        if (!stepsAr || stepsAr.length === 0) { // [STI-CHANGE]
+          const msg = 'No tengo pasos guardados para mostrar. Primero describí el problema para que te ofrezca pasos.'; // [STI-CHANGE]
+          session.transcript.push({ who:'bot', text: msg, ts: nowIso() }); // [STI-CHANGE]
+          await saveSession(sid, session); // [STI-CHANGE]
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
+        } // [STI-CHANGE]
+
+        const numbered = enumerateSteps(stepsAr); // [STI-CHANGE]
+        const intro = `Volvemos a los pasos sugeridos:`; // [STI-CHANGE]
+        const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:'; // [STI-CHANGE]
+        const fullMsg = intro + '\n\n' + numbered.join('\n') + footer; // [STI-CHANGE]
+
+        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() }); // [STI-CHANGE]
+        await saveSession(sid, session); // [STI-CHANGE]
+
+        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`); // [STI-CHANGE]
+        const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌']; // [STI-CHANGE]
+        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr })); // [STI-CHANGE]
+      } // [STI-CHANGE]
+
       if (rxYes.test(t)){
         reply = `🤖 ¡Excelente! Me alegro que se haya solucionado.`;
         session.stage = STATES.ENDED;
