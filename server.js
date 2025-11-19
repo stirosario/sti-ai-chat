@@ -989,7 +989,13 @@ app.post('/api/chat', async (req,res)=>{
       } // [STI-CHANGE]
 
       if (rxYes.test(t)){
-        reply = `🤖 ¡Excelente! Me alegro que se haya solucionado.`;
+        // [STI-CHANGE] respuesta de despedida al confirmar "Lo pude solucionar ✔️"
+        reply = `¡Me alegro que lo hayas podido resolver! Si volvés a necesitar asistencia, estoy acá 24/7 para ayudarte.
+
+Podés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario
+Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
+
+¡Que tengas un excelente día!`; // [STI-CHANGE]
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
