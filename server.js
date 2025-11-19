@@ -851,17 +851,9 @@ app.post('/api/chat', async (req,res)=>{
           fs.appendFile(tf, botLine, ()=>{});
         } catch(e){ /* noop */ }
 
-        // Opciones dependientes del nivel:
-        if (session.stage === STATES.BASIC_TESTS) {
-          // [STI-CHANGE] En BASIC_TESTS incluimos helpOptions + Lo pude solucionar + El problema persiste
-          const helpOptions = steps.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`); // [STI-CHANGE]
-          const opts = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌']; // [STI-CHANGE]
-          return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts })); // [STI-CHANGE]
-        } else {
-          // [STI-CHANGE] ADVANCED_TESTS: solo dos opciones (solucionado / volver a mostrar)
-          const opts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
-          return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts })); // [STI-CHANGE]
-        }
+        // [STI-CHANGE] OPCIONES UNIFICADAS: siempre devolver SOLUCIONADO + VOLVER A MOSTRAR
+        const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
+        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts })); // [STI-CHANGE]
 
       } catch (err) {
         console.error('[STI-CHANGE][help_step] Error generando ayuda:', err && err.message);
