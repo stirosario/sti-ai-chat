@@ -1015,9 +1015,10 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
         session.waEligible = false;
         options = [];
       } else if (rxNo.test(t)){
-        reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?\n\n1️⃣ Más pruebas\n2️⃣ Conectar con Técnico`;
-        options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH'];
-        session.stage = STATES.ESCALATE;
+        // [STI-CHANGE] reply sin enumerar opciones (solo texto), y usar tokens para botones en options
+        reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`; // [STI-CHANGE]
+        options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH']; // [STI-CHANGE]
+        session.stage = STATES.ESCALATE; // [STI-CHANGE]
       } else if (rxTech.test(t)) {
         // user requested connecting with technician — reuse helper
         return await createTicketAndRespond(session, sid, res); // [STI-CHANGE]
