@@ -785,21 +785,34 @@ app.post('/api/chat', async (req,res)=>{
       if (mText) helpRequestedIndex = Number(mText[1]);
     }
 
+    // [STI-CHANGE] UNIFICACIÓN del handler de "Ayuda paso N": elegir array según el estado actual (basic vs advanced)
     if (helpRequestedIndex) {
       try {
         const idx = Number(helpRequestedIndex);
-        const steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
-        if (!steps || steps.length === 0) {
-          const msg = 'Aún no propuse pasos para este problema. Primero contame brevemente cuál es el problema y te doy los pasos.';
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+
+        // elegir array según estado
+        let steps = [];
+        if (session.stage === STATES.ADVANCED_TESTS) {
+          steps = Array.isArray(session.tests?.advanced) ? session.tests.advanced : [];
+        } else if (session.stage === STATES.BASIC_TESTS) {
+          steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
+        } else {
+          // Si no estamos en ningún estado de pasos específico, preferimos no asumir: fallback mensaje
+          steps = [];
         }
-        if (idx < 1 || idx > steps.length) {
-          const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`;
+
+        if (!steps || steps.length === 0) {
+          const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.'; // [STI-CHANGE]
           session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+          await saveSession(sid, session); // [STI-CHANGE]
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
+        }
+
+        if (idx < 1 || idx > steps.length) {
+          const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`; // [STI-CHANGE]
+          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+          await saveSession(sid, session); // [STI-CHANGE]
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
         }
 
         // incrementar contador de intentos para ese paso y guardar lastHelpStep
@@ -838,9 +851,18 @@ app.post('/api/chat', async (req,res)=>{
           fs.appendFile(tf, botLine, ()=>{});
         } catch(e){ /* noop */ }
 
-        // [STI-CHANGE] mostrar sólo dos botones desde la ayuda: solucionado / volver a mostrar los pasos
-        const opts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
-        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts }));
+        // Opciones dependientes del nivel:
+        if (session.stage === STATES.BASIC_TESTS) {
+          // [STI-CHANGE] En BASIC_TESTS incluimos helpOptions + Lo pude solucionar + El problema persiste
+          const helpOptions = steps.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`); // [STI-CHANGE]
+          const opts = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌']; // [STI-CHANGE]
+          return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts })); // [STI-CHANGE]
+        } else {
+          // [STI-CHANGE] ADVANCED_TESTS: solo dos opciones (solucionado / volver a mostrar)
+          const opts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
+          return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: opts })); // [STI-CHANGE]
+        }
+
       } catch (err) {
         console.error('[STI-CHANGE][help_step] Error generando ayuda:', err && err.message);
         const msg = 'No pude preparar la ayuda ahora. Probá de nuevo en unos segundos.';
@@ -849,6 +871,7 @@ app.post('/api/chat', async (req,res)=>{
         return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
       }
     }
+    // [FIN STI-CHANGE] unificado handler de ayuda
 
     // record user message
     if(buttonToken){
@@ -1015,16 +1038,110 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
       const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
       if (opt1.test(t)){
-        reply = 'Seleccionaste: Más pruebas. Te doy más pasos... (ejemplo)';
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
+        // User selected "Más pruebas" -> generate advanced tests and show them
+        try {
+          const device = session.device || '';
+          let aiSteps = [];
+          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
+          // [STI-CHANGE-A] LIMITAR A 4 PASOS y guardar siempre en session.tests.advanced
+          const limited = Array.isArray(aiSteps) ? aiSteps.slice(0,4) : [];
+          session.tests = session.tests || {};
+          session.tests.advanced = limited; // [STI-CHANGE-A]
+          // Si no hay pasos avanzados, usar flujo de hablar con técnico
+          if (!limited || limited.length === 0) {
+            // no advanced suggestions -> escalate
+            return await createTicketAndRespond(session, sid, res); // [STI-CHANGE-A]
+          }
+
+          // [STI-CHANGE-C] registro de progreso avanzado (pending)
+          session.stepProgress = session.stepProgress || {};
+          limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
+          // [STI-CHANGE-C]
+
+          // [STI-CHANGE-B] FORMATO VISUAL PREMIUM IGUAL A LOS BÁSICOS
+          const numbered = enumerateSteps(limited);
+          const whoLabel = session.userName ? cap(session.userName) : 'usuario';
+          const intro = `Entiendo, ${whoLabel}. Probemos ahora con algunas pruebas más avanzadas:`;
+          const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
+          const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
+          // [STI-CHANGE-B]
+
+          session.stepsDone = session.stepsDone || [];
+          session.stepsDone.push('advanced_tests_shown');
+          session.waEligible = false;
+          session.lastHelpStep = null;
+          session.stage = STATES.ADVANCED_TESTS;
+
+          session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+          await saveSession(sid, session);
+
+          const helpOptions = limited.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+          const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+          return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
+
+        } catch (errOpt1) {
+          console.error('[ESCALATE][more_tests] Error', errOpt1 && errOpt1.message);
+          reply = 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply, stage: session.stage, options: ['2️⃣ Conectar con Técnico'] }));
+        }
       } else if (opt2.test(t)){
         // create ticket and return BTN_WHATSAPP UI button (same as earlier flow)
         return await createTicketAndRespond(session, sid, res); // [STI-CHANGE]
       } else {
         reply = 'Decime si querés 1 (Más pruebas) o 2 (Conectar con Técnico).';
         options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico'];
+      }
+    } else if (session.stage === STATES.ADVANCED_TESTS) {
+      // New handler for advanced tests responses (mirrors BASIC_TESTS but marks adv progress)
+      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
+      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
+      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
+
+      if (rxShowSteps.test(t)) {
+        const stepsAr = Array.isArray(session.tests?.advanced) ? session.tests.advanced : [];
+        if (!stepsAr || stepsAr.length === 0) {
+          const msg = 'No tengo pasos avanzados guardados para mostrar. Primero pedí "Más pruebas".';
+          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+        }
+        const numbered = enumerateSteps(stepsAr);
+        const whoLabel = session.userName ? cap(session.userName) : 'usuario';
+        const intro = `Volvemos a las pruebas avanzadas, ${whoLabel}:`;
+        const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
+        const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
+        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+        await saveSession(sid, session);
+        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+        const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
+      }
+
+      if (rxYes.test(t)){
+        // [STI-CHANGE-C] marcar progreso avanzado si venimos de una ayuda (lastHelpStep)
+        const idx = session.lastHelpStep;
+        if (typeof idx === 'number' && idx >= 1) {
+          session.stepProgress = session.stepProgress || {};
+          session.stepProgress[`adv_${idx}`] = 'done';
+          await saveSession(sid, session); // [STI-CHANGE-C]
+        }
+        // respuesta final
+        reply = `¡Me alegro que lo hayas podido resolver! Si volvés a necesitar asistencia, estoy acá 24/7 para ayudarte.`;
+        session.stage = STATES.ENDED;
+        session.waEligible = false;
+        options = [];
+      } else if (rxNo.test(t)){
+        reply = `Entiendo. ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
+        options = ['BTN_CONNECT_TECH'];
+        session.stage = STATES.ESCALATE;
+      } else if (rxTech.test(t)) {
+        return await createTicketAndRespond(session, sid, res);
+      } else {
+        reply = `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`;
+        options = ['Lo pude solucionar ✔️','El problema persiste ❌','2️⃣ Conectar con Técnico'];
       }
     } else {
       reply = 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".';
