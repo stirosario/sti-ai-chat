@@ -1021,6 +1021,38 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
     // [FIN STI-CHANGE] unificado handler de ayuda
+    // [STI-NAME] -- Bloque de manejo de botones (actualizado)
+    // Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
+    // (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
+    if (buttonToken || (/^\s*prefiero no decirlo\s*$/i.test(t))) { // [STI-NAME]
+      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
+
+      // Si el usuario tocó o escribió "Prefiero no decirlo", avanzar a ASK_PROBLEM con nombre genérico
+      if (/^\s*prefiero no decirlo\s*$/i.test(btnText)) { // [STI-NAME]
+        try {
+          session.userName = 'Usuario'; // nombre neutro por defecto
+          session.stage = STATES.ASK_PROBLEM;
+          const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
+
+          // registrar tanto la acción del usuario como la respuesta del bot
+          session.transcript.push({
+            who: 'user',
+            text: buttonToken
+              ? `[BOTON] ${buttonLabel || buttonToken}`
+              : 'Prefiero no decirlo',
+            ts: nowIso()
+          });
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
+        } catch (e) {
+          console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
+          // en caso de error, no romper el flujo principal; continuar sin retorno forzado
+        }
+      }
+    } // [STI-NAME]
+
 
     // record user message
     if(buttonToken){
@@ -1030,6 +1062,7 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
+// [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
 if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
 
   // 1) Si el usuario escribió explícitamente "Prefiero no decirlo"
@@ -1087,8 +1120,9 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
     stage:session.stage,
     options:['Prefiero no decirlo']
   }));
-} 
+}
 // [FIN STI-NAME]
+
 
 
     // name extraction (legacy fallback when not in ASK_NAME)
