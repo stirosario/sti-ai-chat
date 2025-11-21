@@ -187,20 +187,114 @@ const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣',
 function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
 function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
-function isValidName(text){
-  if(!text) return false;
-  const t = String(text).trim();
-  if(TECH_WORDS.test(t)) return false;
-  return /^[a-záéíóúñ]{2,20}$/i.test(t);
-}
-function extractName(text){
-  if(!text) return null;
-  const t = String(text).trim();
-  let m = t.match(/^(?:soy|me llamo|mi nombre es)\s+([a-záéíóúñ]{2,20})$/i);
-  if(m) return m[1];
-  if(isValidName(t)) return t;
+
+// [STI-NAME]: nuevas constantes y helpers
+const NAME_STOPWORDS = new Set([
+  'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
+]); // [STI-NAME]
+
+const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u; // [STI-NAME]
+
+const MAX_NAME_TOKENS = 3; // [STI-NAME]
+const MIN_NAME_TOKENS = 1; // [STI-NAME]
+
+function capitalizeToken(tok){ // [STI-NAME]
+  if(!tok) return tok;
+  return tok.split(/[-'’\u2019]/).map(part => {
+    if (!part) return part;
+    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+  }).join('-');
+} // [STI-NAME]
+
+function isValidName(text){ // [STI-NAME]
+  if(!text || typeof text !== 'string') return false;
+  const s = String(text).trim();
+  if(!s) return false;
+
+  // reject digits or special symbols
+  if (/[0-9@#\$%\^&\*\(\)_=\+\[\]\{\}\\\/<>]/.test(s)) return false;
+
+  // reject if includes technical words
+  if (TECH_WORDS.test(s)) return false;
+
+  const lower = s.toLowerCase();
+  for (const w of lower.split(/\s+/)) {
+    if (NAME_STOPWORDS.has(w)) return false;
+  }
+
+  const tokens = s.split(/\s+/).filter(Boolean);
+  if (tokens.length < MIN_NAME_TOKENS || tokens.length > MAX_NAME_TOKENS) return false;
+
+  // if too many words overall -> reject
+  if (s.split(/\s+/).filter(Boolean).length > 6) return false;
+
+  for (const tok of tokens) {
+    // each token must match token regex
+    if (!NAME_TOKEN_RX.test(tok)) return false;
+    // token stripped of punctuation should be at least 2 chars
+    if (tok.replace(/['’\-]/g,'').length < 2) return false;
+  }
+
+  // passed validations
+  return true;
+} // [STI-NAME]
+
+function extractName(text){ // [STI-NAME]
+  if(!text || typeof text !== 'string') return null;
+  const sRaw = String(text).trim();
+  if(!sRaw) return null;
+  const s = sRaw.replace(/[.,!?]+$/,'').trim();
+
+  // patterns: "me llamo X", "soy X", "mi nombre es X"
+  const patterns = [
+    /\b(?:me llamo|soy|mi nombre es|me presento como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})$/i,
+    /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})\s*$/i
+  ];
+
+  for (const rx of patterns){
+    const m = s.match(rx);
+    if (m && m[1]){
+      let candidate = m[1].trim().replace(/\s+/g,' ');
+      // limit tokens to MAX_NAME_TOKENS
+      const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
+      const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
+      if (isValidName(normalized)) return normalized;
+    }
+  }
+
+  // fallback: if the whole short text looks like a name
+  const singleCandidate = s;
+  if (isValidName(singleCandidate)) {
+    const tokens = singleCandidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
+    return tokens.map(capitalizeToken).join(' ');
+  }
+
   return null;
-}
+} // [STI-NAME]
+
+function looksClearlyNotName(text){ // [STI-NAME]
+  if(!text || typeof text !== 'string') return true;
+  const s = text.trim().toLowerCase();
+  if(!s) return true;
+
+  // clear short greetings
+  if (s.length <= 6 && ['hola','hola!','buenas','buenos','buen día','buen dia'].includes(s)) return true;
+
+  if (NAME_STOPWORDS.has(s)) return true;
+
+  if (TECH_WORDS.test(s)) return true;
+
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return true;
+
+  const indicators = ['mi','no','enciende','tengo','problema','problemas','se','me','con','esta','está','tiene'];
+  for (const w of words){ if (indicators.includes(w)) return true; }
+
+  return false;
+} // [STI-NAME]
+
+// [FIN STI-NAME]
+
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
 
@@ -872,16 +966,60 @@ app.post('/api/chat', async (req,res)=>{
       session.transcript.push({ who:'user', text: t, ts: nowIso() });
     }
 
-    // name extraction
-    const nmInline = extractName(t);
-    if(nmInline && !session.userName){
-      session.userName = cap(nmInline);
-      if(session.stage === STATES.ASK_NAME){
-        session.stage = STATES.ASK_PROBLEM;
-        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json({ ok:true, reply, stage: session.stage, options: [] });
+    // [STI-NAME] Integración mejorada del ASK_NAME usando reglas locales (sin OA)
+    if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
+      // check explicit "Prefiero no decirlo" button/text
+      if (/^\s*prefiero no decirlo\s*$/i.test(t)) { // [STI-NAME]
+        session.userName = null; // [STI-NAME]
+        session.stage = STATES.ASK_PROBLEM; // [STI-NAME]
+        const reply = `Perfecto. Entonces sigamos. ¿Qué problema estás teniendo?`; // [STI-NAME]
+        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
+        await saveSession(sid, session); // [STI-NAME]
+        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] })); // [STI-NAME]
+      } // [STI-NAME]
+
+      // intento local de extracción simple
+      const candidate = extractName(t); // [STI-NAME]
+      if (candidate) { // [STI-NAME]
+        session.userName = candidate; // [STI-NAME]
+        session.stage = STATES.ASK_PROBLEM; // [STI-NAME]
+        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`; // [STI-NAME]
+        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
+        await saveSession(sid, session); // [STI-NAME]
+        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] })); // [STI-NAME]
+      } // [STI-NAME]
+
+      // si claramente no es un nombre (saludo, frase técnica, largo, etc.)
+      if (looksClearlyNotName(t)) { // [STI-NAME]
+        session.nameAttempts = (session.nameAttempts || 0) + 1; // [STI-NAME]
+        await saveSession(sid, session); // [STI-NAME]
+        const reply = '¿Podés decirme solo tu nombre? Ej: "Ana" o "Juan Pablo".'; // [STI-NAME]
+        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
+        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Prefiero no decirlo'] })); // [STI-NAME]
+      } // [STI-NAME]
+
+      // caso dudoso: pedir simplificación
+      session.nameAttempts = (session.nameAttempts || 0) + 1; // [STI-NAME]
+      await saveSession(sid, session); // [STI-NAME]
+      const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".'; // [STI-NAME]
+      session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
+      return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Prefiero no decirlo'] })); // [STI-NAME]
+    } // [STI-NAME]
+    // [FIN STI-NAME]
+
+    // name extraction (legacy fallback when not in ASK_NAME)
+    // Este bloque mantiene compatibilidad: si detectamos inline nombre en cualquier otra etapa y no hay userName, lo asignamos.
+    {
+      const nmInline2 = extractName(t);
+      if(nmInline2 && !session.userName){
+        session.userName = cap(nmInline2);
+        if(session.stage === STATES.ASK_NAME){
+          session.stage = STATES.ASK_PROBLEM;
+          const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json({ ok:true, reply, stage: session.stage, options: [] });
+        }
       }
     }
 
@@ -894,7 +1032,7 @@ app.post('/api/chat', async (req,res)=>{
       session.issueKey = null;
       session.tests = { basic: [], ai: [], advanced: [] };
       session.lastHelpStep = null;
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
       return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
@@ -1017,7 +1155,7 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
       } else if (rxNo.test(t)){
         // [STI-CHANGE] reply sin enumerar opciones (solo texto), y usar tokens para botones en options
         reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`; // [STI-CHANGE]
-        options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH']; // [STI-CHANGE]
+        options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico']; // [STI-CHANGE]
         session.stage = STATES.ESCALATE; // [STI-CHANGE]
       } else if (rxTech.test(t)) {
         // user requested connecting with technician — reuse helper
