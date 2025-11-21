@@ -2,7 +2,9 @@
  * server.js — STI Chat (stable) — WhatsApp button + Logs SSE compatible with chatlog.php
  */
 
-// ==== [MB1] Dependencias, configuración base y clientes externos ====
+// ========================================================
+// === [MB1] DEPENDENCIAS, CONFIGURACIÓN BASE Y CLIENTES EXTERNOS ===
+// ========================================================
 // - Carga de módulos de Node y terceros (Express, CORS, FS, Path, etc.).
 // - Store de sesiones (Redis / archivo) y cliente OpenAI opcional.
 // - Todo lo que afecta cómo se inicia el servidor y con qué servicios habla.
@@ -22,6 +24,12 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
+// ========================================================
+// === [MB2] PATHS DE DATOS, PERSISTENCIA Y LOGGING       ===
+// ========================================================
+
+
+// Paths / persistence
 // ========================================================
 // === [MB2] PATHS DE DATOS, PERSISTENCIA Y LOGGING       ===
 // ========================================================
@@ -110,7 +118,9 @@ console.error = (...args) => {
 };
 
 // Embedded chat config (kept minimal / compatible)
-// ==== [MB3] Configuración embebida del chat (CHAT/UI/NLP estático) ====
+// ========================================================
+// === [MB3] CONFIGURACIÓN EMBEBIDA DEL CHAT (CHAT/UI/NLP) ===
+// ========================================================
 // - Textos de saludo y ajustes de umbrales.
 // - Definición de botones (tokens, labels, textos asociados).
 // - Reglas simples de NLP para detectar dispositivos y tipo de problema.
@@ -185,7 +195,9 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
   }).filter(Boolean);
 }
 
-// ==== [MB4] Utilidades de NLP, manejo de nombres y helpers genéricos ====
+// ========================================================
+// === [MB4] UTILIDADES NLP, MANEJO DE NOMBRES Y HELPERS  ===
+// ========================================================
 // - Emojis numerados y helper para enumerar pasos.
 // - Palabras técnicas para filtrar nombres incorrectos.
 // - Lógica robusta para extraer y validar el nombre del usuario.
@@ -306,14 +318,8 @@ function looksClearlyNotName(text){ // [STI-NAME]
 
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
-
-
-// ========================================================
-// === [MB4] BLOQUE: SALUDO CENTRALIZADO Y UX INICIAL    ===
-// ========================================================
 // -------- [MICRO] Saludo centralizado según horario (buildNameGreeting) --------
 // Devuelve un saludo tipo humano según la hora del servidor.
-// Más adelante podemos mejorarlo usando la zona horaria del cliente si hiciera falta.
 function buildNameGreeting(now = new Date()) {
   const hour = now.getHours(); // 0–23
   let prefix;
@@ -331,8 +337,9 @@ function buildNameGreeting(now = new Date()) {
   return `${prefix} 👋 Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?`;
 }
 
+
 // ========================================================
-// === [MB5] BLOQUE: INTEGRACIÓN CON OPENAI (NLP/TESTS)  ===
+// === [MB5] INTEGRACIÓN CON OPENAI (NLP/TESTS)           ===
 // ========================================================
 // - analyzeProblemWithOA: clasifica si el problema es informático y su tipo.
 // - aiQuickTests: sugiere pasos simples y seguros adaptados al problema.
@@ -434,7 +441,9 @@ async function getHelpForStep(stepText='', stepIndex=1, device='', problem=''){
   }
 }
 
-// ==== [MB6] App Express, middlewares globales y máquina de estados ====
+// ========================================================
+// === [MB6] APP EXPRESS, MIDDLEWARES Y MÁQUINA DE ESTADOS ===
+// ========================================================
 // - Inicializa la app Express y CORS.
 // - Define límites de JSON y cache-control.
 // - Declara los estados principales del flujo (ASK_NAME, ASK_PROBLEM, etc.).
@@ -467,7 +476,9 @@ function getSessionId(req){
 }
 app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
-// ==== [MB7] Endpoints de infraestructura y soporte ====
+// ========================================================
+// === [MB7] ENDPOINTS DE INFRAESTRUCTURA Y SOPORTE      ===
+// ========================================================
 // - /api/health: estado del servicio y modelo OpenAI configurado.
 // - /api/reload: hook para recargar config en caliente (si se usa a futuro).
 // - /api/transcript/:sid: expone el historial en texto plano para un SID.
@@ -564,7 +575,9 @@ app.get('/api/logs', (req, res) => {
   }
 });
 
-// ==== [MB8] Gestión de tickets y envío a WhatsApp ====
+// ========================================================
+// === [MB8] GESTIÓN DE TICKETS Y ENVÍO A WHATSAPP       ===
+// ========================================================
 // - buildWhatsAppUrl: construye el link codificado para abrir WhatsApp.
 // - /api/whatsapp-ticket: genera ticket a partir de historial o sesión.
 // - createTicketAndRespond: helper central para escalar a técnico con botón.
@@ -776,23 +789,34 @@ app.post('/api/reset', async (req,res)=>{
   res.json({ ok:true });
 });
 
-// ========================================================
-// === [MB7] BLOQUE: SALUDO INICIAL (/api/greeting)      ===
-// ========================================================
-// -------- [MICRO] Handler saludo inicial del chat usando buildNameGreeting() --------
+// greeting
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
-    const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null, startedAt: nowIso() };
+    const fresh = {
+      id: sid,
+      userName: null,
+      stage: STATES.ASK_NAME,
+      device: null,
+      problem: null,
+      issueKey: null,
+      tests: { basic: [], ai: [], advanced: [] },
+      stepsDone: [],
+      fallbackCount: 0,
+      waEligible: false,
+      transcript: [],
+      pendingUtterance: null,
+      lastHelpStep: null,
+      startedAt: nowIso()
+    };
     const text = buildNameGreeting();
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
     return res.json({ ok:true, greeting:text, reply:text, options: [] });
-  } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
-});
-    await saveSession(sid, fresh);
-    return res.json({ ok:true, greeting:text, reply:text, options: [] });
-  } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
+  } catch(e){
+    console.error(e);
+    return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] });
+  }
 });
 
 // helper reutilizable para crear ticket y responder con wa URLs
@@ -890,7 +914,9 @@ async function createTicketAndRespond(session, sid, res) {
   }
 }
 
-// ==== [MB9] Núcleo del flujo conversacional (/api/chat) ====
+// ========================================================
+// === [MB9] NÚCLEO DEL FLUJO CONVERSACIONAL (/api/chat) ===
+// ========================================================
 // - Orquesta toda la conversación con Tecnos.
 // - Interpreta botones, texto libre y estado actual de la sesión.
 // - Maneja bloques clave: captura de nombre, problema, tests básicos/avanzados.
@@ -1216,13 +1242,40 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
       const nmInline2 = extractName(t);
       if(nmInline2 && !session.userName){
         session.userName = cap(nmInline2);
+        if(session.stage === STATES.ASK_NAME){
+          session.stage = STATES.ASK_PROBLEM;
+          const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json({ ok:true, reply, stage: session.stage, options: [] });
+        }
+      }
+    }
+
+    // simple "reformular problema"
+    if (/^\s*reformular\s*problema\s*$/i.test(t)) {
+      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const reply = `¡Intentemos nuevamente, ${whoName}! 👍\n\n¿Qué problema estás teniendo?`;
+      session.stage = STATES.ASK_PROBLEM;
+      session.problem = null;
+      session.issueKey = null;
+      session.tests = { basic: [], ai: [], advanced: [] };
+      session.lastHelpStep = null;
+      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    }
+
+    // very small state machine to demonstrate behavior (you can expand)
+    let reply = '';
+    let options = [];
+
     if(session.stage === STATES.ASK_NAME){
-  // -------- [MICRO] Fallback ASK_NAME: usa saludo centralizado si algo quedó colgado --------
-  reply = buildNameGreeting();
-  session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-  await saveSession(sid, session);
-  return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
-} else if (session.stage === STATES.ASK_PROBLEM){
+      reply = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! ¿Cuál es tu nombre?';
+      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
+    } else if (session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
       if(!openai){
         const fallbackMsg = 'OpenAI no está configurado. Procedo sin filtro.';
@@ -1504,7 +1557,9 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
   }
 });
 
-// ==== [MB10] Utilidades finales y arranque del servidor ====
+// ========================================================
+// === [MB10] UTILIDADES FINALES Y ARRANQUE DEL SERVIDOR ===
+// ========================================================
 // - /api/sessions: lista de sesiones activas para debugging/control.
 // - escapeHtml: helper simple para la vista pública de tickets.
 // - app.listen: arranque del servidor HTTP y mensajes de inicio.
