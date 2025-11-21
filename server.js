@@ -16,6 +16,10 @@
 
 
 // Session store (expected to exist in your repo)
+// ==== [MB1] Dependencias, configuración base y clientes externos ====
+// - Carga de módulos de Node y terceros (Express, CORS, FS, Path, etc.).
+// - Store de sesiones (Redis / archivo) y cliente OpenAI opcional.
+// - Todo lo que afecta cómo se inicia el servidor y con qué servicios habla.
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 
 // OpenAI client (optional)
@@ -23,6 +27,10 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // Paths / persistence
+// ==== [MB2] Paths de datos, persistencia local y sistema de logging ====
+// - Define carpetas de transcripts, tickets y logs.
+// - Asegura la creación de directorios y prepara el archivo de logs.
+// - También inicializa el set de clientes SSE para ver logs en tiempo real.
 const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
@@ -105,6 +113,11 @@ console.error = (...args) => {
 };
 
 // Embedded chat config (kept minimal / compatible)
+// ==== [MB3] Configuración embebida del chat (CHAT/UI/NLP estático) ====
+// - Textos de saludo y ajustes de umbrales.
+// - Definición de botones (tokens, labels, textos asociados).
+// - Reglas simples de NLP para detectar dispositivos y tipo de problema.
+// - Pasos avanzados preconfigurados para algunos casos.
 const EMBEDDED_CHAT = {
   version: 'stable-v1',
   messages_v4: { greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' } },
@@ -174,6 +187,12 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
     return { token: String(t), label, url, openExternal: !!url };
   }).filter(Boolean);
 }
+
+// ==== [MB4] Utilidades de NLP, manejo de nombres y helpers genéricos ====
+// - Emojis numerados y helper para enumerar pasos.
+// - Palabras técnicas para filtrar nombres incorrectos.
+// - Lógica robusta para extraer y validar el nombre del usuario.
+// - Helpers de capitalización y normalización de texto.
 
 // small NLP helpers (copied/compatible)
 const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
@@ -291,6 +310,12 @@ function looksClearlyNotName(text){ // [STI-NAME]
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
 
+// ==== [MB5] Integración con OpenAI (análisis y generación de pasos) ====
+// - analyzeProblemWithOA: clasifica si el problema es informático y su tipo.
+// - aiQuickTests: sugiere pasos simples y seguros adaptados al problema.
+// - getHelpForStep: explica en detalle cómo realizar un paso concreto.
+// - Todo es opcional: si no hay API key se usan mensajes por defecto.
+
 // OpenAI helpers (used as filter)
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
 
@@ -386,6 +411,12 @@ async function getHelpForStep(stepText='', stepIndex=1, device='', problem=''){
   }
 }
 
+// ==== [MB6] App Express, middlewares globales y máquina de estados ====
+// - Inicializa la app Express y CORS.
+// - Define límites de JSON y cache-control.
+// - Declara los estados principales del flujo (ASK_NAME, ASK_PROBLEM, etc.).
+// - Normaliza el sessionId que usará todo el backend.
+
 // Express app
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -412,6 +443,12 @@ function getSessionId(req){
   return h || b || q || `srv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 }
 app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
+
+// ==== [MB7] Endpoints de infraestructura y soporte ====
+// - /api/health: estado del servicio y modelo OpenAI configurado.
+// - /api/reload: hook para recargar config en caliente (si se usa a futuro).
+// - /api/transcript/:sid: expone el historial en texto plano para un SID.
+// - /api/logs y /api/logs/stream: lectura de logs por SSE o polling.
 
 // Health
 app.get('/api/health', (_req,res) => {
@@ -503,6 +540,12 @@ app.get('/api/logs', (req, res) => {
     res.status(500).json({ ok:false, error: e.message });
   }
 });
+
+// ==== [MB8] Gestión de tickets y envío a WhatsApp ====
+// - buildWhatsAppUrl: construye el link codificado para abrir WhatsApp.
+// - /api/whatsapp-ticket: genera ticket a partir de historial o sesión.
+// - createTicketAndRespond: helper central para escalar a técnico con botón.
+// - Devuelve siempre URLs públicas y botones externos listos para el frontend.
 
 // Helper to build whatsapp url
 function buildWhatsAppUrl(waNumberRaw, waText) {
@@ -724,6 +767,8 @@ app.all('/api/greeting', async (req,res)=>{
 
 // helper reutilizable para crear ticket y responder con wa URLs
 async function createTicketAndRespond(session, sid, res) {
+  // [MICRO] Crea ticket completo (archivo .txt), URLs públicas y botones de WhatsApp para escalar el caso.
+
   const ts = nowIso();
   try {
     const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -814,6 +859,12 @@ async function createTicketAndRespond(session, sid, res) {
     return res.json(withOptions({ ok:false, reply: '❗ Ocurrió un error generando el ticket. Probá de nuevo.' }));
   }
 }
+
+// ==== [MB9] Núcleo del flujo conversacional (/api/chat) ====
+// - Orquesta toda la conversación con Tecnos.
+// - Interpreta botones, texto libre y estado actual de la sesión.
+// - Maneja bloques clave: captura de nombre, problema, tests básicos/avanzados.
+// - Decide cuándo ofrecer más pruebas o escalar a un técnico vía WhatsApp.
 
 // chat core (main endpoint)
 app.post('/api/chat', async (req,res)=>{
@@ -937,6 +988,9 @@ app.post('/api/chat', async (req,res)=>{
 
     // [STI-CHANGE] UNIFICACIÓN del handler de "Ayuda paso N": elegir array según el estado actual (basic vs advanced)
     if (helpRequestedIndex) {
+      // [MICRO] Handler unificado de "Ayuda paso N": elige pasos según estado (básico/avanzado)
+      //         y registra intentos para sugerir escalar a técnico si se repite.
+
       try {
         const idx = Number(helpRequestedIndex);
 
@@ -945,6 +999,7 @@ app.post('/api/chat', async (req,res)=>{
         if (session.stage === STATES.ADVANCED_TESTS) {
           steps = Array.isArray(session.tests?.advanced) ? session.tests.advanced : [];
         } else if (session.stage === STATES.BASIC_TESTS) {
+      // [MICRO] Bloque de interpretación tras mostrar pasos básicos (sí/no, más pruebas, técnico).
           steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
         } else {
           // Si no estamos en ningún estado de pasos específico, preferimos no asumir: fallback mensaje
@@ -1062,6 +1117,8 @@ if (buttonToken) {
     // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
 // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
 if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
+  // [MICRO] Flujo de captura de nombre: valida saludos, frases raras y ofrece "Prefiero no decirlo".
+
 
   // 1) Si el usuario escribió explícitamente "Prefiero no decirlo"
   if (/^\s*prefiero no decirlo\s*$/i.test(t)) { // [STI-NAME]
@@ -1281,6 +1338,7 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
         options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
       }
     } else if (session.stage === STATES.ESCALATE){
+      // [MICRO] Estado intermedio: el usuario elige entre "Más pruebas" o "Conectar con Técnico".
       // if user typed option 1 or 2
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
       const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
@@ -1341,6 +1399,7 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
         options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico'];
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
+      // [MICRO] Respuesta luego de las pruebas avanzadas: cerrar caso o escalar a técnico.
       // New handler for advanced tests responses (mirrors BASIC_TESTS but marks adv progress)
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
       const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
@@ -1441,6 +1500,11 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
     return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
   }
 });
+
+// ==== [MB10] Utilidades finales y arranque del servidor ====
+// - /api/sessions: lista de sesiones activas para debugging/control.
+// - escapeHtml: helper simple para la vista pública de tickets.
+// - app.listen: arranque del servidor HTTP y mensajes de inicio.
 
 // list sessions
 app.get('/api/sessions', async (_req,res)=>{
