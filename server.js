@@ -1,30 +1,29 @@
 /**
  * server.js — STI Chat (stable) — WhatsApp button + Logs SSE compatible with chatlog.php
- *
- * Environment variables:
- *  - PORT (default 3001)
- *  - DATA_BASE (default /data)
- *  - PUBLIC_BASE_URL
- *  - WHATSAPP_NUMBER (default '5493417422422')
- *  - OPENAI_API_KEY (optional)
- *  - OPENAI_MODEL (optional)
- *  - OA_MIN_CONF (optional; 0..1)
- *  - SSE_TOKEN (optional)
- *
- * Note: expects sessionStore.js with getSession/saveSession/listActiveSessions
  */
 
-
-// Session store (expected to exist in your repo)
 // ==== [MB1] Dependencias, configuración base y clientes externos ====
 // - Carga de módulos de Node y terceros (Express, CORS, FS, Path, etc.).
 // - Store de sesiones (Redis / archivo) y cliente OpenAI opcional.
 // - Todo lo que afecta cómo se inicia el servidor y con qué servicios habla.
+
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import fs, { createReadStream } from 'fs';
+import path from 'path';
+import OpenAI from 'openai';
+
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 
 // OpenAI client (optional)
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+// ==== [MB2] Paths de datos, persistencia local y sistema de logging ====
+
 
 // Paths / persistence
 // ==== [MB2] Paths de datos, persistencia local y sistema de logging ====
