@@ -14,13 +14,6 @@
  * Note: expects sessionStore.js with getSession/saveSession/listActiveSessions
  */
 
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import fs from 'fs';
-import path from 'path';
-import { createReadStream } from 'fs';
-import OpenAI from 'openai';
 
 // Session store (expected to exist in your repo)
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
@@ -1020,46 +1013,51 @@ app.post('/api/chat', async (req,res)=>{
         return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
       }
     }
-    // [FIN STI-CHANGE] unificado handler de ayuda
-    // [STI-NAME] -- Bloque de manejo de botones (actualizado)
-    // Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
-    // (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
-    if (buttonToken || (/^\s*prefiero no decirlo\s*$/i.test(t))) { // [STI-NAME]
-      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
+   // [FIN STI-CHANGE] unificado handler de ayuda
 
-      // Si el usuario tocó o escribió "Prefiero no decirlo", avanzar a ASK_PROBLEM con nombre genérico
-      if (/^\s*prefiero no decirlo\s*$/i.test(btnText)) { // [STI-NAME]
-        try {
-          session.userName = 'Usuario'; // nombre neutro por defecto
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
+// [STI-NAME] -- Bloque de manejo de botones (actualizado)
+// Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
+// (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
 
-          // registrar tanto la acción del usuario como la respuesta del bot
-          session.transcript.push({
-            who: 'user',
-            text: buttonToken
-              ? `[BOTON] ${buttonLabel || buttonToken}`
-              : 'Prefiero no decirlo',
-            ts: nowIso()
-          });
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+// Frases tipo "prefiero no decirlo / decirle / decirte / no quiero decir mi nombre"
+const NO_NAME_RX = /^\s*(?:prefiero\s+no\s+decir(?:l[aeo])?|prefiero\s+no\s+dar\s+mi\s+nombre|no\s+quiero\s+decir\s+mi\s+nombre|no\s+deseo\s+decir\s+mi\s+nombre|prefiero\s+reservarme\s+el\s+nombre)\s*$/i; // [STI-NAME]
 
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
-        } catch (e) {
-          console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
-          // en caso de error, no romper el flujo principal; continuar sin retorno forzado
-        }
-      }
-    } // [STI-NAME]
+if (buttonToken || NO_NAME_RX.test(t)) { // [STI-NAME]
+  const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
 
+  // Si el usuario tocó o escribió alguna variante de "prefiero no decir mi nombre"
+  if (NO_NAME_RX.test(btnText)) { // [STI-NAME]
+    try {
+      session.userName = 'Usuario'; // nombre neutro por defecto
+      session.stage = STATES.ASK_PROBLEM;
+      const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
 
-    // record user message
-    if(buttonToken){
-      session.transcript.push({ who:'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
-    } else {
-      session.transcript.push({ who:'user', text: t, ts: nowIso() });
+      // registrar tanto la acción del usuario como la respuesta del bot
+      session.transcript.push({
+        who: 'user',
+        text: buttonToken
+          ? `[BOTON] ${buttonLabel || buttonToken}`
+          : btnText,
+        ts: nowIso()
+      });
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    } catch (e) {
+      console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
+      // en caso de error, no romper el flujo principal; continuar sin retorno forzado
     }
+  }
+} // [STI-NAME]
+
+// record user message
+if (buttonToken) {
+  session.transcript.push({ who: 'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
+} else {
+  session.transcript.push({ who: 'user', text: t, ts: nowIso() });
+}
+
 
     // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
 // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
