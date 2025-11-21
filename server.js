@@ -22,11 +22,9 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
-// ==== [MB2] Paths de datos, persistencia local y sistema de logging ====
-
-
-// Paths / persistence
-// ==== [MB2] Paths de datos, persistencia local y sistema de logging ====
+// ========================================================
+// === [MB2] PATHS DE DATOS, PERSISTENCIA Y LOGGING       ===
+// ========================================================
 // - Define carpetas de transcripts, tickets y logs.
 // - Asegura la creación de directorios y prepara el archivo de logs.
 // - También inicializa el set de clientes SSE para ver logs en tiempo real.
@@ -309,7 +307,33 @@ function looksClearlyNotName(text){ // [STI-NAME]
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 const withOptions = obj => ({ options: [], ...obj });
 
-// ==== [MB5] Integración con OpenAI (análisis y generación de pasos) ====
+
+// ========================================================
+// === [MB4] BLOQUE: SALUDO CENTRALIZADO Y UX INICIAL    ===
+// ========================================================
+// -------- [MICRO] Saludo centralizado según horario (buildNameGreeting) --------
+// Devuelve un saludo tipo humano según la hora del servidor.
+// Más adelante podemos mejorarlo usando la zona horaria del cliente si hiciera falta.
+function buildNameGreeting(now = new Date()) {
+  const hour = now.getHours(); // 0–23
+  let prefix;
+
+  if (hour >= 0 && hour < 5) {
+    prefix = '🌙 Hola madrugador';
+  } else if (hour >= 5 && hour < 12) {
+    prefix = '🌞 Buen día';
+  } else if (hour >= 12 && hour < 19) {
+    prefix = '🌇 Buenas tardes';
+  } else {
+    prefix = '🌙 Buenas noches';
+  }
+
+  return `${prefix} 👋 Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?`;
+}
+
+// ========================================================
+// === [MB5] BLOQUE: INTEGRACIÓN CON OPENAI (NLP/TESTS)  ===
+// ========================================================
 // - analyzeProblemWithOA: clasifica si el problema es informático y su tipo.
 // - aiQuickTests: sugiere pasos simples y seguros adaptados al problema.
 // - getHelpForStep: explica en detalle cómo realizar un paso concreto.
@@ -752,13 +776,20 @@ app.post('/api/reset', async (req,res)=>{
   res.json({ ok:true });
 });
 
-// greeting
+// ========================================================
+// === [MB7] BLOQUE: SALUDO INICIAL (/api/greeting)      ===
+// ========================================================
+// -------- [MICRO] Handler saludo inicial del chat usando buildNameGreeting() --------
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
     const fresh = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null, startedAt: nowIso() };
-    const text = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?';
+    const text = buildNameGreeting();
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
+    await saveSession(sid, fresh);
+    return res.json({ ok:true, greeting:text, reply:text, options: [] });
+  } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
+});
     await saveSession(sid, fresh);
     return res.json({ ok:true, greeting:text, reply:text, options: [] });
   } catch(e){ console.error(e); return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] }); }
@@ -1185,40 +1216,13 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
       const nmInline2 = extractName(t);
       if(nmInline2 && !session.userName){
         session.userName = cap(nmInline2);
-        if(session.stage === STATES.ASK_NAME){
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json({ ok:true, reply, stage: session.stage, options: [] });
-        }
-      }
-    }
-
-    // simple "reformular problema"
-    if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      const whoName = session.userName ? cap(session.userName) : 'usuario';
-      const reply = `¡Intentemos nuevamente, ${whoName}! 👍\n\n¿Qué problema estás teniendo?`;
-      session.stage = STATES.ASK_PROBLEM;
-      session.problem = null;
-      session.issueKey = null;
-      session.tests = { basic: [], ai: [], advanced: [] };
-      session.lastHelpStep = null;
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
-    }
-
-    // very small state machine to demonstrate behavior (you can expand)
-    let reply = '';
-    let options = [];
-
     if(session.stage === STATES.ASK_NAME){
-      reply = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! ¿Cuál es tu nombre?';
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
-    } else if (session.stage === STATES.ASK_PROBLEM){
+  // -------- [MICRO] Fallback ASK_NAME: usa saludo centralizado si algo quedó colgado --------
+  reply = buildNameGreeting();
+  session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+  await saveSession(sid, session);
+  return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
+} else if (session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
       if(!openai){
         const fallbackMsg = 'OpenAI no está configurado. Procedo sin filtro.';
