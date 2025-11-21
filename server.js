@@ -828,32 +828,95 @@ app.post('/api/chat', async (req,res)=>{
     const body = req.body || {};
     // token map from embedded buttons
     const tokenMap = {};
-    if(Array.isArray(CHAT?.ui?.buttons)){
-      for(const b of CHAT.ui.buttons) if(b.token) tokenMap[b.token] = b.text || '';
+    if (Array.isArray(CHAT?.ui?.buttons)) {
+      for (const b of CHAT.ui.buttons) {
+        if (b.token) tokenMap[b.token] = b.text || '';
+      }
     }
 
     let incomingText = String(body.text || '').trim();
     let buttonToken = null;
     let buttonLabel = null;
-    if(body.action === 'button' && body.value){
+
+    if (body.action === 'button' && body.value) {
       buttonToken = String(body.value);
-      if(tokenMap[buttonToken] !== undefined) incomingText = tokenMap[buttonToken];
-      else if(buttonToken.startsWith('BTN_HELP_')){
+      if (tokenMap[buttonToken] !== undefined) {
+        incomingText = tokenMap[buttonToken];
+      } else if (buttonToken.startsWith('BTN_HELP_')) {
         const n = buttonToken.split('_').pop();
         incomingText = `ayuda paso ${n}`;
-      } else incomingText = buttonToken;
+      } else {
+        incomingText = buttonToken;
+      }
       buttonLabel = body.label || buttonToken;
     }
-    const t = String(incomingText || '').trim();
+
+    const t   = String(incomingText || '').trim();
     const sid = req.sessionId;
 
     let session = await getSession(sid);
-    if(!session){
+    if (!session) {
       // agregar campos mínimos para manejo de "ayuda paso N"
-      session = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null, startedAt: nowIso(), helpAttempts: {} };
+      session = {
+        id: sid,
+        userName: null,
+        stage: STATES.ASK_NAME,
+        device: null,
+        problem: null,
+        issueKey: null,
+        tests: { basic: [], ai: [], advanced: [] },
+        stepsDone: [],
+        fallbackCount: 0,
+        waEligible: false,
+        transcript: [],
+        pendingUtterance: null,
+        lastHelpStep: null,
+        startedAt: nowIso(),
+        helpAttempts: {}
+      };
       console.log('[api/chat] nueva session', sid);
     }
 
+    // [STI-NAME] -- Bloque de manejo de botones (actualizado)
+    // Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
+    // (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
+    if (buttonToken || (/^\s*prefiero no decirlo\s*$/i.test(t))) { // [STI-NAME]
+      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
+
+      // Si el usuario tocó o escribió "Prefiero no decirlo", avanzar a ASK_PROBLEM con nombre genérico
+      if (/^\s*prefiero no decirlo\s*$/i.test(btnText)) { // [STI-NAME]
+        try {
+          session.userName = 'Usuario'; // nombre neutro por defecto
+          session.stage = STATES.ASK_PROBLEM;
+
+          const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
+
+          // registrar tanto la acción del usuario como la respuesta del bot
+          session.transcript.push({
+            who: 'user',
+            text: buttonToken
+              ? `[BOTON] ${buttonLabel || buttonToken}`
+              : 'Prefiero no decirlo',
+            ts: nowIso()
+          });
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+
+          await saveSession(sid, session);
+
+          return res.json(
+            withOptions({
+              ok: true,
+              reply,
+              stage: session.stage,
+              options: []
+            })
+          );
+        } catch (e) {
+          console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
+          // en caso de error, no romper el flujo principal; continuar sin retorno forzado
+        }
+      }
+    } // [STI-NAME]
     // quick BTN_WHATSAPP: create ticket and return waUrl + UI button definition
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
       try {
@@ -966,46 +1029,67 @@ app.post('/api/chat', async (req,res)=>{
       session.transcript.push({ who:'user', text: t, ts: nowIso() });
     }
 
-    // [STI-NAME] Integración mejorada del ASK_NAME usando reglas locales (sin OA)
-    if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
-      // check explicit "Prefiero no decirlo" button/text
-      if (/^\s*prefiero no decirlo\s*$/i.test(t)) { // [STI-NAME]
-        session.userName = null; // [STI-NAME]
-        session.stage = STATES.ASK_PROBLEM; // [STI-NAME]
-        const reply = `Perfecto. Entonces sigamos. ¿Qué problema estás teniendo?`; // [STI-NAME]
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
-        await saveSession(sid, session); // [STI-NAME]
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] })); // [STI-NAME]
-      } // [STI-NAME]
+    // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
+if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
 
-      // intento local de extracción simple
-      const candidate = extractName(t); // [STI-NAME]
-      if (candidate) { // [STI-NAME]
-        session.userName = candidate; // [STI-NAME]
-        session.stage = STATES.ASK_PROBLEM; // [STI-NAME]
-        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`; // [STI-NAME]
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
-        await saveSession(sid, session); // [STI-NAME]
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] })); // [STI-NAME]
-      } // [STI-NAME]
+  // 1) Si el usuario escribió explícitamente "Prefiero no decirlo"
+  if (/^\s*prefiero no decirlo\s*$/i.test(t)) { // [STI-NAME]
+    session.userName = 'Usuario';        // nombre neutro
+    session.stage = STATES.ASK_PROBLEM;  // avanzar
+    const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
 
-      // si claramente no es un nombre (saludo, frase técnica, largo, etc.)
-      if (looksClearlyNotName(t)) { // [STI-NAME]
-        session.nameAttempts = (session.nameAttempts || 0) + 1; // [STI-NAME]
-        await saveSession(sid, session); // [STI-NAME]
-        const reply = '¿Podés decirme solo tu nombre? Ej: "Ana" o "Juan Pablo".'; // [STI-NAME]
-        session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Prefiero no decirlo'] })); // [STI-NAME]
-      } // [STI-NAME]
+    session.transcript.push({ who:'user', text:'Prefiero no decirlo', ts: nowIso() });
+    session.transcript.push({ who:'bot',  text:reply, ts: nowIso() });
 
-      // caso dudoso: pedir simplificación
-      session.nameAttempts = (session.nameAttempts || 0) + 1; // [STI-NAME]
-      await saveSession(sid, session); // [STI-NAME]
-      const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".'; // [STI-NAME]
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() }); // [STI-NAME]
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['Prefiero no decirlo'] })); // [STI-NAME]
-    } // [STI-NAME]
-    // [FIN STI-NAME]
+    await saveSession(sid, session);
+    return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
+  }
+
+  // 2) Si el texto claramente NO parece un nombre (saludo, frase técnica, etc.)
+  if (looksClearlyNotName(t)) { // [STI-NAME]
+    session.nameAttempts = (session.nameAttempts || 0) + 1;
+    await saveSession(sid, session);
+
+    const reply = 'No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: "Ana" o "Juan Pablo".';
+    session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+    return res.json(withOptions({
+      ok:true,
+      reply,
+      stage:session.stage,
+      options:['Prefiero no decirlo']
+    }));
+  }
+
+  // 3) Intento de extracción local usando extractName
+  const candidate = extractName(t); // [STI-NAME]
+  if (candidate) {
+    session.userName = cap(candidate);
+    session.stage = STATES.ASK_PROBLEM;
+
+    const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+    session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+    await saveSession(sid, session);
+    return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
+  }
+
+  // 4) Caso dudoso → pedir simplificación
+  session.nameAttempts = (session.nameAttempts || 0) + 1;
+  await saveSession(sid, session);
+
+  const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".';
+  session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+  return res.json(withOptions({
+    ok:true,
+    reply,
+    stage:session.stage,
+    options:['Prefiero no decirlo']
+  }));
+} 
+// [FIN STI-NAME]
+
 
     // name extraction (legacy fallback when not in ASK_NAME)
     // Este bloque mantiene compatibilidad: si detectamos inline nombre en cualquier otra etapa y no hay userName, lo asignamos.
