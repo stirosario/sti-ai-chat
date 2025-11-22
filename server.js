@@ -282,8 +282,15 @@ function isValidName(text){
   // if too many words overall -> reject
   if (s.split(/\s+/).filter(Boolean).length > 6) return false;
 
-  // blacklist (trolls)
-  const blacklist = ['pepelito','papelito','pepito','probando','aaaa','jjjj','zzzz','asdasd','qwerty','basurita','basura','tuerquita','chuchuki'];
+  // blacklist (trolls, apodos, palabras comunes)
+  const blacklist = [
+    'pepelito','papelito','pepito','probando','aaaa','jjjj','zzzz','asdasd','qwerty','basurita','basura','tuerquita','chuchuki',
+    'corcho','coco','pepe','toto','nene','nena','pibe','piba','guacho','wacho','bobo','boludo','pelotudo',
+    'chicle','goma','lapiz','papel','mesa','silla','puerta','ventana','techo','piso','pared',
+    'amigo','amiga','hermano','hermana','primo','prima','tio','tia','abuelo','abuela',
+    'test','testing','prueba','ejemplo','admin','usuario','user','cliente','persona',
+    'hola','chau','gracias','perdon','disculpa','sorry','hello','bye'
+  ];
   if (blacklist.includes(s.toLowerCase())) return false;
 
   for (const tok of tokens) {
@@ -357,10 +364,23 @@ function looksClearlyNotName(text){
 async function analyzeNameWithOA(nameText = '') {
   if(!openai) return { isValid: false, confidence: 0, reason: 'no_openai' };
   const prompt = [
-    "Sos un validador estricto de nombres humanos reales en español (Argentina).",
-    "RECHAZÁ nombres inventados, apodos, nombres falsos, palabras comunes, marcas, objetos, saludos, o cualquier texto que NO sea un nombre real de persona.",
-    "ACEPTÁ solo nombres humanos genuinos que se usan en Argentina (ejemplos válidos: María, Juan, Ana Laura, José Luis).",
-    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'breve explicación'}.",
+    "Sos un validador MUY ESTRICTO de nombres humanos reales en español (Argentina).",
+    "",
+    "RECHAZÁ automáticamente:",
+    "- Apodos o sobrenombres: Coco, Pepe, Toto, Corcho, Chicle, Pibe, Nene, Gordo, Flaco, etc.",
+    "- Palabras comunes: Mesa, Silla, Lapiz, Goma, Puerta, etc.",
+    "- Saludos o expresiones: Hola, Gracias, Chau, etc.",
+    "- Palabras inventadas o sin sentido: Aaaa, Zzzz, Asdasd, etc.",
+    "- Nombres de marcas, objetos o conceptos",
+    "- Cualquier texto que NO sea un nombre COMPLETO y REAL de una persona",
+    "",
+    "ACEPTÁ únicamente:",
+    "- Nombres reales completos usados en Argentina: María, Juan, Ana, Carlos, Laura, José, Lucía, etc.",
+    "- Nombres compuestos reales: María Elena, Juan Carlos, Ana Laura, José Luis, etc.",
+    "",
+    "Si tenés la mínima duda de que NO sea un nombre real, RECHAZALO.",
+    "",
+    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'explicación clara'}.",
     `Texto a validar: "${String(nameText).replace(/"/g,'\\"')}"`
   ].join('\n');
   try {
@@ -1350,8 +1370,8 @@ app.post('/api/chat', async (req,res)=>{
           const oa = await analyzeNameWithOA(candidate);
           console.log('[name-validation] OpenAI result:', { candidate, isValid: oa.isValid, confidence: oa.confidence, reason: oa.reason });
           
-          // Rechazar si OpenAI dice que NO es válido con confianza >= 0.5 (umbral más bajo)
-          if (!oa.isValid && oa.confidence >= 0.5) {
+          // Rechazar si OpenAI dice que NO es válido con confianza >= 0.4 (umbral más estricto)
+          if (!oa.isValid && oa.confidence >= 0.4) {
             session.nameAttempts = (session.nameAttempts || 0) + 1;
             await saveSession(sid, session);
             const reply = `Ese nombre no parece real (${oa.reason}). ¿Podés decirme tu nombre verdadero o tocar "Prefiero no decirlo"?`;
@@ -1361,7 +1381,7 @@ app.post('/api/chat', async (req,res)=>{
           }
           
           // Rechazar también si OpenAI dice que SÍ es válido pero con confianza muy baja
-          if (oa.isValid && oa.confidence < 0.6) {
+          if (oa.isValid && oa.confidence < 0.7) {
             session.nameAttempts = (session.nameAttempts || 0) + 1;
             await saveSession(sid, session);
             const reply = 'No estoy seguro de que ese sea un nombre real. ¿Podés escribirlo de nuevo o tocar "Prefiero no decirlo"?';
