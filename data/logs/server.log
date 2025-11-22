@@ -9,3 +9,5 @@
 2025-11-22T06:33:37.768Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
 2025-11-22T15:45:56.876Z [INFO] STI Chat (v7) started on 3001
 2025-11-22T15:45:56.878Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T16:02:04.742Z [INFO] STI Chat (v7) started on 3001
+2025-11-22T16:02:04.744Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)

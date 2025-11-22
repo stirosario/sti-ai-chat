@@ -79,11 +79,26 @@ const nowIso = () => new Date().toISOString();
 const withOptions = obj => ({ options: [], ...obj });
 
 
+function maskPII(text) {
+  if (!text) return text;
+  let s = String(text);
+  // Emails
+  s = s.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]');
+  // Tarjetas de crédito (16 dígitos en bloques)
+  s = s.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[tarjeta]');
+  // Teléfonos largos (10+ dígitos seguidos)
+  s = s.replace(/\b\d{10,}\b/g, '[tel]');
+  // DNI u otros documentos (7-8 dígitos)
+  s = s.replace(/\b\d{7,8}\b/g, '[dni]');
+  return s;
+}
+
 function formatLog(level, ...parts) {
-  const text = parts.map(p => {
+  const rawText = parts.map(p => {
     if (typeof p === 'string') return p;
     try { return JSON.stringify(p); } catch (e) { return String(p); }
   }).join(' ');
+  const text = maskPII(rawText);
   return `${new Date().toISOString()} [${level}] ${text}`;
 }
 
@@ -159,6 +174,10 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
       { token: 'BTN_MORE_TESTS', label: 'Más pruebas 🔍', text: 'más pruebas' },
       { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
+      { token: 'BTN_LANG_ES_AR', label: 'Español (Argentina)', text: 'Español (Argentina)' },
+      { token: 'BTN_LANG_ES', label: 'Español (Latinoamérica)', text: 'Español (Latinoamérica)' },
+      { token: 'BTN_LANG_EN', label: 'English', text: 'English' },
+      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo', text: 'Prefiero no decirlo' },
       // device tokens
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
@@ -639,7 +658,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     if(sid) lines.push(`Session: ${sid}`);
     lines.push('');
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-    for(const m of transcript || []){ lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${m.text||''}`); }
+    for(const m of transcript || []){ const safeText = maskPII(m.text||''); lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${safeText}`); }
 
     try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
     const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
@@ -822,7 +841,8 @@ app.post('/api/reset', async (req,res)=>{
     startedAt: nowIso(),
     nameAttempts: 0,
     stepProgress: {},
-    pendingDeviceGroup: null
+    pendingDeviceGroup: null,
+    userLocale: 'es-AR'
   };
   await saveSession(sid, empty);
   res.json({ ok:true });
@@ -832,6 +852,19 @@ app.post('/api/reset', async (req,res)=>{
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
+
+    // Detectar locale preferido a partir de headers
+    const accept = String(req.headers['accept-language'] || '').toLowerCase();
+    const hdrLocale = String(req.headers['x-locale'] || req.headers['x-lang'] || '').toLowerCase();
+    let locale = 'es-AR';
+    if (hdrLocale) {
+      locale = hdrLocale;
+    } else if (accept.startsWith('en')) {
+      locale = 'en';
+    } else if (accept.startsWith('es')) {
+      locale = accept.includes('ar') ? 'es-AR' : 'es-419';
+    }
+
     const fresh = {
       id: sid,
       userName: null,
@@ -849,19 +882,50 @@ app.all('/api/greeting', async (req,res)=>{
       startedAt: nowIso(),
       nameAttempts: 0,
       stepProgress: {},
-      pendingDeviceGroup: null
+      pendingDeviceGroup: null,
+      userLocale: locale
     };
-    const text = buildNameGreeting();
+    const text = buildNameGreeting(locale);
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
     await saveSession(sid, fresh);
-    return res.json({ ok:true, greeting:text, reply:text, options: [] });
+    const langOptions = ['BTN_LANG_ES_AR','BTN_LANG_ES','BTN_LANG_EN'];
+    return res.json(withOptions({
+      ok: true,
+      greeting: text,
+      reply: text,
+      stage: fresh.stage,
+      sessionId: sid,
+      options: langOptions
+    }));
   } catch(e){
     console.error(e);
-    return res.json({ ok:true, greeting:'👋 Hola', reply:'👋 Hola', options:[] });
+    return res.status(500).json({ ok:false, error:'greeting_failed' });
   }
 });
 
-function buildNameGreeting() {
+function buildNameGreeting(locale = 'es-AR') {
+  const norm = (locale || '').toLowerCase();
+  const isEn = norm.startsWith('en');
+  const isEsLatam = norm.startsWith('es-') && !norm.includes('ar');
+
+  if (isEn) {
+    const line1 = "👋 Hi, I'm Tecnos, the intelligent assistant of STI — Servicio Técnico Inteligente.";
+    const line2 = 'I can help you with PC, notebook, WiFi, printers and other IT issues or questions.';
+    const line3 = "To help you better, what's your name?";
+    return `${line1}
+
+${line2} ${line3}`;
+  }
+
+  if (isEsLatam) {
+    const line1 = '👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.';
+    const line2 = 'Estoy aquí para ayudarte con problemas y consultas de PC, notebook, WiFi, impresoras y otros temas informáticos.';
+    const line3 = 'Para ayudarte mejor, ¿cómo te llamas?';
+    return `${line1}
+
+${line2} ${line3}`;
+  }
+
   const line1 = '👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.';
   const line2 = 'Estoy para ayudarte con problemas y consultas de PC, notebook, WiFi, impresoras y otros temas informáticos.';
   const line3 = 'Para ayudarte mejor, ¿cómo te llamás?';
@@ -896,7 +960,7 @@ async function createTicketAndRespond(session, sid, res) {
     if(sid) lines.push(`Session: ${sid}`);
     lines.push('');
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-    for(const m of session.transcript || []){ lines.push(`[${m.ts||ts}] ${m.who||'user'}: ${m.text||''}`); }
+    for(const m of session.transcript || []){ const safeText = maskPII(m.text||''); lines.push(`[${m.ts||ts}] ${m.who||'user'}: ${safeText}`); }
 
     try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
     const ticketPath = path.join(TICKETS_DIR, `${ticketId}.txt`);
@@ -1085,10 +1149,49 @@ app.post('/api/chat', async (req,res)=>{
         helpAttempts: {},
         nameAttempts: 0,
         stepProgress: {},
-        pendingDeviceGroup: null
+        pendingDeviceGroup: null,
+        userLocale: 'es-AR'
       };
       console.log('[api/chat] nueva session', sid);
     }
+    // Selección de idioma (puede usarse al inicio del chat)
+    if (buttonToken === 'BTN_LANG_ES_AR' || buttonToken === 'BTN_LANG_ES' || buttonToken === 'BTN_LANG_EN') {
+      let locale = 'es-AR';
+      if (buttonToken === 'BTN_LANG_EN') {
+        locale = 'en';
+      } else if (buttonToken === 'BTN_LANG_ES') {
+        locale = 'es-419';
+      } else {
+        locale = 'es-AR';
+      }
+      session.userLocale = locale;
+      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+      let reply;
+      if (locale === 'en') {
+        reply = whoLabel
+          ? `Great, ${whoLabel}. We'll continue in English. What problem are you having or what do you need help with?`
+          : "Great, we'll continue in English. What's your name?";
+      } else if (locale === 'es-419') {
+        reply = whoLabel
+          ? `Perfecto, ${whoLabel}. Seguimos en español neutro. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
+          : 'Perfecto, seguimos en español neutro. Para ayudarte mejor, ¿cómo te llamas?';
+      } else {
+        reply = whoLabel
+          ? `Perfecto, ${whoLabel}. Seguimos en español (Argentina). Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
+          : 'Perfecto, seguimos en español (Argentina). Para ayudarte mejor, ¿cómo te llamás?';
+      }
+      const tsLang = nowIso();
+      session.stage = whoLabel ? STATES.ASK_PROBLEM : STATES.ASK_NAME;
+      session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
+      await saveSession(sid, session);
+      return res.json(withOptions({
+        ok: true,
+        reply,
+        stage: session.stage,
+        options: session.stage === STATES.ASK_NAME ? ['BTN_NO_NAME'] : []
+      }));
+    }
+
 
     // Cerrar chat de forma prolija (movido fuera del bloque de creación)
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
@@ -1317,7 +1420,8 @@ if (!session.device) {
       ok: true,
       reply: replyText,
       stage: session.stage,
-      options: optionTokens,
+      options: uiButtons, // Enviar objetos completos en options
+      buttons: uiButtons, // Agregar también en nivel raíz
       ui: { 
         buttons: uiButtons 
       }
