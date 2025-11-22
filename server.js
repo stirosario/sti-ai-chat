@@ -518,25 +518,25 @@ function looksClearlyNotName(text){
   return false;
 }
 
-// OpenAI name analyzer - STRICT validation
+// OpenAI name analyzer - RELAXED validation
 async function analyzeNameWithOA(nameText = '') {
-  if(!openai) return { isValid: false, confidence: 0, reason: 'no_openai' };
+  if(!openai) return { isValid: true, confidence: 0.8, reason: 'fallback_accepted' };
   const prompt = [
-    "Sos un validador MUY ESTRICTO de nombres humanos reales en español (Argentina).",
+    "Sos un validador de nombres humanos en español (Argentina).",
     "",
-    "RECHAZÁ automáticamente:",
-    "- Apodos o sobrenombres: Coco, Pepe, Toto, Corcho, Chicle, Pibe, Nene, Gordo, Flaco, etc.",
-    "- Palabras comunes: Mesa, Silla, Lapiz, Goma, Puerta, etc.",
-    "- Saludos o expresiones: Hola, Gracias, Chau, etc.",
-    "- Palabras inventadas o sin sentido: Aaaa, Zzzz, Asdasd, etc.",
-    "- Nombres de marcas, objetos o conceptos",
-    "- Cualquier texto que NO sea un nombre COMPLETO y REAL de una persona",
+    "RECHAZÁ únicamente si es CLARAMENTE:",
+    "- Palabras comunes de objetos: Mesa, Silla, Puerta, Celular, Teclado, etc.",
+    "- Saludos o frases: Hola, Gracias, Buenos días, Chau, etc.",
+    "- Palabras sin sentido: Aaaa, Zzzz, Asdasd, 123, etc.",
+    "- Descripciones de problemas: 'tengo un problema', 'mi computadora', etc.",
     "",
-    "ACEPTÁ únicamente:",
-    "- Nombres reales completos usados en Argentina: María, Juan, Ana, Carlos, Laura, José, Lucía, etc.",
-    "- Nombres compuestos reales: María Elena, Juan Carlos, Ana Laura, José Luis, etc.",
+    "ACEPTÁ si puede ser un nombre real, aunque sea un apodo o diminutivo:",
+    "- Nombres comunes: María, Juan, Ana, Carlos, Raúl, Laura, José, Lucía, Diego, etc.",
+    "- Apodos comunes que las personas usan: Pepe, Toto, Coco, Pancho, Lucho, Nico, etc.",
+    "- Nombres cortos o diminutivos: Raul, Marcos, Franco, Mateo, etc.",
+    "- Nombres compuestos: María Elena, Juan Carlos, Ana Laura, José Luis, etc.",
     "",
-    "Si tenés la mínima duda de que NO sea un nombre real, RECHAZALO.",
+    "Ante la duda, ACEPTÁ el nombre.",
     "",
     "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'explicación clara'}.",
     `Texto a validar: "${String(nameText).replace(/"/g,'\\"')}"`
@@ -1420,6 +1420,7 @@ app.post('/api/cleanup', async (req, res) => {
 });
 
 const STATES = {
+  ASK_LANGUAGE: 'ask_language',
   ASK_NAME: 'ask_name',
   ASK_PROBLEM: 'ask_problem',
   ASK_DEVICE: 'ask_device',
@@ -1986,7 +1987,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fresh = {
       id: sid,
       userName: null,
-      stage: STATES.ASK_NAME,
+      stage: STATES.ASK_LANGUAGE,
       device: null,
       problem: null,
       issueKey: null,
@@ -2001,14 +2002,12 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       nameAttempts: 0,
       stepProgress: {},
       pendingDeviceGroup: null,
-      userLocale: locale
+      userLocale: null
     };
-    const text = buildNameGreeting(locale);
-    const langPrompt = buildLanguagePrompt(locale);
-    const fullGreeting = `${text}\n\n${langPrompt}`;
+    const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
     await saveSession(sid, fresh);
-    const langOptions = ['BTN_LANG_ES_AR','BTN_LANG_ES','BTN_LANG_EN'];
+    const langOptions = ['Español Argentina', 'Español España', 'English'];
     
     // Incluir CSRF token en respuesta
     return res.json(withOptions({
@@ -2025,6 +2024,15 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     return res.status(500).json({ ok:false, error:'greeting_failed' });
   }
 });
+
+function buildLanguageSelectionGreeting() {
+  const line1es = "👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.";
+  const line1en = "👋 Hello, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service.";
+  const line2es = "🌐 Para empezar, seleccioná un idioma usando los botones:";
+  const line2en = "🌐 To begin, select a language using the buttons:";
+  
+  return `${line1es}\n${line1en}\n\n${line2es}\n${line2en}`;
+}
 
 function buildLanguagePrompt(locale = 'es-AR') {
   const norm = (locale || '').toLowerCase();
@@ -2973,13 +2981,48 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       session.transcript = session.transcript.slice(-100);
     }
 
+    // ASK_LANGUAGE: Handle language selection first
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      let selectedLocale = null;
+      
+      // Detectar selección de idioma por texto o botón
+      const tLower = t.toLowerCase();
+      if (tLower.includes('argentina') || buttonToken === 'Español Argentina') {
+        selectedLocale = 'es-AR';
+      } else if (tLower.includes('españa') || tLower.includes('espana') || buttonToken === 'Español España') {
+        selectedLocale = 'es-419';
+      } else if (tLower.includes('english') || tLower.includes('ingles') || buttonToken === 'English') {
+        selectedLocale = 'en';
+      }
+      
+      if (selectedLocale) {
+        session.userLocale = selectedLocale;
+        session.stage = STATES.ASK_NAME;
+        const nameGreeting = buildNameGreeting(selectedLocale);
+        session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: ['Prefiero no decirlo'] }));
+      } else {
+        // No entendió la selección, pedir de nuevo
+        const retry = "🌐 Por favor, seleccioná un idioma tocando uno de los botones.\n🌐 Please select a language by tapping one of the buttons.";
+        session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: ['Español Argentina', 'Español España', 'English'] }));
+      }
+    }
+
     // ASK_NAME consolidated: validate locally and with OpenAI if available
     if (session.stage === STATES.ASK_NAME) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
       // Límite de intentos: después de 5 intentos, asignar nombre genérico y continuar
       if ((session.nameAttempts || 0) >= 5) {
-        session.userName = 'Usuario';
+        session.userName = isEn ? 'User' : 'Usuario';
         session.stage = STATES.ASK_PROBLEM;
-        const reply = 'Sigamos adelante. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?';
+        const reply = isEn 
+          ? "Let's move forward. Now tell me: what problem are you having or what do you need help with?"
+          : 'Sigamos adelante. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?';
         const ts = nowIso();
         session.transcript.push({ who: 'bot', text: reply, ts });
         await saveSession(sid, session);
@@ -2989,53 +3032,40 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       if (looksClearlyNotName(t)) {
         session.nameAttempts = (session.nameAttempts || 0) + 1;
         await saveSession(sid, session);
-        const reply = 'No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: "Ana" o "Juan Pablo".';
+        const reply = isEn
+          ? 'I didn\'t detect a name. Can you tell me just your name? For example: "Ana" or "John".'
+          : 'No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: "Ana" o "Juan Pablo".';
         const ts = nowIso();
         session.transcript.push({ who:'bot', text: reply, ts });
-        return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
+        const skipOption = isEn ? 'I prefer not to say' : 'Prefiero no decirlo';
+        return res.json(withOptions({ ok:true, reply, stage: session.stage, options:[skipOption] }));
       }
 
       const candidate = extractName(t);
       if (candidate && isValidHumanName(candidate)) {
-        // MANDATORY OpenAI validation when available
-        if (openai) {
-          const oa = await analyzeNameWithOA(candidate);
-          console.log('[name-validation] OpenAI result:', { candidate, isValid: oa.isValid, confidence: oa.confidence, reason: oa.reason });
-          
-          // Rechazar si OpenAI dice que NO es válido con confianza >= 0.4 (umbral estricto)
-          if (!oa.isValid && oa.confidence >= 0.4) {
-            session.nameAttempts = (session.nameAttempts || 0) + 1;
-            await saveSession(sid, session);
-            const reply = `Ese nombre no parece real (${oa.reason}). ¿Podés decirme tu nombre verdadero o tocar "Prefiero no decirlo"?`;
-            const ts = nowIso();
-            session.transcript.push({ who:'bot', text: reply, ts });
-            return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
-          }
-          
-          // Rechazar también si OpenAI dice que SÍ es válido pero con confianza muy baja
-          if (oa.isValid && oa.confidence < 0.7) {
-            session.nameAttempts = (session.nameAttempts || 0) + 1;
-            await saveSession(sid, session);
-            const reply = 'No estoy seguro de que ese sea un nombre real. ¿Podés escribirlo de nuevo o tocar "Prefiero no decirlo"?';
-            const ts = nowIso();
-            session.transcript.push({ who:'bot', text: reply, ts });
-            return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
-          }
-        } else {
-          // Si NO hay OpenAI, rechazar por defecto para ser más estrictos
+        // OpenAI validation (optional, fallback to accept)
+        const oa = await analyzeNameWithOA(candidate);
+        console.log('[name-validation] OpenAI result:', { candidate, isValid: oa.isValid, confidence: oa.confidence, reason: oa.reason });
+        
+        // Solo rechazar si OpenAI tiene ALTA confianza de que NO es válido
+        if (!oa.isValid && oa.confidence >= 0.7) {
           session.nameAttempts = (session.nameAttempts || 0) + 1;
           await saveSession(sid, session);
-          const reply = 'No puedo validar nombres en este momento. Por favor, tocá "Prefiero no decirlo" para continuar.';
+          const reply = isEn
+            ? `That name doesn't seem real (${oa.reason}). Can you tell me your real name or tap "I prefer not to say"?`
+            : `Ese nombre no parece real (${oa.reason}). ¿Podés decirme tu nombre verdadero o tocar "Prefiero no decirlo"?`;
           const ts = nowIso();
           session.transcript.push({ who:'bot', text: reply, ts });
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
+          const skipOption = isEn ? 'I prefer not to say' : 'Prefiero no decirlo';
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options:[skipOption] }));
         }
-
+        
+        // Si OpenAI dice que es válido O tiene baja confianza, ACEPTAR el nombre
         session.userName = candidate;
         session.stage = STATES.ASK_PROBLEM;
-        const reply = `Gracias, ${capitalizeToken(session.userName)}. 👍
-
-Estoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
+        const reply = isEn
+          ? `Thanks, ${capitalizeToken(session.userName)}. 👍\n\nI'm here to help you with your PC, notebook, Wi-Fi or printer. Now tell me: what problem are you having or what do you need help with?`
+          : `Gracias, ${capitalizeToken(session.userName)}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
         const ts = nowIso();
         session.transcript.push({ who:'bot', text: reply, ts });
         await saveSession(sid, session);
@@ -3044,10 +3074,13 @@ Estoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué
 
       session.nameAttempts = (session.nameAttempts || 0) + 1;
       await saveSession(sid, session);
-      const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".';
+      const reply = isEn
+        ? 'Write me just your name, for example: "Mary" or "John Smith".'
+        : 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".';
       const ts2 = nowIso();
       session.transcript.push({ who:'bot', text: reply, ts: ts2 });
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
+      const skipOption = isEn ? 'I prefer not to say' : 'Prefiero no decirlo';
+      return res.json(withOptions({ ok:true, reply, stage: session.stage, options:[skipOption] }));
     }
 
     // Inline fallback extraction (if we are not in ASK_NAME)

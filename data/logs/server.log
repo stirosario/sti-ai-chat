@@ -35,3 +35,33 @@
 [SIGINT] Iniciando apagado graceful...
 2025-11-22T20:37:22.088Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-22T22:06:38.691Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:06:38.692Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:06:38.693Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:06:38.694Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:27:58.221Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:27:58.223Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:27:58.223Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:27:58.223Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:33:02.937Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:33:02.939Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:33:02.939Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:33:02.939Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:36:48.459Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T22:37:05.490Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:37:05.491Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:37:05.491Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:37:05.491Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:38:38.830Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T22:39:10.003Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:39:10.004Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:39:10.004Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:39:10.004Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:43:06.895Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-22T22:43:06.896Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T22:43:06.897Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-22T22:43:06.897Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-22T22:46:16.954Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

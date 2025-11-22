@@ -32,6 +32,7 @@
     }
 
     .header {
+      position: relative;
       background: white;
       padding: 1rem;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
@@ -331,6 +332,51 @@
       cursor: pointer;
     }
 
+    .install-button {
+      position: absolute;
+      top: 50%;
+      right: 1rem;
+      transform: translateY(-50%);
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.875rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      z-index: 1000;
+      letter-spacing: 0.3px;
+      animation: pulse-install 2s ease-in-out infinite;
+      display: none;
+    }
+
+    .install-button.show {
+      display: block !important;
+    }
+
+    @keyframes pulse-install {
+      0%, 100% {
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+      50% {
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+      }
+    }
+
+    .install-button:hover {
+      transform: translateY(-3px) scale(1.05);
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.6);
+      animation: none;
+    }
+
+    .install-button:active {
+      transform: translateY(-1px) scale(1.02);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);
+    }
+
     @media (max-width: 640px) {
       .chat-container {
         margin: 0;
@@ -346,6 +392,13 @@
         padding: 0.5rem 1rem;
         font-size: 0.875rem;
       }
+
+      .install-button {
+        top: 50%;
+        right: 0.5rem;
+        padding: 0.5rem 0.875rem;
+        font-size: 0.75rem;
+      }
     }
   </style>
 </head>
@@ -353,6 +406,9 @@
   <div class="header">
     <h1>💬 Chat STI</h1>
     <p>Servicio Técnico Inteligente</p>
+    <button class="install-button show" id="installButton">
+      📱 Instalar App
+    </button>
   </div>
 
   <div class="chat-container">
@@ -389,6 +445,66 @@
 
   <script>
     'use strict';
+    
+    // PWA Installation
+    let deferredPrompt;
+    const installButton = document.getElementById('installButton');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      console.log('[PWA] beforeinstallprompt event fired');
+      e.preventDefault();
+      deferredPrompt = e;
+      if (installButton) {
+        installButton.classList.add('show');
+        installButton.style.display = 'block';
+      }
+    });
+
+    installButton.addEventListener('click', async () => {
+      if (!deferredPrompt) {
+        console.log('[PWA] No deferred prompt available - showing manual instructions');
+        
+        // Detectar navegador y mostrar instrucciones
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isAndroid = /Android/.test(navigator.userAgent);
+        const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+        
+        let instructions = '';
+        if (isIOS) {
+          instructions = 'En Safari:\n1. Toca el botón Compartir (cuadrado con flecha)\n2. Selecciona "Agregar a pantalla de inicio"\n3. Confirma el nombre y toca "Agregar"';
+        } else if (isAndroid || isChrome) {
+          instructions = 'En Chrome:\n1. Toca el menú (⋮) arriba a la derecha\n2. Selecciona "Agregar a pantalla de inicio"\n3. Confirma el nombre y toca "Agregar"';
+        } else {
+          instructions = 'Para instalar esta app:\n\nDesktop:\n- Busca el ícono ⊕ en la barra de direcciones\n- O usa Ctrl+D para agregar a marcadores\n\nMóvil:\n- Menú del navegador → "Agregar a pantalla de inicio"';
+        }
+        
+        alert('📱 Cómo Instalar ChatSTI\n\n' + instructions);
+        return;
+      }
+      
+      installButton.style.display = 'none';
+      deferredPrompt.prompt();
+      
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`[PWA] User response: ${outcome}`);
+      
+      if (outcome === 'accepted') {
+        console.log('[PWA] App installed successfully');
+      } else {
+        installButton.style.display = 'block';
+      }
+      
+      deferredPrompt = null;
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('[PWA] App installed');
+      if (installButton) {
+        installButton.classList.remove('show');
+        installButton.style.display = 'none';
+      }
+      deferredPrompt = null;
+    });
     
     // PERFORMANCE: Debounce utility
     function debounce(func, wait) {
