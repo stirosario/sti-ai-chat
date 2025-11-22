@@ -3,3 +3,5 @@
 2025-11-13T02:27:42.153Z [INFO] [boot] PUBLIC_BASE_URL=https://sti-rosario-ai.onrender.com  WHATSAPP_NUMBER=5493417422422  SSE_TOKEN=(set)
 2025-11-18T00:09:32.090Z [INFO] STI Chat (stable) started on 3001
 2025-11-18T00:09:32.092Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-21T01:55:27.702Z [INFO] STI Chat (stable) started on 3001
+2025-11-21T01:55:27.704Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
