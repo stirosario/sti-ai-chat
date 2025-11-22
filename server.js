@@ -1241,17 +1241,18 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
   }
 
   // 3) Intento de extracción local usando extractName
-  const candidate = extractName(t); // [STI-NAME]
-  if (candidate) {
-    session.userName = cap(candidate);
-    session.stage = STATES.ASK_PROBLEM;
+  // 3) Intento de extracción local usando extractName
+const candidate = extractName(t); // [STI-NAME]
+if (candidate && isValidHumanName(candidate)) {
+  session.userName = cap(candidate);
+  session.stage = STATES.ASK_PROBLEM;
 
-    const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-    session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+  const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+  session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
 
-    await saveSession(sid, session);
-    return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
-  }
+  await saveSession(sid, session);
+  return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
+}
 
   // 4) Caso dudoso → pedir simplificación
   session.nameAttempts = (session.nameAttempts || 0) + 1;
@@ -1273,19 +1274,22 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
 
     // name extraction (legacy fallback when not in ASK_NAME)
     // Este bloque mantiene compatibilidad: si detectamos inline nombre en cualquier otra etapa y no hay userName, lo asignamos.
-    {
-      const nmInline2 = extractName(t);
-      if(nmInline2 && !session.userName){
-        session.userName = cap(nmInline2);
-        if(session.stage === STATES.ASK_NAME){
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json({ ok:true, reply, stage: session.stage, options: [] });
-        }
-      }
+// name extraction (legacy fallback cuando no estamos en ASK_NAME)
+// Este bloque mantiene compatibilidad sin romper validación de nombre real.
+{
+  const nmInline2 = extractName(t);
+  if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
+    session.userName = cap(nmInline2);
+    if(session.stage === STATES.ASK_NAME){
+      session.stage = STATES.ASK_PROBLEM;
+      const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json({ ok:true, reply, stage: session.stage, options: [] });
     }
+  }
+}
+
 
     // simple "reformular problema"
     if (/^\s*reformular\s*problema\s*$/i.test(t)) {
