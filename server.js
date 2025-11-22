@@ -1307,7 +1307,6 @@ if (!session.device) {
     session.stage = STATES.ASK_DEVICE;
     session.pendingDeviceGroup = 'compu';
     const replyText = `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`;
-    const optionLabels = ['PC de escritorio','PC All in One','Notebook'];
     const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
     const uiButtons = buildUiButtonsFromTokens(optionTokens);
     const ts = nowIso();
@@ -1317,7 +1316,7 @@ if (!session.device) {
       ok: true,
       reply: replyText,
       stage: session.stage,
-      options: optionLabels,
+      options: optionTokens,
       ui: { buttons: uiButtons }
     }));
   }
