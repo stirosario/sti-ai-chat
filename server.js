@@ -388,9 +388,8 @@ async function analyzeProblemWithOA(problemText = ''){
   }
 }
 
-// Reemplazá la función aiQuickTests por este bloque (líneas ~391-423)
-async function aiQuickTests(problemText = '', device = '') {
-  if (!openai) {
+async function aiQuickTests(problemText = '', device = ''){
+  if(!openai){
     return [
       'Reiniciar la aplicación donde ocurre el problema',
       'Probar en otro documento o programa para ver si persiste',
@@ -399,27 +398,25 @@ async function aiQuickTests(problemText = '', device = '') {
       'Verificar conexiones físicas'
     ];
   }
-
   const prompt = [
     "Sos técnico informático argentino, claro y amable.",
     "Te voy a dar un problema o consulta informática (puede ser una falla o una duda de configuración/instalación).",
-    `Texto del usuario: "${String(problemText).replace(/"/g,'\\"')}"${device ? ` en ${device}` : ''}.`,
+    `Texto del usuario: "${String(problemText).replace(/"/g,'\"')}"${device ? ` en ${device}` : ''}.`,
     "Indicá 4–6 pasos simples, seguros y concretos para guiar al usuario paso a paso.",
     "Devolvé solo un JSON array de strings (cada string es un paso)."
   ].join('\n');
-
   try {
     const resp = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3
     });
-    const raw = (resp.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
+    const raw = (resp.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string').slice(0, 6) : [];
+    return Array.isArray(arr) ? arr.filter(x=>typeof x==='string').slice(0,6) : [];
   } catch (e) {
     console.error('[aiQuickTests] Error', e && e.message);
-    return ['Reiniciar la aplicación', 'Reiniciar el equipo', 'Comprobar actualizaciones', 'Verificar conexiones físicas'];
+    return ['Reiniciar la aplicación','Reiniciar el equipo','Comprobar actualizaciones','Verificar conexiones físicas'];
   }
 }
 
