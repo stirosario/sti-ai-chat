@@ -141,11 +141,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
       { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
-      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' },
-{ token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
-{ token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-{ token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
-
+      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
     ],
     states: {}
   },
@@ -318,42 +314,6 @@ function looksClearlyNotName(text){ // [STI-NAME]
   return false;
 } // [STI-NAME]
 
-
-
-// -------- [MICRO] Desambiguación de device genérico a partir del texto del problema --------
-function getDeviceDisambiguation(rawText) {
-  if (!rawText) return null;
-  const t = String(rawText).toLowerCase();
-
-  // Caso típico: usuario habla de "compu" en general
-  if (/\b(compu|computadora|ordenador|pc)\b/.test(t)) {
-    return {
-      baseLabel: 'compu',
-      variants: [
-        {
-          token: 'BTN_DEV_PC_DESKTOP',
-          label: 'PC de escritorio',
-          device: 'pc',
-          extra: { pcType: 'desktop' }
-        },
-        {
-          token: 'BTN_DEV_PC_ALLINONE',
-          label: 'PC All in One',
-          device: 'pc',
-          extra: { pcType: 'all_in_one' }
-        },
-        {
-          token: 'BTN_DEV_NOTEBOOK',
-          label: 'Notebook',
-          device: 'notebook',
-          extra: {}
-        }
-      ]
-    };
-  }
-
-  return null;
-}
 // [FIN STI-NAME]
 
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
@@ -500,7 +460,6 @@ app.use((req,res,next)=>{ res.set('Cache-Control','no-store'); next(); });
 const STATES = {
   ASK_NAME: 'ask_name',
   ASK_PROBLEM: 'ask_problem',
-  ASK_DEVICE: 'ask_device',
   BASIC_TESTS: 'basic_tests',
   ADVANCED_TESTS: 'advanced_tests',
   ESCALATE: 'escalate',
@@ -1012,7 +971,8 @@ app.post('/api/chat', async (req,res)=>{
         pendingUtterance: null,
         lastHelpStep: null,
         startedAt: nowIso(),
-        helpAttempts: {}
+        helpAttempts: {},
+        nameAttempts: 0
       };
       console.log('[api/chat] nueva session', sid);
     }
@@ -1051,46 +1011,7 @@ app.post('/api/chat', async (req,res)=>{
       return true;
     }
 
-    // [STI-NAME] -- Bloque de manejo de botones (actualizado)
-    // Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
-    // (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
-    if (buttonToken || (/^\s*prefiero no decirlo\s*$/i.test(t))) { // [STI-NAME]
-      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
-
-      // Si el usuario tocó o escribió "Prefiero no decirlo", avanzar a ASK_PROBLEM con nombre genérico
-      if (/^\s*prefiero no decirlo\s*$/i.test(btnText)) { // [STI-NAME]
-        try {
-          session.userName = 'Usuario'; // nombre neutro por defecto
-          session.stage = STATES.ASK_PROBLEM;
-
-          const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
-
-          // registrar tanto la acción del usuario como la respuesta del bot
-          session.transcript.push({
-            who: 'user',
-            text: buttonToken
-              ? `[BOTON] ${buttonLabel || buttonToken}`
-              : 'Prefiero no decirlo',
-            ts: nowIso()
-          });
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-
-          await saveSession(sid, session);
-
-          return res.json(
-            withOptions({
-              ok: true,
-              reply,
-              stage: session.stage,
-              options: []
-            })
-          );
-        } catch (e) {
-          console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
-          // en caso de error, no romper el flujo principal; continuar sin retorno forzado
-        }
-      }
-    } // [STI-NAME]
+    
 
     // quick BTN_WHATSAPP: create ticket and return waUrl + UI button definition
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
@@ -1103,38 +1024,6 @@ app.post('/api/chat', async (req,res)=>{
         return res.json(withOptions({ ok:false, reply: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', stage: session.stage, options: [] }));
       }
     }
-
-
-// -------- [MICRO] Botones de selección de device específico --------
-if (buttonToken && /^BTN_DEV_/.test(buttonToken)) {
-  const deviceMap = {
-    BTN_DEV_PC_DESKTOP: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' },
-    BTN_DEV_PC_ALLINONE: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' },
-    BTN_DEV_NOTEBOOK:   { device: 'notebook', pcType: null, label: 'Notebook' }
-  };
-
-  const devCfg = deviceMap[buttonToken];
-
-  if (devCfg) {
-    session.device = devCfg.device;
-    if (devCfg.pcType) session.pcType = devCfg.pcType;
-
-    const whoName = session.userName ? cap(session.userName) : 'usuario';
-    const reply = `Perfecto, ${whoName}. Trabajemos sobre tu ${devCfg.label}. Contame un poco más del problema o confirmame si directamente no enciende.`;
-
-    session.transcript.push({
-      who: 'user',
-      text: `[BOTON] ${buttonLabel || buttonToken}`,
-      ts: nowIso()
-    });
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-
-    session.stage = STATES.ASK_PROBLEM;
-
-    await saveSession(sid, session);
-    return res.json(withOptions({ ok:true, reply, stage: session.stage }));
-  }
-}
 
     // Manejo ligero y seguro de "Ayuda paso N"
     // Detectar petición de ayuda por botón (BTN_HELP_1, BTN_HELP_2...) o por texto "ayuda paso N"
@@ -1316,7 +1205,7 @@ if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
   // 3) Intento de extracción local usando extractName
 const candidate = extractName(t); // [STI-NAME]
 if (candidate && isValidHumanName(candidate)) {
-  session.userName = cap(candidate);
+  session.userName = candidate;
   session.stage = STATES.ASK_PROBLEM;
 
   const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
@@ -1351,7 +1240,7 @@ if (candidate && isValidHumanName(candidate)) {
 {
   const nmInline2 = extractName(t);
   if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
-    session.userName = cap(nmInline2);
+    session.userName = nmInline2;
     if(session.stage === STATES.ASK_NAME){
       session.stage = STATES.ASK_PROBLEM;
       const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
@@ -1382,7 +1271,7 @@ if (candidate && isValidHumanName(candidate)) {
     let options = [];
 
     if(session.stage === STATES.ASK_NAME){
-      reply = CHAT?.messages_v4?.greeting?.name_request || '👋 ¡Hola! ¿Cuál es tu nombre?';
+      reply = buildNameGreeting(); // [STI-NAME] saludo inteligente según horario
       session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
       return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
@@ -1404,24 +1293,6 @@ if (candidate && isValidHumanName(candidate)) {
         if(ai.device) session.device = session.device || ai.device;
         if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
       }
-
-
-// Desambiguación de device genérico a partir del texto del problema
-if (!session.device) {
-  const disambig = getDeviceDisambiguation(session.problem || t || '');
-  if (disambig) {
-    const reply = `Cuando decís "${disambig.baseLabel}", ¿a cuál de estos dispositivos te referís?`;
-
-    session.stage = STATES.ASK_DEVICE;
-    session.pendingDeviceGroup = disambig.baseLabel;
-
-    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-    await saveSession(sid, session);
-
-    const optionTokens = disambig.variants.map(v => v.token);
-    return res.json(withOptions({ ok:true, reply, stage: session.stage, options: optionTokens }));
-  }
-}
 
       // produce simple steps (either configured or generated)
       const issueKey = session.issueKey;
@@ -1644,8 +1515,9 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
     await saveSession(sid, session);
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      const userLine = `[${nowIso()}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${nowIso()}] ASSISTANT: ${reply}\n`;
+      const ts = nowIso();
+      const userLine = `[${ts}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
+      const botLine  = `[${ts}] ASSISTANT: ${reply}\n`;
       fs.appendFile(tf, userLine, ()=>{});
       fs.appendFile(tf, botLine, ()=>{});
     } catch(e){ /* noop */ }
