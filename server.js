@@ -1,13 +1,15 @@
 /**
  * server.js — STI Chat (stable) — WhatsApp button + Logs SSE compatible with chatlog.php
+ *
+ * Modificaciones aplicadas según auditoría:
+ * - Eliminada duplicación de funciones de validación de nombre y uso unificado (isValidName / isValidHumanName).
+ * - Consolidado el flujo ASK_NAME en un único bloque.
+ * - Uso de buildNameGreeting() en el flujo de re-pregunta de nombre.
+ * - Inicialización de nameAttempts en creación de sesión.
+ * - Añadido handler para STATES.ASK_DEVICE y tokens BTN_DEV_* en la UI embedded.
+ * - Reemplazado uso de `cap()` por `capitalizeToken()` donde corresponde.
+ * - Mejor manejo cuando el usuario escribe "mi compu ..." (desambiguación simple y ofrecimiento de botones).
  */
-
-// ========================================================
-// === [MB1] DEPENDENCIAS, CONFIGURACIÓN BASE Y CLIENTES EXTERNOS ===
-// ========================================================
-// - Carga de módulos de Node y terceros (Express, CORS, FS, Path, etc.).
-// - Store de sesiones (Redis / archivo) y cliente OpenAI opcional.
-// - Todo lo que afecta cómo se inicia el servidor y con qué servicios habla.
 
 import 'dotenv/config';
 import express from 'express';
@@ -28,14 +30,6 @@ const openai = process.env.OPENAI_API_KEY
 // === [MB2] PATHS DE DATOS, PERSISTENCIA Y LOGGING       ===
 // ========================================================
 
-
-// Paths / persistence
-// ========================================================
-// === [MB2] PATHS DE DATOS, PERSISTENCIA Y LOGGING       ===
-// ========================================================
-// - Define carpetas de transcripts, tickets y logs.
-// - Asegura la creación de directorios y prepara el archivo de logs.
-// - También inicializa el set de clientes SSE para ver logs en tiempo real.
 const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
@@ -49,10 +43,8 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
-// SSE clients set
 const sseClients = new Set();
 
-// Logging stream (best-effort)
 let logStream = null;
 try {
   logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
@@ -60,7 +52,6 @@ try {
   console.error('[init] no pude abrir stream de logs', e && e.message);
 }
 
-// helpers
 const nowIso = () => new Date().toISOString();
 function formatLog(level, ...parts) {
   const text = parts.map(p => {
@@ -97,7 +88,6 @@ function broadcastLog(entry) {
   }
 }
 
-// wrap console to log to file + SSE
 const _origLog = console.log.bind(console);
 const _origErr = console.error.bind(console);
 console.log = (...args) => {
@@ -117,29 +107,39 @@ console.error = (...args) => {
   } catch (e) { /* noop */ }
 };
 
-// Embedded chat config (kept minimal / compatible)
 // ========================================================
 // === [MB3] CONFIGURACIÓN EMBEBIDA DEL CHAT (CHAT/UI/NLP) ===
 // ========================================================
-// - Textos de saludo y ajustes de umbrales.
-// - Definición de botones (tokens, labels, textos asociados).
-// - Reglas simples de NLP para detectar dispositivos y tipo de problema.
-// - Pasos avanzados preconfigurados para algunos casos.
+
 const EMBEDDED_CHAT = {
   version: 'stable-v1',
   messages_v4: { greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' } },
   settings: { OA_MIN_CONF: '0.6', whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' } },
   ui: {
     buttons: [
+      // Help / steps
       { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
       { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
       { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
+
+      // Solve / persist
       { token: 'BTN_SOLVED', label: 'Lo pude Solucionar ✔️', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: 'El problema Persiste ❌', text: 'el problema persiste' },
+
+      // Controls
       { token: 'BTN_REPHRASE', label: 'Reformular Problema', text: 'reformular problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
+
+      // WhatsApp / escalation
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
+
+      // Device disambiguation tokens (agregados según auditoría)
+      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
+      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
+      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
+
+      // Misc
       { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
       { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
     ],
@@ -166,7 +166,6 @@ const EMBEDDED_CHAT = {
   }
 };
 
-// derived helpers
 let CHAT = EMBEDDED_CHAT || {};
 function getButtonDefinition(token){
   if(!token || !CHAT?.ui?.buttons) return null;
@@ -183,7 +182,6 @@ function buildUiButtonsFromTokens(tokens = []){
   }).filter(Boolean);
 }
 
-// Build an "external" button structure (explicit url) to maximize frontend compatibility
 function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
   if(!Array.isArray(tokens)) return [];
   return tokens.map(t => {
@@ -198,12 +196,7 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
 // ========================================================
 // === [MB4] UTILIDADES NLP, MANEJO DE NOMBRES Y HELPERS  ===
 // ========================================================
-// - Emojis numerados y helper para enumerar pasos.
-// - Palabras técnicas para filtrar nombres incorrectos.
-// - Lógica robusta para extraer y validar el nombre del usuario.
-// - Helpers de capitalización y normalización de texto.
 
-// small NLP helpers (copied/compatible)
 const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
 function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
 function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
@@ -212,30 +205,27 @@ const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|
 // [STI-NAME]: nuevas constantes y helpers
 const NAME_STOPWORDS = new Set([
   'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
-]); // [STI-NAME]
+]);
 
-const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u; // [STI-NAME]
+const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u;
 
-const MAX_NAME_TOKENS = 3; // [STI-NAME]
-const MIN_NAME_TOKENS = 1; // [STI-NAME]
+const MAX_NAME_TOKENS = 3;
+const MIN_NAME_TOKENS = 1;
 
-function capitalizeToken(tok){ // [STI-NAME]
+function capitalizeToken(tok){
   if(!tok) return tok;
   return tok.split(/[-'’\u2019]/).map(part => {
     if (!part) return part;
     return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
   }).join('-');
-} // [STI-NAME]
+}
 
-function isValidName(text){ // [STI-NAME]
+function isValidName(text){
   if(!text || typeof text !== 'string') return false;
   const s = String(text).trim();
   if(!s) return false;
 
-  // reject digits or special symbols
   if (/[0-9@#\$%\^&\*\(\)_=\+\[\]\{\}\\\/<>]/.test(s)) return false;
-
-  // reject if includes technical words
   if (TECH_WORDS.test(s)) return false;
 
   const lower = s.toLowerCase();
@@ -245,28 +235,25 @@ function isValidName(text){ // [STI-NAME]
 
   const tokens = s.split(/\s+/).filter(Boolean);
   if (tokens.length < MIN_NAME_TOKENS || tokens.length > MAX_NAME_TOKENS) return false;
-
-  // if too many words overall -> reject
   if (s.split(/\s+/).filter(Boolean).length > 6) return false;
 
   for (const tok of tokens) {
-    // each token must match token regex
     if (!NAME_TOKEN_RX.test(tok)) return false;
-    // token stripped of punctuation should be at least 2 chars
     if (tok.replace(/['’\-]/g,'').length < 2) return false;
   }
 
-  // passed validations
   return true;
-} // [STI-NAME]
+}
 
-function extractName(text){ // [STI-NAME]
+// Alias compatible con versiones previas
+const isValidHumanName = isValidName;
+
+function extractName(text){
   if(!text || typeof text !== 'string') return null;
   const sRaw = String(text).trim();
   if(!sRaw) return null;
   const s = sRaw.replace(/[.,!?]+$/,'').trim();
 
-  // patterns: "me llamo X", "soy X", "mi nombre es X"
   const patterns = [
     /\b(?:me llamo|soy|mi nombre es|me presento como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})$/i,
     /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})\s*$/i
@@ -276,14 +263,12 @@ function extractName(text){ // [STI-NAME]
     const m = s.match(rx);
     if (m && m[1]){
       let candidate = m[1].trim().replace(/\s+/g,' ');
-      // limit tokens to MAX_NAME_TOKENS
       const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
       const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
       if (isValidName(normalized)) return normalized;
     }
   }
 
-  // fallback: if the whole short text looks like a name
   const singleCandidate = s;
   if (isValidName(singleCandidate)) {
     const tokens = singleCandidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
@@ -291,18 +276,15 @@ function extractName(text){ // [STI-NAME]
   }
 
   return null;
-} // [STI-NAME]
+}
 
-function looksClearlyNotName(text){ // [STI-NAME]
+function looksClearlyNotName(text){
   if(!text || typeof text !== 'string') return true;
   const s = text.trim().toLowerCase();
   if(!s) return true;
 
-  // clear short greetings
   if (s.length <= 6 && ['hola','hola!','buenas','buenos','buen día','buen dia'].includes(s)) return true;
-
   if (NAME_STOPWORDS.has(s)) return true;
-
   if (TECH_WORDS.test(s)) return true;
 
   const words = s.split(/\s+/).filter(Boolean);
@@ -312,16 +294,12 @@ function looksClearlyNotName(text){ // [STI-NAME]
   for (const w of words){ if (indicators.includes(w)) return true; }
 
   return false;
-} // [STI-NAME]
-
-// [FIN STI-NAME]
+}
 
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
-const withOptions = obj => ({ options: [], ...obj });
-// -------- [MICRO] Saludo centralizado según horario (buildNameGreeting) --------
-// Devuelve un saludo tipo humano según la hora del servidor.
+
 function buildNameGreeting(now = new Date()) {
-  const hour = now.getHours(); // 0–23
+  const hour = now.getHours();
   let prefix;
 
   if (hour >= 0 && hour < 5) {
@@ -337,16 +315,10 @@ function buildNameGreeting(now = new Date()) {
   return `${prefix} 👋 Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?`;
 }
 
-
 // ========================================================
 // === [MB5] INTEGRACIÓN CON OPENAI (NLP/TESTS)           ===
 // ========================================================
-// - analyzeProblemWithOA: clasifica si el problema es informático y su tipo.
-// - aiQuickTests: sugiere pasos simples y seguros adaptados al problema.
-// - getHelpForStep: explica en detalle cómo realizar un paso concreto.
-// - Todo es opcional: si no hay API key se usan mensajes por defecto.
 
-// OpenAI helpers (used as filter)
 const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
 
 async function analyzeProblemWithOA(problemText = ''){
@@ -444,29 +416,23 @@ async function getHelpForStep(stepText='', stepIndex=1, device='', problem=''){
 // ========================================================
 // === [MB6] APP EXPRESS, MIDDLEWARES Y MÁQUINA DE ESTADOS ===
 // ========================================================
-// - Inicializa la app Express y CORS.
-// - Define límites de JSON y cache-control.
-// - Declara los estados principales del flujo (ASK_NAME, ASK_PROBLEM, etc.).
-// - Normaliza el sessionId que usará todo el backend.
 
-// Express app
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use((req,res,next)=>{ res.set('Cache-Control','no-store'); next(); });
 
-// States
 const STATES = {
   ASK_NAME: 'ask_name',
   ASK_PROBLEM: 'ask_problem',
+  ASK_DEVICE: 'ask_device',
   BASIC_TESTS: 'basic_tests',
   ADVANCED_TESTS: 'advanced_tests',
   ESCALATE: 'escalate',
   ENDED: 'ended'
 };
 
-// session id normalization
 function getSessionId(req){
   const h = (req.headers['x-session-id']||'').toString().trim();
   const b = (req.body && (req.body.sessionId||req.body.sid)) ? String(req.body.sessionId||req.body.sid).trim() : '';
@@ -478,20 +444,13 @@ app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 // ========================================================
 // === [MB7] ENDPOINTS DE INFRAESTRUCTURA Y SOPORTE      ===
 // ========================================================
-// - /api/health: estado del servicio y modelo OpenAI configurado.
-// - /api/reload: hook para recargar config en caliente (si se usa a futuro).
-// - /api/transcript/:sid: expone el historial en texto plano para un SID.
-// - /api/logs y /api/logs/stream: lectura de logs por SSE o polling.
 
-// Health
 app.get('/api/health', (_req,res) => {
   res.json({ ok:true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
 });
 
-// reload config (hot)
-app.post('/api/reload', (_req,res)=>{ try{ /* nothing dynamic for now */ res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
+app.post('/api/reload', (_req,res)=>{ try{ res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
 
-// Transcript
 app.get('/api/transcript/:sid', (req,res)=>{
   const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
@@ -500,22 +459,18 @@ app.get('/api/transcript/:sid', (req,res)=>{
   res.send(fs.readFileSync(file,'utf8'));
 });
 
-// Logs endpoints
 app.get('/api/logs/stream', async (req, res) => {
   try {
-    // SSE token protection
     if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
       return res.status(401).send('unauthorized');
     }
 
-    // polling mode (mode=once) — used by chatlog.php fallback
     if (String(req.query.mode || '') === 'once') {
       const txt = fs.existsSync(LOG_FILE) ? await fs.promises.readFile(LOG_FILE, 'utf8') : '';
       res.set('Content-Type', 'text/plain; charset=utf-8');
       return res.status(200).send(txt);
     }
 
-    // SSE headers
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -523,10 +478,8 @@ app.get('/api/logs/stream', async (req, res) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.flushHeaders && res.flushHeaders();
 
-    // initial comment
     res.write(': connected\n\n');
 
-    // send last chunk of log asynchronously (non-blocking)
     (async function sendLast() {
       try {
         if (!fs.existsSync(LOG_FILE)) return;
@@ -542,7 +495,6 @@ app.get('/api/logs/stream', async (req, res) => {
     sseClients.add(res);
     console.log('[logs] SSE cliente conectado. total=', sseClients.size);
 
-    // heartbeat to survive proxies
     const hbInterval = setInterval(() => {
       try { res.write(': ping\n\n'); } catch (e) { /* ignore */ }
     }, 20_000);
@@ -577,18 +529,12 @@ app.get('/api/logs', (req, res) => {
 // ========================================================
 // === [MB8] GESTIÓN DE TICKETS Y ENVÍO A WHATSAPP       ===
 // ========================================================
-// - buildWhatsAppUrl: construye el link codificado para abrir WhatsApp.
-// - /api/whatsapp-ticket: genera ticket a partir de historial o sesión.
-// - createTicketAndRespond: helper central para escalar a técnico con botón.
-// - Devuelve siempre URLs públicas y botones externos listos para el frontend.
 
-// Helper to build whatsapp url
 function buildWhatsAppUrl(waNumberRaw, waText) {
   const waNumber = String(waNumberRaw || WHATSAPP_NUMBER || '5493417422422').replace(/\D+/g, '');
   return `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
 }
 
-// WhatsApp ticket API (reusable)
 app.post('/api/whatsapp-ticket', async (req,res)=>{
   try{
     const { name, device, sessionId, history = [] } = req.body || {};
@@ -627,13 +573,12 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
 
-    // [STI-CHANGE] personalizar prefijo de WhatsApp usando el nombre del usuario si está disponible
-    const userSess = sid ? await getSession(sid) : null; // [STI-CHANGE]
-    const whoName = (name || userSess?.userName || '').toString().trim(); // [STI-CHANGE]
+    const userSess = sid ? await getSession(sid) : null;
+    const whoName = (name || userSess?.userName || '').toString().trim();
     const waIntro = whoName
-      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.` // [STI-CHANGE]
-      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'); // [STI-CHANGE]
-    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`; // [STI-CHANGE]
+      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
+      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
+    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
     if(name) waText += `Cliente: ${name}\n`;
     if(device) waText += `Equipo: ${device}\n`;
     waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
@@ -657,8 +602,6 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
   } catch(e){ console.error('[whatsapp-ticket]', e); res.status(500).json({ ok:false, error: e.message }); }
 });
 
-// ticket public routes
-// /api/ticket/:tid returns content (raw) AND messages[] parsed to facilitate chat-like rendering in frontend
 app.get('/api/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
@@ -666,7 +609,6 @@ app.get('/api/ticket/:tid', (req, res) => {
 
   const raw = fs.readFileSync(file,'utf8');
 
-  // parse lines into messages: expected lines like "[TIMESTAMP] who: text"
   const lines = raw.split(/\r?\n/);
   const messages = [];
   for (const ln of lines) {
@@ -675,7 +617,6 @@ app.get('/api/ticket/:tid', (req, res) => {
     if (m) {
       messages.push({ ts: m[1], who: String(m[2]).trim(), text: String(m[3]).trim() });
     } else {
-      // non timestamp line (title, metadata), push as system message
       messages.push({ ts: null, who: 'system', text: ln.trim() });
     }
   }
@@ -683,7 +624,6 @@ app.get('/api/ticket/:tid', (req, res) => {
   res.json({ ok:true, ticketId: tid, content: raw, messages });
 });
 
-// Mejor presentación HTML del ticket: vista cascada estilo conversación
 app.get('/ticket/:tid', (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
@@ -780,15 +720,13 @@ app.get('/ticket/:tid', (req, res) => {
   res.send(html);
 });
 
-// reset session
 app.post('/api/reset', async (req,res)=>{
   const sid = req.sessionId;
-  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null, startedAt: nowIso() };
+  const empty = { id: sid, userName: null, stage: STATES.ASK_NAME, device:null, problem:null, issueKey:null, tests:{ basic:[], ai:[], advanced:[] }, stepsDone:[], fallbackCount:0, waEligible:false, transcript:[], pendingUtterance:null, lastHelpStep:null, startedAt: nowIso(), nameAttempts: 0 };
   await saveSession(sid, empty);
   res.json({ ok:true });
 });
 
-// greeting
 app.all('/api/greeting', async (req,res)=>{
   try{
     const sid = req.sessionId;
@@ -806,7 +744,8 @@ app.all('/api/greeting', async (req,res)=>{
       transcript: [],
       pendingUtterance: null,
       lastHelpStep: null,
-      startedAt: nowIso()
+      startedAt: nowIso(),
+      nameAttempts: 0
     };
     const text = buildNameGreeting();
     fresh.transcript.push({ who:'bot', text, ts: nowIso() });
@@ -820,8 +759,6 @@ app.all('/api/greeting', async (req,res)=>{
 
 // helper reutilizable para crear ticket y responder con wa URLs
 async function createTicketAndRespond(session, sid, res) {
-  // [MICRO] Crea ticket completo (archivo .txt), URLs públicas y botones de WhatsApp para escalar el caso.
-
   const ts = nowIso();
   try {
     const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -854,14 +791,13 @@ async function createTicketAndRespond(session, sid, res) {
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
 
-    // [STI-CHANGE] personalizar prefijo de WhatsApp usando el nombre del usuario de la sesión
-    const whoName = (session?.userName || '').toString().trim(); // [STI-CHANGE]
+    const whoName = (session?.userName || '').toString().trim();
     const waIntro = whoName
-      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.` // [STI-CHANGE]
-      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:'); // [STI-CHANGE]
-    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`; // [STI-CHANGE]
-    if(session.userName) waText += `Cliente: ${session.userName}\n`; // [STI-CHANGE]
-    if(session.device) waText += `Equipo: ${session.device}\n`; // [STI-CHANGE]
+      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
+      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
+    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
+    if(session.userName) waText += `Cliente: ${session.userName}\n`;
+    if(session.device) waText += `Equipo: ${session.device}\n`;
     waText += `\nTicket: ${ticketId}\nDetalle: ${apiPublicUrl}`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
@@ -871,7 +807,7 @@ async function createTicketAndRespond(session, sid, res) {
     const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
 
-    const whoLabel = session.userName ? cap(session.userName) : 'usuario';
+    const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
     const replyTech = `🤖 Muy bien, ${whoLabel}.\nEstoy preparando tu ticket. Toca el botón para abrir WhatsApp.`;
 
     session.transcript.push({ who:'bot', text: replyTech, ts });
@@ -879,7 +815,6 @@ async function createTicketAndRespond(session, sid, res) {
     session.stage = STATES.ESCALATE;
     await saveSession(sid, session);
 
-    // append transcript lines to file using same ts
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
       const botLine  = `[${ts}] ASSISTANT: ${replyTech}\n`;
@@ -916,16 +851,10 @@ async function createTicketAndRespond(session, sid, res) {
 // ========================================================
 // === [MB9] NÚCLEO DEL FLUJO CONVERSACIONAL (/api/chat) ===
 // ========================================================
-// - Orquesta toda la conversación con Tecnos.
-// - Interpreta botones, texto libre y estado actual de la sesión.
-// - Maneja bloques clave: captura de nombre, problema, tests básicos/avanzados.
-// - Decide cuándo ofrecer más pruebas o escalar a un técnico vía WhatsApp.
 
-// chat core (main endpoint)
 app.post('/api/chat', async (req,res)=>{
   try{
     const body = req.body || {};
-    // token map from embedded buttons
     const tokenMap = {};
     if (Array.isArray(CHAT?.ui?.buttons)) {
       for (const b of CHAT.ui.buttons) {
@@ -955,7 +884,6 @@ app.post('/api/chat', async (req,res)=>{
 
     let session = await getSession(sid);
     if (!session) {
-      // agregar campos mínimos para manejo de "ayuda paso N"
       session = {
         id: sid,
         userName: null,
@@ -972,51 +900,17 @@ app.post('/api/chat', async (req,res)=>{
         lastHelpStep: null,
         startedAt: nowIso(),
         helpAttempts: {},
-        nameAttempts: 0
+        nameAttempts: 0,
+        stepProgress: {},
+        pendingDeviceGroup: null
       };
       console.log('[api/chat] nueva session', sid);
     }
 
-    // -------- [MICRO] Validación de nombres y nombres compuestos (nombre + apellido) --------
-    function isValidHumanName(raw) {
-      if (!raw) return false;
-
-      let name = String(raw).trim().replace(/\s+/g, ' ');
-
-      // largo razonable
-      if (name.length < 2 || name.length > 60) return false;
-
-      // solo letras (incluye acentos y ñ) y espacios
-      if (!/^[A-Za-zÁÉÍÓÚÜáéíóúüÑñ\s]+$/.test(name)) return false;
-
-      const parts = name.split(' ');
-      // permitir 1 a 4 palabras: "Lucas", "Lucas Bertolino", "Juan Pablo Pérez"
-      if (parts.length < 1 || parts.length > 4) return false;
-
-      // cada palabra mínimo 2 letras y debe tener al menos una vocal
-      const vocales = /[AEIOUÁÉÍÓÚaeiouáéíóú]/;
-      for (const p of parts) {
-        if (p.length < 2) return false;
-        if (!vocales.test(p)) return false;
-      }
-
-      // evitar cosas muy raras tipo "aaaa", "jjjjj", "asdasd"
-      const lowered = name.toLowerCase();
-      const blacklist = [
-        'pepelito','papelito','pepito','probando',
-        'aaaa','jjjj','zzzz','asdasd','qwerty'
-      ];
-      if (blacklist.includes(lowered)) return false;
-
-      return true;
-    }
-
-    
-
-    // quick BTN_WHATSAPP: create ticket and return waUrl + UI button definition
+    // quick BTN_WHATSAPP
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
       try {
-        return await createTicketAndRespond(session, sid, res); // [STI-CHANGE]
+        return await createTicketAndRespond(session, sid, res);
       } catch (errBtn) {
         console.error('[BTN_WHATSAPP]', errBtn);
         session.transcript.push({ who:'bot', text: '❗ No pude preparar el ticket ahora. Probá de nuevo en un momento.', ts: nowIso() });
@@ -1026,7 +920,6 @@ app.post('/api/chat', async (req,res)=>{
     }
 
     // Manejo ligero y seguro de "Ayuda paso N"
-    // Detectar petición de ayuda por botón (BTN_HELP_1, BTN_HELP_2...) o por texto "ayuda paso N"
     session.helpAttempts = session.helpAttempts || {};
     session.lastHelpStep = session.lastHelpStep || null;
     let helpRequestedIndex = null;
@@ -1038,41 +931,32 @@ app.post('/api/chat', async (req,res)=>{
       if (mText) helpRequestedIndex = Number(mText[1]);
     }
 
-    // [STI-CHANGE] UNIFICACIÓN del handler de "Ayuda paso N": elegir array según el estado actual (basic vs advanced)
     if (helpRequestedIndex) {
-      // [MICRO] Handler unificado de "Ayuda paso N": elige pasos según estado (básico/avanzado)
-      //         y registra intentos para sugerir escalar a técnico si se repite.
-
       try {
         const idx = Number(helpRequestedIndex);
-
-        // elegir array según estado
         let steps = [];
         if (session.stage === STATES.ADVANCED_TESTS) {
           steps = Array.isArray(session.tests?.advanced) ? session.tests.advanced : [];
         } else if (session.stage === STATES.BASIC_TESTS) {
-      // [MICRO] Bloque de interpretación tras mostrar pasos básicos (sí/no, más pruebas, técnico).
           steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
         } else {
-          // Si no estamos en ningún estado de pasos específico, preferimos no asumir: fallback mensaje
           steps = [];
         }
 
         if (!steps || steps.length === 0) {
-          const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.'; // [STI-CHANGE]
+          const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.';
           session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session); // [STI-CHANGE]
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
         }
 
         if (idx < 1 || idx > steps.length) {
-          const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`; // [STI-CHANGE]
+          const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`;
           session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session); // [STI-CHANGE]
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
         }
 
-        // incrementar contador de intentos para ese paso y guardar lastHelpStep
         session.helpAttempts[idx] = (session.helpAttempts[idx] || 0) + 1;
         session.lastHelpStep = idx;
         session.stage = session.stage || STATES.BASIC_TESTS;
@@ -1083,23 +967,20 @@ app.post('/api/chat', async (req,res)=>{
           helpDetail = `Para realizar el paso ${idx}: ${stepText}\nSi necesitás más ayuda respondé "No entendí" o tocá 'Conectar con Técnico'.`;
         }
 
-        // usar helpAttempts para reforzar la sugerencia si el usuario ya pidió ayuda varias veces
         const attempts = session.helpAttempts[idx] || 0;
         let extraLine = '';
         if (attempts >= 2) {
           extraLine = '\n\nVeo que este paso viene costando. Si querés, te puedo conectar con un técnico por WhatsApp.';
         }
 
-        const ts = nowIso(); // usar mismo timestamp para transcript y archivo
+        const ts = nowIso();
         const reply = `🛠️ Ayuda — Paso ${idx}\n\n${helpDetail}${extraLine}\n\nDespués de probar esto, ¿cómo te fue?`;
 
-        // registrar también el mensaje del usuario en la sesión/transcript (importante para tickets/historial)
         const userMsg = buttonToken ? `[BOTON] ${buttonLabel || ('BTN_HELP_' + idx)}` : `ayuda paso ${idx}`;
         session.transcript.push({ who:'user', text: userMsg, ts });
         session.transcript.push({ who:'bot', text: reply, ts });
         await saveSession(sid, session);
 
-        // además registrar en el archivo de transcripts para mantener coherencia con el resto del flujo
         try {
           const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
           const userLine = `[${ts}] USER: ${userMsg}\n`;
@@ -1108,10 +989,8 @@ app.post('/api/chat', async (req,res)=>{
           fs.appendFile(tf, botLine, ()=>{});
         } catch(e){ /* noop */ }
 
-        // [STI-CHANGE] OPCIONES UNIFICADAS: siempre devolver SOLUCIONADO + VOLVER A MOSTRAR
-        const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪']; // [STI-CHANGE]
-        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts })); // [STI-CHANGE]
-
+        const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪'];
+        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
       } catch (err) {
         console.error('[STI-CHANGE][help_step] Error generando ayuda:', err && err.message);
         const msg = 'No pude preparar la ayuda ahora. Probá de nuevo en unos segundos.';
@@ -1120,141 +999,104 @@ app.post('/api/chat', async (req,res)=>{
         return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
       }
     }
-   // [FIN STI-CHANGE] unificado handler de ayuda
 
-// [STI-NAME] -- Bloque de manejo de botones (actualizado)
-// Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
-// (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
+    // [STI-NAME] -- Bloque para "Prefiero no decirlo" y registro del user message
+    const NO_NAME_RX = /^\s*(?:prefiero\s+no\s+decir(?:l[aeo])?|prefiero\s+no\s+dar\s+mi\s+nombre|no\s+quiero\s+decir\s+mi\s+nombre|no\s+deseo\s+decir\s+mi\s+nombre|prefiero\s+reservarme\s+el\s+nombre)\s*$/i;
 
-// Frases tipo "prefiero no decirlo / decirle / decirte / no quiero decir mi nombre"
-const NO_NAME_RX = /^\s*(?:prefiero\s+no\s+decir(?:l[aeo])?|prefiero\s+no\s+dar\s+mi\s+nombre|no\s+quiero\s+decir\s+mi\s+nombre|no\s+deseo\s+decir\s+mi\s+nombre|prefiero\s+reservarme\s+el\s+nombre)\s*$/i; // [STI-NAME]
+    if (buttonToken || NO_NAME_RX.test(t)) {
+      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
+      if (NO_NAME_RX.test(btnText)) {
+        try {
+          session.userName = 'Usuario';
+          session.stage = STATES.ASK_PROBLEM;
+          const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
 
-if (buttonToken || NO_NAME_RX.test(t)) { // [STI-NAME]
-  const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
+          session.transcript.push({
+            who: 'user',
+            text: buttonToken
+              ? `[BOTON] ${buttonLabel || buttonToken}`
+              : btnText,
+            ts: nowIso()
+          });
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
 
-  // Si el usuario tocó o escribió alguna variante de "prefiero no decir mi nombre"
-  if (NO_NAME_RX.test(btnText)) { // [STI-NAME]
-    try {
-      session.userName = 'Usuario'; // nombre neutro por defecto
-      session.stage = STATES.ASK_PROBLEM;
-      const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
-
-      // registrar tanto la acción del usuario como la respuesta del bot
-      session.transcript.push({
-        who: 'user',
-        text: buttonToken
-          ? `[BOTON] ${buttonLabel || buttonToken}`
-          : btnText,
-        ts: nowIso()
-      });
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
-    } catch (e) {
-      console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
-      // en caso de error, no romper el flujo principal; continuar sin retorno forzado
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+        } catch (e) {
+          console.error('[STI-NAME][prefiero-no-decirlo] Error', e && e.message);
+        }
+      }
     }
-  }
-} // [STI-NAME]
 
-// record user message
-if (buttonToken) {
-  session.transcript.push({ who: 'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
-} else {
-  session.transcript.push({ who: 'user', text: t, ts: nowIso() });
-}
-
-
-    // [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
-// [STI-NAME] -- Bloque ASK_NAME finalizado (reemplaza todo el bloque anterior)
-if (session.stage === STATES.ASK_NAME) { // [STI-NAME]
-  // [MICRO] Flujo de captura de nombre: valida saludos, frases raras y ofrece "Prefiero no decirlo".
-
-
-  // 1) Si el usuario escribió explícitamente "Prefiero no decirlo"
-  if (/^\s*prefiero no decirlo\s*$/i.test(t)) { // [STI-NAME]
-    session.userName = 'Usuario';        // nombre neutro
-    session.stage = STATES.ASK_PROBLEM;  // avanzar
-    const reply = 'Perfecto. Contame, ¿qué problema estás teniendo?';
-
-    session.transcript.push({ who:'user', text:'Prefiero no decirlo', ts: nowIso() });
-    session.transcript.push({ who:'bot',  text:reply, ts: nowIso() });
-
-    await saveSession(sid, session);
-    return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
-  }
-
-  // 2) Si el texto claramente NO parece un nombre (saludo, frase técnica, etc.)
-  if (looksClearlyNotName(t)) { // [STI-NAME]
-    session.nameAttempts = (session.nameAttempts || 0) + 1;
-    await saveSession(sid, session);
-
-    const reply = 'No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: "Ana" o "Juan Pablo".';
-    session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
-
-    return res.json(withOptions({
-      ok:true,
-      reply,
-      stage:session.stage,
-      options:['Prefiero no decirlo']
-    }));
-  }
-
-  // 3) Intento de extracción local usando extractName
-  // 3) Intento de extracción local usando extractName
-const candidate = extractName(t); // [STI-NAME]
-if (candidate && isValidHumanName(candidate)) {
-  session.userName = candidate;
-  session.stage = STATES.ASK_PROBLEM;
-
-  const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-  session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
-
-  await saveSession(sid, session);
-  return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
-}
-
-  // 4) Caso dudoso → pedir simplificación
-  session.nameAttempts = (session.nameAttempts || 0) + 1;
-  await saveSession(sid, session);
-
-  const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".';
-  session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
-
-  return res.json(withOptions({
-    ok:true,
-    reply,
-    stage:session.stage,
-    options:['Prefiero no decirlo']
-  }));
-}
-// [FIN STI-NAME]
-
-
-
-    // name extraction (legacy fallback when not in ASK_NAME)
-    // Este bloque mantiene compatibilidad: si detectamos inline nombre en cualquier otra etapa y no hay userName, lo asignamos.
-// name extraction (legacy fallback cuando no estamos en ASK_NAME)
-// Este bloque mantiene compatibilidad sin romper validación de nombre real.
-{
-  const nmInline2 = extractName(t);
-  if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
-    session.userName = nmInline2;
-    if(session.stage === STATES.ASK_NAME){
-      session.stage = STATES.ASK_PROBLEM;
-      const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json({ ok:true, reply, stage: session.stage, options: [] });
+    // record raw user message
+    if (buttonToken) {
+      session.transcript.push({ who: 'user', text: `[BOTON] ${buttonLabel} (${buttonToken})`, ts: nowIso() });
+    } else {
+      session.transcript.push({ who: 'user', text: t, ts: nowIso() });
     }
-  }
-}
 
+    // [STI-NAME] -- Bloque ASK_NAME consolidado
+    if (session.stage === STATES.ASK_NAME) {
+      // if user explicitly says "prefiero no decirlo" we handled above (would have returned)
+      if (looksClearlyNotName(t)) {
+        session.nameAttempts = (session.nameAttempts || 0) + 1;
+        await saveSession(sid, session);
+
+        const reply = 'No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: "Ana" o "Juan Pablo".';
+        session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+        return res.json(withOptions({
+          ok:true,
+          reply,
+          stage:session.stage,
+          options:['Prefiero no decirlo']
+        }));
+      }
+
+      const candidate = extractName(t);
+      if (candidate && isValidHumanName(candidate)) {
+        session.userName = candidate;
+        session.stage = STATES.ASK_PROBLEM;
+
+        const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+        session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok:true, reply, stage:session.stage, options:[] }));
+      }
+
+      session.nameAttempts = (session.nameAttempts || 0) + 1;
+      await saveSession(sid, session);
+
+      const reply = 'Escribime solo tu nombre, por ejemplo: "María" o "Juan Pablo".';
+      session.transcript.push({ who:'bot', text:reply, ts: nowIso() });
+
+      return res.json(withOptions({
+        ok:true,
+        reply,
+        stage:session.stage,
+        options:['Prefiero no decirlo']
+      }));
+    }
+
+    // name extraction fallback (compat)
+    {
+      const nmInline2 = extractName(t);
+      if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
+        session.userName = nmInline2;
+        if(session.stage === STATES.ASK_NAME){
+          session.stage = STATES.ASK_PROBLEM;
+          const reply = `¡Genial, ${session.userName}! 👍\n\nAhora decime: ¿qué problema estás teniendo?`;
+          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json({ ok:true, reply, stage: session.stage, options: [] });
+        }
+      }
+    }
 
     // simple "reformular problema"
     if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      const whoName = session.userName ? cap(session.userName) : 'usuario';
+      const whoName = session.userName ? capitalizeToken(session.userName) : 'usuario';
       const reply = `¡Intentemos nuevamente, ${whoName}! 👍\n\n¿Qué problema estás teniendo?`;
       session.stage = STATES.ASK_PROBLEM;
       session.problem = null;
@@ -1266,22 +1108,30 @@ if (candidate && isValidHumanName(candidate)) {
       return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
 
-    // very small state machine to demonstrate behavior (you can expand)
+    // Máquina de estados principal
     let reply = '';
     let options = [];
 
-    if(session.stage === STATES.ASK_NAME){
-      reply = buildNameGreeting(); // [STI-NAME] saludo inteligente según horario
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply, stage: session.stage, options }));
-    } else if (session.stage === STATES.ASK_PROBLEM){
+    if (session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
+
+      // Simple heuristic: cuando el texto menciona "compu/computadora/pc" y no tenemos device, pedir disambiguación
+      if (!session.device) {
+        const compRx = /\b(compu|computadora|ordenador|pc)\b/i;
+        if (compRx.test(session.problem || t || '')) {
+          const replyText = `Cuando decís "compu", ¿a cuál de estos dispositivos te referís?`;
+          session.stage = STATES.ASK_DEVICE;
+          session.pendingDeviceGroup = 'compu';
+          session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+          await saveSession(sid, session);
+          const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
+          return res.json(withOptions({ ok:true, reply: replyText, stage: session.stage, options: optionTokens }));
+        }
+      }
+
       if(!openai){
-        const fallbackMsg = 'OpenAI no está configurado. Procedo sin filtro.';
         console.log('[api/chat] OpenAI no configurado, continuación sin filtro.');
       } else {
-        // apply OA filter
         const ai = await analyzeProblemWithOA(session.problem || '');
         const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
         if(!isIT){
@@ -1294,7 +1144,6 @@ if (candidate && isValidHumanName(candidate)) {
         if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
       }
 
-      // produce simple steps (either configured or generated)
       const issueKey = session.issueKey;
       const device = session.device || null;
       const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
@@ -1320,7 +1169,6 @@ if (candidate && isValidHumanName(candidate)) {
 
       session.tests = session.tests || {};
       session.tests.basic = stepsAr;
-      // inicializar tracking por pasos
       session.stepProgress = session.stepProgress || {};
       session.helpAttempts = session.helpAttempts || {};
       for (let i = 0; i < stepsAr.length; i++) {
@@ -1339,93 +1187,114 @@ if (candidate && isValidHumanName(candidate)) {
       const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
       const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
       return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
+    } else if (session.stage === STATES.ASK_DEVICE) {
+      // Handler para selección de tipo de dispositivo (fallback / seguridad)
+      if (!buttonToken || !/^BTN_DEV_/.test(buttonToken)) {
+        const replyText = 'Por favor, elegí una de las opciones con los botones que te mostré.';
+        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
+        await saveSession(sid, session);
+        const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
+        return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: optionTokens }));
+      }
+
+      // Si llega un BTN_DEV_ válido, procesarlo y avanzar a ASK_PROBLEM
+      if (buttonToken && /^BTN_DEV_/.test(buttonToken)) {
+        const deviceMap = {
+          BTN_DEV_PC_DESKTOP: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' },
+          BTN_DEV_PC_ALLINONE: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' },
+          BTN_DEV_NOTEBOOK: { device: 'notebook', pcType: null, label: 'Notebook' }
+        };
+        const devCfg = deviceMap[buttonToken];
+        if (devCfg) {
+          session.device = devCfg.device;
+          if (devCfg.pcType) session.pcType = devCfg.pcType;
+          session.pendingDeviceGroup = null;
+          session.stage = STATES.ASK_PROBLEM;
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
+          const replyText = `Perfecto, ${whoLabel}. Tomo que te referís a *${devCfg.label}*. Contame, ¿qué problema presenta?`;
+          session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:true, reply: replyText, stage: session.stage, options: [] }));
+        }
+      }
+
+      // fallback
+      const fallbackMsg = 'No reconozco esa opción. Elegí por favor usando los botones.';
+      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+      await saveSession(sid, session);
+      const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
+      return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: optionTokens }));
     } else if (session.stage === STATES.BASIC_TESTS) {
-      // interpret answers (very small logic)
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
       const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      // [STI-CHANGE] detectar petición "Volver a mostrar los pasos" desde la ayuda
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i; // [STI-CHANGE]
+      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
 
-      // [STI-CHANGE] Si el usuario pide volver a mostrar los pasos, reenviar la lista numerada de session.tests.basic
-      if (rxShowSteps.test(t)) { // [STI-CHANGE]
-        const stepsAr = Array.isArray(session.tests?.basic) ? session.tests.basic : []; // [STI-CHANGE]
-        if (!stepsAr || stepsAr.length === 0) { // [STI-CHANGE]
-          const msg = 'No tengo pasos guardados para mostrar. Primero describí el problema para que te ofrezca pasos.'; // [STI-CHANGE]
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() }); // [STI-CHANGE]
-          await saveSession(sid, session); // [STI-CHANGE]
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] })); // [STI-CHANGE]
-        } // [STI-CHANGE]
+      if (rxShowSteps.test(t)) {
+        const stepsAr = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
+        if (!stepsAr || stepsAr.length === 0) {
+          const msg = 'No tengo pasos guardados para mostrar. Primero describí el problema para que te ofrezca pasos.';
+          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+        }
 
-        const numbered = enumerateSteps(stepsAr); // [STI-CHANGE]
-        const intro = `Volvemos a los pasos sugeridos:`; // [STI-CHANGE]
-        const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:'; // [STI-CHANGE]
-        const fullMsg = intro + '\n\n' + numbered.join('\n') + footer; // [STI-CHANGE]
+        const numbered = enumerateSteps(stepsAr);
+        const intro = `Volvemos a los pasos sugeridos:`;
+        const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
+        const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
 
-        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() }); // [STI-CHANGE]
-        await saveSession(sid, session); // [STI-CHANGE]
+        session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+        await saveSession(sid, session);
 
-        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`); // [STI-CHANGE]
-        const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌']; // [STI-CHANGE]
-        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr })); // [STI-CHANGE]
-      } // [STI-CHANGE]
+        const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+        const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+        return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: stepsAr }));
+      }
 
       if (rxYes.test(t)){
-        // [STI-CHANGE] respuesta de despedida al confirmar "Lo pude solucionar ✔️"
         reply = `¡Me alegro que lo hayas podido resolver! Si volvés a necesitar asistencia, estoy acá 24/7 para ayudarte.
 
 Podés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario
 Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
 
-¡Que tengas un excelente día!`; // [STI-CHANGE]
+¡Que tengas un excelente día!`;
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
       } else if (rxNo.test(t)){
-        // [STI-CHANGE] reply sin enumerar opciones (solo texto), y usar tokens para botones en options
-        reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`; // [STI-CHANGE]
-        options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico']; // [STI-CHANGE]
-        session.stage = STATES.ESCALATE; // [STI-CHANGE]
+        reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
+        options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico'];
+        session.stage = STATES.ESCALATE;
       } else if (rxTech.test(t)) {
-        // user requested connecting with technician — reuse helper
-        return await createTicketAndRespond(session, sid, res); // [STI-CHANGE]
+        return await createTicketAndRespond(session, sid, res);
       } else {
         reply = `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`;
         options = ['Lo pude solucionar ✔️','El problema persiste ❌'];
       }
     } else if (session.stage === STATES.ESCALATE){
-      // [MICRO] Estado intermedio: el usuario elige entre "Más pruebas" o "Conectar con Técnico".
-      // if user typed option 1 or 2
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
       const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
       if (opt1.test(t)){
-        // User selected "Más pruebas" -> generate advanced tests and show them
         try {
           const device = session.device || '';
           let aiSteps = [];
           try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
-          // [STI-CHANGE-A] LIMITAR A 4 PASOS y guardar siempre en session.tests.advanced
           const limited = Array.isArray(aiSteps) ? aiSteps.slice(0,4) : [];
           session.tests = session.tests || {};
-          session.tests.advanced = limited; // [STI-CHANGE-A]
-          // Si no hay pasos avanzados, usar flujo de hablar con técnico
+          session.tests.advanced = limited;
           if (!limited || limited.length === 0) {
-            // no advanced suggestions -> escalate
-            return await createTicketAndRespond(session, sid, res); // [STI-CHANGE-A]
+            return await createTicketAndRespond(session, sid, res);
           }
 
-          // [STI-CHANGE-C] registro de progreso avanzado (pending)
           session.stepProgress = session.stepProgress || {};
           limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
-          // [STI-CHANGE-C]
 
-          // [STI-CHANGE-B] FORMATO VISUAL PREMIUM IGUAL A LOS BÁSICOS
           const numbered = enumerateSteps(limited);
-          const whoLabel = session.userName ? cap(session.userName) : 'usuario';
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
           const intro = `Entiendo, ${whoLabel}. Probemos ahora con algunas pruebas más avanzadas:`;
           const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
           const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
-          // [STI-CHANGE-B]
 
           session.stepsDone = session.stepsDone || [];
           session.stepsDone.push('advanced_tests_shown');
@@ -1448,15 +1317,12 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
           return res.json(withOptions({ ok:false, reply, stage: session.stage, options: ['2️⃣ Conectar con Técnico'] }));
         }
       } else if (opt2.test(t)){
-        // create ticket and return BTN_WHATSAPP UI button (same as earlier flow)
-        return await createTicketAndRespond(session, sid, res); // [STI-CHANGE]
+        return await createTicketAndRespond(session, sid, res);
       } else {
         reply = 'Decime si querés 1 (Más pruebas) o 2 (Conectar con Técnico).';
         options = ['1️⃣ Más pruebas','2️⃣ Conectar con Técnico'];
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
-      // [MICRO] Respuesta luego de las pruebas avanzadas: cerrar caso o escalar a técnico.
-      // New handler for advanced tests responses (mirrors BASIC_TESTS but marks adv progress)
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
       const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
@@ -1471,7 +1337,7 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
           return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
         }
         const numbered = enumerateSteps(stepsAr);
-        const whoLabel = session.userName ? cap(session.userName) : 'usuario';
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
         const intro = `Volvemos a las pruebas avanzadas, ${whoLabel}:`;
         const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
         const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
@@ -1483,14 +1349,12 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
       }
 
       if (rxYes.test(t)){
-        // [STI-CHANGE-C] marcar progreso avanzado si venimos de una ayuda (lastHelpStep)
         const idx = session.lastHelpStep;
         if (typeof idx === 'number' && idx >= 1) {
           session.stepProgress = session.stepProgress || {};
           session.stepProgress[`adv_${idx}`] = 'done';
-          await saveSession(sid, session); // [STI-CHANGE-C]
+          await saveSession(sid, session);
         }
-        // respuesta final
         reply = `¡Me alegro que lo hayas podido resolver! Si volvés a necesitar asistencia, estoy acá 24/7 para ayudarte.`;
         session.stage = STATES.ENDED;
         session.waEligible = false;
@@ -1525,7 +1389,6 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
     const response = withOptions({ ok:true, reply, sid, stage: session.stage });
     if (options && options.length) response.options = options;
 
-    // if options are BTN_ tokens, add UI definitions so frontend (chatlog) can render the green button
     try {
       const areAllTokens = Array.isArray(options) && options.length > 0 && options.every(o => typeof o === 'string' && o.startsWith('BTN_'));
       if (areAllTokens) {
@@ -1542,7 +1405,6 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
 
     if (session.waEligible) response.allowWhatsapp = true;
 
-    // small log broadcast
     try {
       const shortLog = `${sid} => reply len=${String(reply||'').length} options=${(options||[]).length}`;
       const entry = formatLog('INFO', shortLog);
@@ -1561,20 +1423,14 @@ Y visitar nuestra web para servicios y soporte: https://stia.com.ar 🚀
 // ========================================================
 // === [MB10] UTILIDADES FINALES Y ARRANQUE DEL SERVIDOR ===
 // ========================================================
-// - /api/sessions: lista de sesiones activas para debugging/control.
-// - escapeHtml: helper simple para la vista pública de tickets.
-// - app.listen: arranque del servidor HTTP y mensajes de inicio.
 
-// list sessions
 app.get('/api/sessions', async (_req,res)=>{
   const sessions = await listActiveSessions();
   res.json({ ok:true, count: sessions.length, sessions });
 });
 
-// utils
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
 
-// start
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, ()=> {
   console.log(`STI Chat (stable) started on ${PORT}`);
