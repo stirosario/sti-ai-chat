@@ -977,6 +977,40 @@ app.post('/api/chat', async (req,res)=>{
       console.log('[api/chat] nueva session', sid);
     }
 
+    // -------- [MICRO] Validación de nombres y nombres compuestos (nombre + apellido) --------
+    function isValidHumanName(raw) {
+      if (!raw) return false;
+
+      let name = String(raw).trim().replace(/\s+/g, ' ');
+
+      // largo razonable
+      if (name.length < 2 || name.length > 60) return false;
+
+      // solo letras (incluye acentos y ñ) y espacios
+      if (!/^[A-Za-zÁÉÍÓÚÜáéíóúüÑñ\s]+$/.test(name)) return false;
+
+      const parts = name.split(' ');
+      // permitir 1 a 4 palabras: "Lucas", "Lucas Bertolino", "Juan Pablo Pérez"
+      if (parts.length < 1 || parts.length > 4) return false;
+
+      // cada palabra mínimo 2 letras y debe tener al menos una vocal
+      const vocales = /[AEIOUÁÉÍÓÚaeiouáéíóú]/;
+      for (const p of parts) {
+        if (p.length < 2) return false;
+        if (!vocales.test(p)) return false;
+      }
+
+      // evitar cosas muy raras tipo "aaaa", "jjjjj", "asdasd"
+      const lowered = name.toLowerCase();
+      const blacklist = [
+        'pepelito','papelito','pepito','probando',
+        'aaaa','jjjj','zzzz','asdasd','qwerty'
+      ];
+      if (blacklist.includes(lowered)) return false;
+
+      return true;
+    }
+
     // [STI-NAME] -- Bloque de manejo de botones (actualizado)
     // Colocar este bloque justo después de resolver buttonToken/buttonLabel/incomingText
     // (usa `session`, `sid`, `res`, `nowIso`, `withOptions` tal como están en server.js)
@@ -1017,6 +1051,7 @@ app.post('/api/chat', async (req,res)=>{
         }
       }
     } // [STI-NAME]
+
     // quick BTN_WHATSAPP: create ticket and return waUrl + UI button definition
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
       try {
