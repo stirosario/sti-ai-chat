@@ -141,7 +141,11 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CLOSE', label: 'Cerrar Chat 🔒', text: 'cerrar chat' },
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
       { token: 'BTN_MORE_TESTS', label: '1️⃣ 🔍 Más pruebas', text: '1️⃣ 🔍 Más pruebas' },
-      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' }
+      { token: 'BTN_CONNECT_TECH', label: '2️⃣ 🧑‍💻 Conectar con Técnico', text: '2️⃣ 🧑‍💻 Conectar con Técnico' },
+{ token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
+{ token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
+{ token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
+
     ],
     states: {}
   },
@@ -314,6 +318,42 @@ function looksClearlyNotName(text){ // [STI-NAME]
   return false;
 } // [STI-NAME]
 
+
+
+// -------- [MICRO] Desambiguación de device genérico a partir del texto del problema --------
+function getDeviceDisambiguation(rawText) {
+  if (!rawText) return null;
+  const t = String(rawText).toLowerCase();
+
+  // Caso típico: usuario habla de "compu" en general
+  if (/\b(compu|computadora|ordenador|pc)\b/.test(t)) {
+    return {
+      baseLabel: 'compu',
+      variants: [
+        {
+          token: 'BTN_DEV_PC_DESKTOP',
+          label: 'PC de escritorio',
+          device: 'pc',
+          extra: { pcType: 'desktop' }
+        },
+        {
+          token: 'BTN_DEV_PC_ALLINONE',
+          label: 'PC All in One',
+          device: 'pc',
+          extra: { pcType: 'all_in_one' }
+        },
+        {
+          token: 'BTN_DEV_NOTEBOOK',
+          label: 'Notebook',
+          device: 'notebook',
+          extra: {}
+        }
+      ]
+    };
+  }
+
+  return null;
+}
 // [FIN STI-NAME]
 
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
@@ -1064,6 +1104,38 @@ app.post('/api/chat', async (req,res)=>{
       }
     }
 
+
+// -------- [MICRO] Botones de selección de device específico --------
+if (buttonToken && /^BTN_DEV_/.test(buttonToken)) {
+  const deviceMap = {
+    BTN_DEV_PC_DESKTOP: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' },
+    BTN_DEV_PC_ALLINONE: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' },
+    BTN_DEV_NOTEBOOK:   { device: 'notebook', pcType: null, label: 'Notebook' }
+  };
+
+  const devCfg = deviceMap[buttonToken];
+
+  if (devCfg) {
+    session.device = devCfg.device;
+    if (devCfg.pcType) session.pcType = devCfg.pcType;
+
+    const whoName = session.userName ? cap(session.userName) : 'usuario';
+    const reply = `Perfecto, ${whoName}. Trabajemos sobre tu ${devCfg.label}. Contame un poco más del problema o confirmame si directamente no enciende.`;
+
+    session.transcript.push({
+      who: 'user',
+      text: `[BOTON] ${buttonLabel || buttonToken}`,
+      ts: nowIso()
+    });
+    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+
+    session.stage = STATES.ASK_PROBLEM;
+
+    await saveSession(sid, session);
+    return res.json(withOptions({ ok:true, reply, stage: session.stage }));
+  }
+}
+
     // Manejo ligero y seguro de "Ayuda paso N"
     // Detectar petición de ayuda por botón (BTN_HELP_1, BTN_HELP_2...) o por texto "ayuda paso N"
     session.helpAttempts = session.helpAttempts || {};
@@ -1332,6 +1404,24 @@ if (candidate && isValidHumanName(candidate)) {
         if(ai.device) session.device = session.device || ai.device;
         if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
       }
+
+
+// Desambiguación de device genérico a partir del texto del problema
+if (!session.device) {
+  const disambig = getDeviceDisambiguation(session.problem || t || '');
+  if (disambig) {
+    const reply = `Cuando decís "${disambig.baseLabel}", ¿a cuál de estos dispositivos te referís?`;
+
+    session.stage = STATES.ASK_DEVICE;
+    session.pendingDeviceGroup = disambig.baseLabel;
+
+    session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+    await saveSession(sid, session);
+
+    const optionTokens = disambig.variants.map(v => v.token);
+    return res.json(withOptions({ ok:true, reply, stage: session.stage, options: optionTokens }));
+  }
+}
 
       // produce simple steps (either configured or generated)
       const issueKey = session.issueKey;
