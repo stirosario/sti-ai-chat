@@ -174,9 +174,9 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
       { token: 'BTN_MORE_TESTS', label: 'Más pruebas 🔍', text: 'más pruebas' },
       { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
-      { token: 'BTN_LANG_ES_AR', label: 'Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES', label: 'Español (Latinoamérica)', text: 'Español (Latinoamérica)' },
-      { token: 'BTN_LANG_EN', label: 'English', text: 'English' },
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
+      { token: 'BTN_LANG_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
       { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo', text: 'Prefiero no decirlo' },
       // device tokens
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
@@ -353,13 +353,15 @@ function looksClearlyNotName(text){
   return false;
 }
 
-// Optional: OpenAI name analyzer
+// OpenAI name analyzer - STRICT validation
 async function analyzeNameWithOA(nameText = '') {
-  if(!openai) return { isValid: true, confidence: 1, reason: 'no_openai' };
+  if(!openai) return { isValid: false, confidence: 0, reason: 'no_openai' };
   const prompt = [
-    "Sos un asistente que valida si un texto es un nombre humano real en español (Argentina).",
-    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'breve texto'}.",
-    `Texto: "${String(nameText).replace(/"/g,'\\"')}"`
+    "Sos un validador estricto de nombres humanos reales en español (Argentina).",
+    "RECHAZÁ nombres inventados, apodos, nombres falsos, palabras comunes, marcas, objetos, saludos, o cualquier texto que NO sea un nombre real de persona.",
+    "ACEPTÁ solo nombres humanos genuinos que se usan en Argentina (ejemplos válidos: María, Juan, Ana Laura, José Luis).",
+    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'breve explicación'}.",
+    `Texto a validar: "${String(nameText).replace(/"/g,'\\"')}"`
   ].join('\n');
   try {
     const r = await openai.chat.completions.create({
@@ -377,11 +379,11 @@ async function analyzeNameWithOA(nameText = '') {
       };
     } catch (e) {
       console.error('[analyzeNameWithOA] parse error', e && e.message, 'raw:', raw);
-      return { isValid: true, confidence: 0, reason: 'parse_error' };
+      return { isValid: false, confidence: 0, reason: 'parse_error' };
     }
   } catch (e) {
     console.error('[analyzeNameWithOA] error', e && e.message);
-    return { isValid: true, confidence: 0, reason: 'error' };
+    return { isValid: false, confidence: 0, reason: 'error' };
   }
 }
 
@@ -886,13 +888,15 @@ app.all('/api/greeting', async (req,res)=>{
       userLocale: locale
     };
     const text = buildNameGreeting(locale);
-    fresh.transcript.push({ who:'bot', text, ts: nowIso() });
+    const langPrompt = buildLanguagePrompt(locale);
+    const fullGreeting = `${text}\n\n${langPrompt}`;
+    fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
     await saveSession(sid, fresh);
     const langOptions = ['BTN_LANG_ES_AR','BTN_LANG_ES','BTN_LANG_EN'];
     return res.json(withOptions({
       ok: true,
-      greeting: text,
-      reply: text,
+      greeting: fullGreeting,
+      reply: fullGreeting,
       stage: fresh.stage,
       sessionId: sid,
       options: langOptions
@@ -902,6 +906,17 @@ app.all('/api/greeting', async (req,res)=>{
     return res.status(500).json({ ok:false, error:'greeting_failed' });
   }
 });
+
+function buildLanguagePrompt(locale = 'es-AR') {
+  const norm = (locale || '').toLowerCase();
+  const isEn = norm.startsWith('en');
+  
+  if (isEn) {
+    return '🌐 You can change the language at any time using the buttons below:';
+  }
+  
+  return '🌐 Podés cambiar el idioma en cualquier momento usando los botones:';
+}
 
 function buildNameGreeting(locale = 'es-AR') {
   const norm = (locale || '').toLowerCase();
@@ -1330,17 +1345,38 @@ app.post('/api/chat', async (req,res)=>{
 
       const candidate = extractName(t);
       if (candidate && isValidHumanName(candidate)) {
-        // Optional OA check
+        // MANDATORY OpenAI validation when available
         if (openai) {
           const oa = await analyzeNameWithOA(candidate);
-          if (!oa.isValid && oa.confidence >= OA_NAME_REJECT_CONF) {
+          console.log('[name-validation] OpenAI result:', { candidate, isValid: oa.isValid, confidence: oa.confidence, reason: oa.reason });
+          
+          // Rechazar si OpenAI dice que NO es válido con confianza >= 0.5 (umbral más bajo)
+          if (!oa.isValid && oa.confidence >= 0.5) {
             session.nameAttempts = (session.nameAttempts || 0) + 1;
             await saveSession(sid, session);
-            const reply = 'Ese nombre no parece real. ¿Podés decirme tu nombre verdadero o tocar "Prefiero no decirlo"?';
+            const reply = `Ese nombre no parece real (${oa.reason}). ¿Podés decirme tu nombre verdadero o tocar "Prefiero no decirlo"?`;
             const ts = nowIso();
             session.transcript.push({ who:'bot', text: reply, ts });
             return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
           }
+          
+          // Rechazar también si OpenAI dice que SÍ es válido pero con confianza muy baja
+          if (oa.isValid && oa.confidence < 0.6) {
+            session.nameAttempts = (session.nameAttempts || 0) + 1;
+            await saveSession(sid, session);
+            const reply = 'No estoy seguro de que ese sea un nombre real. ¿Podés escribirlo de nuevo o tocar "Prefiero no decirlo"?';
+            const ts = nowIso();
+            session.transcript.push({ who:'bot', text: reply, ts });
+            return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
+          }
+        } else {
+          // Si NO hay OpenAI, rechazar por defecto para ser más estrictos
+          session.nameAttempts = (session.nameAttempts || 0) + 1;
+          await saveSession(sid, session);
+          const reply = 'No puedo validar nombres en este momento. Por favor, tocá "Prefiero no decirlo" para continuar.';
+          const ts = nowIso();
+          session.transcript.push({ who:'bot', text: reply, ts });
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options:['Prefiero no decirlo'] }));
         }
 
         session.userName = candidate;
