@@ -1312,13 +1312,20 @@ if (!session.device) {
     const ts = nowIso();
     session.transcript.push({ who:'bot', text: replyText, ts });
     await saveSession(sid, session);
-    return res.json(withOptions({
+    
+    const response = {
       ok: true,
       reply: replyText,
       stage: session.stage,
       options: optionTokens,
-      ui: { buttons: uiButtons }
-    }));
+      ui: { 
+        buttons: uiButtons 
+      }
+    };
+    
+    console.log('[ASK_DEVICE] Response:', JSON.stringify(response, null, 2));
+    
+    return res.json(response);
   }
 }
 
