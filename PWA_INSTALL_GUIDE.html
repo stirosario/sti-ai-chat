@@ -1,0 +1,206 @@
+<!--
+  GUÍA DE INTEGRACIÓN PWA - ChatSTI
+  ACTUALIZADA: 22 Noviembre 2025
+  
+  ⚠️ CRÍTICO: Agregar estos tags al index.php de stia.com.ar
+-->
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Integración PWA - ChatSTI</title>
+  <style>
+    body { font-family: system-ui; max-width: 900px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; }
+    pre { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    .critical { background: #fee; border-left: 4px solid #f00; padding: 12px; margin: 20px 0; }
+    .step { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>🚀 Integración PWA ChatSTI - Paso a Paso</h1>
+  
+  <div class="critical">
+    <strong>⚠️ CRÍTICO:</strong> Sin estos cambios, la instalación PWA NO FUNCIONA
+  </div>
+
+  <h2>Paso 1: Editar index.php</h2>
+  <p><strong>Archivo:</strong> <code>e:\Lucas\Desktop\STI\BACKUPS WEB STI\22-11-25 13-09\public_html\index.php</code></p>
+  
+  <div class="step">
+    <h3>1.1 Agregar en &lt;head&gt; (después de línea 42 - después del favicon)</h3>
+    <pre>&lt;!-- PWA: MANIFEST Y APPLE TOUCH ICONS --&gt;
+&lt;link rel="manifest" href="https://sti-rosario-ai.onrender.com/manifest.json" crossorigin="use-credentials"&gt;
+
+&lt;!-- Apple Touch Icons --&gt;
+&lt;link rel="apple-touch-icon" sizes="152x152" href="https://sti-rosario-ai.onrender.com/icons/icon-152x152.png"&gt;
+&lt;link rel="apple-touch-icon" sizes="180x180" href="https://sti-rosario-ai.onrender.com/icons/icon-192x192.png"&gt;
+
+&lt;!-- iOS Meta Tags --&gt;
+&lt;meta name="apple-mobile-web-app-capable" content="yes"&gt;
+&lt;meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"&gt;
+&lt;meta name="apple-mobile-web-app-title" content="ChatSTI"&gt;
+
+&lt;!-- Android/Chrome --&gt;
+&lt;meta name="mobile-web-app-capable" content="yes"&gt;
+&lt;meta name="application-name" content="ChatSTI"&gt;
+
+&lt;!-- Windows Tiles --&gt;
+&lt;meta name="msapplication-TileColor" content="#0a1f44"&gt;
+&lt;meta name="msapplication-TileImage" content="https://sti-rosario-ai.onrender.com/icons/icon-144x144.png"&gt;
+&lt;meta name="msapplication-config" content="https://sti-rosario-ai.onrender.com/browserconfig.xml"&gt;</pre>
+  </div>
+
+  <div class="step">
+    <h3>1.2 Agregar antes de &lt;/body&gt; (línea ~805)</h3>
+    <pre>&lt;!-- PWA: INSTALACIÓN AUTOMÁTICA --&gt;
+&lt;script src="https://sti-rosario-ai.onrender.com/pwa-install.js" defer crossorigin&gt;&lt;/script&gt;
+
+&lt;!-- Opcional: Estilos para botón de instalación (si no existe) --&gt;
+&lt;style&gt;
+  @keyframes slideDown {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(0); }
+  }
+&lt;/style&gt;</pre>
+  </div>
+
+  <h2>Paso 2: Generar Íconos (BLOQUEANTE)</h2>
+  <p><strong>Ubicación:</strong> <code>c:\sti-ai-chat\</code></p>
+  
+  <div class="step">
+    <h3>2.1 Instalar Sharp</h3>
+    <pre>npm install sharp</pre>
+  </div>
+
+  <div class="step">
+    <h3>2.2 Colocar logo STI</h3>
+    <p>Colocar logo de STI (PNG cuadrado, mínimo 512x512) como <code>logo.png</code> en raíz del proyecto</p>
+  </div>
+
+  <div class="step">
+    <h3>2.3 Generar íconos</h3>
+    <pre>node generate-icons.js</pre>
+    <p>Debe generar 8 íconos en <code>public/icons/</code></p>
+  </div>
+
+  <div class="step">
+    <h3>2.4 Validar</h3>
+    <pre>node pwa-validate.js</pre>
+    <p>Debe mostrar: ✅ 100% completitud</p>
+  </div>
+
+  <h2>Paso 3: Deploy</h2>
+  
+  <div class="step">
+    <h3>3.1 Backend (Render.com)</h3>
+    <pre>git add .
+git commit -m "feat: PWA instalación completa - críticos corregidos"
+git push origin main</pre>
+    <p>Esperar deploy automático en Render.com</p>
+  </div>
+
+  <div class="step">
+    <h3>3.2 Frontend (index.php)</h3>
+    <p>Subir index.php modificado al servidor de stia.com.ar</p>
+  </div>
+
+  <h2>Paso 4: Testing</h2>
+  
+  <div class="step">
+    <h3>4.1 Test Local (Chrome Desktop)</h3>
+    <ol>
+      <li>Abrir: <code>https://stia.com.ar</code></li>
+      <li>DevTools (F12) → Application → Manifest</li>
+      <li>Verificar: No errores, íconos visibles</li>
+      <li>Application → Service Workers → Debe estar registrado</li>
+      <li>Buscar ícono "Instalar" en barra de URL</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <h3>4.2 Test Android</h3>
+    <ol>
+      <li>Chrome Android → stia.com.ar</li>
+      <li>Banner "Agregar a pantalla de inicio" debe aparecer</li>
+      <li>O: Menú (⋮) → "Instalar aplicación"</li>
+      <li>Instalar y verificar app en drawer</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <h3>4.3 Test iOS</h3>
+    <ol>
+      <li>Safari iOS → stia.com.ar</li>
+      <li>Banner azul debe aparecer arriba (3 segundos después de cargar)</li>
+      <li>O: Compartir (⎙) → "Agregar a pantalla de inicio"</li>
+      <li>Verificar ícono en pantalla principal</li>
+    </ol>
+  </div>
+
+  <h2>Paso 5: Lighthouse Audit</h2>
+  
+  <div class="step">
+    <h3>Chrome DevTools → Lighthouse</h3>
+    <ul>
+      <li>Categoría: Progressive Web App</li>
+      <li>Objetivo: 90-100 puntos</li>
+      <li>Verificar: "Installable" ✅</li>
+    </ul>
+  </div>
+
+  <h2>🔍 Troubleshooting</h2>
+  
+  <h3>Problema: "Manifest no encontrado"</h3>
+  <p><strong>Causa:</strong> CORS bloqueando manifest desde dominio diferente</p>
+  <p><strong>Solución:</strong> Verificar que server.js tenga:</p>
+  <pre>res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');</pre>
+
+  <h3>Problema: "Service Worker no registra"</h3>
+  <p><strong>Causa:</strong> Script pwa-install.js no cargó</p>
+  <p><strong>Solución:</strong> Verificar en Network tab de DevTools</p>
+
+  <h3>Problema: "Íconos no visibles"</h3>
+  <p><strong>Causa:</strong> Íconos no generados o CORS</p>
+  <p><strong>Solución:</strong> Ejecutar <code>node pwa-validate.js</code></p>
+
+  <h3>Problema: "iOS no muestra opción de instalar"</h3>
+  <p><strong>Causa:</strong> Banner automático implementado ahora</p>
+  <p><strong>Solución:</strong> Banner azul aparece 3s después de cargar</p>
+
+  <h2>✅ Checklist Final</h2>
+  
+  <ul>
+    <li>[ ] Íconos generados (8 archivos PNG)</li>
+    <li>[ ] pwa-validate.js → 100%</li>
+    <li>[ ] index.php tiene tags PWA en &lt;head&gt;</li>
+    <li>[ ] index.php carga pwa-install.js antes &lt;/body&gt;</li>
+    <li>[ ] Deploy backend completo</li>
+    <li>[ ] Deploy frontend completo</li>
+    <li>[ ] Test en Chrome Desktop → Instalable ✅</li>
+    <li>[ ] Test en Android → Instalable ✅</li>
+    <li>[ ] Test en iOS → Banner visible ✅</li>
+    <li>[ ] Lighthouse PWA → 90+ puntos</li>
+  </ul>
+
+  <h2>📊 Mejoras Aplicadas</h2>
+  
+  <h3>Correcciones Críticas (10)</h3>
+  <ol>
+    <li>✅ Validación de compatibilidad con mensaje visible</li>
+    <li>✅ Detección automática iOS + banner</li>
+    <li>✅ Creación dinámica de botón de instalación</li>
+    <li>✅ CORS configurado para stia.com.ar</li>
+    <li>✅ Analytics con try-catch</li>
+    <li>✅ Timeout en modal iOS (30s)</li>
+    <li>✅ Rate limiting en updates</li>
+    <li>✅ start_url corregido (/index.php)</li>
+    <li>✅ orientation: any (no forzar portrait)</li>
+    <li>✅ Descripción optimizada (80 chars)</li>
+  </ol>
+
+  <hr>
+  <p><strong>Versión:</strong> 2.0 | <strong>Fecha:</strong> 22/11/2025 | <strong>Autor:</strong> GitHub Copilot</p>
+</body>
+</html>
