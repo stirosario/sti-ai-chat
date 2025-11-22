@@ -11,3 +11,27 @@
 2025-11-22T15:45:56.878Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
 2025-11-22T16:02:04.742Z [INFO] STI Chat (v7) started on 3001
 2025-11-22T16:02:04.744Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T19:31:15.032Z [INFO] STI Chat (v7) started on 3001
+2025-11-22T19:31:15.035Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T19:51:03.749Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T19:51:20.307Z [INFO] STI Chat (v7) started on 3002
+2025-11-22T19:51:20.310Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T20:14:42.666Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T20:19:58.975Z [INFO] STI Chat (v7) started on 3002
+2025-11-22T20:19:58.976Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T20:21:25.738Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T20:21:35.919Z [INFO] STI Chat (v7) started on 3002
+2025-11-22T20:21:35.920Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T20:21:48.645Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T20:22:03.625Z [INFO] STI Chat (v7) started on 3002
+2025-11-22T20:22:03.626Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T20:22:48.959Z [INFO] STI Chat (v7) started on 3001
+2025-11-22T20:22:48.960Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-22T20:22:54.355Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-22T20:37:22.088Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

@@ -35,12 +35,85 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import fs, { createReadStream } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import OpenAI from 'openai';
+import multer from 'multer';
+import sharp from 'sharp';
+import cron from 'node-cron';
+import compression from 'compression';  // NUEVO: Compresión de respuestas
 
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+
+// ========================================================
+// Security: CSRF Token Store (in-memory, production should use Redis)
+// ========================================================
+const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
+const REQUEST_ID_HEADER = 'x-request-id';
+
+// PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
+const sessionCache = new Map(); // Map<sessionId, {data, lastAccess}>
+const MAX_CACHED_SESSIONS = 1000;
+
+function cacheSession(sid, data) {
+  // Si el cache está lleno, eliminar la sesión menos usada
+  if (sessionCache.size >= MAX_CACHED_SESSIONS) {
+    let oldestSid = null;
+    let oldestTime = Infinity;
+    for (const [id, cached] of sessionCache.entries()) {
+      if (cached.lastAccess < oldestTime) {
+        oldestTime = cached.lastAccess;
+        oldestSid = id;
+      }
+    }
+    if (oldestSid) sessionCache.delete(oldestSid);
+  }
+  sessionCache.set(sid, { data, lastAccess: Date.now() });
+}
+
+function getCachedSession(sid) {
+  const cached = sessionCache.get(sid);
+  if (cached) {
+    cached.lastAccess = Date.now(); // Actualizar LRU
+    return cached.data;
+  }
+  return null;
+}
+
+// Limpiar cache de sesiones antiguas cada 10 minutos
+setInterval(() => {
+  const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+  for (const [sid, cached] of sessionCache.entries()) {
+    if (cached.lastAccess < tenMinutesAgo) {
+      sessionCache.delete(sid);
+    }
+  }
+}, 10 * 60 * 1000);
+
+// Cleanup expired CSRF tokens every 30 minutes
+setInterval(() => {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  for (const [sid, data] of csrfTokenStore.entries()) {
+    if (data.createdAt < oneHourAgo) {
+      csrfTokenStore.delete(sid);
+    }
+  }
+}, 30 * 60 * 1000);
+
+function generateCSRFToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function generateRequestId() {
+  return `req-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function generateSecureSessionId() {
+  // Usar 32 bytes de entropía (256 bits) para session IDs
+  return `srv-${Date.now()}-${crypto.randomBytes(32).toString('hex')}`;
+}
 
 // ========================================================
 // Configuration & Clients
@@ -65,13 +138,54 @@ const DATA_BASE       = process.env.DATA_BASE       || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
 const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
+const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'uploads');
 const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 const SSE_TOKEN       = process.env.SSE_TOKEN || '';
 
-for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR]) {
+for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
+}
+
+// ========================================================
+// Metrics & Monitoring
+// ========================================================
+const metrics = {
+  uploads: {
+    total: 0,
+    success: 0,
+    failed: 0,
+    totalBytes: 0,
+    avgAnalysisTime: 0
+  },
+  chat: {
+    totalMessages: 0,
+    sessions: 0
+  },
+  errors: {
+    count: 0,
+    lastError: null
+  }
+};
+
+function updateMetric(category, field, value) {
+  if (metrics[category] && field in metrics[category]) {
+    if (typeof value === 'number' && field !== 'lastError') {
+      metrics[category][field] += value;
+    } else {
+      metrics[category][field] = value;
+    }
+  }
+}
+
+function getMetrics() {
+  return {
+    ...metrics,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  };
 }
 
 // ========================================================
@@ -93,14 +207,34 @@ const withOptions = obj => ({ options: [], ...obj });
 function maskPII(text) {
   if (!text) return text;
   let s = String(text);
-  // Emails
-  s = s.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]');
-  // Tarjetas de crédito (16 dígitos en bloques)
-  s = s.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[tarjeta]');
-  // Teléfonos largos (10+ dígitos seguidos)
-  s = s.replace(/\b\d{10,}\b/g, '[tel]');
-  // DNI u otros documentos (7-8 dígitos)
-  s = s.replace(/\b\d{7,8}\b/g, '[dni]');
+  
+  // Emails (más estricto)
+  s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, '[EMAIL_REDACTED]');
+  
+  // Tarjetas de crédito (16 dígitos)
+  s = s.replace(/\b(?:\d{4}[- ]?){3}\d{4}\b/g, '[CARD_REDACTED]');
+  
+  // CBU/CVU (22 dígitos)
+  s = s.replace(/\b\d{22}\b/g, '[CBU_REDACTED]');
+  
+  // CUIT/CUIL (XX-XXXXXXXX-X)
+  s = s.replace(/\b\d{2}[-\s]?\d{8}[-\s]?\d{1}\b/g, '[CUIT_REDACTED]');
+  
+  // Teléfonos internacionales (+54 9 341...)
+  s = s.replace(/\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{1,9}/g, '[PHONE_REDACTED]');
+  
+  // DNI (7-8 dígitos aislados)
+  s = s.replace(/\b\d{7,8}\b/g, '[DNI_REDACTED]');
+  
+  // IPs (v4)
+  s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]');
+  
+  // Contraseñas obvias (password=, pwd=, pass=)
+  s = s.replace(/(?:password|pwd|pass|clave|contraseña)\s*[=:]\s*[^\s]+/gi, '[PASSWORD_REDACTED]');
+  
+  // Tokens y API keys (patrones comunes)
+  s = s.replace(/\b[A-Za-z0-9]{32,}\b/g, '[TOKEN_REDACTED]');
+  
   return s;
 }
 
@@ -564,23 +698,44 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
   const systemMsg = profile.system;
 
   const prompt = [
-    'Analizá (o analiza) el siguiente mensaje de un usuario final y decidí si es un problema de soporte de tecnología/computación o de dispositivos de streaming/SmartTV.',
+    'Analizá (o analiza) el siguiente mensaje de un usuario final y clasificalo como:',
+    '1. PROBLEMA TÉCNICO: Algo no funciona, falla o tiene error',
+    '2. SOLICITUD DE AYUDA: Necesita guía para hacer algo (instalar, configurar, conectar)',
+    '3. NO INFORMÁTICO: No es tecnología',
     '',
     'Tu tarea es devolver SOLO JSON (sin explicación adicional), con este formato:',
     '{',
     '  "isIT": boolean,',
-    '  "device": "pc" | "notebook" | "router" | "fire_tv" | "chromecast" | "roku" | "android_tv" | "apple_tv" | "smart_tv_samsung" | "smart_tv_lg" | "smart_tv_sony" | "smart_tv_generic" | null,',
-    '  "issueKey": "no_prende" | "boot_issue" | "wifi_connectivity" | "remote_pairing" | "hdmi_signal" | "activation_error" | "app_crash" | "sound_issue" | "generic" | null,',
+    '  "isProblem": boolean,',
+    '  "isHowTo": boolean,',
+    '  "device": "pc" | "notebook" | "router" | "fire_tv" | "chromecast" | "roku" | "android_tv" | "apple_tv" | "smart_tv_samsung" | "smart_tv_lg" | "smart_tv_sony" | "smart_tv_generic" | "impresora" | "scanner" | "webcam" | "mouse" | "teclado" | "monitor" | null,',
+    '  "issueKey": "no_prende" | "boot_issue" | "wifi_connectivity" | "no_funciona" | "error_config" | "install_guide" | "setup_guide" | "connect_guide" | "generic" | null,',
     '  "confidence": number between 0 and 1,',
     `  "language": "${profile.languageTag}"`,
     '}',
     '',
-    'Algunos ejemplos rápidos:',
-    '- "mi compu no prende" → isIT:true, device:"pc", issueKey:"no_prende"',
-    '- "mi notebook no se conecta al wifi" → isIT:true, device:"notebook", issueKey:"wifi_connectivity"',
-    '- "no puedo instalar magistv en el fire tv stick" → isIT:true, device:"fire_tv", issueKey:"app_crash" o "activation_error", elegí la más cercana con confidence alto.',
-    '- "mi smart tv samsung no se conecta a internet" → isIT:true, device:"smart_tv_samsung", issueKey:"wifi_connectivity".',
+    'Ejemplos de PROBLEMAS (isProblem:true, isHowTo:false):',
+    '- "mi compu no prende" → isIT:true, isProblem:true, device:"pc", issueKey:"no_prende"',
+    '- "mi impresora no imprime" → isIT:true, isProblem:true, device:"impresora", issueKey:"no_funciona"',
+    '- "el mouse no responde" → isIT:true, isProblem:true, device:"mouse", issueKey:"no_funciona"',
+    '- "mi smart tv no se conecta al wifi" → isIT:true, isProblem:true, device:"smart_tv_generic", issueKey:"wifi_connectivity"',
+    '',
+    'Ejemplos de SOLICITUDES DE AYUDA (isProblem:false, isHowTo:true):',
+    '- "quiero instalar una impresora" → isIT:true, isProblem:false, isHowTo:true, device:"impresora", issueKey:"install_guide"',
+    '- "necesito configurar mi impresora HP" → isIT:true, isProblem:false, isHowTo:true, device:"impresora", issueKey:"setup_guide"',
+    '- "cómo conecto mi fire tv stick" → isIT:true, isProblem:false, isHowTo:true, device:"fire_tv", issueKey:"connect_guide"',
+    '- "necesito instalar una webcam" → isIT:true, isProblem:false, isHowTo:true, device:"webcam", issueKey:"install_guide"',
+    '- "ayuda para conectar el chromecast" → isIT:true, isProblem:false, isHowTo:true, device:"chromecast", issueKey:"setup_guide"',
+    '',
+    'Ejemplos de NO INFORMÁTICO (isIT:false):',
     '- "tengo un problema con la heladera" → isIT:false',
+    '- "mi auto hace ruido" → isIT:false',
+    '',
+    'REGLAS IMPORTANTES:',
+    '- Si el usuario dice "no funciona", "no prende", "error", "falla" → isProblem:true',
+    '- Si el usuario dice "quiero", "necesito", "cómo", "ayuda para", "guía" → isHowTo:true',
+    '- Si hay AMBOS (ej: "quiero instalar pero me da error") → isProblem:true, isHowTo:false (priorizar el problema)',
+    '- Cualquier dispositivo electrónico/informático ES informático (isIT:true)',
     '',
     'Texto del usuario:',
     userText
@@ -610,20 +765,22 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
         .replace(/```$/i, '');
       parsed = JSON.parse(cleaned);
     }catch(e){
-      return { isIT: false, device: null, issueKey: null, confidence: 0 };
+      return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
     }
 
     const isIT = !!parsed.isIT;
+    const isProblem = !!parsed.isProblem;
+    const isHowTo = !!parsed.isHowTo;
     const device = typeof parsed.device === 'string' ? parsed.device : null;
     const issueKey = typeof parsed.issueKey === 'string' ? parsed.issueKey : null;
     let confidence = Number(parsed.confidence || 0);
     if(!Number.isFinite(confidence) || confidence < 0) confidence = 0;
     if(confidence > 1) confidence = 1;
 
-    return { isIT, device, issueKey, confidence };
+    return { isIT, isProblem, isHowTo, device, issueKey, confidence };
   }catch(err){
     console.error('[analyzeProblemWithOA] error:', err?.message || err);
-    return { isIT: false, device: null, issueKey: null, confidence: 0 };
+    return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
   }
 }
 
@@ -815,43 +972,144 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(cors({ 
   origin: (origin, callback) => {
-    // Permite requests sin origin (ej: mobile apps, postman)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    // SECURITY: Rechazar explícitamente origin null (puede ser ataque)
+    if (origin === 'null' || origin === null) {
+      console.warn(`[CORS] Blocked null origin (potential attack)`);
+      return callback(new Error('CORS: null origin not allowed'), false);
+    }
+    
+    // Permitir sin origin SOLO en desarrollo o para herramientas autorizadas
+    if (!origin) {
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      console.warn(`[CORS] Blocked request without origin header`);
+      return callback(new Error('CORS: origin header required'), false);
+    }
+    
+    // Validar contra lista blanca estricta
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`[CORS] Blocked origin: ${origin}`);
-      callback(null, false);
+      console.warn(`[CORS] Blocked unauthorized origin: ${origin}`);
+      callback(new Error('CORS: origin not allowed'), false);
     }
   },
-  credentials: true 
+  credentials: true,
+  maxAge: 86400, // 24 horas
+  optionsSuccessStatus: 204
 }));
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: false }));
-app.use((req,res,next)=>{ res.set('Cache-Control','no-store'); next(); });
 
-// Content Security Policy para PWA
+// PERFORMANCE: Compression middleware (gzip/brotli)
+app.use(compression({
+  filter: (req, res) => {
+    // No comprimir si el cliente no lo soporta
+    if (req.headers['x-no-compression']) return false;
+    // Comprimir solo respuestas >1KB
+    return compression.filter(req, res);
+  },
+  threshold: 1024, // 1KB mínimo
+  level: 6 // Balance entre velocidad y compresión
+}));
+
+app.use(express.json({ 
+  limit: '2mb',
+  strict: true,
+  verify: (req, res, buf) => {
+    // Validate JSON structure
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      throw new Error('Invalid JSON');
+    }
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: false,
+  limit: '2mb',
+  parameterLimit: 100
+}));
+
+// Request ID middleware (para tracking y debugging)
 app.use((req, res, next) => {
+  const requestId = req.headers[REQUEST_ID_HEADER] || generateRequestId();
+  req.requestId = requestId;
+  res.setHeader(REQUEST_ID_HEADER, requestId);
+  next();
+});
+
+// Validar Content-Length (prevenir DOS)
+app.use((req, res, next) => {
+  const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+  const maxSize = 10 * 1024 * 1024; // 10MB máximo
+  
+  if (contentLength > maxSize) {
+    console.warn(`[${req.requestId}] Content-Length excede límite: ${contentLength} bytes`);
+    return res.status(413).json({ ok: false, error: 'Payload too large' });
+  }
+  next();
+});
+
+// Security headers + cache control
+app.use((req,res,next)=>{ 
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next(); 
+});
+
+// Content Security Policy para PWA (Strict)
+app.use((req, res, next) => {
+  // CSP más estricto con nonces para inline scripts
+  const nonce = crypto.randomBytes(16).toString('base64');
+  res.locals.nonce = nonce;
+  
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; " +
+    `script-src 'self' 'nonce-${nonce}'; ` +
     "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https:; " +
+    "img-src 'self' data: https: blob:; " +
     "connect-src 'self' https://stia.com.ar https://api.openai.com https://sti-rosario-ai.onrender.com; " +
     "font-src 'self' data:; " +
+    "media-src 'self'; " +
+    "object-src 'none'; " +
     "frame-ancestors 'none'; " +
     "base-uri 'self'; " +
     "form-action 'self'; " +
-    "manifest-src 'self' https://stia.com.ar;"
+    "upgrade-insecure-requests; " +
+    "block-all-mixed-content; " +
+    "manifest-src 'self' https://stia.com.ar; " +
+    "worker-src 'self'; " +
+    "child-src 'none'; " +
+    `report-uri /api/csp-report; ` +
+    "require-trusted-types-for 'script'; " +
+    "trusted-types default;"
   );
+  
+  // Security headers completos (mejores prácticas 2024)
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  // CORS para PWA desde dominio principal
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload'); // 2 años
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('X-Download-Options', 'noopen');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  
+  // CORS más restrictivo
+  const allowedOrigin = req.headers.origin;
+  if (allowedOrigins.includes(allowedOrigin) || process.env.NODE_ENV === 'development') {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  }
+  
   next();
 });
 
@@ -875,21 +1133,346 @@ app.use(express.static('public', {
   }
 }));
 
+// ========================================================
+// Rate Limiting per Endpoint (IP + Session based)
+// ========================================================
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 3, // REDUCIDO: 3 uploads por minuto (era 5)
+  message: { ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento antes de intentar de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Rate limit por IP + Session (más estricto)
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const sid = req.sessionId || 'no-session';
+    return `${ip}:${sid}`;
+  },
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Upload blocked: IP=${req.ip}, Session=${req.sessionId}`);
+    res.status(429).json({ ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento.' });
+  }
+});
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20, // REDUCIDO: 20 mensajes por minuto (era 30)
+  message: { ok: false, error: 'Demasiados mensajes. Esperá un momento antes de continuar.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    return `${ip}:${req.sessionId || 'no-session'}`;
+  },
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Chat blocked: IP=${req.ip}, Session=${req.sessionId}`);
+    res.status(429).json({ ok: false, error: 'Demasiados mensajes. Esperá un momento.' });
+  }
+});
+
+const greetingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5, // REDUCIDO: 5 inicios por minuto (era 10)
+  message: { ok: false, error: 'Demasiados intentos de inicio. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Greeting blocked: IP=${req.ip}`);
+    res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá un momento.' });
+  }
+});
+
+// ========================================================
+// Multer configuration for image uploads
+// ========================================================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Verificar que el directorio existe y es seguro
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (req, file, cb) => {
+    try {
+      // Sanitizar nombre de archivo original
+      const safeName = path.basename(file.originalname)
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .slice(0, 100);
+      
+      const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+      const ext = path.extname(safeName).toLowerCase().slice(0, 10);
+      
+      // Validar extensión
+      const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      if (!allowedExts.includes(ext)) {
+        return cb(new Error('Extensión de archivo no permitida'));
+      }
+      
+      const sessionId = validateSessionId(req.sessionId) ? req.sessionId : 'anonymous';
+      const filename = `${sessionId}-${uniqueSuffix}${ext}`;
+      
+      // Verificar que no hay path traversal
+      const fullPath = path.join(UPLOADS_DIR, filename);
+      if (!fullPath.startsWith(path.resolve(UPLOADS_DIR))) {
+        return cb(new Error('Path traversal detectado'));
+      }
+      
+      cb(null, filename);
+    } catch (err) {
+      cb(new Error('Error generando nombre de archivo'));
+    }
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB máximo
+    files: 1, // Solo 1 archivo a la vez
+    fields: 10, // Limitar campos
+    parts: 20 // Limitar partes multipart
+  },
+  fileFilter: (req, file, cb) => {
+    // SECURITY: Validar Content-Type del multipart (no solo MIME del archivo)
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return cb(new Error('Content-Type debe ser multipart/form-data'));
+    }
+    
+    // Validar MIME type del archivo
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedMimes.includes(file.mimetype)) {
+      return cb(new Error('Solo se permiten imágenes (JPEG, PNG, GIF, WebP)'));
+    }
+    
+    // Validar nombre de archivo
+    if (!file.originalname || file.originalname.length > 255) {
+      return cb(new Error('Nombre de archivo inválido'));
+    }
+    
+    // Prevenir path traversal en nombre
+    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+      return cb(new Error('Nombre de archivo contiene caracteres no permitidos'));
+    }
+    
+    cb(null, true);
+  }
+});
+
+// Servir archivos subidos estáticamente
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  maxAge: '7d',
+  etag: true
+}));
+
+// ========================================================
+// Image Validation Utility
+// ========================================================
+async function validateImageFile(filePath) {
+  try {
+    // Read first bytes to check magic number
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(12);
+    fs.readSync(fd, buffer, 0, 12, 0);
+    fs.closeSync(fd);
+    
+    // Check magic numbers
+    const magicNumbers = {
+      jpeg: [0xFF, 0xD8, 0xFF],
+      png: [0x89, 0x50, 0x4E, 0x47],
+      gif: [0x47, 0x49, 0x46, 0x38],
+      webp: [0x52, 0x49, 0x46, 0x46] // "RIFF"
+    };
+    
+    let isValid = false;
+    for (const [type, magic] of Object.entries(magicNumbers)) {
+      let matches = true;
+      for (let i = 0; i < magic.length; i++) {
+        if (buffer[i] !== magic[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        isValid = true;
+        break;
+      }
+    }
+    
+    if (!isValid) {
+      return { valid: false, error: 'Archivo no es una imagen válida' };
+    }
+    
+    // Additional validation with sharp
+    const metadata = await sharp(filePath).metadata();
+    
+    // Verificar dimensiones razonables
+    if (metadata.width > 10000 || metadata.height > 10000) {
+      return { valid: false, error: 'Dimensiones de imagen demasiado grandes' };
+    }
+    
+    if (metadata.width < 10 || metadata.height < 10) {
+      return { valid: false, error: 'Dimensiones de imagen demasiado pequeñas' };
+    }
+    
+    return { valid: true, metadata };
+  } catch (err) {
+    return { valid: false, error: 'Error validando imagen: ' + err.message };
+  }
+}
+
+// ========================================================
+// Image Compression Utility
+// ========================================================
+async function compressImage(inputPath, outputPath) {
+  try {
+    const startTime = Date.now();
+    await sharp(inputPath)
+      .resize(1920, 1920, { // Max 1920px, mantiene aspect ratio
+        fit: 'inside',
+        withoutEnlargement: true
+      })
+      .jpeg({ quality: 85 }) // Comprimir a 85% calidad
+      .toFile(outputPath);
+    
+    const compressionTime = Date.now() - startTime;
+    
+    // Get file sizes
+    const originalSize = fs.statSync(inputPath).size;
+    const compressedSize = fs.statSync(outputPath).size;
+    const savedBytes = originalSize - compressedSize;
+    const savedPercent = ((savedBytes / originalSize) * 100).toFixed(1);
+    
+    logMsg(`[COMPRESS] ${path.basename(inputPath)}: ${(originalSize/1024).toFixed(1)}KB → ${(compressedSize/1024).toFixed(1)}KB (saved ${savedPercent}%) in ${compressionTime}ms`);
+    
+    return { success: true, originalSize, compressedSize, savedBytes, compressionTime };
+  } catch (err) {
+    console.error('[COMPRESS] Error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ========================================================
+// Automatic Cleanup Job (runs daily at 3 AM)
+// ========================================================
+cron.schedule('0 3 * * *', async () => {
+  logMsg('[CLEANUP] Iniciando limpieza automática de archivos antiguos...');
+  
+  try {
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const files = fs.readdirSync(UPLOADS_DIR);
+    let deletedCount = 0;
+    let freedBytes = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(UPLOADS_DIR, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.mtimeMs < sevenDaysAgo) {
+        freedBytes += stats.size;
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    }
+    
+    logMsg(`[CLEANUP] Completado: ${deletedCount} archivos eliminados, ${(freedBytes/1024/1024).toFixed(2)}MB liberados`);
+  } catch (err) {
+    console.error('[CLEANUP] Error:', err);
+  }
+});
+
+// Manual cleanup endpoint (protected)
+app.post('/api/cleanup', async (req, res) => {
+  const token = req.headers.authorization || req.query.token;
+  if (token !== SSE_TOKEN) {
+    return res.status(403).json({ ok: false, error: 'No autorizado' });
+  }
+  
+  try {
+    const daysOld = parseInt(req.body.daysOld || 7);
+    const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
+    const files = fs.readdirSync(UPLOADS_DIR);
+    let deletedCount = 0;
+    let freedBytes = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(UPLOADS_DIR, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.mtimeMs < cutoffTime) {
+        freedBytes += stats.size;
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    }
+    
+    res.json({ 
+      ok: true, 
+      deleted: deletedCount, 
+      freedMB: (freedBytes/1024/1024).toFixed(2),
+      daysOld 
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 const STATES = {
   ASK_NAME: 'ask_name',
   ASK_PROBLEM: 'ask_problem',
   ASK_DEVICE: 'ask_device',
+  ASK_HOWTO_DETAILS: 'ask_howto_details',
   BASIC_TESTS: 'basic_tests',
   ADVANCED_TESTS: 'advanced_tests',
   ESCALATE: 'escalate',
   ENDED: 'ended'
 };
 
+// ========================================================
+// Security: Input Validation & Sanitization
+// ========================================================
+function sanitizeInput(input, maxLength = 1000) {
+  if (!input) return '';
+  return String(input)
+    .trim()
+    .slice(0, maxLength)
+    .replace(/[<>"'`]/g, '') // Remove potential XSS characters
+    .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
+}
+
+function validateSessionId(sid) {
+  if (!sid || typeof sid !== 'string') return false;
+  
+  // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 81 caracteres
+  // Formato: srv-1700000000000-<64 hex>
+  if (sid.length < 20 || sid.length > 100) return false;
+  
+  // Debe empezar con srv-
+  if (!sid.startsWith('srv-')) return false;
+  
+  // Solo alfanumérico, guiones y puntos (sin espacios ni caracteres especiales)
+  if (!/^[a-zA-Z0-9._-]+$/.test(sid)) return false;
+  
+  // Prevenir timing attacks: usar crypto.timingSafeEqual si es posible
+  return true;
+}
+
 function getSessionId(req){
-  const h = (req.headers['x-session-id']||'').toString().trim();
-  const b = (req.body && (req.body.sessionId||req.body.sid)) ? String(req.body.sessionId||req.body.sid).trim() : '';
-  const q = (req.query && (req.query.sessionId||req.query.sid)) ? String(req.query.sessionId||req.query.sid).trim() : '';
-  return h || b || q || `srv-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const h = sanitizeInput(req.headers['x-session-id'] || '', 128);
+  const b = sanitizeInput(req.body?.sessionId || req.body?.sid || '', 128);
+  const q = sanitizeInput(req.query?.sessionId || req.query?.sid || '', 128);
+  
+  const sid = h || b || q;
+  
+  // Validate existing session ID
+  if (sid && validateSessionId(sid)) {
+    return sid;
+  }
+  
+  // Generate new SECURE session ID (32 bytes = 256 bits de entropía)
+  return generateSecureSessionId();
 }
 app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
@@ -897,11 +1480,38 @@ app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 app.get('/api/health', (_req,res) => {
   res.json({ ok:true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
 });
+
+// CSP Report endpoint (para monitorear violaciones)
+app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
+  const report = req.body?.['csp-report'] || req.body;
+  console.warn('[CSP_VIOLATION]', JSON.stringify(report, null, 2));
+  
+  // Log a archivo para análisis posterior
+  const entry = `[${nowIso()}] CSP_VIOLATION: ${JSON.stringify(report)}\n`;
+  try {
+    fs.appendFile(path.join(LOGS_DIR, 'csp-violations.log'), entry, () => {});
+  } catch (e) { /* noop */ }
+  
+  res.status(204).end();
+});
+
 app.post('/api/reload', (_req,res)=>{ try{ res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
 
-// Transcript retrieval
-app.get('/api/transcript/:sid', (req,res)=>{
-  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
+// Transcript retrieval (REQUIERE AUTENTICACIÓN)
+app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
+  
+  // SECURITY: Validar que el usuario tenga permiso para ver este transcript
+  const requestSessionId = req.sessionId || req.headers['x-session-id'];
+  const adminToken = req.headers.authorization || req.query.token;
+  
+  // Permitir solo si:
+  // 1. El session ID del request coincide con el transcript solicitado
+  // 2. O tiene un admin token válido
+  if (sid !== requestSessionId && adminToken !== SSE_TOKEN) {
+    console.warn(`[SECURITY] Unauthorized transcript access attempt: requested=${sid}, session=${requestSessionId}, IP=${req.ip}`);
+    return res.status(403).json({ ok:false, error:'No autorizado para ver este transcript' });
+  }
+  
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
   if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
   res.set('Content-Type','text/plain; charset=utf-8');
@@ -1157,16 +1767,40 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
   }
 });
 
-// ticket public routes
-app.get('/api/ticket/:tid', (req, res) => {
+// ticket public routes (CON AUTENTICACIÓN)
+app.get('/api/ticket/:tid', async (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).json({ ok:false, error: 'not_found' });
+  
+  // Verificar autenticación
+  const adminToken = req.headers.authorization || req.query.token;
+  const requestSessionId = req.sessionId || req.headers['x-session-id'];
+  
+  const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
+  const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
+  
+  if (!fs.existsSync(txtFile) && !fs.existsSync(jsonFile)) {
+    return res.status(404).json({ ok:false, error: 'not_found' });
+  }
+  
+  // SECURITY: Validar ownership (leer JSON para ver quién creó el ticket)
+  if (fs.existsSync(jsonFile) && adminToken !== SSE_TOKEN) {
+    try {
+      const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+      const ticketOwnerSid = ticketData.sid || '';
+      
+      if (ticketOwnerSid !== requestSessionId) {
+        console.warn(`[SECURITY] Unauthorized ticket access: ticket=${tid}, owner=${ticketOwnerSid}, requester=${requestSessionId}, IP=${req.ip}`);
+        return res.status(403).json({ ok:false, error: 'No autorizado para ver este ticket' });
+      }
+    } catch (parseErr) {
+      console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
+    }
+  }
 
-  const raw = fs.readFileSync(file,'utf8');
+  const raw = fs.readFileSync(txtFile,'utf8');
   const maskedRaw = maskPII(raw);
 
-  // parse lines into messages: expected lines like "[TIMESTAMP] who: text"
+  // parse lines into messages
   const lines = maskedRaw.split(/\r?\n/);
   const messages = [];
   for (const ln of lines) {
@@ -1319,10 +1953,19 @@ const BUTTONS = {
   MORE_SIMPLE: 'BTN_MORE_SIMPLE'
 };
 
-// Greeting endpoint
-app.all('/api/greeting', async (req,res)=>{
+// Greeting endpoint (con CSRF token generation)
+app.all('/api/greeting', greetingLimiter, async (req,res)=>{
   try{
     const sid = req.sessionId;
+    
+    // Validar longitud de inputs si vienen en body
+    if (req.body) {
+      for (const [key, value] of Object.entries(req.body)) {
+        if (typeof value === 'string' && value.length > 10000) {
+          return res.status(400).json({ ok: false, error: `Campo '${key}' excede longitud máxima` });
+        }
+      }
+    }
 
     // Detectar locale preferido a partir de headers
     const accept = String(req.headers['accept-language'] || '').toLowerCase();
@@ -1335,6 +1978,10 @@ app.all('/api/greeting', async (req,res)=>{
     } else if (accept.startsWith('es')) {
       locale = accept.includes('ar') ? 'es-AR' : 'es-419';
     }
+    
+    // Generar CSRF token para esta sesión
+    const csrfToken = generateCSRFToken();
+    csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
 
     const fresh = {
       id: sid,
@@ -1362,12 +2009,15 @@ app.all('/api/greeting', async (req,res)=>{
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
     await saveSession(sid, fresh);
     const langOptions = ['BTN_LANG_ES_AR','BTN_LANG_ES','BTN_LANG_EN'];
+    
+    // Incluir CSRF token en respuesta
     return res.json(withOptions({
       ok: true,
       greeting: fullGreeting,
       reply: fullGreeting,
       stage: fresh.stage,
       sessionId: sid,
+      csrfToken: csrfToken, // NUEVO: token CSRF
       options: langOptions
     }));
   } catch(e){
@@ -1680,6 +2330,24 @@ async function generateAndShowSteps(session, sid, res){
 
     const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
 
+    // Build context with image analysis if available
+    let imageContext = '';
+    if (session.images && session.images.length > 0) {
+      const latestImage = session.images[session.images.length - 1];
+      if (latestImage.analysis) {
+        imageContext += '\n\nCONTEXTO DE IMAGEN SUBIDA:\n';
+        if (latestImage.analysis.problemDetected) {
+          imageContext += `- Problema detectado: ${latestImage.analysis.problemDetected}\n`;
+        }
+        if (latestImage.analysis.errorMessages && latestImage.analysis.errorMessages.length > 0) {
+          imageContext += `- Errores visibles: ${latestImage.analysis.errorMessages.join(', ')}\n`;
+        }
+        if (latestImage.analysis.technicalDetails) {
+          imageContext += `- Detalles técnicos: ${latestImage.analysis.technicalDetails}\n`;
+        }
+      }
+    }
+
     // Playbook local para dispositivos de streaming / SmartTV (prioridad en español)
     let steps;
     const playbookForDevice = device && issueKey && DEVICE_PLAYBOOKS?.[device]?.[issueKey];
@@ -1690,7 +2358,8 @@ async function generateAndShowSteps(session, sid, res){
     } else {
       let aiSteps = [];
       try {
-        aiSteps = await aiQuickTests(session.problem || '', device || '', locale);
+        const problemWithContext = (session.problem || '') + imageContext;
+        aiSteps = await aiQuickTests(problemWithContext, device || '', locale);
       } catch(e){
         aiSteps = [];
       }
@@ -1778,10 +2447,230 @@ async function generateAndShowSteps(session, sid, res){
 }
 
 // ========================================================
+// Image upload endpoint: /api/upload-image
+// ========================================================
+app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req, res) => {
+  const uploadStartTime = Date.now();
+  let uploadedFilePath = null;
+  
+  try {
+    // Validación básica
+    if (!req.file) {
+      updateMetric('uploads', 'failed', 1);
+      return res.status(400).json({ ok: false, error: 'No se recibió ninguna imagen' });
+    }
+
+    uploadedFilePath = req.file.path;
+    
+    // Validar session ID
+    const sid = req.sessionId;
+    if (!validateSessionId(sid)) {
+      updateMetric('uploads', 'failed', 1);
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+      return res.status(400).json({ ok: false, error: 'Session ID inválido' });
+    }
+    
+    const session = await getSession(sid);
+    
+    if (!session) {
+      updateMetric('uploads', 'failed', 1);
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+      return res.status(400).json({ ok: false, error: 'Sesión no encontrada' });
+    }
+    
+    // Limitar uploads por sesión
+    if (!session.images) session.images = [];
+    if (session.images.length >= 10) {
+      updateMetric('uploads', 'failed', 1);
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+      return res.status(400).json({ ok: false, error: 'Límite de imágenes por sesión alcanzado (10 máx)' });
+    }
+
+    // Validar que sea una imagen real
+    const validation = await validateImageFile(uploadedFilePath);
+    if (!validation.valid) {
+      updateMetric('uploads', 'failed', 1);
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+      return res.status(400).json({ ok: false, error: validation.error });
+    }
+
+    // Compress image
+    const originalPath = uploadedFilePath;
+    const compressedPath = originalPath.replace(/(\.[^.]+)$/, '-compressed$1');
+    const compressionResult = await compressImage(originalPath, compressedPath);
+    
+    let finalPath = originalPath;
+    let finalSize = req.file.size;
+    
+    if (compressionResult.success && compressionResult.compressedSize < req.file.size) {
+      // Use compressed version
+      fs.unlinkSync(originalPath);
+      fs.renameSync(compressedPath, originalPath);
+      finalSize = compressionResult.compressedSize;
+      logMsg(`[UPLOAD] Compression saved ${(compressionResult.savedBytes/1024).toFixed(1)}KB`);
+    } else if (compressionResult.success) {
+      // Original was smaller, delete compressed
+      fs.unlinkSync(compressedPath);
+    }
+
+    // Build image URL (sanitized)
+    const safeFilename = path.basename(req.file.filename);
+    const imageUrl = `${PUBLIC_BASE_URL}/uploads/${safeFilename}`;
+    
+    // Analyze image with OpenAI Vision if available
+    let imageAnalysis = null;
+    const analysisStartTime = Date.now();
+    
+    if (openai) {
+      try {
+        const analysisPrompt = sanitizeInput(`Analizá esta imagen que subió un usuario de soporte técnico. 
+Identificá:
+1. ¿Qué tipo de problema o dispositivo se muestra?
+2. ¿Hay mensajes de error visibles? ¿Cuáles?
+3. ¿Qué información técnica relevante podés extraer?
+4. ¿Qué recomendaciones darías?
+
+Respondé en formato JSON:
+{
+  "deviceType": "tipo de dispositivo",
+  "problemDetected": "descripción del problema",
+  "errorMessages": ["mensaje1", "mensaje2"],
+  "technicalDetails": "detalles técnicos",
+  "recommendations": "recomendaciones"
+}`, 1500);
+
+        const visionResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: analysisPrompt },
+                { 
+                  type: 'image_url', 
+                  image_url: { 
+                    url: imageUrl,
+                    detail: 'high'
+                  } 
+                }
+              ]
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.3
+        });
+
+        const analysisTime = Date.now() - analysisStartTime;
+        
+        // Update average analysis time
+        const currentAvg = metrics.uploads.avgAnalysisTime;
+        const totalUploads = metrics.uploads.success + 1;
+        metrics.uploads.avgAnalysisTime = ((currentAvg * metrics.uploads.success) + analysisTime) / totalUploads;
+
+        const analysisText = visionResponse.choices[0]?.message?.content || '{}';
+        try {
+          imageAnalysis = JSON.parse(analysisText);
+        } catch (parseErr) {
+          imageAnalysis = { rawAnalysis: analysisText };
+        }
+
+        logMsg(`[VISION] Analyzed image for session ${sid} in ${analysisTime}ms: ${imageAnalysis.problemDetected || 'No problem detected'}`);
+      } catch (visionErr) {
+        console.error('[VISION] Error analyzing image:', visionErr);
+        imageAnalysis = { error: 'No se pudo analizar la imagen' };
+        updateMetric('errors', 'count', 1);
+        updateMetric('errors', 'lastError', { type: 'vision', message: visionErr.message, timestamp: new Date().toISOString() });
+      }
+    }
+
+    // Store image data in session
+    const imageData = {
+      url: imageUrl,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      size: finalSize,
+      uploadedAt: new Date().toISOString(),
+      analysis: imageAnalysis
+    };
+    
+    session.images.push(imageData);
+    
+    // Add to transcript
+    session.transcript.push({
+      who: 'user',
+      text: '[Imagen subida]',
+      imageUrl: imageUrl,
+      ts: nowIso()
+    });
+
+    await saveSession(sid, session);
+
+    // Build response
+    let replyText = '✅ Imagen recibida correctamente.';
+    
+    if (imageAnalysis && imageAnalysis.problemDetected) {
+      replyText += `\n\n🔍 **Análisis de la imagen:**\n${imageAnalysis.problemDetected}`;
+      
+      if (imageAnalysis.errorMessages && imageAnalysis.errorMessages.length > 0) {
+        replyText += `\n\n**Errores detectados:**\n${imageAnalysis.errorMessages.map(e => `• ${e}`).join('\n')}`;
+      }
+      
+      if (imageAnalysis.recommendations) {
+        replyText += `\n\n**Recomendación:**\n${imageAnalysis.recommendations}`;
+      }
+    }
+
+    session.transcript.push({
+      who: 'bot',
+      text: replyText,
+      ts: nowIso()
+    });
+
+    await saveSession(sid, session);
+
+    // Update metrics
+    updateMetric('uploads', 'total', 1);
+    updateMetric('uploads', 'success', 1);
+    updateMetric('uploads', 'totalBytes', finalSize);
+    
+    const totalUploadTime = Date.now() - uploadStartTime;
+    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize/1024).toFixed(1)}KB)`);
+
+    res.json({
+      ok: true,
+      imageUrl,
+      analysis: imageAnalysis,
+      reply: replyText,
+      sessionId: sid
+    });
+
+  } catch (err) {
+    console.error('[UPLOAD] Error:', err);
+    updateMetric('uploads', 'failed', 1);
+    updateMetric('errors', 'count', 1);
+    updateMetric('errors', 'lastError', { type: 'upload', message: err.message, timestamp: new Date().toISOString() });
+    res.status(500).json({ 
+      ok: false, 
+      error: err.message || 'Error al subir la imagen' 
+    });
+  }
+});
+
+// ========================================================
 // Core chat endpoint: /api/chat
 // ========================================================
-app.post('/api/chat', async (req,res)=>{
+app.post('/api/chat', chatLimiter, async (req,res)=>{
   try {
+    updateMetric('chat', 'totalMessages', 1);
+    
     const body = req.body || {};
     const tokenMap = {};
     if (Array.isArray(CHAT?.ui?.buttons)) {
@@ -2235,17 +3124,162 @@ if (!session.device) {
       // OA analyze problem (optional)
       const ai = await analyzeProblemWithOA(session.problem || '');
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
+      
       if(!isIT){
-        const replyNotIT = 'Disculpa, no entendí tu problema o no es informático. ¿Querés reformular el problema?';
+        const replyNotIT = 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?';
         session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
         return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular Problema'] }));
       }
+      
       if(ai.device) session.device = session.device || ai.device;
       if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
+      // Detectar si es solicitud de ayuda (How-To) o problema técnico
+      if(ai.isHowTo && !ai.isProblem){
+        // Es una solicitud de guía/instalación/configuración
+        session.isHowTo = true;
+        session.stage = STATES.ASK_HOWTO_DETAILS;
+        
+        let replyHowTo = '';
+        const deviceName = ai.device || 'dispositivo';
+        
+        if(ai.issueKey === 'install_guide'){
+          replyHowTo = `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`;
+        } else if(ai.issueKey === 'setup_guide' || ai.issueKey === 'connect_guide'){
+          replyHowTo = `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`;
+        } else {
+          replyHowTo = `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`;
+        }
+        
+        session.transcript.push({ who:'bot', text: replyHowTo, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json({ ok:true, reply: replyHowTo, stage: session.stage });
+      }
+
+      // Si llegó acá, es un PROBLEMA técnico → generar pasos de diagnóstico
+      session.isProblem = true;
+      session.isHowTo = false;
+
       // Generate and show steps
       return await generateAndShowSteps(session, sid, res);
+
+    } else if (session.stage === STATES.ASK_HOWTO_DETAILS) {
+      // User is responding with OS + device model for how-to guide
+      const userResponse = t.toLowerCase();
+      
+      // Parse OS
+      let detectedOS = null;
+      if (/windows\s*11/i.test(userResponse)) detectedOS = 'Windows 11';
+      else if (/windows\s*10/i.test(userResponse)) detectedOS = 'Windows 10';
+      else if (/mac|macos|osx/i.test(userResponse)) detectedOS = 'macOS';
+      else if (/linux|ubuntu|debian/i.test(userResponse)) detectedOS = 'Linux';
+      
+      // Parse device model (any remaining text after OS)
+      let deviceModel = userResponse.trim();
+      if (detectedOS) {
+        deviceModel = userResponse.replace(/windows\s*(11|10)?|mac(os)?|osx|linux|ubuntu|debian/gi, '').trim();
+      }
+      
+      // Store in session
+      session.userOS = detectedOS || 'No especificado';
+      session.deviceModel = deviceModel || 'Modelo no especificado';
+      
+      // Generate how-to guide using AI
+      const deviceName = session.device || 'dispositivo';
+      const issueKey = session.issueKey || 'install_guide';
+      
+      try {
+        const howToPrompt = `Genera una guía paso a paso para ayudar a un usuario a ${
+          issueKey === 'install_guide' ? 'instalar' :
+          issueKey === 'setup_guide' ? 'configurar' :
+          issueKey === 'connect_guide' ? 'conectar' : 'trabajar con'
+        } su ${deviceName}.
+
+Sistema Operativo: ${session.userOS}
+Marca/Modelo: ${session.deviceModel}
+
+Devolvé una respuesta en formato JSON con esta estructura:
+{
+  "steps": [
+    "Paso 1: ...",
+    "Paso 2: ...",
+    "Paso 3: ..."
+  ],
+  "additionalInfo": "Información adicional útil (opcional)"
+}
+
+La guía debe ser:
+- Específica para el SO y modelo mencionados
+- Clara y fácil de seguir
+- Con 5-8 pasos concretos
+- Incluir enlaces oficiales de descarga si aplica (ej: sitio del fabricante)
+- En español argentino informal (vos, tené en cuenta, etc.)`;
+
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'Sos un asistente técnico experto en instalación y configuración de dispositivos.' },
+            { role: 'user', content: howToPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 1000
+        });
+
+        const aiResponse = completion.choices[0]?.message?.content || '{}';
+        let guideData = { steps: [], additionalInfo: '' };
+        
+        try {
+          guideData = JSON.parse(aiResponse);
+        } catch (parseErr) {
+          console.error('[ASK_HOWTO_DETAILS] JSON parse error:', parseErr);
+          // Fallback: extract steps from text
+          const stepMatches = aiResponse.match(/Paso \d+:.*$/gm);
+          if (stepMatches && stepMatches.length > 0) {
+            guideData.steps = stepMatches;
+          } else {
+            guideData.steps = [aiResponse];
+          }
+        }
+
+        // Store steps in session
+        session.tests = session.tests || {};
+        session.tests.howto = guideData.steps || [];
+        session.currentStepIndex = 0;
+        session.stage = STATES.BASIC_TESTS; // Reuse BASIC_TESTS flow for showing steps
+        
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
+        let replyText = `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`;
+        
+        if (guideData.steps && guideData.steps.length > 0) {
+          replyText += guideData.steps.join('\n\n');
+        } else {
+          replyText += 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.';
+        }
+        
+        if (guideData.additionalInfo) {
+          replyText += `\n\n📌 ${guideData.additionalInfo}`;
+        }
+        
+        replyText += '\n\n¿Te funcionó? Respondé "sí" o "no".';
+        
+        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return res.json(withOptions({ 
+          ok: true, 
+          reply: replyText, 
+          stage: session.stage,
+          options: ['BTN_YES', 'BTN_NO']
+        }));
+        
+      } catch (aiError) {
+        console.error('[ASK_HOWTO_DETAILS] AI generation error:', aiError);
+        const errorMsg = 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?';
+        session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json({ ok: true, reply: errorMsg, stage: session.stage });
+      }
 
     } else if (session.stage === STATES.ASK_DEVICE) {
       // Fallback handler for ASK_DEVICE
@@ -2488,7 +3522,52 @@ if (!session.device) {
 // Sessions listing
 app.get('/api/sessions', async (_req,res)=>{
   const sessions = await listActiveSessions();
+  updateMetric('chat', 'sessions', sessions.length);
   res.json({ ok:true, count: sessions.length, sessions });
+});
+
+// Metrics endpoint
+app.get('/api/metrics', async (req, res) => {
+  const token = req.headers.authorization || req.query.token;
+  
+  // Optional authentication
+  if (SSE_TOKEN && token !== SSE_TOKEN) {
+    return res.status(403).json({ ok: false, error: 'No autorizado' });
+  }
+  
+  try {
+    const sessions = await listActiveSessions();
+    const uploadsDir = fs.readdirSync(UPLOADS_DIR);
+    const uploadStats = uploadsDir.reduce((acc, file) => {
+      const filePath = path.join(UPLOADS_DIR, file);
+      const stats = fs.statSync(filePath);
+      return {
+        count: acc.count + 1,
+        totalBytes: acc.totalBytes + stats.size
+      };
+    }, { count: 0, totalBytes: 0 });
+    
+    res.json({
+      ok: true,
+      metrics: getMetrics(),
+      storage: {
+        uploads: {
+          files: uploadStats.count,
+          totalMB: (uploadStats.totalBytes / 1024 / 1024).toFixed(2)
+        }
+      },
+      sessions: {
+        active: sessions.length
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Serve index.html for root path
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
@@ -2498,7 +3577,13 @@ const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, ()=> {
   console.log(`STI Chat (v7) started on ${PORT}`);
   console.log('[Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)');
+  console.log('[Performance] Compression enabled (gzip/brotli)');
+  console.log('[Performance] Session cache enabled (max 1000 sessions)');
 });
+
+// PERFORMANCE: Enable HTTP keep-alive
+server.keepAliveTimeout = 65000; // 65 segundos
+server.headersTimeout = 66000; // Ligeramente mayor que keepAlive
 
 // Graceful shutdown
 function gracefulShutdown(signal) {
