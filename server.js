@@ -2810,26 +2810,23 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         languageName = 'English';
       } else if (buttonToken === 'BTN_LANG_ES') {
         locale = 'es-419';
-        languageName = 'Español';
+        languageName = 'Español España';
       } else {
         locale = 'es-AR';
         languageName = 'Español Argentina';
       }
       session.userLocale = locale;
-      // Guardar el idioma como userName
-      session.userName = languageName;
       
-      const whoLabel = capitalizeToken(session.userName);
       let reply;
       if (locale === 'en') {
-        reply = `Thanks, ${whoLabel}. 👍\n\nI'm here to help you with your PC, notebook, WiFi or printer. Now tell me: what problem are you having or what do you need help with?`;
+        reply = `You selected "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
       } else if (locale === 'es-419') {
-        reply = `Gracias, ${whoLabel}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`;
+        reply = `Seleccionaste "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
       } else {
-        reply = `Gracias, ${whoLabel}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
+        reply = `Seleccionaste "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
       }
       const tsLang = nowIso();
-      session.stage = STATES.ASK_PROBLEM;
+      session.stage = STATES.ASK_NAME;
       session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
       await saveSession(sid, session);
       return res.json(withOptions({
