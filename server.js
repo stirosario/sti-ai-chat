@@ -36,6 +36,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import fs, { createReadStream } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -43,7 +44,7 @@ import OpenAI from 'openai';
 import multer from 'multer';
 import sharp from 'sharp';
 import cron from 'node-cron';
-import compression from 'compression';  // NUEVO: Compresión de respuestas
+import compression from 'compression';
 
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 
@@ -308,24 +309,32 @@ const EMBEDDED_CHAT = {
   },
   ui: {
     buttons: [
+      // Botones del flujo según Flujo.csv
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
+      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
+      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+      { token: 'BTN_HELP', label: 'Ayuda técnica 🛠️', text: 'ayuda técnica' },
+      { token: 'BTN_TASK', label: 'Asistencia 🤝', text: 'asistencia' },
+      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
+      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
+      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
+      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
+      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
+      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
+      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
+      { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
       { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
       { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_SOLVED', label: 'Lo pude solucionar ✔️', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: 'El problema persiste ❌', text: 'el problema persiste' },
       { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
       { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
-      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'hablar con un tecnico' },
-      { token: 'BTN_MORE_TESTS', label: 'Más pruebas 🔍', text: 'más pruebas' },
+      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
       { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
       { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
-      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
-      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
-      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo', text: 'Prefiero no decirlo' },
       // device tokens
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
@@ -965,6 +974,24 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
 // Express app, endpoints, and core chat flow
 // ========================================================
 const app = express();
+
+// SECURITY: Helmet para headers de seguridad
+app.use(helmet({
+  contentSecurityPolicy: false, // Lo manejaremos manualmente para PWA
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  crossOriginEmbedderPolicy: false, // Para compatibilidad con PWA
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
 // CORS: lista blanca de orígenes permitidos (configurable vía ALLOWED_ORIGINS)
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
@@ -1190,38 +1217,44 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     // Verificar que el directorio existe y es seguro
     if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
     }
-    cb(null, UPLOADS_DIR);
+    
+    // Verificar permisos de escritura
+    try {
+      fs.accessSync(UPLOADS_DIR, fs.constants.W_OK);
+      cb(null, UPLOADS_DIR);
+    } catch (err) {
+      console.error('[MULTER] Sin permisos de escritura en UPLOADS_DIR:', err);
+      cb(new Error('No se puede escribir en el directorio de uploads'));
+    }
   },
   filename: (req, file, cb) => {
     try {
-      // Sanitizar nombre de archivo original
-      const safeName = path.basename(file.originalname)
-        .replace(/[^a-zA-Z0-9._-]/g, '_')
-        .slice(0, 100);
-      
-      const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
-      const ext = path.extname(safeName).toLowerCase().slice(0, 10);
-      
-      // Validar extensión
+      // Sanitizar nombre de archivo con mayor seguridad
+      const ext = path.extname(file.originalname).toLowerCase();
       const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      
       if (!allowedExts.includes(ext)) {
-        return cb(new Error('Extensión de archivo no permitida'));
+        return cb(new Error('Tipo de archivo no permitido'));
       }
       
-      const sessionId = validateSessionId(req.sessionId) ? req.sessionId : 'anonymous';
-      const filename = `${sessionId}-${uniqueSuffix}${ext}`;
+      // Generar nombre único con timestamp y random
+      const timestamp = Date.now();
+      const random = crypto.randomBytes(8).toString('hex');
+      const sessionId = validateSessionId(req.sessionId) ? req.sessionId.substring(0, 20) : 'anon';
+      const safeName = `${sessionId}_${timestamp}_${random}${ext}`;
       
-      // Verificar que no hay path traversal
-      const fullPath = path.join(UPLOADS_DIR, filename);
-      if (!fullPath.startsWith(path.resolve(UPLOADS_DIR))) {
-        return cb(new Error('Path traversal detectado'));
+      // Verificar que el path final es seguro
+      const fullPath = path.join(UPLOADS_DIR, safeName);
+      if (!isPathSafe(fullPath, UPLOADS_DIR)) {
+        return cb(new Error('Ruta de archivo no válida'));
       }
       
-      cb(null, filename);
+      cb(null, safeName);
     } catch (err) {
-      cb(new Error('Error generando nombre de archivo'));
+      console.error('[MULTER] Error generando nombre de archivo:', err);
+      cb(new Error('Error procesando el archivo'));
     }
   }
 });
@@ -1232,6 +1265,8 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB máximo
     files: 1, // Solo 1 archivo a la vez
     fields: 10, // Limitar campos
+    fieldSize: 1 * 1024 * 1024, // 1MB por campo
+    fieldNameSize: 100, // 100 bytes para nombres de campo
     parts: 20 // Limitar partes multipart
   },
   fileFilter: (req, file, cb) => {
@@ -1241,10 +1276,17 @@ const upload = multer({
       return cb(new Error('Content-Type debe ser multipart/form-data'));
     }
     
-    // Validar MIME type del archivo
+    // Validar MIME type del archivo (doble validación)
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Solo se permiten imágenes (JPEG, PNG, GIF, WebP)'));
+    }
+    
+    // Validar extensión del archivo
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    if (!allowedExts.includes(ext)) {
+      return cb(new Error('Extensión de archivo no permitida'));
     }
     
     // Validar nombre de archivo
@@ -1419,16 +1461,23 @@ app.post('/api/cleanup', async (req, res) => {
   }
 });
 
+// Estados del flujo según Flujo.csv
 const STATES = {
-  ASK_LANGUAGE: 'ask_language',
-  ASK_NAME: 'ask_name',
-  ASK_PROBLEM: 'ask_problem',
-  ASK_DEVICE: 'ask_device',
-  ASK_HOWTO_DETAILS: 'ask_howto_details',
-  BASIC_TESTS: 'basic_tests',
-  ADVANCED_TESTS: 'advanced_tests',
-  ESCALATE: 'escalate',
-  ENDED: 'ended'
+  ASK_LANGUAGE: 'ASK_LANGUAGE',
+  ASK_NAME: 'ASK_NAME',
+  ASK_NEED: 'ASK_NEED',
+  CLASSIFY_NEED: 'CLASSIFY_NEED',
+  ASK_DEVICE: 'ASK_DEVICE',
+  ASK_PROBLEM: 'ASK_PROBLEM',
+  DETECT_DEVICE: 'DETECT_DEVICE',
+  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
+  GENERATE_HOWTO: 'GENERATE_HOWTO',
+  BASIC_TESTS: 'BASIC_TESTS',
+  ADVANCED_TESTS: 'ADVANCED_TESTS',
+  ESCALATE: 'ESCALATE',
+  CREATE_TICKET: 'CREATE_TICKET',
+  TICKET_SENT: 'TICKET_SENT',
+  ENDED: 'ENDED'
 };
 
 // ========================================================
@@ -1443,11 +1492,46 @@ function sanitizeInput(input, maxLength = 1000) {
     .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
 }
 
+function sanitizeFilePath(fileName) {
+  if (!fileName || typeof fileName !== 'string') return null;
+  
+  // Remover path traversal patterns
+  const sanitized = fileName
+    .replace(/\.\./g, '')
+    .replace(/[\/\\]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 255);
+  
+  // Validar que no esté vacío después de sanitizar
+  if (!sanitized || sanitized.length === 0) return null;
+  
+  return sanitized;
+}
+
+function isPathSafe(filePath, allowedDir) {
+  const resolvedPath = path.resolve(filePath);
+  const resolvedBase = path.resolve(allowedDir);
+  return resolvedPath.startsWith(resolvedBase);
+}
+
 function validateSessionId(sid) {
   if (!sid || typeof sid !== 'string') return false;
   
   // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 81 caracteres
   // Formato: srv-1700000000000-<64 hex>
+  if (sid.length !== 81) return false;
+  
+  // Validar formato exacto con regex estricto
+  const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
+  if (!sessionIdRegex.test(sid)) return false;
+  
+  // Validar que el timestamp sea razonable (no futuro, no muy antiguo)
+  const timestamp = parseInt(sid.substring(4, 17));
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+  if (timestamp > now || timestamp < (now - maxAge)) return false;
+  
+  return true;
   if (sid.length < 20 || sid.length > 100) return false;
   
   // Debe empezar con srv-
@@ -1920,7 +2004,7 @@ app.post('/api/reset', async (req,res)=>{
   const empty = {
     id: sid,
     userName: null,
-    stage: STATES.ASK_NAME,
+    stage: STATES.ASK_LANGUAGE,
     device:null,
     problem:null,
     issueKey:null,
@@ -1934,7 +2018,10 @@ app.post('/api/reset', async (req,res)=>{
     startedAt: nowIso(),
     nameAttempts: 0,
     stepProgress: {},
-    pendingDeviceGroup: null
+    pendingDeviceGroup: null,
+    needType: null,
+    isHowTo: false,
+    isProblem: false
   };
   await saveSession(sid, empty);
   res.json({ ok:true });
@@ -2002,7 +2089,10 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       nameAttempts: 0,
       stepProgress: {},
       pendingDeviceGroup: null,
-      userLocale: null
+      userLocale: null,
+      needType: null,
+      isHowTo: false,
+      isProblem: false
     };
     const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
@@ -2056,6 +2146,24 @@ function buildLanguageSelectionGreeting() {
   const line2en = "🌐 To begin, select a language using the buttons:";
 
   return `${base.es}\n${base.en}\n\n${line2es}\n${line2en}`;
+}
+
+// Función para agregar respuestas empáticas según Flujo.csv
+function addEmpatheticResponse(stage, locale = 'es-AR') {
+  const isEn = String(locale).toLowerCase().startsWith('en');
+  const responses = {
+    ASK_LANGUAGE: isEn ? "I'm here to help you with whatever you need." : "Estoy acá para ayudarte con lo que necesites.",
+    ASK_NAME: isEn ? "Nice to meet you." : "Encantado de conocerte.",
+    ASK_NEED: isEn ? "Let's solve it together." : "Vamos a resolverlo juntos.",
+    ASK_DEVICE: isEn ? "Thanks for clarifying." : "Gracias por aclararlo.",
+    ASK_PROBLEM: isEn ? "Thanks for telling me the details." : "Gracias por contarme el detalle.",
+    ASK_HOWTO_DETAILS: isEn ? "Perfect, I'll guide you with that." : "Perfecto, con eso te guío.",
+    BASIC_TESTS: isEn ? "Great, we're making progress!" : "Genial, vamos por buen camino!",
+    ADVANCED_TESTS: isEn ? "This can give us more clues." : "Esto nos puede dar más pistas.",
+    ESCALATE: isEn ? "Thanks for your patience." : "Gracias por tu paciencia.",
+    ENDED: isEn ? "I hope your device works perfectly." : "Espero que tu equipo funcione perfecto."
+  };
+  return responses[stage] || '';
 }
 
 
@@ -3026,13 +3134,75 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         const nameGreeting = buildNameGreeting(selectedLocale);
         session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: ['Prefiero no decirlo'] }));
+        return res.json(withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: ['BTN_NO_NAME'] }));
       } else {
         // No entendió la selección, pedir de nuevo
         const retry = "🌐 Por favor, seleccioná un idioma tocando uno de los botones.\n🌐 Please select a language by tapping one of the buttons.";
         session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
         await saveSession(sid, session);
         return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: ['Español Argentina', 'Español España', 'English'] }));
+      }
+    }
+
+    // ASK_NEED: Handle user need classification (help vs task) - según Flujo.csv
+    if (session.stage === STATES.ASK_NEED) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const tLower = t.toLowerCase();
+      
+      let needType = null;
+      
+      // Detectar por botón
+      if (buttonToken === 'BTN_HELP' || buttonToken === 'Ayuda técnica 🛠️') {
+        needType = 'problema';
+      } else if (buttonToken === 'BTN_TASK' || buttonToken === 'Asistencia 🤝') {
+        needType = 'tarea';
+      } 
+      // Detectar por palabras clave
+      else if (/problema|falla|error|no funciona|no anda|roto|dañado/i.test(tLower)) {
+        needType = 'problema';
+      } else if (/instalar|configurar|cómo|como|conectar|setup|how to|poner/i.test(tLower)) {
+        needType = 'tarea';
+      }
+      
+      if (needType) {
+        session.needType = needType;
+        session.stage = STATES.ASK_PROBLEM;
+        
+        let reply = '';
+        const empatia = addEmpatheticResponse('ASK_NEED', locale);
+        
+        if (needType === 'problema') {
+          reply = isEn
+            ? `${empatia}\n\nTell me what technical problem you're having.`
+            : (locale === 'es-419'
+                ? `${empatia}\n\nCuéntame qué problema técnico tienes.`
+                : `${empatia}\n\nContame qué problema técnico tenés.`);
+          session.isProblem = true;
+          session.isHowTo = false;
+        } else {
+          reply = isEn
+            ? `${empatia}\n\nTell me what task you want to do.`
+            : (locale === 'es-419'
+                ? `${empatia}\n\nCuéntame qué tarea quieres realizar.`
+                : `${empatia}\n\nContame qué tarea querés realizar.`);
+          session.isHowTo = true;
+          session.isProblem = false;
+        }
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage }));
+      } else {
+        // No entendió la necesidad, pedir de nuevo
+        const retry = isEn
+          ? "Please select one of the options using the buttons."
+          : (locale === 'es-419'
+              ? "Por favor, selecciona una de las opciones usando los botones."
+              : "Por favor, seleccioná una de las opciones usando los botones.");
+        session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
       }
     }
 
@@ -3047,41 +3217,51 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       const looksLikeProblem = maybeProblem && maybeProblem.isIT && (maybeProblem.isProblem || maybeProblem.isHowTo);
 
       if (looksLikeProblem) {
-        // Si llegó hasta acá, usamos un nombre genérico y avanzamos al estado ASK_PROBLEM
+        // Si llegó hasta acá, usamos un nombre genérico y avanzamos al estado ASK_NEED
         if (!session.userName) {
           session.userName = isEn ? 'User' : 'Usuario';
         }
         session.problem = t || session.problem;
-        session.stage = STATES.ASK_PROBLEM;
+        session.stage = STATES.ASK_NEED;
 
-        // No respondemos todavía: dejamos que el bloque ASK_PROBLEM maneje este mensaje
+        // Preguntar qué tipo de necesidad tiene
+        const empatia = addEmpatheticResponse('ASK_NAME', locale);
+        const reply = isEn
+          ? `${empatia} Thanks! What do you need today? Technical help 🛠️ or assistance 🤝?`
+          : (locale === 'es-419'
+              ? `${empatia} ¡Gracias! ¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
+              : `${empatia} ¡Gracias! ¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSessionCached(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
       } else {
         // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
         if ((session.nameAttempts || 0) >= 5) {
           session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_PROBLEM;
+          session.stage = STATES.ASK_NEED;
 
           const reply = isEn
-            ? "Let's continue without your name. Now tell me what problem you're having or what you need help with."
+            ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
             : (locale === 'es-419'
-                ? "Sigamos sin tu nombre. Ahora cuéntame qué problema estás teniendo o en qué necesitas ayuda."
-                : "Sigamos sin tu nombre. Ahora contame qué problema estás teniendo o en qué necesitás ayuda.");
+                ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
+                : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSessionCached(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage }));
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
         }
 
-        // Prefiero no decirlo (texto)
-        if (NO_NAME_RX.test(t)) {
+        // Prefiero no decirlo (texto o botón)
+        if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
           session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_PROBLEM;
+          session.stage = STATES.ASK_NEED;
 
           const reply = isEn
-            ? "No problem, we'll continue without your name. Now tell me what problem you're having or what you need help with."
+            ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
             : (locale === 'es-419'
-                ? "Perfecto, seguimos sin tu nombre. Ahora cuéntame qué problema estás teniendo o en qué necesitas ayuda."
-                : "Perfecto, seguimos sin tu nombre. Ahora contame qué problema estás teniendo o en qué necesitás ayuda.");
+                ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
+                : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSessionCached(sid, session);
@@ -3089,7 +3269,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
             ok: true,
             reply,
             stage: session.stage,
-            options: buildProblemPromptOptions(locale)
+            options: ['BTN_HELP', 'BTN_TASK']
           }));
         }
 
@@ -3137,16 +3317,17 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
           }));
         }
 
-        // Nombre aceptado
+        // Nombre aceptado - transición a ASK_NEED según Flujo.csv
         session.userName = candidate;
-        session.stage = STATES.ASK_PROBLEM;
+        session.stage = STATES.ASK_NEED;
         session.nameAttempts = 0;
 
+        const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
         const reply = isEn
-          ? `Thanks, ${capitalizeToken(session.userName)}. 👍\n\nI'm here to help you with your PC, laptop, Wi‑Fi or printer. Now tell me: what problem are you having or what do you need help with?`
+          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\n¿What do you need today? Technical help 🛠️ or assistance 🤝?`
           : (locale === 'es-419'
-              ? `Gracias, ${capitalizeToken(session.userName)}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-              : `Gracias, ${capitalizeToken(session.userName)}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
+              ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
+              : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionCached(sid, session);
@@ -3154,7 +3335,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
           ok: true,
           reply,
           stage: session.stage,
-          options: buildProblemPromptOptions(locale)
+          options: ['BTN_HELP', 'BTN_TASK']
         }));
       }
     }
@@ -3165,19 +3346,32 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
         session.userName = nmInline2;
         if(session.stage === STATES.ASK_NAME){
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = `¡Genial, ${session.userName}! 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
+          session.stage = STATES.ASK_NEED;
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const empatia = addEmpatheticResponse('ASK_NAME', locale);
+          const reply = isEn
+            ? `${empatia} Great, ${session.userName}! 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
+            : (locale === 'es-419'
+                ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
+                : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
           session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json({ ok:true, reply, stage: session.stage, options: [] });
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
         }
       }
     }
 
     // Reformulate problem
     if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      const whoName = session.userName ? capitalizeToken(session.userName) : 'usuario';
-      const reply = `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+      const reply = isEn
+        ? `Let's try again, ${whoName}! 👍\n\nTell me: what problem are you having or what do you need help with?`
+        : (locale === 'es-419'
+            ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
+            : `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
       session.stage = STATES.ASK_PROBLEM;
       session.problem = null;
       session.issueKey = null;
@@ -3197,16 +3391,22 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
 // Device disambiguation: when user mentions "pc / compu / computadora" but device is still unknown
 if (!session.device) {
-  const mWord = (session.problem || '').match(/\b(compu|computadora|ordenador|pc)\b/i);
+  const locale = session.userLocale || 'es-AR';
+  const isEn = String(locale).toLowerCase().startsWith('en');
+  const mWord = (session.problem || '').match(/\b(compu|computadora|ordenador|pc|computer)\b/i);
   if (mWord) {
     const rawWord = mWord[1];
     let shownWord;
     if (/^pc$/i.test(rawWord)) shownWord = 'PC';
-    else if (/^compu$/i.test(rawWord)) shownWord = 'la compu';
+    else if (/^compu$/i.test(rawWord)) shownWord = isEn ? 'computer' : 'la compu';
     else shownWord = rawWord.toLowerCase();
     session.stage = STATES.ASK_DEVICE;
     session.pendingDeviceGroup = 'compu';
-    const replyText = `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`;
+    const replyText = isEn
+      ? `Perfect. When you say "${shownWord}", which of these devices do you mean?`
+      : (locale === 'es-419'
+          ? `Perfecto. Cuando dices "${shownWord}", ¿a cuál de estos dispositivos te refieres?`
+          : `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`);
     const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
     const uiButtons = buildUiButtonsFromTokens(optionTokens);
     const ts = nowIso();
@@ -3231,14 +3431,21 @@ if (!session.device) {
 }
 
       // OA analyze problem (optional)
-      const ai = await analyzeProblemWithOA(session.problem || '');
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const ai = await analyzeProblemWithOA(session.problem || '', locale);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
       
       if(!isIT){
-        const replyNotIT = 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?';
+        const replyNotIT = isEn
+          ? 'Sorry, I didn\'t understand your query or it\'s not IT-related. Do you want to rephrase?'
+          : (locale === 'es-419'
+              ? 'Disculpa, no entendí tu consulta o no es informática. ¿Quieres reformular?'
+              : 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?');
+        const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
         session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: ['Reformular Problema'] }));
+        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
       }
       
       if(ai.device) session.device = session.device || ai.device;
@@ -3251,14 +3458,26 @@ if (!session.device) {
         session.stage = STATES.ASK_HOWTO_DETAILS;
         
         let replyHowTo = '';
-        const deviceName = ai.device || 'dispositivo';
+        const deviceName = ai.device || (isEn ? 'device' : 'dispositivo');
         
         if(ai.issueKey === 'install_guide'){
-          replyHowTo = `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`;
+          replyHowTo = isEn
+            ? `Perfect, I'll help you install your ${deviceName}. To give you the exact instructions, I need to know:\n\n1. What operating system do you use? (Windows 10, Windows 11, Mac, Linux)\n2. What's the brand and model of the ${deviceName}?\n\nExample: "Windows 11, HP DeskJet 2720"`
+            : (locale === 'es-419'
+                ? `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usas? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`
+                : `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`);
         } else if(ai.issueKey === 'setup_guide' || ai.issueKey === 'connect_guide'){
-          replyHowTo = `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`;
+          replyHowTo = isEn
+            ? `Sure, I'll help you set up your ${deviceName}. To give you the right instructions, tell me:\n\n1. What operating system do you have? (Windows 10, Windows 11, Mac, etc.)\n2. Brand and model of the ${deviceName}?\n\nExample: "Windows 10, Logitech C920"`
+            : (locale === 'es-419'
+                ? `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, cuéntame:\n\n1. ¿Qué sistema operativo tienes? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`
+                : `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`);
         } else {
-          replyHowTo = `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`;
+          replyHowTo = isEn
+            ? `Sure, I'll help you with your ${deviceName}. To give you specific instructions:\n\n1. What operating system do you use?\n2. Brand and model of the device?\n\nSo I can guide you step by step.`
+            : (locale === 'es-419'
+                ? `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usas?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`
+                : `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`);
         }
         
         session.transcript.push({ who:'bot', text: replyHowTo, ts: nowIso() });
@@ -3357,20 +3576,32 @@ La guía debe ser:
         session.currentStepIndex = 0;
         session.stage = STATES.BASIC_TESTS; // Reuse BASIC_TESTS flow for showing steps
         
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-        let replyText = `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+        let replyText = isEn
+          ? `Perfect, ${whoLabel}! Here's the guide for ${deviceName} on ${session.userOS}:\n\n`
+          : (locale === 'es-419'
+              ? `Perfecto, ${whoLabel}! Acá tienes la guía para ${deviceName} en ${session.userOS}:\n\n`
+              : `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`);
         
         if (guideData.steps && guideData.steps.length > 0) {
           replyText += guideData.steps.join('\n\n');
         } else {
-          replyText += 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.';
+          replyText += isEn
+            ? 'I could not generate the specific steps, but I recommend visiting the manufacturer official website to download drivers and instructions.'
+            : (locale === 'es-419'
+                ? 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.'
+                : 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.');
         }
         
         if (guideData.additionalInfo) {
           replyText += `\n\n📌 ${guideData.additionalInfo}`;
         }
         
-        replyText += '\n\n¿Te funcionó? Respondé "sí" o "no".';
+        replyText += isEn
+          ? '\n\nDid it work? Reply "yes" or "no".'
+          : '\n\n¿Te funcionó? Respondé "sí" o "no".';
         
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
@@ -3384,7 +3615,13 @@ La guía debe ser:
         
       } catch (aiError) {
         console.error('[ASK_HOWTO_DETAILS] AI generation error:', aiError);
-        const errorMsg = 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?';
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const errorMsg = isEn
+          ? 'I could not generate the guide right now. Can you rephrase your query or try again later?'
+          : (locale === 'es-419'
+              ? 'No pude generar la guía en este momento. ¿Puedes reformular tu consulta o intentar más tarde?'
+              : 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?');
         session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
         await saveSession(sid, session);
         return res.json({ ok: true, reply: errorMsg, stage: session.stage });
@@ -3392,8 +3629,14 @@ La guía debe ser:
 
     } else if (session.stage === STATES.ASK_DEVICE) {
       // Fallback handler for ASK_DEVICE
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
       if (!buttonToken || !/^BTN_DEV_/.test(buttonToken)) {
-        const replyText = 'Por favor, elegí una de las opciones con los botones que te mostré.';
+        const replyText = isEn
+          ? 'Please choose one of the options using the buttons I showed you.'
+          : (locale === 'es-419'
+              ? 'Por favor, elige una de las opciones con los botones que te mostré.'
+              : 'Por favor, elegí una de las opciones con los botones que te mostré.');
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
         const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
@@ -3414,18 +3657,28 @@ La guía debe ser:
           session.pendingDeviceGroup = null;
 
           // IMPORTANT: do not re-ask the problem; proceed to generate steps using existing session.problem
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
           if (!session.problem || String(session.problem||'').trim()==='') {
             session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-            const replyText = `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`;
+            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+            const replyText = isEn
+              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
+              : (locale === 'es-419'
+                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
+                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
             session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
             await saveSession(sid, session);
             return res.json(withOptions({ ok:true, reply: replyText, stage: session.stage, options: [] }));
           } else {
             // Provide short confirmation then show steps
             session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-            const replyIntro = `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`;
+            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+            const replyIntro = isEn
+              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
+              : (locale === 'es-419'
+                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
+                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
             const ts = nowIso();
             session.transcript.push({ who:'bot', text: replyIntro, ts });
             await saveSession(sid, session);
@@ -3435,7 +3688,11 @@ La guía debe ser:
         }
       }
 
-      const fallbackMsg = 'No reconozco esa opción. Elegí por favor usando los botones.';
+      const fallbackMsg = isEn
+        ? 'I don\'t recognize that option. Please choose using the buttons.'
+        : (locale === 'es-419'
+            ? 'No reconozco esa opción. Elige por favor usando los botones.'
+            : 'No reconozco esa opción. Elegí por favor usando los botones.');
       session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
       const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
@@ -3465,22 +3722,38 @@ La guía debe ser:
       }
 
       if (rxYes.test(t)){
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+        const empatia = addEmpatheticResponse('ENDED', locale);
         const firstLine = whoLabel
-          ? `¡Me alegro que lo hayas podido resolver, ${whoLabel}! 🙌`
-          : '¡Me alegro que lo hayas podido resolver! 🙌';
-        reply = `${firstLine}\n\nSi en algún momento vuelve a fallar, podés abrir de nuevo el chat de Tecnos y seguimos desde donde lo dejamos.\n\nPodés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario\nY visitar nuestra web de STI — Servicio Técnico Inteligente para servicios y soporte: https://stia.com.ar 🚀\n\nGracias por usar Tecnos de STI — Servicio Técnico Inteligente. 😉`;
+          ? (isEn ? `I'm glad you were able to solve it, ${whoLabel}! 🙌` : `¡Me alegro que lo hayas podido resolver, ${whoLabel}! 🙌`)
+          : (isEn ? `I'm glad you were able to solve it! 🙌` : `¡Me alegro que lo hayas podido resolver! 🙌`);
+        reply = isEn 
+          ? `${firstLine}\n\n${empatia}\n\nIf it fails again at some point, you can reopen Tecnos chat and we'll continue from where we left off.\n\nYou can follow us on Instagram for tips and news: https://instagram.com/sti.rosario\nAnd visit our STI website — Servicio Técnico Inteligente for services and support: https://stia.com.ar 🚀\n\nThanks for using Tecnos from STI — Servicio Técnico Inteligente. 😉`
+          : `${firstLine}\n\n${empatia}\n\nSi en algún momento vuelve a fallar, podés abrir de nuevo el chat de Tecnos y seguimos desde donde lo dejamos.\n\nPodés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario\nY visitar nuestra web de STI — Servicio Técnico Inteligente para servicios y soporte: https://stia.com.ar 🚀\n\nGracias por usar Tecnos de STI — Servicio Técnico Inteligente. 😉`;
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
       } else if (rxNo.test(t)){
-        reply = `💡 Entiendo. ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const empatia = addEmpatheticResponse('ESCALATE', locale);
+        reply = isEn
+          ? `💡 I understand. ${empatia} Do you want to try some extra solutions or connect you with a technician?`
+          : `💡 Entiendo. ${empatia} ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
         options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH'];
         session.stage = STATES.ESCALATE;
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {
-        reply = `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        reply = isEn
+          ? `I didn't understand. You can say "I solved it" or "The problem persists", or choose an option.`
+          : (locale === 'es-419'
+              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`
+              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`);
         options = ['BTN_SOLVED','BTN_PERSIST'];
       }
     } else if (session.stage === STATES.ESCALATE) {
@@ -3491,6 +3764,8 @@ La guía debe ser:
       
       if (isOpt1){
         try {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
           const device = session.device || '';
           let aiSteps = [];
           try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
@@ -3501,9 +3776,14 @@ La guía debe ser:
           session.stepProgress = session.stepProgress || {};
           limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
           const numbered = enumerateSteps(limited);
-          const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-          const intro = `Entiendo, ${whoLabel}. Probemos ahora con algunas pruebas más avanzadas:`;
-          const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+          const empatia = addEmpatheticResponse('ADVANCED_TESTS', locale);
+          const intro = isEn
+            ? `I understand, ${whoLabel}. ${empatia} Let's try some more advanced tests now:`
+            : `Entiendo, ${whoLabel}. ${empatia} Probemos ahora con algunas pruebas más avanzadas:`;
+          const footer = isEn
+            ? '\n\n🧩 If you need help with any step, tap on the number.\n\n🤔 Tell us how it went using the buttons:'
+            : '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
           const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
           session.stepsDone = session.stepsDone || [];
           session.stepsDone.push('advanced_tests_shown');
@@ -3513,11 +3793,17 @@ La guía debe ser:
           session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
           const helpOptions = limited.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+          const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
+          const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
+          const optionsResp = [...helpOptions, solvedBtn, persistBtn];
           return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
         } catch (errOpt1) {
           console.error('[ESCALATE][more_tests] Error', errOpt1 && errOpt1.message);
-          reply = 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          reply = isEn
+            ? 'An error occurred generating more tests. Try again or ask me to connect you with a technician.'
+            : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
           session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
           return res.json(withOptions({ ok:false, reply, stage: session.stage, options: ['BTN_CONNECT_TECH'] }));
@@ -3553,6 +3839,8 @@ La guía debe ser:
       }
 
       if (rxYes.test(t)){
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
         const idx = session.lastHelpStep;
         if (typeof idx === 'number' && idx >= 1) {
           session.stepProgress = session.stepProgress || {};
@@ -3560,26 +3848,47 @@ La guía debe ser:
           await saveSession(sid, session);
         }
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+        const empatia = addEmpatheticResponse('ENDED', locale);
         const firstLine = whoLabel
-          ? `¡Excelente, ${whoLabel}! 🙌`
-          : '¡Excelente, me alegra que lo hayas podido resolver! 🙌';
-        reply = `${firstLine}\n\nSi más adelante vuelve a fallar, podés volver a abrir el chat y retomamos el diagnóstico juntos.`;
+          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Excelente, ${whoLabel}! 🙌`)
+          : (isEn ? `Excellent, I'm glad you were able to solve it! 🙌` : `¡Excelente, me alegra que lo hayas podido resolver! 🙌`);
+        reply = isEn
+          ? `${firstLine}\n\n${empatia}\n\nIf it fails again later, you can reopen the chat and we'll resume the diagnosis together.`
+          : `${firstLine}\n\n${empatia}\n\nSi más adelante vuelve a fallar, podés volver a abrir el chat y retomamos el diagnóstico juntos.`;
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
       } else if (rxNo.test(t)){
-        reply = `Entiendo. ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const empatia = addEmpatheticResponse('ESCALATE', locale);
+        reply = isEn
+          ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
+          : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
         options = ['BTN_CONNECT_TECH'];
         session.stage = STATES.ESCALATE;
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {
-        reply = `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        reply = isEn
+          ? `I didn't understand. You can say "I solved it" or "The problem persists", or ask to connect with a technician.`
+          : (locale === 'es-419'
+              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`
+              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`);
         options = ['BTN_SOLVED','BTN_PERSIST','BTN_CONNECT_TECH'];
       }
     } else {
-      reply = 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".';
-      options = ['Reformular Problema'];
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      reply = isEn
+        ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
+        : (locale === 'es-419'
+            ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
+            : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
+      const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
+      options = [reformBtn];
     }
 
     // Save bot reply + persist transcripts to file (single ts pair)
