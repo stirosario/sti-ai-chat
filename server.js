@@ -412,7 +412,8 @@ const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi
 const FRUSTRATION_RX = /(esto no sirve|no sirve para nada|qué porquería|que porquería|no funciona nada|estoy cansado de esto|me cansé de esto|ya probé todo|sigo igual|no ayuda|no me ayuda)/i;
 
 const NAME_STOPWORDS = new Set([
-  'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
+  'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no',
+  'español','espana','españa','argentina','latino','english','ingles','idioma','language'
 ]);
 
 const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u;
@@ -2728,7 +2729,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       session = {
         id: sid,
         userName: null,
-        stage: STATES.ASK_NAME,
+        stage: STATES.ASK_LANGUAGE,
         device: null,
         problem: null,
         issueKey: null,
