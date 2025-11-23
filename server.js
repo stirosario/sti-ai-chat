@@ -140,7 +140,23 @@ const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tic
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
 const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'uploads');
 const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
+/**
+ * Simple structured logger used across the server.
+ * Writes to console and to LOG_FILE, but never throws if disk logging fails.
+ */
+function logMsg(message, meta = null) {
+  const timestamp = new Date().toISOString();
+  const line = meta
+    ? `[${timestamp}] ${message} ${JSON.stringify(meta)}`
+    : `[${timestamp}] ${message}`;
+  console.log(line);
+  try {
+    fs.appendFile(LOG_FILE, line + '\n', () => {});
+  } catch (err) {
+    console.error('[LOG] Failed to write log file', err);
+  }
+}
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/+$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 const SSE_TOKEN       = process.env.SSE_TOKEN || '';
 
@@ -2804,36 +2820,38 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
     // Selección de idioma (puede usarse al inicio del chat)
     if (buttonToken === 'BTN_LANG_ES_AR' || buttonToken === 'BTN_LANG_ES' || buttonToken === 'BTN_LANG_EN') {
       let locale = 'es-AR';
-      let languageName = '';
       if (buttonToken === 'BTN_LANG_EN') {
         locale = 'en';
-        languageName = 'English';
       } else if (buttonToken === 'BTN_LANG_ES') {
         locale = 'es-419';
-        languageName = 'Español España';
       } else {
         locale = 'es-AR';
-        languageName = 'Español Argentina';
       }
       session.userLocale = locale;
-      
+      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
       let reply;
       if (locale === 'en') {
-        reply = `You selected "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
+        reply = whoLabel
+          ? `Great, ${whoLabel}. We'll continue in English. What problem are you having or what do you need help with?`
+          : "Great, we'll continue in English. What's your name?";
       } else if (locale === 'es-419') {
-        reply = `Seleccionaste "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
+        reply = whoLabel
+          ? `Perfecto, ${whoLabel}. Seguimos en español neutro. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
+          : 'Perfecto, seguimos en español neutro. Para ayudarte mejor, ¿cómo te llamas?';
       } else {
-        reply = `Seleccionaste "${languageName}". 👍\n\n${buildNameGreeting(locale)}`;
+        reply = whoLabel
+          ? `Perfecto, ${whoLabel}. Seguimos en español (Argentina). Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
+          : 'Perfecto, seguimos en español (Argentina). Para ayudarte mejor, ¿cómo te llamás?';
       }
       const tsLang = nowIso();
-      session.stage = STATES.ASK_NAME;
+      session.stage = whoLabel ? STATES.ASK_PROBLEM : STATES.ASK_NAME;
       session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
       await saveSession(sid, session);
       return res.json(withOptions({
         ok: true,
         reply,
         stage: session.stage,
-        options: []
+        options: session.stage === STATES.ASK_NAME ? ['BTN_NO_NAME'] : []
       }));
     }
 
