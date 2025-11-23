@@ -1,4029 +1,933 @@
-/**
- * server.js — STI Chat (v7) — Complete
- *
- * Full server implementation (version 7):
- * - Express API for chat flows (greeting, /api/chat)
- * - Name validation (local + optional OpenAI check)
- * - Device disambiguation with human labels and BTN_DEV_* tokens
- * - Diagnostic steps generation (local fallback + OpenAI)
- * - Help per step, escalation to WhatsApp with ticket generation
- * - Transcripts and tickets persisted to disk
- * - SSE logs endpoint
- *
- * ENDPOINTS DISPONIBLES:
- * - GET  /api/health              → Health check del servidor
- * - POST /api/reload              → Recargar configuración
- * - ALL  /api/greeting            → Saludo inicial y creación de sesión
- * - POST /api/chat                → Endpoint principal de conversación
- * - POST /api/reset               → Resetear sesión
- * - POST /api/whatsapp-ticket     → Crear ticket y generar links WhatsApp
- * - GET  /api/transcript/:sid     → Obtener transcript de sesión (texto plano)
- * - GET  /api/ticket/:tid         → Obtener ticket (JSON)
- * - GET  /ticket/:tid             → Ver ticket con UI (HTML)
- * - GET  /api/logs                → Obtener logs completos (requiere token)
- * - GET  /api/logs/stream         → Stream de logs en tiempo real vía SSE (requiere token)
- * - GET  /api/sessions            → Listar sesiones activas
- *
- * Notes:
- * - Requires a sessionStore.js that implements getSession, saveSession, listActiveSessions
- * - Optional OpenAI integration controlled by OPENAI_API_KEY env var
- * - Configure directories via env: DATA_BASE, TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR
- * - Set ALLOWED_ORIGINS for CORS security
- * - Set SSE_TOKEN to protect logs endpoint
- */
+// server.js — STI Tecnos MODO DIOS (v1)
+// Chatbot de soporte técnico con flujo conversacional limpio, multi-idioma
+// y detección básica de dispositivos + escalado a técnico por WhatsApp.
+//
+// Nota: Este servidor está pensado para Node 18+ usando ES Modules
+// (añadí `"type": "module"` en tu package.json si aún no lo tienes).
 
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
-import fs, { createReadStream } from 'fs';
-import path from 'path';
-import crypto from 'crypto';
-import OpenAI from 'openai';
-import multer from 'multer';
-import sharp from 'sharp';
-import cron from 'node-cron';
 import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
+import crypto from 'crypto';
 
-import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+// =========================
+// Configuración y utilidades
+// =========================
 
-// ========================================================
-// Security: CSRF Token Store (in-memory, production should use Redis)
-// ========================================================
-const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
-const REQUEST_ID_HEADER = 'x-request-id';
+dotenv.config();
 
-// PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
-const sessionCache = new Map(); // Map<sessionId, {data, lastAccess}>
-const MAX_CACHED_SESSIONS = 1000;
+const PORT = process.env.PORT || 3001;
 
-function cacheSession(sid, data) {
-  // Si el cache está lleno, eliminar la sesión menos usada
-  if (sessionCache.size >= MAX_CACHED_SESSIONS) {
-    let oldestSid = null;
-    let oldestTime = Infinity;
-    for (const [id, cached] of sessionCache.entries()) {
-      if (cached.lastAccess < oldestTime) {
-        oldestTime = cached.lastAccess;
-        oldestSid = id;
-      }
-    }
-    if (oldestSid) sessionCache.delete(oldestSid);
-  }
-  sessionCache.set(sid, { data, lastAccess: Date.now() });
-}
-
-function getCachedSession(sid) {
-  const cached = sessionCache.get(sid);
-  if (cached) {
-    cached.lastAccess = Date.now(); // Actualizar LRU
-    return cached.data;
-  }
-  return null;
-}
-
-// Limpiar cache de sesiones antiguas cada 10 minutos
-setInterval(() => {
-  const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-  for (const [sid, cached] of sessionCache.entries()) {
-    if (cached.lastAccess < tenMinutesAgo) {
-      sessionCache.delete(sid);
-    }
-  }
-}, 10 * 60 * 1000);
-
-// Cleanup expired CSRF tokens every 30 minutes
-setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [sid, data] of csrfTokenStore.entries()) {
-    if (data.createdAt < oneHourAgo) {
-      csrfTokenStore.delete(sid);
-    }
-  }
-}, 30 * 60 * 1000);
-
-function generateCSRFToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
-
-function generateRequestId() {
-  return `req-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
-}
-
-function generateSecureSessionId() {
-  // Usar 32 bytes de entropía (256 bits) para session IDs
-  return `srv-${Date.now()}-${crypto.randomBytes(32).toString('hex')}`;
-}
-
-// ========================================================
-// Configuration & Clients
-// ========================================================
-// Validar variables de entorno críticas
-if (!process.env.OPENAI_API_KEY) {
-  console.warn('[WARN] OPENAI_API_KEY no configurada. Funciones de IA deshabilitadas.');
-}
-if (!process.env.ALLOWED_ORIGINS) {
-  console.warn('[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.');
-}
-if (!process.env.SSE_TOKEN) {
-  console.warn('[WARN] SSE_TOKEN no configurado. Endpoint /api/logs sin protección.');
-}
-
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
-const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
-
-// Paths / persistence
-const DATA_BASE       = process.env.DATA_BASE       || '/data';
-const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
-const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
-const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
-const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'uploads');
-const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
+// Número de WhatsApp al que se envían los tickets, sin "+" y con país, por ejemplo "5493417422422"
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
-const SSE_TOKEN       = process.env.SSE_TOKEN || '';
 
-for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
-  try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
-}
+// Orígenes permitidos para CORS
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://stia.com.ar,https://www.stia.com.ar,http://localhost:3000,http://localhost:5173')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
 
-// ========================================================
-// Metrics & Monitoring
-// ========================================================
-const metrics = {
-  uploads: {
-    total: 0,
-    success: 0,
-    failed: 0,
-    totalBytes: 0,
-    avgAnalysisTime: 0
-  },
-  chat: {
-    totalMessages: 0,
-    sessions: 0
-  },
-  errors: {
-    count: 0,
-    lastError: null
-  }
+// Sesiones en memoria (simple, por proceso)
+const sessions = new Map();
+const SESSION_TTL_MS = 1000 * 60 * 60; // 1 hora
+
+// Estados del flujo
+const STATES = {
+  ASK_LANGUAGE: 'ask_language',
+  ASK_NAME: 'ask_name',
+  ASK_PROBLEM: 'ask_problem',
+  BASIC_TESTS: 'basic_tests',
+  ADVANCED_TESTS: 'advanced_tests',
+  ESCALATE: 'escalate',
+  ENDED: 'ended'
 };
 
-function updateMetric(category, field, value) {
-  if (metrics[category] && field in metrics[category]) {
-    if (typeof value === 'number' && field !== 'lastError') {
-      metrics[category][field] += value;
-    } else {
-      metrics[category][field] = value;
-    }
+// Botones (tokens internos)
+const BUTTONS = {
+  LANG_ES_AR: 'BTN_LANG_ES_AR',
+  LANG_ES_ES: 'BTN_LANG_ES_ES',
+  LANG_EN: 'BTN_LANG_EN',
+  NO_NAME: 'BTN_NO_NAME',
+  SOLVED: 'BTN_SOLVED',
+  PERSIST: 'BTN_PERSIST',
+  MORE_TESTS: 'BTN_MORE_TESTS',
+  CONNECT_TECH: 'BTN_CONNECT_TECH'
+};
+
+// =========================
+// Helpers de tiempo, ids y logging
+// =========================
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function generateSessionId() {
+  return 'web-' + crypto.randomBytes(12).toString('hex');
+}
+
+function generateTicketId() {
+  const ymd = new Date().toISOString().slice(0,10).replace(/-/g, '');
+  const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
+  return `TCK-${ymd}-${rand}`;
+}
+
+// Log sencillo (se puede reemplazar por Winston, etc.)
+function log(...args) {
+  console.log(new Date().toISOString(), '-', ...args);
+}
+
+// =========================
+// Perfiles de idioma
+// =========================
+
+function getLocaleProfile(locale) {
+  switch (locale) {
+    case 'en':
+      return { code: 'en', label: 'English', isEn: true, isEsAr: false, isEsEs: false };
+    case 'es-ES':
+      return { code: 'es-ES', label: 'Español (España)', isEn: false, isEsAr: false, isEsEs: true };
+    case 'es-AR':
+    default:
+      return { code: 'es-AR', label: 'Español (Argentina)', isEn: false, isEsAr: true, isEsEs: false };
   }
 }
 
-function getMetrics() {
-  return {
-    ...metrics,
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    timestamp: new Date().toISOString()
+// Saludo según hora
+function buildTimeGreeting(locale) {
+  const hour = new Date().getHours();
+  const profile = getLocaleProfile(locale);
+  const isEn = profile.isEn;
+  const morning = isEn ? 'Good morning' : 'Buen día';
+  const afternoon = isEn ? 'Good afternoon' : 'Buenas tardes';
+  const evening = isEn ? 'Good evening' : 'Buenas noches';
+
+  if (hour < 12) return `🌅 ${morning}`;
+  if (hour < 19) return `🌇 ${afternoon}`;
+  return `🌙 ${evening}`;
+}
+
+// =========================
+// Sesiones
+// =========================
+
+function createFreshSession() {
+  const sid = generateSessionId();
+  const session = {
+    id: sid,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    stage: STATES.ASK_LANGUAGE,
+    userLocale: null,  // 'es-AR', 'es-ES', 'en'
+    userName: null,
+    problem: null,
+    device: null,
+    isHowTo: false,
+    isProblem: false,
+    transcript: [],    // {who:'user'|'bot', text:string, ts:string}
+    solved: false
   };
+  sessions.set(sid, session);
+  return session;
 }
 
-// ========================================================
-// Logging & SSE helpers
-// ========================================================
-const sseClients = new Set();
-const MAX_SSE_CLIENTS = 100;
-let logStream = null;
-try {
-  logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
-} catch (e) {
-  console.error('[init] no pude abrir stream de logs', e && e.message);
-}
-
-const nowIso = () => new Date().toISOString();
-
-const withOptions = obj => ({ options: [], ...obj });
-
-function maskPII(text) {
-  if (!text) return text;
-  let s = String(text);
-  
-  // Emails (más estricto)
-  s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, '[EMAIL_REDACTED]');
-  
-  // Tarjetas de crédito (16 dígitos)
-  s = s.replace(/\b(?:\d{4}[- ]?){3}\d{4}\b/g, '[CARD_REDACTED]');
-  
-  // CBU/CVU (22 dígitos)
-  s = s.replace(/\b\d{22}\b/g, '[CBU_REDACTED]');
-  
-  // CUIT/CUIL (XX-XXXXXXXX-X)
-  s = s.replace(/\b\d{2}[-\s]?\d{8}[-\s]?\d{1}\b/g, '[CUIT_REDACTED]');
-  
-  // Teléfonos internacionales (+54 9 341...)
-  s = s.replace(/\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{1,9}/g, '[PHONE_REDACTED]');
-  
-  // DNI (7-8 dígitos aislados)
-  s = s.replace(/\b\d{7,8}\b/g, '[DNI_REDACTED]');
-  
-  // IPs (v4)
-  s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]');
-  
-  // Contraseñas obvias (password=, pwd=, pass=)
-  s = s.replace(/(?:password|pwd|pass|clave|contraseña)\s*[=:]\s*[^\s]+/gi, '[PASSWORD_REDACTED]');
-  
-  // Tokens y API keys (patrones comunes)
-  s = s.replace(/\b[A-Za-z0-9]{32,}\b/g, '[TOKEN_REDACTED]');
-  
+function getSession(sid) {
+  if (!sid) return null;
+  const s = sessions.get(sid);
+  if (!s) return null;
+  const age = Date.now() - new Date(s.createdAt).getTime();
+  if (age > SESSION_TTL_MS) {
+    sessions.delete(sid);
+    return null;
+  }
   return s;
 }
 
-function formatLog(level, ...parts) {
-  const rawText = parts.map(p => {
-    if (typeof p === 'string') return p;
-    try { return JSON.stringify(p); } catch (e) { return String(p); }
-  }).join(' ');
-  const text = maskPII(rawText);
-  return `${new Date().toISOString()} [${level}] ${text}`;
+function saveSession(session) {
+  if (!session || !session.id) return;
+  session.updatedAt = nowIso();
+  sessions.set(session.id, session);
 }
 
-function appendToLogFile(entry) {
-  try {
-    if (logStream && logStream.writable) {
-      logStream.write(entry + '\n');
-    } else {
-      fs.appendFile(LOG_FILE, entry + '\n', 'utf8', ()=>{});
-    }
-  } catch (e) { /* noop */ }
-}
-
-function sseSend(res, eventData) {
-  const payload = String(eventData || '');
-  const safe = payload.split(/\r?\n/).map(line => `data: ${line}`).join('\n') + '\n\n';
-  try { res.write(safe); } catch (e) { /* ignore */ }
-}
-
-function broadcastLog(entry) {
-  for (const res of Array.from(sseClients)) {
-    try {
-      sseSend(res, entry);
-    } catch (e) {
-      try { res.end(); } catch(_) {}
-      sseClients.delete(res);
+// Limpieza periódica de sesiones
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, s] of sessions.entries()) {
+    if (now - new Date(s.createdAt).getTime() > SESSION_TTL_MS) {
+      sessions.delete(sid);
     }
   }
-}
+}, 15 * 60 * 1000);
 
-// Wrap console
-const _origLog = console.log.bind(console);
-const _origErr = console.error.bind(console);
-console.log = (...args) => {
-  try { _origLog(...args); } catch (_) {}
-  try {
-    const entry = formatLog('INFO', ...args);
-    appendToLogFile(entry);
-    broadcastLog(entry);
-  } catch (e) { /* noop */ }
-};
-console.error = (...args) => {
-  try { _origErr(...args); } catch (_) {}
-  try {
-    const entry = formatLog('ERROR', ...args);
-    appendToLogFile(entry);
-    broadcastLog(entry);
-  } catch (e) { /* noop */ }
-};
+// =========================
+// Detección básica de dispositivo y tipo de consulta
+// =========================
 
-// ========================================================
-// Embedded chat config (UI, NLP, steps)
-// ========================================================
-const EMBEDDED_CHAT = {
-  version: 'v7',
-  messages_v4: {
-    greeting: { name_request: '👋 ¡Hola! Soy Tecnos, tu Asistente Inteligente. ¿Cuál es tu nombre?' }
-  },
-  settings: {
-    OA_MIN_CONF: '0.6',
-    whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' }
-  },
-  ui: {
-    buttons: [
-      // Botones del flujo según Flujo.csv
-      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
-      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
-      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
-      { token: 'BTN_HELP', label: 'Ayuda técnica 🛠️', text: 'ayuda técnica' },
-      { token: 'BTN_TASK', label: 'Asistencia 🤝', text: 'asistencia' },
-      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
-      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
-      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
-      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
-      { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
-      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
-      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
-      { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
-      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
-      { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
-      { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
-      { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
-      { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
-      // device tokens
-      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
-      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' }
-    ],
-    states: {}
-  },
-  nlp: {
-    devices: [
-      { key: 'pc', rx: '\\b(pc|computadora|ordenador)\\b' },
-      { key: 'notebook', rx: '\\b(notebook|laptop)\\b' },
-      { key: 'router', rx: '\\b(router|modem)\\b' },
-      { key: 'fire_tv', rx: '\\b(fire ?tv|fire ?stick|amazon fire tv)\\b' },
-      { key: 'chromecast', rx: '\\b(chromecast|google tv|google tv stick)\\b' },
-      { key: 'roku', rx: '\\b(roku|roku tv|roku stick)\\b' },
-      { key: 'android_tv', rx: '\\b(android tv|mi tv stick|tv box)\\b' },
-      { key: 'apple_tv', rx: '\\b(apple tv)\\b' },
-      { key: 'smart_tv_samsung', rx: '\\b(smart ?tv samsung|samsung tv)\\b' },
-      { key: 'smart_tv_lg', rx: '\\b(smart ?tv lg|lg tv)\\b' },
-      { key: 'smart_tv_sony', rx: '\\b(smart ?tv sony|sony tv)\\b' }
-    ],
-    issues: [
-      { key: 'no_prende', rx: '\\b(no\\s*enciende|no\\s*prende|no\\s*arranca|mi\\s*pc\\s*no\\s*enciende)\\b', label: 'no enciende' }
-    ],
-    advanced_steps: {
-      no_prende: [
-        'Verificá que el cable de alimentación esté correctamente conectado a la computadora y a la toma de corriente.',
-        'Asegurate de que el interruptor de la fuente de alimentación (si tiene) esté encendido.',
-        'Intentá presionar el botón de encendido durante unos segundos para ver si responde.',
-        'Desconectá todos los dispositivos externos (USB, impresoras, etc.) y volvé a intentar encender la PC.'
-      ]
-    },
-    issue_labels: { no_prende: 'no enciende' }
-  }
-};
+function classifyProblem(textRaw) {
+  const text = (textRaw || '').toLowerCase();
 
-let CHAT = EMBEDDED_CHAT || {};
+  const isHowTo = /como|cómo|quiero instalar|quiero usar|me gustaria saber|how do i|how to|i want to/i.test(textRaw || '');
+  const isProblem = /(no prende|no enciende|no funciona|no anda|no imprime|no conecta|no se conecta|se apaga|pantalla negra|error|fall[ao])/i.test(textRaw || '');
 
-// Helpers: button definitions
-function getButtonDefinition(token){
-  if(!token || !CHAT?.ui?.buttons) return null;
-  return CHAT.ui.buttons.find(b => String(b.token) === String(token)) || null;
-}
-function buildUiButtonsFromTokens(tokens = []){
-  if(!Array.isArray(tokens)) return [];
-  return tokens.map(t => {
-    if(!t) return null;
-    const def = getButtonDefinition(t);
-    const label = def?.label || def?.text || (typeof t === 'string' ? t : String(t));
-    const text  = def?.text  || label;
-    return { token: String(t), label, text };
-  }).filter(Boolean);
-}
-function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
-  if(!Array.isArray(tokens)) return [];
-  return tokens.map(t => {
-    if(!t) return null;
-    const def = getButtonDefinition(t);
-    const label = def?.label || def?.text || String(t);
-    const url = urlMap[String(t)] || null;
-    return { token: String(t), label, url, openExternal: !!url };
-  }).filter(Boolean);
-}
+  let device = null;
 
-// ========================================================
-// NLP & Name utilities
-// ========================================================
-const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
-function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
-const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
+  if (/(notebook|laptop|portátil)/i.test(text)) device = 'notebook';
+  else if (/(pc|computadora|ordenador)/i.test(text)) device = 'pc';
+  else if (/(impresora|printer|multifuncion|láser|laser)/i.test(text)) device = 'printer';
+  else if (/(router|módem|modem|wifi|wi-fi)/i.test(text)) device = 'router';
+  else if (/(smart tv|smart-tv|televisor|tele|tv)/i.test(text)) device = 'tv';
+  else if (/(fire tv|firetv|stick tv|chromecast|roku|android tv|apple tv)/i.test(text)) device = 'tv_stick';
+  else if (/(celular|móvil|movil|telefono|teléfono|phone)/i.test(text)) device = 'phone';
 
-const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi[-\s]*fi|wifi|impresora|printer|tv\s*stick|stick\s*tv|amazon\s*stick|fire\s*stick|magistv|magis\s*tv|windows|android|correo|email|outlook|office|word|excel)\b/i;
+  const isIT = !!device || isProblem || isHowTo;
 
-const FRUSTRATION_RX = /(esto no sirve|no sirve para nada|qué porquería|que porquería|no funciona nada|estoy cansado de esto|me cansé de esto|ya probé todo|sigo igual|no ayuda|no me ayuda)/i;
-
-const NAME_STOPWORDS = new Set([
-  'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
-]);
-
-const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u;
-const MAX_NAME_TOKENS = 3;
-const MIN_NAME_TOKENS = 1;
-
-function capitalizeToken(tok){
-  if(!tok) return tok;
-  return tok.split(/[-'’\u2019]/).map(part => {
-    if (!part) return part;
-    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-  }).join('-');
-}
-
-function isValidName(text){
-  if(!text || typeof text !== 'string') return false;
-  const s = String(text).trim();
-  if(!s) return false;
-
-  // reject digits or special symbols
-  if (/[0-9@#\$%\^&\*\(\)_=\+\[\]\{\}\\\/<>]/.test(s)) return false;
-
-  // reject if includes technical words
-  if (TECH_WORDS.test(s)) return false;
-
-  const lower = s.toLowerCase();
-  for (const w of lower.split(/\s+/)) {
-    if (NAME_STOPWORDS.has(w)) return false;
-  }
-
-  const tokens = s.split(/\s+/).filter(Boolean);
-  if (tokens.length < MIN_NAME_TOKENS || tokens.length > MAX_NAME_TOKENS) return false;
-
-  // if too many words overall -> reject
-  if (s.split(/\s+/).filter(Boolean).length > 6) return false;
-
-  // blacklist (trolls, apodos, palabras comunes)
-  const blacklist = [
-    'pepelito','papelito','pepito','probando','aaaa','jjjj','zzzz','asdasd','qwerty','basurita','basura','tuerquita','chuchuki',
-    'corcho','coco','pepe','toto','nene','nena','pibe','piba','guacho','wacho','bobo','boludo','pelotudo',
-    'chicle','goma','lapiz','papel','mesa','silla','puerta','ventana','techo','piso','pared',
-    'amigo','amiga','hermano','hermana','primo','prima','tio','tia','abuelo','abuela',
-    'test','testing','prueba','ejemplo','admin','usuario','user','cliente','persona',
-    'hola','chau','gracias','perdon','disculpa','sorry','hello','bye'
-  ];
-  if (blacklist.includes(s.toLowerCase())) return false;
-
-  for (const tok of tokens) {
-    // each token must match token regex
-    if (!NAME_TOKEN_RX.test(tok)) return false;
-    // token stripped of punctuation should be at least 2 chars
-    if (tok.replace(/['’\-]/g,'').length < 2) return false;
-  }
-
-  // passed validations
-  return true;
-}
-
-const isValidHumanName = isValidName;
-
-function extractName(text){
-  if(!text || typeof text !== 'string') return null;
-  const sRaw = String(text).trim();
-  if(!sRaw) return null;
-  const s = sRaw.replace(/[.,!?]+$/,'').trim();
-
-  // patterns: "me llamo X", "soy X", "mi nombre es X"
-  const patterns = [
-    /\b(?:me llamo|soy|mi nombre es|me presento como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})$/i,
-    /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})\s*$/i
-  ];
-
-  for (const rx of patterns){
-    const m = s.match(rx);
-    if (m && m[1]){
-      let candidate = m[1].trim().replace(/\s+/g,' ');
-      // limit tokens to MAX_NAME_TOKENS
-      const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-      const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
-      if (isValidName(normalized)) return normalized;
-    }
-  }
-
-  // fallback: if the whole short text looks like a name
-  const singleCandidate = s;
-  if (isValidName(singleCandidate)) {
-    const tokens = singleCandidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-    return tokens.map(capitalizeToken).join(' ');
-  }
-
-  return null;
-}
-
-function looksClearlyNotName(text){
-  if(!text || typeof text !== 'string') return true;
-  const s = text.trim().toLowerCase();
-  if(!s) return true;
-
-  // clear short greetings
-  if (s.length <= 6 && ['hola','hola!','buenas','buenos','buen día','buen dia'].includes(s)) return true;
-
-  if (NAME_STOPWORDS.has(s)) return true;
-
-  if (TECH_WORDS.test(s)) return true;
-
-  const words = s.split(/\s+/).filter(Boolean);
-  if (words.length > 6) return true;
-
-  const indicators = ['mi','no','enciende','tengo','problema','problemas','se','me','con','esta','está','tiene'];
-  for (const w of words){ if (indicators.includes(w)) return true; }
-
-  return false;
-}
-
-// OpenAI name analyzer - RELAXED validation
-async function analyzeNameWithOA(nameText = '') {
-  if(!openai) return { isValid: true, confidence: 0.8, reason: 'fallback_accepted' };
-  const prompt = [
-    "Sos un validador de nombres humanos en español (Argentina).",
-    "",
-    "RECHAZÁ únicamente si es CLARAMENTE:",
-    "- Palabras comunes de objetos: Mesa, Silla, Puerta, Celular, Teclado, etc.",
-    "- Saludos o frases: Hola, Gracias, Buenos días, Chau, etc.",
-    "- Palabras sin sentido: Aaaa, Zzzz, Asdasd, 123, etc.",
-    "- Descripciones de problemas: 'tengo un problema', 'mi computadora', etc.",
-    "",
-    "ACEPTÁ si puede ser un nombre real, aunque sea un apodo o diminutivo:",
-    "- Nombres comunes: María, Juan, Ana, Carlos, Raúl, Laura, José, Lucía, Diego, etc.",
-    "- Apodos comunes que las personas usan: Pepe, Toto, Coco, Pancho, Lucho, Nico, etc.",
-    "- Nombres cortos o diminutivos: Raul, Marcos, Franco, Mateo, etc.",
-    "- Nombres compuestos: María Elena, Juan Carlos, Ana Laura, José Luis, etc.",
-    "",
-    "Ante la duda, ACEPTÁ el nombre.",
-    "",
-    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'explicación clara'}.",
-    `Texto a validar: "${String(nameText).replace(/"/g,'\\"')}"`
-  ].join('\n');
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g,'');
-    try {
-      const parsed = JSON.parse(raw);
-      return {
-        isValid: !!parsed.isValid,
-        confidence: Math.max(0, Math.min(1, Number(parsed.confidence || 0))),
-        reason: parsed.reason || ''
-      };
-    } catch (e) {
-      console.error('[analyzeNameWithOA] parse error', e && e.message, 'raw:', raw);
-      return { isValid: false, confidence: 0, reason: 'parse_error' };
-    }
-  } catch (e) {
-    console.error('[analyzeNameWithOA] error', e && e.message);
-    return { isValid: false, confidence: 0, reason: 'error' };
-  }
-}
-
-// ========================================================
-// OpenAI problem/steps helpers
-// ========================================================
-
-function getLocaleProfile(locale = 'es-AR') {
-  const norm = (locale || '').toLowerCase();
-  if (norm.startsWith('en')) {
-    return {
-      code: 'en',
-      systemName: 'Tecnos',
-      system: 'You are Tecnos, a friendly IT technician for STI — Servicio Técnico Inteligente. Answer ONLY in English (US). Be concise, empathetic and step-by-step.',
-      shortLabel: 'English',
-      voi: 'you',
-      languageTag: 'en-US'
-    };
-  }
-  if (norm.startsWith('es-') && !norm.includes('ar')) {
-    return {
-      code: 'es-419',
-      systemName: 'Tecnos',
-      system: 'Sos Tecnos, técnico informático de STI — Servicio Técnico Inteligente. Respondé en español neutro latino, de forma clara, amable y paso a paso, usando "tú" o expresiones neutras.',
-      shortLabel: 'Español',
-      voi: 'tú',
-      languageTag: 'es-419'
-    };
-  }
   return {
-    code: 'es-AR',
-    systemName: 'Tecnos',
-    system: 'Sos Tecnos, técnico informático argentino de STI — Servicio Técnico Inteligente. Respondé en español rioplatense (Argentina), usando voseo ("vos"), de forma clara, cercana y paso a paso.',
-    shortLabel: 'Español (AR)',
-    voi: 'vos',
-    languageTag: 'es-AR'
+    isIT,
+    isHowTo,
+    isProblem,
+    device,
   };
 }
 
-const OA_MIN_CONF = Number(process.env.OA_MIN_CONF || Number(CHAT?.settings?.OA_MIN_CONF || 0.6));
+// =========================
+// OpenAI (opcional) para ayuda avanzada
+// =========================
 
-// Playbooks locales para dispositivos de streaming / SmartTV.
-// Se usan como prioridad cuando hay match claro (sobre todo en español) antes de caer a OpenAI.
-const DEVICE_PLAYBOOKS = {
-  fire_tv: {
-    boot_issue: {
-      'es': [
-        'Verificá que el Fire TV Stick esté bien conectado al puerto HDMI del televisor. Si tenés un alargue o adaptador, probá conectarlo directamente.',
-        'Conectá el cable de alimentación del Fire TV Stick al adaptador de corriente original y enchufalo a un tomacorriente (evitá usar solo el USB del televisor).',
-        'Prendé el televisor y seleccioná manualmente la entrada HDMI donde está conectado el Fire TV Stick.',
-        'Si no ves nada en pantalla, desconectá el Fire TV Stick de la energía durante 30 segundos y volvé a conectarlo.',
-        'Probá con otro puerto HDMI del televisor o, si es posible, en otro televisor para descartar problemas del puerto.'
-      ],
-      'en': [
-        'Make sure the Fire TV Stick is firmly connected to the TV HDMI port. If you use an HDMI extender or adapter, try plugging it directly.',
-        'Connect the power cable to the original Fire TV power adapter and plug it into a wall outlet (avoid using only the TV USB port).',
-        'Turn on the TV and manually select the HDMI input where the Fire TV Stick is connected.',
-        'If you see no image, unplug the Fire TV Stick from power for 30 seconds and plug it back in.',
-        'If possible, try a different HDMI port or even a different TV to rule out HDMI port issues.'
-      ]
-    },
-    wifi_connectivity: {
-      'es': [
-        'Desde la pantalla de inicio del Fire TV, andá a Configuración → Red.',
-        'Elegí tu red WiFi y revisá que la contraseña esté bien escrita (prestá atención a mayúsculas y minúsculas).',
-        'Si sigue fallando, reiniciá el router y el Fire TV Stick (desenchufá ambos 30 segundos).',
-        'Acercá el Fire TV Stick al router o evitá obstáculos metálicos que puedan bloquear la señal.',
-        'Si el problema persiste, probá conectar temporalmente a la zona WiFi de tu celular para descartar fallas del router.'
-      ],
-      'en': [
-        'From the Fire TV home screen, go to Settings → Network.',
-        'Select your Wi‑Fi network and double‑check the password (case sensitive).',
-        'If it still fails, restart both the router and the Fire TV Stick (unplug them for 30 seconds).',
-        'Try to move the Fire TV Stick closer to the router or remove big obstacles between them.',
-        'If the issue persists, temporarily connect to your phone hotspot to rule out router problems.'
-      ]
-    }
-  },
-  chromecast: {
-    boot_issue: {
-      'es': [
-        'Comprobá que el Chromecast esté conectado al puerto HDMI del televisor y al cargador original.',
-        'Verificá que el televisor esté en la entrada HDMI correcta.',
-        'Reiniciá el Chromecast: desconectalo de la energía 30 segundos y volvé a conectarlo.',
-        'Si aparece la pantalla de inicio pero se queda colgado, intentá un reinicio desde la app Google Home.',
-        'Si nada de esto funciona, probá en otro televisor o con otro cargador compatible.'
-      ],
-      'en': [
-        'Check that the Chromecast is plugged into the TV HDMI port and into its original power adapter.',
-        'Make sure the TV is set to the correct HDMI input.',
-        'Restart the Chromecast: unplug it from power for 30 seconds and plug it back in.',
-        'If you see the home screen but it freezes, try restarting it from the Google Home app.',
-        'If nothing works, test it on a different TV or with a different compatible power adapter.'
-      ]
-    }
-  },
-  smart_tv_samsung: {
-    wifi_connectivity: {
-      'es': [
-        'En el control remoto, presioná el botón Home y andá a Configuración → Red → Abrir configuración de red.',
-        'Elegí WiFi, buscá tu red y escribí la contraseña con cuidado.',
-        'Si no conecta, reiniciá el televisor manteniendo presionado el botón de encendido hasta que se apague y vuelva a encender.',
-        'Reiniciá también el router desenchufándolo 30 segundos.',
-        'Si seguís con problemas, probá conectar el televisor por cable de red (LAN) para descartar fallas de WiFi.'
-      ],
-      'en': [
-        'On the remote, press Home and go to Settings → Network → Open Network Settings.',
-        'Select Wireless, choose your Wi‑Fi network and enter the password carefully.',
-        'If it still fails, restart the TV by holding the power button until it turns off and on again.',
-        'Also restart the router by unplugging it for 30 seconds.',
-        'If the issue persists, try connecting the TV using a LAN cable to rule out Wi‑Fi problems.'
-      ]
-    }
-  }
-};
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  const { OpenAI } = await import('openai');
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+  log('OpenAI habilitado');
+} else {
+  log('OpenAI deshabilitado (OPENAI_API_KEY no definido)');
+}
 
-async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
-  if(!openai) {
-    return { isIT: false, device: null, issueKey: null, confidence: 0 };
-  }
+async function callOpenAIHelp({ locale, userName, device, isHowTo, problem }) {
+  if (!openai) return null;
 
-  const profile = getLocaleProfile(locale);
-  const trimmed = String(problemText || '').trim();
-  if(!trimmed){
-    return { isIT: false, device: null, issueKey: null, confidence: 0 };
-  }
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
 
-  const userText = trimmed.slice(0, 800);
+  const system = isEn
+    ? `You are Tecnos, the friendly AI technician of STI (Intelligent Technical Service) from Rosario, Argentina.
+Answer SHORT, CLEAR and STEP-BY-STEP. Use non-technical language, unless strictly necessary.
+Never suggest dangerous actions (BIOS, registry, format, delete system files, high-voltage, opening hardware).
+Always speak in the user's language: ${profile.label}.`
+    : `Sos Tecnos, el técnico informático inteligente de STI (Servicio Técnico Inteligente) en Rosario, Argentina.
+Respondé CORTO, CLARO y POR PASOS. Usá lenguaje simple, sin tecnicismos innecesarios.
+Nunca sugieras acciones peligrosas (BIOS, registro, formatear, borrar archivos de sistema, alta tensión, abrir equipos).
+Respondé SIEMPRE en: ${profile.label}.`;
 
-  const systemMsg = profile.system;
+  const userPrompt = (isEn
+    ? `User name: ${userName || 'User'}.
+Device (if known): ${device || 'unknown'}.
+Type of request: ${isHowTo ? 'How-To / guidance' : 'Technical problem / incident'}.
 
-  const prompt = [
-    'Analizá (o analiza) el siguiente mensaje de un usuario final y clasificalo como:',
-    '1. PROBLEMA TÉCNICO: Algo no funciona, falla o tiene error',
-    '2. SOLICITUD DE AYUDA: Necesita guía para hacer algo (instalar, configurar, conectar)',
-    '3. NO INFORMÁTICO: No es tecnología',
-    '',
-    'Tu tarea es devolver SOLO JSON (sin explicación adicional), con este formato:',
-    '{',
-    '  "isIT": boolean,',
-    '  "isProblem": boolean,',
-    '  "isHowTo": boolean,',
-    '  "device": "pc" | "notebook" | "router" | "fire_tv" | "chromecast" | "roku" | "android_tv" | "apple_tv" | "smart_tv_samsung" | "smart_tv_lg" | "smart_tv_sony" | "smart_tv_generic" | "impresora" | "scanner" | "webcam" | "mouse" | "teclado" | "monitor" | null,',
-    '  "issueKey": "no_prende" | "boot_issue" | "wifi_connectivity" | "no_funciona" | "error_config" | "install_guide" | "setup_guide" | "connect_guide" | "generic" | null,',
-    '  "confidence": number between 0 and 1,',
-    `  "language": "${profile.languageTag}"`,
-    '}',
-    '',
-    'Ejemplos de PROBLEMAS (isProblem:true, isHowTo:false):',
-    '- "mi compu no prende" → isIT:true, isProblem:true, device:"pc", issueKey:"no_prende"',
-    '- "mi impresora no imprime" → isIT:true, isProblem:true, device:"impresora", issueKey:"no_funciona"',
-    '- "el mouse no responde" → isIT:true, isProblem:true, device:"mouse", issueKey:"no_funciona"',
-    '- "mi smart tv no se conecta al wifi" → isIT:true, isProblem:true, device:"smart_tv_generic", issueKey:"wifi_connectivity"',
-    '',
-    'Ejemplos de SOLICITUDES DE AYUDA (isProblem:false, isHowTo:true):',
-    '- "quiero instalar una impresora" → isIT:true, isProblem:false, isHowTo:true, device:"impresora", issueKey:"install_guide"',
-    '- "necesito configurar mi impresora HP" → isIT:true, isProblem:false, isHowTo:true, device:"impresora", issueKey:"setup_guide"',
-    '- "cómo conecto mi fire tv stick" → isIT:true, isProblem:false, isHowTo:true, device:"fire_tv", issueKey:"connect_guide"',
-    '- "necesito instalar una webcam" → isIT:true, isProblem:false, isHowTo:true, device:"webcam", issueKey:"install_guide"',
-    '- "ayuda para conectar el chromecast" → isIT:true, isProblem:false, isHowTo:true, device:"chromecast", issueKey:"setup_guide"',
-    '',
-    'Ejemplos de NO INFORMÁTICO (isIT:false):',
-    '- "tengo un problema con la heladera" → isIT:false',
-    '- "mi auto hace ruido" → isIT:false',
-    '',
-    'REGLAS IMPORTANTES:',
-    '- Si el usuario dice "no funciona", "no prende", "error", "falla" → isProblem:true',
-    '- Si el usuario dice "quiero", "necesito", "cómo", "ayuda para", "guía" → isHowTo:true',
-    '- Si hay AMBOS (ej: "quiero instalar pero me da error") → isProblem:true, isHowTo:false (priorizar el problema)',
-    '- Cualquier dispositivo electrónico/informático ES informático (isIT:true)',
-    '',
-    'Texto del usuario:',
-    userText
-  ].join('\n');
+User message:
+${problem}
 
-  try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
+Give:
+- A brief empathetic sentence.
+- 3 to 7 numbered steps to try.
+- If the issue is serious or uncertain, end with a suggestion to contact a human technician.`
+    : `Nombre del usuario: ${userName || 'Usuario'}.
+Dispositivo (si se conoce): ${device || 'desconocido'}.
+Tipo de consulta: ${isHowTo ? 'Guía / cómo hacer algo' : 'Problema técnico / falla'}.
+
+Mensaje del usuario:
+${problem}
+
+Indicaciones:
+- Empezá con una frase empática corta.
+- Luego da entre 3 y 7 pasos numerados que pueda probar.
+- Si el problema parece grave o poco claro, terminá sugiriendo contactar a un técnico humano.`);
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      temperature: 0.3,
+      max_tokens: 600,
       messages: [
-        { role: 'system', content: systemMsg },
-        { role: 'user', content: prompt }
+        { role: 'system', content: system },
+        { role: 'user', content: userPrompt }
       ],
-      temperature: 0,
-      max_tokens: 300,
-      signal: controller.signal
     });
-    clearTimeout(timeoutId);
 
-    const raw = r?.choices?.[0]?.message?.content || '';
-    let parsed;
-    try{
-      const cleaned = raw.trim()
-        .replace(/^```json/i, '')
-        .replace(/^```/i, '')
-        .replace(/```$/i, '');
-      parsed = JSON.parse(cleaned);
-    }catch(e){
-      return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
-    }
-
-    const isIT = !!parsed.isIT;
-    const isProblem = !!parsed.isProblem;
-    const isHowTo = !!parsed.isHowTo;
-    const device = typeof parsed.device === 'string' ? parsed.device : null;
-    const issueKey = typeof parsed.issueKey === 'string' ? parsed.issueKey : null;
-    let confidence = Number(parsed.confidence || 0);
-    if(!Number.isFinite(confidence) || confidence < 0) confidence = 0;
-    if(confidence > 1) confidence = 1;
-
-    return { isIT, isProblem, isHowTo, device, issueKey, confidence };
-  }catch(err){
-    console.error('[analyzeProblemWithOA] error:', err?.message || err);
-    return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
+    const text = completion.choices?.[0]?.message?.content?.trim();
+    if (!text) return null;
+    return text;
+  } catch (err) {
+    log('[OpenAI error]', err.message || err);
+    return null;
   }
 }
 
-async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
-  const profile = getLocaleProfile(locale);
-  const trimmed = String(problemText || '').trim();
-  if(!openai || !trimmed){
-    // Fallback local sencillo, reutilizando idioma
-    const isEn = profile.code === 'en';
-    if (isEn) {
-      return [
-        'Restart the device completely (turn it off, unplug it for 30 seconds and plug it back in).',
-        'Check that all cables are firmly connected and there are no damaged connectors.',
-        'Confirm that the device shows at least some sign of power (LED, sound or logo).',
-        'If the problem persists, try a different power outlet or HDMI port if applicable.'
-      ];
-    }
-    return [
-      'Reiniciá el equipo por completo (apagalo, desenchufalo 30 segundos y volvé a enchufarlo).',
-      'Revisá que todos los cables estén firmes y no haya fichas flojas o dañadas.',
-      'Confirmá si el equipo muestra al menos alguna luz, sonido o logo al encender.',
-      'Si el problema persiste, probá con otro tomacorriente o, si aplica, otro puerto HDMI.'
-    ];
-  }
+// =========================
+// Respuestas de Tecnos
+// =========================
 
-  const userText = trimmed.slice(0, 800);
+function buildLanguageGreeting() {
+  const baseEs = `${buildTimeGreeting('es-AR')}, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.`;
+  const baseEn = `${buildTimeGreeting('en')}, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service.`;
 
-  const systemMsg = profile.system;
-  const deviceLabel = device || 'dispositivo';
-
-  const prompt = [
-    'Generá una lista corta de pasos numerados para ayudar a un usuario final a diagnosticar y resolver un problema técnico.',
-    `El usuario habla en el idioma: ${profile.languageTag}.`,
-    `Dispositivo (si se conoce): ${deviceLabel}.`,
+  const lines = [
+    `${baseEs}`,
+    `${baseEn}`,
     '',
-    'IMPORTANTE:',
-    '- Respondé SOLO en el idioma del usuario.',
-    '- Devolvé la respuesta SOLO como un array JSON de strings (sin explicación extra).',
-    '- Cada string debe describir un paso concreto, simple y seguro.',
-    '- Evitá cualquier acción peligrosa o avanzada (no tocar BIOS, no usar comandos destructivos).',
-    '',
-    'Ejemplo de formato de salida:',
-    '["Paso 1: ...", "Paso 2: ...", "Paso 3: ..."]',
-    '',
-    'Texto del usuario (descripción del problema):',
-    userText
+    '🌐 Para empezar, seleccioná un idioma usando los botones:',
+    '🌐 To begin, select a language using the buttons:'
   ].join('\n');
 
-  try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: 'system', content: systemMsg },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 400,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  const options = [
+    { token: BUTTONS.LANG_ES_AR, label: 'Español Argentina' },
+    { token: BUTTONS.LANG_ES_ES, label: 'Español España' },
+    { token: BUTTONS.LANG_EN, label: 'English' }
+  ];
 
-    const raw = r?.choices?.[0]?.message?.content || '';
-    let parsed;
-    try{
-      const cleaned = raw.trim()
-        .replace(/^```json/i, '')
-        .replace(/^```/i, '')
-        .replace(/```$/i, '');
-      parsed = JSON.parse(cleaned);
-    }catch(e){
-      // Si no se pudo parsear como JSON, devolvemos un fallback simple.
-      const isEn = profile.code === 'en';
-      if (isEn) {
-        return [
-          'Restart the device and check if the problem persists.',
-          'Verify cables and connections and check for visible damage.',
-          'If possible, test the device on another TV, monitor or power outlet.',
-          'If the problem persists, contact a technician with these details.'
-        ];
-      }
-      return [
-        'Reiniciá el equipo y fijate si el problema sigue.',
-        'Revisá cables y conexiones y verificá que no haya daño visible.',
-        'Si podés, probá el equipo en otro televisor, monitor o enchufe.',
-        'Si el problema continúa, contactá a un técnico y comentale estos pasos que ya probaste.'
-      ];
-    }
-
-    if(!Array.isArray(parsed) || !parsed.length){
-      return [];
-    }
-    return parsed.map(s => String(s)).slice(0, 6);
-  }catch(err){
-    console.error('[aiQuickTests] error:', err?.message || err);
-    const isEn = getLocaleProfile(locale).code === 'en';
-    if (isEn) {
-      return [
-        'Restart the device completely (turn it off and unplug it for 30 seconds).',
-        'Check connections (power, HDMI, network) and try again.',
-        'If the problem persists, contact a technician with details of what you already tried.'
-      ];
-    }
-    return [
-      'Reiniciá el equipo por completo (apagalo y desenchufalo 30 segundos).',
-      'Revisá conexiones (corriente, HDMI, red) y probá de nuevo.',
-      'Si el problema continúa, contactá a un técnico con el detalle de lo que ya probaste.'
-    ];
-  }
+  return { text: lines, options };
 }
 
-async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR'){
-  const profile = getLocaleProfile(locale);
-  const isEn = profile.code === 'en';
-  if(!openai){
-    if (isEn) {
-      return `Step ${stepIndex}: ${stepText}\n\nTry to perform it calmly. If something is not clear, tell me which part you did not understand and I will re-explain it in another way.`;
-    }
-    return `Paso ${stepIndex}: ${stepText}\n\nTratá de hacerlo con calma. Si hay algo que no se entiende, decime qué parte no te quedó clara y te la explico de otra forma.`;
+function buildAskName(locale) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+  const isEsAr = profile.isEsAr;
+
+  if (isEn) {
+    return {
+      text:
+        `${buildTimeGreeting('en')}, I'm Tecnos, STI's intelligent assistant.\n\n` +
+        `I'm here to help you with your PC, notebook, WiFi or printer.\n\n` +
+        `First, what's your name?\n\n` +
+        `You can also tap the button if you prefer not to say it.`,
+      options: [
+        { token: BUTTONS.NO_NAME, label: "Prefer not to say my name" }
+      ]
+    };
   }
 
-  const deviceLabel = device || (isEn ? 'device' : 'equipo');
-  const userText = String(problem || '').trim().slice(0, 400);
+  // Español
+  const line1 = isEsAr
+    ? `${buildTimeGreeting('es-AR')}, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.`
+    : `${buildTimeGreeting('es-ES')}, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.`;
 
-  const systemMsg = profile.system;
+  const line2 = isEsAr
+    ? `Estoy para ayudarte con tu PC, notebook, WiFi o impresora.`
+    : `Estoy para ayudarte con tu ordenador, portátil, WiFi o impresora.`;
 
-  const prompt = [
-    isEn
-      ? 'You will help a non-technical user complete a specific troubleshooting step on a device.'
-      : 'Vas a ayudar a una persona no técnica a completar un paso específico de diagnóstico en un equipo.',
-    '',
-    isEn
-      ? 'Explain the step in a clear, calm and empathetic way, using simple language. The answer must be short and practical.'
-      : 'Explicá el paso de forma clara, calma y empática, usando lenguaje simple. La respuesta tiene que ser corta y práctica.',
-    '',
-    isEn
-      ? 'If needed, include small sub-steps or checks (bullets or short sentences), but focus only on this step.'
-      : 'Si hace falta, incluí pequeños subpasos o chequeos (viñetas o frases cortas), pero enfocate solo en este paso.',
-    '',
-    isEn
-      ? 'Do NOT mention dangerous actions (no BIOS, no registry edits, no risky commands).'
-      : 'NO sugieras acciones peligrosas (nada de BIOS, ni registro de Windows, ni comandos riesgosos).',
-    '',
-    `Device: ${deviceLabel}`,
-    userText ? (isEn ? `Problem summary: ${userText}` : `Resumen del problema: ${userText}`) : '',
-    '',
-    isEn
-      ? `Step ${stepIndex} to explain: ${stepText}`
-      : `Paso ${stepIndex} a explicar: ${stepText}`
-  ].join('\n');
+  const line3 = isEsAr
+    ? `Antes de seguir, ¿cómo te llamás?`
+    : `Antes de seguir, ¿cómo te llamas?`;
 
-  try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: 'system', content: systemMsg },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.4,
-      max_tokens: 400,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  const line4 = isEsAr
+    ? `Si preferís no decir tu nombre, podés usar el botón de abajo.`
+    : `Si prefieres no decir tu nombre, puedes usar el botón de abajo.`;
 
-    const raw = r?.choices?.[0]?.message?.content || '';
-    return raw.trim();
-  }catch(err){
-    console.error('[getHelpForStep] error:', err?.message || err);
-    if (isEn) {
-      return `Step ${stepIndex}: ${stepText}\n\nTry to follow it calmly. If you get stuck, tell me exactly at which part you got blocked and I will guide you.`;
-    }
-    return `Paso ${stepIndex}: ${stepText}\n\nIntentá seguirlo con calma. Si te trabás en alguna parte, decime exactamente en cuál y te voy guiando.`;
-  }
+  return {
+    text: `${line1}\n\n${line2}\n\n${line3}\n\n${line4}`,
+    options: [
+      { token: BUTTONS.NO_NAME, label: 'Prefiero no decirlo' }
+    ]
+  };
 }
 
-// ========================================================
-// Express app, endpoints, and core chat flow
-// ========================================================
-// Express app, endpoints, and core chat flow
-// ========================================================
+function buildAskProblem(locale, userName) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+  const name = userName || (isEn ? 'there' : 'ahí');
+
+  if (isEn) {
+    return {
+      text:
+        `Thanks, ${name}. 👍\n\n` +
+        `I'm here to help you with your PC, notebook, WiFi or printer.\n\n` +
+        `Now tell me: what problem are you having, or what do you need help with?`,
+      options: []
+    };
+  }
+
+  const base = profile.isEsAr
+    ? `Gracias, ${name}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora.\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
+    : `Gracias, ${name}. 👍\n\nEstoy para ayudarte con tu ordenador, portátil, WiFi o impresora.\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`;
+
+  return { text: base, options: [] };
+}
+
+function buildBasicStepsReply(locale, userName, device, isHowTo, isProblem, aiText) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+
+  let header;
+  if (isEn) {
+    if (isHowTo && !isProblem) {
+      header = `Perfect, ${userName || 'there'} 🙌\n\nLet's go step by step so you can do what you need on your ${device || 'device'}.`;
+    } else {
+      header = `Perfect, ${userName || 'there'} 🙌\n\nLet's try some checks on your ${device || 'device'} to see if we can solve it together.`;
+    }
+  } else {
+    if (isHowTo && !isProblem) {
+      header = `Perfecto, ${userName || 'ahí'} 🙌\n\nVamos paso a paso para que puedas hacer lo que necesitás en tu ${device || 'equipo'}.`;
+    } else {
+      header = `Perfecto, ${userName || 'ahí'} 🙌\n\nProbemos algunas verificaciones en tu ${device || 'equipo'} a ver si lo podemos resolver juntos.`;
+    }
+  }
+
+  const textParts = [header];
+  if (aiText) {
+    textParts.push('', aiText);
+  } else {
+    if (isEn) {
+      textParts.push(
+        '',
+        '1️⃣ Check if the equipment is properly connected to power or the charger.',
+        '2️⃣ If it is a PC or notebook, keep the power button pressed for 15 seconds and then try again.',
+        '3️⃣ If it is a printer, turn it off, disconnect it for 30 seconds and reconnect it.',
+        '4️⃣ Tell me what happened after these steps: did anything change or is it still the same?'
+      );
+    } else {
+      textParts.push(
+        '',
+        '1️⃣ Verificá que el equipo esté bien conectado a la corriente o al cargador.',
+        '2️⃣ Si es una PC o notebook, mantené presionado el botón de encendido unos 15 segundos y volvé a probar.',
+        '3️⃣ Si es una impresora, apagála, desconectála 30 segundos y volvé a conectarla.',
+        '4️⃣ Contame qué pasó después de estos pasos: ¿cambió algo o sigue igual?'
+      );
+    }
+  }
+
+  const options = [
+    { token: BUTTONS.SOLVED, label: isEn ? 'I solved it ✔️' : 'Lo pude solucionar ✔️' },
+    { token: BUTTONS.PERSIST, label: isEn ? 'The problem persists ❌' : 'El problema persiste ❌' }
+  ];
+
+  return {
+    text: textParts.join('\n'),
+    options
+  };
+}
+
+function buildEscalateReply(locale) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+
+  if (isEn) {
+    return {
+      text:
+        `Thanks for the info 🙏\n\n` +
+        `Would you like to try a few more checks, or do you prefer to connect with a human technician?`,
+      options: [
+        { token: BUTTONS.MORE_TESTS, label: 'More checks 🔍' },
+        { token: BUTTONS.CONNECT_TECH, label: 'Connect with technician 🧑‍💻' }
+      ]
+    };
+  }
+
+  const text =
+    `Gracias por la info 🙏\n\n` +
+    `¿Querés hacer algunas pruebas más o preferís que te conecte con un técnico humano?`;
+
+  return {
+    text,
+    options: [
+      { token: BUTTONS.MORE_TESTS, label: 'Más pruebas 🔍' },
+      { token: BUTTONS.CONNECT_TECH, label: 'Conectar con técnico 🧑‍💻' }
+    ]
+  };
+}
+
+function buildAdvancedTestsReply(locale, userName, device) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+
+  let text;
+  if (isEn) {
+    text =
+      `Alright ${userName || ''}, let's try a couple of deeper checks on your ${device || 'device'}:\n\n` +
+      `1️⃣ If it has a power cable, unplug it and plug it back in firmly.\n` +
+      `2️⃣ If it's a notebook, test with another wall outlet or charger if you have one.\n` +
+      `3️⃣ If it's a WiFi issue, restart the router and modem by unplugging them for 30 seconds.\n` +
+      `4️⃣ Let me know what happened after these checks.`;
+  } else {
+    text =
+      `Perfecto ${userName || ''}, hagamos un par de pruebas un poco más profundas en tu ${device || 'equipo'}:\n\n` +
+      `1️⃣ Si tiene cable de alimentación, desconectalo y volvé a conectarlo firme.\n` +
+      `2️⃣ Si es una notebook, probá en otro enchufe o con otro cargador si tenés.\n` +
+      `3️⃣ Si el problema es de WiFi, reiniciá el router y el módem desenchufándolos 30 segundos.\n` +
+      `4️⃣ Contame qué pasó después de estas pruebas.`;
+  }
+
+  const options = [
+    { token: BUTTONS.SOLVED, label: isEn ? 'I solved it ✔️' : 'Lo pude solucionar ✔️' },
+    { token: BUTTONS.PERSIST, label: isEn ? 'The problem persists ❌' : 'El problema persiste ❌' }
+  ];
+
+  return { text, options };
+}
+
+function buildSolvedReply(locale, userName) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+
+  if (isEn) {
+    return {
+      text:
+        `Great, ${userName || 'there'}! 🎉\n\n` +
+        `I'm glad we could solve it together.\n\n` +
+        `If you need help again with your PC, notebook, WiFi or printer, you can come back to this chat or visit stia.com.ar / @sti.rosario.`,
+      options: []
+    };
+  }
+
+  const text =
+    `¡Genial, ${userName || 'ahí'}! 🎉\n\n` +
+    `Me alegra que lo hayamos podido resolver juntos.\n\n` +
+    `Cuando necesites ayuda de nuevo con tu PC, notebook, WiFi o impresora, podés volver a este chat o entrar a stia.com.ar / @sti.rosario.`;
+
+  return { text, options: [] };
+}
+
+function buildEndedFallback(locale) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+
+  if (isEn) {
+    return {
+      text: `This conversation is already closed ✅\n\nIf you want, you can refresh the page to start a new chat with Tecnos.`,
+      options: []
+    };
+  }
+
+  return {
+    text: `Esta conversación ya quedó cerrada ✅\n\nSi querés, podés refrescar la página para iniciar un nuevo chat con Tecnos.`,
+    options: []
+  };
+}
+
+// =========================
+// WhatsApp Ticket
+// =========================
+
+function buildWhatsAppTicket(locale, session) {
+  const profile = getLocaleProfile(locale || 'es-AR');
+  const isEn = profile.isEn;
+  const ticketId = generateTicketId();
+
+  const header = isEn
+    ? `STI • Ticket ${ticketId}`
+    : `STI • Ticket ${ticketId}`;
+
+  const createdAt = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+
+  const lines = [
+    header,
+    '',
+    `Fecha/hora: ${createdAt}`,
+    `Nombre: ${session.userName || '(sin nombre)'}`,
+    `Idioma: ${session.userLocale || '(no definido)'}`,
+    `Dispositivo: ${session.device || '(no detectado)'}`,
+    '',
+    `Resumen del problema:`,
+    `${session.problem || '(sin descripción)'}`
+  ];
+
+  const text = lines.join('\n');
+  const encoded = encodeURIComponent(text);
+  const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`;
+
+  return { ticketId, url, text };
+}
+
+// =========================
+// Express app
+// =========================
+
 const app = express();
 
-// SECURITY: Helmet para headers de seguridad
-app.use(helmet({
-  contentSecurityPolicy: false, // Lo manejaremos manualmente para PWA
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
+// CORS
+app.use(cors({
+  origin: function(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS: origin not allowed'));
   },
-  frameguard: { action: 'deny' },
-  noSniff: true,
-  xssFilter: true,
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  crossOriginEmbedderPolicy: false, // Para compatibilidad con PWA
-  crossOriginOpenerPolicy: { policy: 'same-origin' },
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  credentials: true
 }));
 
-// CORS: lista blanca de orígenes permitidos (configurable vía ALLOWED_ORIGINS)
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:5173'];
+// JSON + URL-encoded
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
-app.use(cors({ 
-  origin: (origin, callback) => {
-    // SECURITY: Rechazar explícitamente origin null (puede ser ataque)
-    if (origin === 'null' || origin === null) {
-      console.warn(`[CORS] Blocked null origin (potential attack)`);
-      return callback(new Error('CORS: null origin not allowed'), false);
-    }
-    
-    // Permitir sin origin SOLO en desarrollo o para herramientas autorizadas
-    if (!origin) {
-      if (process.env.NODE_ENV === 'development') {
-        return callback(null, true);
-      }
-      console.warn(`[CORS] Blocked request without origin header`);
-      return callback(new Error('CORS: origin header required'), false);
-    }
-    
-    // Validar contra lista blanca estricta
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS] Blocked unauthorized origin: ${origin}`);
-      callback(new Error('CORS: origin not allowed'), false);
-    }
-  },
-  credentials: true,
-  maxAge: 86400, // 24 horas
-  optionsSuccessStatus: 204
-}));
+// Compresión
+app.use(compression());
 
-// PERFORMANCE: Compression middleware (gzip/brotli)
-app.use(compression({
-  filter: (req, res) => {
-    // No comprimir si el cliente no lo soporta
-    if (req.headers['x-no-compression']) return false;
-    // Comprimir solo respuestas >1KB
-    return compression.filter(req, res);
-  },
-  threshold: 1024, // 1KB mínimo
-  level: 6 // Balance entre velocidad y compresión
-}));
-
-app.use(express.json({ 
-  limit: '2mb',
-  strict: true,
-  verify: (req, res, buf) => {
-    // Validate JSON structure
-    try {
-      JSON.parse(buf);
-    } catch (e) {
-      throw new Error('Invalid JSON');
-    }
-  }
-}));
-app.use(express.urlencoded({ 
-  extended: false,
-  limit: '2mb',
-  parameterLimit: 100
-}));
-
-// Request ID middleware (para tracking y debugging)
+// Cabeceras de seguridad básicas
 app.use((req, res, next) => {
-  const requestId = req.headers[REQUEST_ID_HEADER] || generateRequestId();
-  req.requestId = requestId;
-  res.setHeader(REQUEST_ID_HEADER, requestId);
-  next();
-});
-
-// Validar Content-Length (prevenir DOS)
-app.use((req, res, next) => {
-  const contentLength = parseInt(req.headers['content-length'] || '0', 10);
-  const maxSize = 10 * 1024 * 1024; // 10MB máximo
-  
-  if (contentLength > maxSize) {
-    console.warn(`[${req.requestId}] Content-Length excede límite: ${contentLength} bytes`);
-    return res.status(413).json({ ok: false, error: 'Payload too large' });
-  }
-  next();
-});
-
-// Security headers + cache control
-app.use((req,res,next)=>{ 
-  res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
-  next(); 
-});
-
-// Content Security Policy para PWA (Strict)
-app.use((req, res, next) => {
-  // CSP más estricto con nonces para inline scripts
-  const nonce = crypto.randomBytes(16).toString('base64');
-  res.locals.nonce = nonce;
-  
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; " +
-    `script-src 'self' 'nonce-${nonce}'; ` +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https: blob:; " +
-    "connect-src 'self' https://stia.com.ar https://api.openai.com https://sti-rosario-ai.onrender.com; " +
-    "font-src 'self' data:; " +
-    "media-src 'self'; " +
-    "object-src 'none'; " +
-    "frame-ancestors 'none'; " +
-    "base-uri 'self'; " +
-    "form-action 'self'; " +
-    "upgrade-insecure-requests; " +
-    "block-all-mixed-content; " +
-    "manifest-src 'self' https://stia.com.ar; " +
-    "worker-src 'self'; " +
-    "child-src 'none'; " +
-    `report-uri /api/csp-report; ` +
-    "require-trusted-types-for 'script'; " +
-    "trusted-types default;"
-  );
-  
-  // Security headers completos (mejores prácticas 2024)
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()');
-  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload'); // 2 años
-  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-  res.setHeader('X-Download-Options', 'noopen');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  
-  // CORS más restrictivo
-  const allowedOrigin = req.headers.origin;
-  if (allowedOrigins.includes(allowedOrigin) || process.env.NODE_ENV === 'development') {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
-    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
-  }
-  
   next();
 });
 
-// Servir archivos estáticos de PWA con compression
-app.use(express.static('public', {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, filePath) => {
-    // Headers especiales según tipo de archivo
-    if (filePath.endsWith('manifest.json')) {
-      res.set('Content-Type', 'application/manifest+json');
-      res.set('Cache-Control', 'public, max-age=3600'); // 1 hora
-    } else if (filePath.endsWith('sw.js')) {
-      res.set('Content-Type', 'application/javascript');
-      res.set('Cache-Control', 'no-cache');
-      res.set('Service-Worker-Allowed', '/');
-    } else if (filePath.match(/\.(png|jpg|jpeg|svg|ico)$/)) {
-      res.set('Cache-Control', 'public, max-age=2592000'); // 30 días para imágenes
-    }
-  }
-}));
-
-// ========================================================
-// Rate Limiting per Endpoint (IP + Session based)
-// ========================================================
-const uploadLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 3, // REDUCIDO: 3 uploads por minuto (era 5)
-  message: { ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento antes de intentar de nuevo.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Rate limit por IP + Session (más estricto)
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    const sid = req.sessionId || 'no-session';
-    return `${ip}:${sid}`;
-  },
-  handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] Upload blocked: IP=${req.ip}, Session=${req.sessionId}`);
-    res.status(429).json({ ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento.' });
-  }
-});
-
-const chatLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20, // REDUCIDO: 20 mensajes por minuto (era 30)
-  message: { ok: false, error: 'Demasiados mensajes. Esperá un momento antes de continuar.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    return `${ip}:${req.sessionId || 'no-session'}`;
-  },
-  handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] Chat blocked: IP=${req.ip}, Session=${req.sessionId}`);
-    res.status(429).json({ ok: false, error: 'Demasiados mensajes. Esperá un momento.' });
-  }
-});
-
+// Rate limits básicos
 const greetingLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5, // REDUCIDO: 5 inicios por minuto (era 10)
-  message: { ok: false, error: 'Demasiados intentos de inicio. Esperá un momento.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
-  handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] Greeting blocked: IP=${req.ip}`);
-    res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá un momento.' });
-  }
+  max: 10,
+});
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
 });
 
-// ========================================================
-// Multer configuration for image uploads
-// ========================================================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Verificar que el directorio existe y es seguro
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
-    }
-    
-    // Verificar permisos de escritura
-    try {
-      fs.accessSync(UPLOADS_DIR, fs.constants.W_OK);
-      cb(null, UPLOADS_DIR);
-    } catch (err) {
-      console.error('[MULTER] Sin permisos de escritura en UPLOADS_DIR:', err);
-      cb(new Error('No se puede escribir en el directorio de uploads'));
-    }
-  },
-  filename: (req, file, cb) => {
-    try {
-      // Sanitizar nombre de archivo con mayor seguridad
-      const ext = path.extname(file.originalname).toLowerCase();
-      const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-      
-      if (!allowedExts.includes(ext)) {
-        return cb(new Error('Tipo de archivo no permitido'));
-      }
-      
-      // Generar nombre único con timestamp y random
-      const timestamp = Date.now();
-      const random = crypto.randomBytes(8).toString('hex');
-      const sessionId = validateSessionId(req.sessionId) ? req.sessionId.substring(0, 20) : 'anon';
-      const safeName = `${sessionId}_${timestamp}_${random}${ext}`;
-      
-      // Verificar que el path final es seguro
-      const fullPath = path.join(UPLOADS_DIR, safeName);
-      if (!isPathSafe(fullPath, UPLOADS_DIR)) {
-        return cb(new Error('Ruta de archivo no válida'));
-      }
-      
-      cb(null, safeName);
-    } catch (err) {
-      console.error('[MULTER] Error generando nombre de archivo:', err);
-      cb(new Error('Error procesando el archivo'));
-    }
-  }
+// Healthcheck
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, ts: nowIso(), status: 'STI Tecnos server up' });
 });
 
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB máximo
-    files: 1, // Solo 1 archivo a la vez
-    fields: 10, // Limitar campos
-    fieldSize: 1 * 1024 * 1024, // 1MB por campo
-    fieldNameSize: 100, // 100 bytes para nombres de campo
-    parts: 20 // Limitar partes multipart
-  },
-  fileFilter: (req, file, cb) => {
-    // SECURITY: Validar Content-Type del multipart (no solo MIME del archivo)
-    const contentType = req.headers['content-type'] || '';
-    if (!contentType.includes('multipart/form-data')) {
-      return cb(new Error('Content-Type debe ser multipart/form-data'));
-    }
-    
-    // Validar MIME type del archivo (doble validación)
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedMimes.includes(file.mimetype)) {
-      return cb(new Error('Solo se permiten imágenes (JPEG, PNG, GIF, WebP)'));
-    }
-    
-    // Validar extensión del archivo
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-    if (!allowedExts.includes(ext)) {
-      return cb(new Error('Extensión de archivo no permitida'));
-    }
-    
-    // Validar nombre de archivo
-    if (!file.originalname || file.originalname.length > 255) {
-      return cb(new Error('Nombre de archivo inválido'));
-    }
-    
-    // Prevenir path traversal en nombre
-    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
-      return cb(new Error('Nombre de archivo contiene caracteres no permitidos'));
-    }
-    
-    cb(null, true);
-  }
+// ===============
+// /api/greeting
+// ===============
+
+app.get('/api/greeting', greetingLimiter, (req, res) => {
+  const session = createFreshSession();
+  const { text, options } = buildLanguageGreeting();
+
+  session.transcript.push({ who: 'bot', text, ts: nowIso() });
+  saveSession(session);
+
+  res.json({
+    ok: true,
+    sessionId: session.id,
+    reply: text,
+    stage: session.stage,
+    options
+  });
 });
 
-// Servir archivos subidos estáticamente
-app.use('/uploads', express.static(UPLOADS_DIR, {
-  maxAge: '7d',
-  etag: true
-}));
+// ===========
+// /api/chat
+// ===========
 
-// ========================================================
-// Image Validation Utility
-// ========================================================
-async function validateImageFile(filePath) {
+app.post('/api/chat', chatLimiter, async (req, res) => {
   try {
-    // Read first bytes to check magic number
-    const fd = fs.openSync(filePath, 'r');
-    const buffer = Buffer.alloc(12);
-    fs.readSync(fd, buffer, 0, 12, 0);
-    fs.closeSync(fd);
-    
-    // Check magic numbers
-    const magicNumbers = {
-      jpeg: [0xFF, 0xD8, 0xFF],
-      png: [0x89, 0x50, 0x4E, 0x47],
-      gif: [0x47, 0x49, 0x46, 0x38],
-      webp: [0x52, 0x49, 0x46, 0x46] // "RIFF"
-    };
-    
-    let isValid = false;
-    for (const [type, magic] of Object.entries(magicNumbers)) {
-      let matches = true;
-      for (let i = 0; i < magic.length; i++) {
-        if (buffer[i] !== magic[i]) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) {
-        isValid = true;
-        break;
-      }
-    }
-    
-    if (!isValid) {
-      return { valid: false, error: 'Archivo no es una imagen válida' };
-    }
-    
-    // Additional validation with sharp
-    const metadata = await sharp(filePath).metadata();
-    
-    // Verificar dimensiones razonables
-    if (metadata.width > 10000 || metadata.height > 10000) {
-      return { valid: false, error: 'Dimensiones de imagen demasiado grandes' };
-    }
-    
-    if (metadata.width < 10 || metadata.height < 10) {
-      return { valid: false, error: 'Dimensiones de imagen demasiado pequeñas' };
-    }
-    
-    return { valid: true, metadata };
-  } catch (err) {
-    return { valid: false, error: 'Error validando imagen: ' + err.message };
-  }
-}
-
-// ========================================================
-// Image Compression Utility
-// ========================================================
-async function compressImage(inputPath, outputPath) {
-  try {
-    const startTime = Date.now();
-    await sharp(inputPath)
-      .resize(1920, 1920, { // Max 1920px, mantiene aspect ratio
-        fit: 'inside',
-        withoutEnlargement: true
-      })
-      .jpeg({ quality: 85 }) // Comprimir a 85% calidad
-      .toFile(outputPath);
-    
-    const compressionTime = Date.now() - startTime;
-    
-    // Get file sizes
-    const originalSize = fs.statSync(inputPath).size;
-    const compressedSize = fs.statSync(outputPath).size;
-    const savedBytes = originalSize - compressedSize;
-    const savedPercent = ((savedBytes / originalSize) * 100).toFixed(1);
-    
-    logMsg(`[COMPRESS] ${path.basename(inputPath)}: ${(originalSize/1024).toFixed(1)}KB → ${(compressedSize/1024).toFixed(1)}KB (saved ${savedPercent}%) in ${compressionTime}ms`);
-    
-    return { success: true, originalSize, compressedSize, savedBytes, compressionTime };
-  } catch (err) {
-    console.error('[COMPRESS] Error:', err);
-    return { success: false, error: err.message };
-  }
-}
-
-// ========================================================
-// Automatic Cleanup Job (runs daily at 3 AM)
-// ========================================================
-cron.schedule('0 3 * * *', async () => {
-  logMsg('[CLEANUP] Iniciando limpieza automática de archivos antiguos...');
-  
-  try {
-    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    const files = fs.readdirSync(UPLOADS_DIR);
-    let deletedCount = 0;
-    let freedBytes = 0;
-    
-    for (const file of files) {
-      const filePath = path.join(UPLOADS_DIR, file);
-      const stats = fs.statSync(filePath);
-      
-      if (stats.mtimeMs < sevenDaysAgo) {
-        freedBytes += stats.size;
-        fs.unlinkSync(filePath);
-        deletedCount++;
-      }
-    }
-    
-    logMsg(`[CLEANUP] Completado: ${deletedCount} archivos eliminados, ${(freedBytes/1024/1024).toFixed(2)}MB liberados`);
-  } catch (err) {
-    console.error('[CLEANUP] Error:', err);
-  }
-});
-
-// Manual cleanup endpoint (protected)
-app.post('/api/cleanup', async (req, res) => {
-  const token = req.headers.authorization || req.query.token;
-  if (token !== SSE_TOKEN) {
-    return res.status(403).json({ ok: false, error: 'No autorizado' });
-  }
-  
-  try {
-    const daysOld = parseInt(req.body.daysOld || 7);
-    const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-    const files = fs.readdirSync(UPLOADS_DIR);
-    let deletedCount = 0;
-    let freedBytes = 0;
-    
-    for (const file of files) {
-      const filePath = path.join(UPLOADS_DIR, file);
-      const stats = fs.statSync(filePath);
-      
-      if (stats.mtimeMs < cutoffTime) {
-        freedBytes += stats.size;
-        fs.unlinkSync(filePath);
-        deletedCount++;
-      }
-    }
-    
-    res.json({ 
-      ok: true, 
-      deleted: deletedCount, 
-      freedMB: (freedBytes/1024/1024).toFixed(2),
-      daysOld 
-    });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// Estados del flujo según Flujo.csv
-const STATES = {
-  ASK_LANGUAGE: 'ASK_LANGUAGE',
-  ASK_NAME: 'ASK_NAME',
-  ASK_NEED: 'ASK_NEED',
-  CLASSIFY_NEED: 'CLASSIFY_NEED',
-  ASK_DEVICE: 'ASK_DEVICE',
-  ASK_PROBLEM: 'ASK_PROBLEM',
-  DETECT_DEVICE: 'DETECT_DEVICE',
-  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
-  GENERATE_HOWTO: 'GENERATE_HOWTO',
-  BASIC_TESTS: 'BASIC_TESTS',
-  ADVANCED_TESTS: 'ADVANCED_TESTS',
-  ESCALATE: 'ESCALATE',
-  CREATE_TICKET: 'CREATE_TICKET',
-  TICKET_SENT: 'TICKET_SENT',
-  ENDED: 'ENDED'
-};
-
-// ========================================================
-// Security: Input Validation & Sanitization
-// ========================================================
-function sanitizeInput(input, maxLength = 1000) {
-  if (!input) return '';
-  return String(input)
-    .trim()
-    .slice(0, maxLength)
-    .replace(/[<>"'`]/g, '') // Remove potential XSS characters
-    .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
-}
-
-function sanitizeFilePath(fileName) {
-  if (!fileName || typeof fileName !== 'string') return null;
-  
-  // Remover path traversal patterns
-  const sanitized = fileName
-    .replace(/\.\./g, '')
-    .replace(/[\/\\]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .slice(0, 255);
-  
-  // Validar que no esté vacío después de sanitizar
-  if (!sanitized || sanitized.length === 0) return null;
-  
-  return sanitized;
-}
-
-function isPathSafe(filePath, allowedDir) {
-  const resolvedPath = path.resolve(filePath);
-  const resolvedBase = path.resolve(allowedDir);
-  return resolvedPath.startsWith(resolvedBase);
-}
-
-function validateSessionId(sid) {
-  if (!sid || typeof sid !== 'string') return false;
-  
-  // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 81 caracteres
-  // Formato: srv-1700000000000-<64 hex>
-  if (sid.length !== 81) return false;
-  
-  // Validar formato exacto con regex estricto
-  const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
-  if (!sessionIdRegex.test(sid)) return false;
-  
-  // Validar que el timestamp sea razonable (no futuro, no muy antiguo)
-  const timestamp = parseInt(sid.substring(4, 17));
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-  if (timestamp > now || timestamp < (now - maxAge)) return false;
-  
-  return true;
-}
-
-function getSessionId(req){
-  const h = sanitizeInput(req.headers['x-session-id'] || '', 128);
-  const b = sanitizeInput(req.body?.sessionId || req.body?.sid || '', 128);
-  const q = sanitizeInput(req.query?.sessionId || req.query?.sid || '', 128);
-  
-  const sid = h || b || q;
-  
-  // Validate existing session ID
-  if (sid && validateSessionId(sid)) {
-    return sid;
-  }
-  
-  // Generate new SECURE session ID (32 bytes = 256 bits de entropía)
-  return generateSecureSessionId();
-}
-app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
-
-// Health & maintenance endpoints
-app.get('/api/health', (_req,res) => {
-  res.json({ ok:true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
-});
-
-// CSP Report endpoint (para monitorear violaciones)
-app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
-  const report = req.body?.['csp-report'] || req.body;
-  console.warn('[CSP_VIOLATION]', JSON.stringify(report, null, 2));
-  
-  // Log a archivo para análisis posterior
-  const entry = `[${nowIso()}] CSP_VIOLATION: ${JSON.stringify(report)}\n`;
-  try {
-    fs.appendFile(path.join(LOGS_DIR, 'csp-violations.log'), entry, () => {});
-  } catch (e) { /* noop */ }
-  
-  res.status(204).end();
-});
-
-app.post('/api/reload', (_req,res)=>{ try{ res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
-
-// Transcript retrieval (REQUIERE AUTENTICACIÓN)
-app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
-  
-  // SECURITY: Validar que el usuario tenga permiso para ver este transcript
-  const requestSessionId = req.sessionId || req.headers['x-session-id'];
-  const adminToken = req.headers.authorization || req.query.token;
-  
-  // Permitir solo si:
-  // 1. El session ID del request coincide con el transcript solicitado
-  // 2. O tiene un admin token válido
-  if (sid !== requestSessionId && adminToken !== SSE_TOKEN) {
-    console.warn(`[SECURITY] Unauthorized transcript access attempt: requested=${sid}, session=${requestSessionId}, IP=${req.ip}`);
-    return res.status(403).json({ ok:false, error:'No autorizado para ver este transcript' });
-  }
-  
-  const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
-  res.set('Content-Type','text/plain; charset=utf-8');
-  try {
-    const raw = fs.readFileSync(file,'utf8');
-    const masked = maskPII(raw);
-    res.send(masked);
-  } catch (e) {
-    console.error('[api/transcript] error', e && e.message);
-    res.send('');
-  }
-});
-
-// Logs SSE and plain endpoints
-app.get('/api/logs/stream', async (req, res) => {
-  try {
-    if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
-      return res.status(401).send('unauthorized');
-    }
-    if (String(req.query.mode || '') === 'once') {
-      const txt = fs.existsSync(LOG_FILE) ? await fs.promises.readFile(LOG_FILE, 'utf8') : '';
-      res.set('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(200).send(txt);
-    }
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.flushHeaders && res.flushHeaders();
-    res.write(': connected\n\n');
-
-    // Límite de clientes SSE para prevenir memory leak
-    if (sseClients.size >= MAX_SSE_CLIENTS) {
-      res.write('data: ERROR: Maximum SSE clients reached\n\n');
-      try { res.end(); } catch(_) {}
-      return;
-    }
-
-    (async function sendLast() {
-      try {
-        if (!fs.existsSync(LOG_FILE)) return;
-        const stat = await fs.promises.stat(LOG_FILE);
-        const start = Math.max(0, stat.size - (32 * 1024));
-        const stream = createReadStream(LOG_FILE, { start, end: stat.size - 1, encoding: 'utf8' });
-        for await (const chunk of stream) {
-          sseSend(res, chunk);
-        }
-      } catch (e) { /* ignore */ }
-    })();
-
-    sseClients.add(res);
-    console.log('[logs] SSE cliente conectado. total=', sseClients.size);
-
-    const hbInterval = setInterval(() => {
-      try { res.write(': ping\n\n'); } catch (e) { /* ignore */ }
-    }, 20_000);
-
-    req.on('close', () => {
-      clearInterval(hbInterval);
-      sseClients.delete(res);
-      try { res.end(); } catch (_) {}
-      console.log('[logs] SSE cliente desconectado. total=', sseClients.size);
-    });
-  } catch (e) {
-    console.error('[logs/stream] Error', e && e.message);
-    try { res.status(500).end(); } catch(_) {}
-  }
-});
-
-app.get('/api/logs', (req, res) => {
-  if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
-    return res.status(401).json({ ok:false, error: 'unauthorized' });
-  }
-  try {
-    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
-    res.set('Content-Type','text/plain; charset=utf-8');
-    res.send(txt);
-  } catch (e) {
-    console.error('[api/logs] Error', e.message);
-    res.status(500).json({ ok:false, error: e.message });
-  }
-});
-
-// ========================================================
-// Tickets & WhatsApp endpoints
-// ========================================================
-function buildWhatsAppUrl(waNumberRaw, waText) {
-  const waNumber = String(waNumberRaw || WHATSAPP_NUMBER || '5493417422422').replace(/\D+/g, '');
-  return `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`;
-}
-
-// Rate limit mejorado: máximo 3 tickets por sesión con timestamps
-const sessionTicketCounts = new Map(); // Map<sessionId, Array<timestamp>>
-const ticketCreationLocks = new Map(); // Prevenir race condition
-
-// Limpieza inteligente: solo eliminar tickets antiguos (más de 1 hora)
-setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [sid, timestamps] of sessionTicketCounts.entries()) {
-    const recent = timestamps.filter(ts => ts > oneHourAgo);
-    if (recent.length === 0) {
-      sessionTicketCounts.delete(sid);
-    } else {
-      sessionTicketCounts.set(sid, recent);
-    }
-  }
-  // Limpiar locks antiguos (más de 10 minutos)
-  const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-  for (const [sid, lockTime] of ticketCreationLocks.entries()) {
-    if (lockTime < tenMinutesAgo) {
-      ticketCreationLocks.delete(sid);
-    }
-  }
-}, 5 * 60 * 1000); // limpiar cada 5 minutos
-
-app.post('/api/whatsapp-ticket', async (req,res)=>{
-  try{
-    const { name, device, sessionId, history = [] } = req.body || {};
-    const sid = sessionId || req.sessionId;
-    
-    // Rate limit check (ventana deslizante de 1 hora)
-    const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000);
-    const timestamps = sessionTicketCounts.get(sid) || [];
-    const recentTickets = timestamps.filter(ts => ts > oneHourAgo);
-    
-    if (recentTickets.length >= 3) {
-      return res.status(429).json({ 
-        ok: false, 
-        error: 'rate_limit', 
-        message: 'Has creado demasiados tickets en poco tiempo. Esperá unos minutos.' 
-      });
-    }
-    
-    let transcript = history;
-    if((!transcript || transcript.length===0) && sid){
-      const s = await getSession(sid);
-      if(s?.transcript) transcript = s.transcript;
-    }
-
-    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-    const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
-    const ticketId = `TCK-${ymd}-${rand}`;
-    const nowDate = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR',{
-      timeZone: 'America/Argentina/Buenos_Aires',
-      day:'2-digit', month:'2-digit', year:'numeric'
-    });
-    const timeFormatter = new Intl.DateTimeFormat('es-AR',{
-      timeZone: 'America/Argentina/Buenos_Aires',
-      hour:'2-digit', minute:'2-digit', hour12:false
-    });
-    const datePart = dateFormatter.format(nowDate).replace(/\//g,'-');
-    const timePart = timeFormatter.format(nowDate);
-    const generatedLabel = `${datePart} ${timePart} (ART)`;
-    let safeName = '';
-    if(name){ 
-      safeName = String(name)
-        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'')
-        .replace(/\s+/g,' ')
-        .trim()
-        .toUpperCase(); 
-    }
-    const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
-    const lines = [];
-    lines.push(titleLine);
-    lines.push(`Generado: ${generatedLabel}`);
-    if(name) lines.push(`Cliente: ${name}`);
-    if(device) lines.push(`Equipo: ${device}`);
-    if(sid) lines.push(`Sesión: ${sid}`);
-    lines.push('');
-    lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-
-    const transcriptData = [];
-    for(const m of transcript || []){
-      const rawText = (m.text || '').toString();
-      const safeText = maskPII(rawText);
-      lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${safeText}`);
-      transcriptData.push({
-        ts: m.ts || now.toISOString(),
-        who: m.who || 'user',
-        text: safeText
-      });
-    }
-
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
-    const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
-
-    const ticketJson = {
-      id: ticketId,
-      createdAt: now.toISOString(),
-      label: generatedLabel,
-      name: name || null,
-      device: device || null,
-      sid: sid || null,
-      transcript: transcriptData,
-      redactPublic: true
-    };
-    const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
-
-    const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
-    const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
-
-    const userSess = sid ? await getSession(sid) : null;
-    const whoName = (name || userSess?.userName || '').toString().trim();
-    const waIntro = whoName
-      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
-      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
-    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
-    if(name) waText += `Cliente: ${name}\n`;
-    if(device) waText += `Equipo: ${device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
-    waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
-
-    const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
-    const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
-    const waNumber = waNumberRaw.replace(/\D+/g,'');
-    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
-
-    const uiButtons = buildUiButtonsFromTokens(['BTN_WHATSAPP']);
-    const labelBtn = (getButtonDefinition && getButtonDefinition('BTN_WHATSAPP')?.label) || 'Enviar WhatsApp';
-    const externalButtons = [
-      { token: 'BTN_WHATSAPP_WEB', label: labelBtn + ' (Web)', url: waWebUrl, openExternal: true },
-      { token: 'BTN_WHATSAPP_INTENT', label: labelBtn + ' (Abrir App - Android)', url: waIntentUrl, openExternal: true },
-      { token: 'BTN_WHATSAPP_APP', label: labelBtn + ' (App)', url: waAppUrl, openExternal: true },
-      { token: 'BTN_WHATSAPP', label: labelBtn, url: waUrl, openExternal: true }
-    ];
-
-    // Incrementar contador de tickets para rate limit (agregar timestamp actual)
-    recentTickets.push(now);
-    sessionTicketCounts.set(sid, recentTickets);
-
-    res.json({ 
-      ok:true, 
-      ticketId, 
-      publicUrl, 
-      apiPublicUrl, 
-      waUrl, 
-      waWebUrl, 
-      waAppUrl, 
-      waIntentUrl,
-      ui: { buttons: uiButtons, externalButtons }, 
-      allowWhatsapp: true 
-    });
-  } catch(e){ 
-    console.error('[whatsapp-ticket]', e); 
-    res.status(500).json({ ok:false, error: e.message }); 
-  }
-});
-
-// ticket public routes (CON AUTENTICACIÓN)
-app.get('/api/ticket/:tid', async (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  
-  // Verificar autenticación
-  const adminToken = req.headers.authorization || req.query.token;
-  const requestSessionId = req.sessionId || req.headers['x-session-id'];
-  
-  const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
-  const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
-  
-  if (!fs.existsSync(txtFile) && !fs.existsSync(jsonFile)) {
-    return res.status(404).json({ ok:false, error: 'not_found' });
-  }
-  
-  // SECURITY: Validar ownership (leer JSON para ver quién creó el ticket)
-  if (fs.existsSync(jsonFile) && adminToken !== SSE_TOKEN) {
-    try {
-      const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
-      const ticketOwnerSid = ticketData.sid || '';
-      
-      if (ticketOwnerSid !== requestSessionId) {
-        console.warn(`[SECURITY] Unauthorized ticket access: ticket=${tid}, owner=${ticketOwnerSid}, requester=${requestSessionId}, IP=${req.ip}`);
-        return res.status(403).json({ ok:false, error: 'No autorizado para ver este ticket' });
-      }
-    } catch (parseErr) {
-      console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
-    }
-  }
-
-  const raw = fs.readFileSync(txtFile,'utf8');
-  const maskedRaw = maskPII(raw);
-
-  // parse lines into messages
-  const lines = maskedRaw.split(/\r?\n/);
-  const messages = [];
-  for (const ln of lines) {
-    if (!ln || /^\s*$/.test(ln)) continue;
-    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
-    if (m) {
-      messages.push({ ts: m[1], who: String(m[2]).trim(), text: String(m[3]).trim() });
-    } else {
-      messages.push({ ts: null, who: 'system', text: ln.trim() });
-    }
-  }
-
-  res.json({ ok:true, ticketId: tid, content: maskedRaw, messages });
-});
-
-// Pretty ticket view
-app.get('/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
-
-  const raw = fs.readFileSync(file,'utf8');
-  const safeRaw = escapeHtml(raw);
-
-  const lines = raw.split(/\r?\n/);
-  const messages = [];
-  for (const ln of lines) {
-    if (!ln || /^\s*$/.test(ln)) continue;
-    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
-    if (m) {
-      messages.push({ ts: m[1], who: String(m[2]).trim().toLowerCase(), text: String(m[3]).trim() });
-    } else {
-      messages.push({ ts: null, who: 'system', text: ln.trim() });
-    }
-  }
-
-  const chatLines = messages.map(msg => {
-    if (msg.who === 'system') {
-      return `<div class="sys">${escapeHtml(msg.text)}</div>`;
-    }
-    const side = (msg.who === 'user' || msg.who === 'usuario') ? 'user' : 'bot';
-    const whoLabel = side === 'user' ? 'Vos' : 'Tecnos';
-    const ts = msg.ts ? `<div class="ts">${escapeHtml(msg.ts)}</div>` : '';
-    return `<div class="bubble ${side}">
-      <div class="bubble-inner">
-        <div class="who">${escapeHtml(whoLabel)}</div>
-        <div class="txt">${escapeHtml(msg.text)}</div>
-        ${ts}
-      </div>
-    </div>`;
-  }).join('\n');
-
-  const html = `<!doctype html>
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Ticket ${escapeHtml(tid)} — Conversación</title>
-      <style>
-      :root{--bg:#f5f7fb;--bot:#ffffff;--user:#dcf8c6;--accent:#0b7cff;--muted:#777;}
-      body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:12px; background:var(--bg); color:#222;}
-      .controls{display:flex;gap:12px;align-items:center;margin-bottom:10px;}
-      .btn{background:var(--accent);color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;}
-      .chat-wrap{max-width:860px;margin:0 auto;background:transparent;padding:8px;}
-      .chat{background:transparent;padding:10px;display:flex;flex-direction:column;gap:10px;}
-      .bubble{max-width:78%;display:flex;}
-      .bubble.user{align-self:flex-end;justify-content:flex-end;}
-      .bubble.bot{align-self:flex-start;justify-content:flex-start;}
-      .bubble-inner{background:var(--bot);padding:10px 12px;border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,0.05);}
-      .bubble.user .bubble-inner{background:var(--user);border-radius:12px;}
-      .bubble .who{font-weight:700;font-size:13px;margin-bottom:6px;color:#111;}
-      .bubble .txt{white-space:pre-wrap;font-size:15px;line-height:1.3;color:#111;}
-      .bubble .ts{font-size:12px;color:var(--muted);margin-top:6px;text-align:right;}
-      .sys{align-self:center;background:transparent;color:var(--muted);font-size:13px;padding:6px 10px;border-radius:8px;}
-      pre{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:8px;white-space:pre-wrap;}
-      @media (max-width:640px){ .bubble{max-width:92%;} }
-      </style>
-    </head>
-    <body>
-      <div class="controls">
-        <label><input id="fmt" type="checkbox"/> Ver vista cruda</label>
-        <a class="btn" href="/api/ticket/${encodeURIComponent(tid)}" target="_blank" rel="noopener">Ver JSON (API)</a>
-      </div>
-
-      <div class="chat-wrap">
-        <div class="chat" id="chatContent">
-          ${chatLines}
-        </div>
-
-        <div id="rawView" style="display:none;margin-top:12px;">
-          <pre>${safeRaw}</pre>
-        </div>
-      </div>
-
-      <script>
-        (function(){
-          const chk = document.getElementById('fmt');
-          const chat = document.getElementById('chatContent');
-          const raw = document.getElementById('rawView');
-          chk.addEventListener('change', ()=> {
-            if (chk.checked) { chat.style.display='none'; raw.style.display='block'; }
-            else { chat.style.display='flex'; raw.style.display='none'; }
-          });
-        })();
-      </script>
-    </body>
-  </html>`;
-
-  res.set('Content-Type','text/html; charset=utf-8');
-  res.send(html);
-});
-
-// Reset session
-app.post('/api/reset', async (req,res)=>{
-  const sid = req.sessionId;
-  const empty = {
-    id: sid,
-    userName: null,
-    stage: STATES.ASK_LANGUAGE,
-    device:null,
-    problem:null,
-    issueKey:null,
-    tests:{ basic:[], ai:[], advanced:[] },
-    stepsDone:[],
-    fallbackCount:0,
-    waEligible:false,
-    transcript:[],
-    pendingUtterance:null,
-    lastHelpStep:null,
-    startedAt: nowIso(),
-    nameAttempts: 0,
-    stepProgress: {},
-    pendingDeviceGroup: null,
-    needType: null,
-    isHowTo: false,
-    isProblem: false
-  };
-  await saveSession(sid, empty);
-  res.json({ ok:true });
-});
-
-// Constantes de botones
-const BUTTONS = {
-  SOLVED: 'BTN_SOLVED',
-  PERSIST: 'BTN_PERSIST',
-  MORE_TESTS: 'BTN_MORE_TESTS',
-  CONNECT_TECH: 'BTN_CONNECT_TECH',
-  WHATSAPP: 'BTN_WHATSAPP',
-  CLOSE: 'BTN_CLOSE',
-  REPHRASE: 'BTN_REPHRASE',
-  CONFIRM_TICKET: 'BTN_CONFIRM_TICKET',
-  CANCEL: 'BTN_CANCEL',
-  MORE_SIMPLE: 'BTN_MORE_SIMPLE'
-};
-
-// Greeting endpoint (con CSRF token generation)
-app.all('/api/greeting', greetingLimiter, async (req,res)=>{
-  try{
-    const sid = req.sessionId;
-    
-    // Validar longitud de inputs si vienen en body
-    if (req.body) {
-      for (const [key, value] of Object.entries(req.body)) {
-        if (typeof value === 'string' && value.length > 10000) {
-          return res.status(400).json({ ok: false, error: `Campo '${key}' excede longitud máxima` });
-        }
-      }
-    }
-
-    // Detectar locale preferido a partir de headers
-    const accept = String(req.headers['accept-language'] || '').toLowerCase();
-    const hdrLocale = String(req.headers['x-locale'] || req.headers['x-lang'] || '').toLowerCase();
-    let locale = 'es-AR';
-    if (hdrLocale) {
-      locale = hdrLocale;
-    } else if (accept.startsWith('en')) {
-      locale = 'en';
-    } else if (accept.startsWith('es')) {
-      locale = accept.includes('ar') ? 'es-AR' : 'es-419';
-    }
-    
-    // Generar CSRF token para esta sesión
-    const csrfToken = generateCSRFToken();
-    csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
-
-    const fresh = {
-      id: sid,
-      userName: null,
-      stage: STATES.ASK_LANGUAGE,
-      device: null,
-      problem: null,
-      issueKey: null,
-      tests: { basic: [], ai: [], advanced: [] },
-      stepsDone: [],
-      fallbackCount: 0,
-      waEligible: false,
-      transcript: [],
-      pendingUtterance: null,
-      lastHelpStep: null,
-      startedAt: nowIso(),
-      nameAttempts: 0,
-      stepProgress: {},
-      pendingDeviceGroup: null,
-      userLocale: null,
-      needType: null,
-      isHowTo: false,
-      isProblem: false
-    };
-    const fullGreeting = buildLanguageSelectionGreeting();
-    fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
-    await saveSession(sid, fresh);
-    const langOptions = ['BTN_LANG_ES_AR', 'BTN_LANG_ES', 'BTN_LANG_EN'];
-    
-    // Incluir CSRF token en respuesta
-    return res.json(withOptions({
-      ok: true,
-      greeting: fullGreeting,
-      reply: fullGreeting,
-      stage: fresh.stage,
-      sessionId: sid,
-      csrfToken: csrfToken, // NUEVO: token CSRF
-      options: langOptions
-    }));
-  } catch(e){
-    console.error(e);
-    return res.status(500).json({ ok:false, error:'greeting_failed' });
-  }
-});
-
-
-function buildTimeGreeting() {
-  const now = new Date();
-  const hour = now.getHours();
-
-  if (hour >= 6 && hour < 12) {
-    return {
-      es: "🌅 Buen día, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌅 Good morning, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
-  }
-
-  if (hour >= 12 && hour < 19) {
-    return {
-      es: "🌇 Buenas tardes, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌇 Good afternoon, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
-  }
-
-  return {
-    es: "🌙 Buenas noches, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-    en: "🌙 Good evening, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-  };
-}
-
-function buildLanguageSelectionGreeting() {
-  const base = buildTimeGreeting();
-  const line2es = "🌐 Para empezar, seleccioná un idioma usando los botones:";
-  const line2en = "🌐 To begin, select a language using the buttons:";
-
-  return `${base.es}\n${base.en}\n\n${line2es}\n${line2en}`;
-}
-
-// Función para agregar respuestas empáticas según Flujo.csv
-function addEmpatheticResponse(stage, locale = 'es-AR') {
-  const isEn = String(locale).toLowerCase().startsWith('en');
-  const responses = {
-    ASK_LANGUAGE: isEn ? "I'm here to help you with whatever you need." : "Estoy acá para ayudarte con lo que necesites.",
-    ASK_NAME: isEn ? "Nice to meet you." : "Encantado de conocerte.",
-    ASK_NEED: isEn ? "Let's solve it together." : "Vamos a resolverlo juntos.",
-    ASK_DEVICE: isEn ? "Thanks for clarifying." : "Gracias por aclararlo.",
-    ASK_PROBLEM: isEn ? "Thanks for telling me the details." : "Gracias por contarme el detalle.",
-    ASK_HOWTO_DETAILS: isEn ? "Perfect, I'll guide you with that." : "Perfecto, con eso te guío.",
-    BASIC_TESTS: isEn ? "Great, we're making progress!" : "Genial, vamos por buen camino!",
-    ADVANCED_TESTS: isEn ? "This can give us more clues." : "Esto nos puede dar más pistas.",
-    ESCALATE: isEn ? "Thanks for your patience." : "Gracias por tu paciencia.",
-    ENDED: isEn ? "I hope your device works perfectly." : "Espero que tu equipo funcione perfecto."
-  };
-  return responses[stage] || '';
-}
-
-
-function buildLanguagePrompt(locale = 'es-AR') {
-  const norm = (locale || '').toLowerCase();
-  const isEn = norm.startsWith('en');
-  
-  if (isEn) {
-    return '🌐 You can change the language at any time using the buttons below:';
-  }
-  
-  return '🌐 Podés cambiar el idioma en cualquier momento usando los botones:';
-}
-
-function buildNameGreeting(locale = 'es-AR') {
-  const norm = (locale || '').toLowerCase();
-  const isEn = norm.startsWith('en');
-  const isEsLatam = norm.startsWith('es-') && !norm.includes('ar');
-
-  if (isEn) {
-    const line1 = "👋 Hi, I'm Tecnos, the intelligent assistant of STI — Servicio Técnico Inteligente.";
-    const line2 = "I can help you with PCs, notebooks, Wi‑Fi, printers and some TV / streaming devices.";
-    const line3 = "I can't access your device remotely or make changes for you; we'll try guided steps to diagnose the issue and, if needed, I'll connect you with a human technician.";
-    const line4 = "To get started, what's your name?";
-    return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-  }
-
-  if (isEsLatam) {
-    const line1 = "👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.";
-    const line2 = "Puedo ayudarte con PC, notebooks, Wi‑Fi, impresoras y algunos dispositivos de TV y streaming.";
-    const line3 = "No puedo acceder a tu equipo ni ejecutar cambios remotos; vamos a probar pasos guiados para diagnosticar y, si hace falta, te derivo a un técnico humano.";
-    const line4 = "Para empezar, ¿cómo te llamas?";
-    return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-  }
-
-  const line1 = "👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.";
-  const line2 = "Puedo ayudarte con PC, notebooks, Wi‑Fi, impresoras y algunos dispositivos de TV y streaming.";
-  const line3 = "No puedo acceder a tu equipo ni ejecutar cambios remotos; vamos a probar pasos guiados para diagnosticar y, si hace falta, te derivo a un técnico humano.";
-  const line4 = "Para empezar: ¿cómo te llamás?";
-  return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-}
-
-
-
-// Helper: create ticket & WhatsApp response
-async function createTicketAndRespond(session, sid, res) {
-  // Prevenir race condition con lock simple
-  if (ticketCreationLocks.has(sid)) {
-    const waitTime = Date.now() - ticketCreationLocks.get(sid);
-    if (waitTime < 5000) { // Si hace menos de 5 segundos que se está creando
-      return res.json(withOptions({
-        ok: false,
-        reply: '⏳ Ya estoy generando tu ticket. Esperá unos segundos...',
-        stage: session.stage,
-        options: []
-      }));
-    }
-  }
-  ticketCreationLocks.set(sid, Date.now());
-  
-  const ts = nowIso();
-  try {
-    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
-    const ticketId = `TCK-${ymd}-${rand}`;
-    const now = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR', {
-      timeZone: 'America/Argentina/Buenos_Aires',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-    const timeFormatter = new Intl.DateTimeFormat('es-AR', {
-      timeZone: 'America/Argentina/Buenos_Aires',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
-    const datePart = dateFormatter.format(now).replace(/\//g, '-');
-    const timePart = timeFormatter.format(now);
-    const generatedLabel = `${datePart} ${timePart} (ART)`;
-
-    let safeName = '';
-    if (session.userName) {
-      safeName = String(session.userName)
-        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toUpperCase();
-    }
-    const titleLine = safeName
-      ? `STI • Ticket ${ticketId}-${safeName}`
-      : `STI • Ticket ${ticketId}`;
-
-    const lines = [];
-    lines.push(titleLine);
-    lines.push(`Generado: ${generatedLabel}`);
-    if (session.userName) lines.push(`Cliente: ${session.userName}`);
-    if (session.device) lines.push(`Equipo: ${session.device}`);
-    if (sid) lines.push(`Sesión: ${sid}`);
-    if (session.userLocale) lines.push(`Idioma: ${session.userLocale}`);
-    lines.push('');
-    lines.push('=== RESUMEN DEL PROBLEMA ===');
-    if (session.problem) {
-      lines.push(String(session.problem));
-    } else {
-      lines.push('(sin descripción explícita de problema)');
-    }
-    lines.push('');
-    lines.push('=== PASOS PROBADOS / ESTADO ===');
-    try {
-      const steps = session.stepsDone || [];
-      if (steps.length) {
-        for (const st of steps) {
-          lines.push(`- Paso ${st.step || '?'}: ${st.label || st.id || ''}`);
-        }
-      } else {
-        lines.push('(aún sin pasos registrados)');
-      }
-    } catch (e) {
-      lines.push('(no se pudieron enumerar los pasos)');
-    }
-    lines.push('');
-    lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
-    const transcriptData = [];
-    for (const m of session.transcript || []) {
-      const rawText = (m.text || '').toString();
-      const safeText = maskPII(rawText);
-      const line = `[${m.ts || ts}] ${m.who || 'user'}: ${safeText}`;
-      lines.push(line);
-      transcriptData.push({
-        ts: m.ts || ts,
-        who: m.who || 'user',
-        text: safeText
-      });
-    }
-
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
-
-    // Public masked text file
-    const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
-
-    // JSON estructurado para integraciones futuras
-    const ticketJson = {
-      id: ticketId,
-      createdAt: ts,
-      label: generatedLabel,
-      name: session.userName || null,
-      device: session.device || null,
-      problem: session.problem || null,
-      locale: session.userLocale || null,
-      sid: sid || null,
-      stepsDone: session.stepsDone || [],
-      transcript: transcriptData,
-      redactPublic: true
-    };
-    const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
-
-    const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
-    const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
-
-    const userSess = sid ? await getSession(sid) : null;
-    const whoName = (ticketJson.name || userSess?.userName || '').toString().trim();
-    const waIntro = whoName
-      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
-      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
-
-    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
-    if (ticketJson.name) waText += `Cliente: ${ticketJson.name}\n`;
-    if (ticketJson.device) waText += `Equipo: ${ticketJson.device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
-    waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
-
-    const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
-    const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
-    const waNumber = waNumberRaw.replace(/\D+/g, '');
-    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waAppUrl = `https://api.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waIntentUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-
-    session.waEligible = true;
-    await saveSession(sid, session);
-
-    const locale = session.userLocale || 'es-AR';
-    const isEn = String(locale).toLowerCase().startsWith('en');
-    const replyLines = [];
-
-    if (isEn) {
-      replyLines.push('Perfect, I will generate a summary ticket with what we tried so far.');
-      replyLines.push('You can send it by WhatsApp to a human technician so they can continue helping you.');
-      replyLines.push('When you are ready, tap the green WhatsApp button and send the message without changing its text.');
-    } else {
-      replyLines.push('Listo, voy a generar un ticket con el resumen de esta conversación y los pasos que ya probamos.');
-      replyLines.push('Vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote.');
-      replyLines.push('Cuando estés listo, tocá el botón verde de WhatsApp y enviá el mensaje sin modificar el texto.');
-      replyLines.push('Aviso: no compartas contraseñas ni datos bancarios. Yo ya enmascaré información sensible si la hubieras escrito.');
-    }
-
-    const resp = withOptions({
-      ok: true,
-      reply: replyLines.join('\n\n'),
-      stage: session.stage,
-      options: [BUTTONS.CLOSE]
-    });
-    resp.waUrl = waUrl;
-    resp.waWebUrl = waWebUrl;
-    resp.waAppUrl = waAppUrl;
-    resp.waIntentUrl = waIntentUrl;
-    resp.ticketId = ticketId;
-    resp.publicUrl = publicUrl;
-    resp.apiPublicUrl = apiPublicUrl;
-    resp.allowWhatsapp = true;
-
-    ticketCreationLocks.delete(sid); // Liberar lock
-    return res.json(resp);
-  } catch (err) {
-    console.error('[createTicketAndRespond] Error', err && err.message);
-    ticketCreationLocks.delete(sid); // Liberar lock en error
-    session.waEligible = false;
-    await saveSession(sid, session);
-    return res.json(withOptions({
-      ok: false,
-      reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
-      stage: session.stage,
-      options: [BUTTONS.CLOSE]
-    }));
-  }
-}
-
-// ========================================================
-// Helper: Handle "no entiendo" requests (shared by BASIC and ADVANCED)
-// ========================================================
-async function handleDontUnderstand(session, sid, t) {
-  const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-  const prefix = whoLabel ? `Tranquilo, ${whoLabel}` : 'Tranquilo';
-  const stepsKey = session.stage === STATES.ADVANCED_TESTS ? 'advanced' : 'basic';
-  
-  if (session.lastHelpStep && session.tests && Array.isArray(session.tests[stepsKey]) && session.tests[stepsKey][session.lastHelpStep - 1]) {
-    const idx = session.lastHelpStep;
-    const stepText = session.tests[stepsKey][idx - 1];
-    const helpDetail = await getHelpForStep(stepText, idx, session.device || '', session.problem || '', session.userLocale || 'es-AR');
-    const replyTxt = `${prefix} 😊.\n\nVeamos ese paso más despacio:\n\n${helpDetail}\n\nCuando termines, contame si te ayudó o si preferís que te conecte con un técnico.`;
-    const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyTxt, ts });
-    await saveSession(sid, session);
-    return { ok:true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️','El problema persiste ❌'] };
-  } else {
-    const replyTxt = `${prefix} 😊.\n\nDecime sobre qué paso querés ayuda (1, 2, 3, ...) o tocá el botón del número y te lo explico con más calma.`;
-    const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyTxt, ts });
-    await saveSession(sid, session);
-    return { ok:true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️','El problema persiste ❌'] };
-  }
-}
-
-// Helper: Show steps again (shared by BASIC and ADVANCED)
-function handleShowSteps(session, stepsKey) {
-  const stepsAr = Array.isArray(session.tests?.[stepsKey]) ? session.tests[stepsKey] : [];
-  if (!stepsAr || stepsAr.length === 0) {
-    const msg = stepsKey === 'advanced' 
-      ? 'No tengo pasos avanzados guardados para mostrar. Primero pedí "Más pruebas".'
-      : 'No tengo pasos guardados para mostrar. Primero describí el problema para que te ofrezca pasos.';
-    return { error: true, msg };
-  }
-  
-  const numbered = enumerateSteps(stepsAr);
-  const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-  const intro = stepsKey === 'advanced' 
-    ? `Volvemos a las pruebas avanzadas, ${whoLabel}:`
-    : `Volvemos a los pasos sugeridos:`;
-  const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
-  const fullMsg = intro + '\n\n' + numbered + footer;
-  
-  const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-  const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
-  
-  return { error: false, msg: fullMsg, options: optionsResp, steps: stepsAr };
-}
-
-// ========================================================
-// Generate and present diagnostic steps (used in ASK_PROBLEM and after selecting device)
-// ========================================================
-async function generateAndShowSteps(session, sid, res){
-  try {
-    const issueKey = session.issueKey;
-    const device = session.device || null;
-    const locale = session.userLocale || 'es-AR';
-    const profile = getLocaleProfile(locale);
-    const isEn = profile.code === 'en';
-    const isEsLatam = profile.code === 'es-419';
-
-    const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
-
-    // Build context with image analysis if available
-    let imageContext = '';
-    if (session.images && session.images.length > 0) {
-      const latestImage = session.images[session.images.length - 1];
-      if (latestImage.analysis) {
-        imageContext += '\n\nCONTEXTO DE IMAGEN SUBIDA:\n';
-        if (latestImage.analysis.problemDetected) {
-          imageContext += `- Problema detectado: ${latestImage.analysis.problemDetected}\n`;
-        }
-        if (latestImage.analysis.errorMessages && latestImage.analysis.errorMessages.length > 0) {
-          imageContext += `- Errores visibles: ${latestImage.analysis.errorMessages.join(', ')}\n`;
-        }
-        if (latestImage.analysis.technicalDetails) {
-          imageContext += `- Detalles técnicos: ${latestImage.analysis.technicalDetails}\n`;
-        }
-      }
-    }
-
-    // Playbook local para dispositivos de streaming / SmartTV (prioridad en español)
-    let steps;
-    const playbookForDevice = device && issueKey && DEVICE_PLAYBOOKS?.[device]?.[issueKey];
-    if (!isEn && playbookForDevice && Array.isArray(playbookForDevice.es) && playbookForDevice.es.length>0) {
-      steps = playbookForDevice.es.slice(0,4);
-    } else if (hasConfiguredSteps) {
-      steps = CHAT.nlp.advanced_steps[issueKey].slice(0,4);
-    } else {
-      let aiSteps = [];
-      try {
-        const problemWithContext = (session.problem || '') + imageContext;
-        aiSteps = await aiQuickTests(problemWithContext, device || '', locale);
-      } catch(e){
-        aiSteps = [];
-      }
-      if(Array.isArray(aiSteps) && aiSteps.length>0) steps = aiSteps.slice(0,4);
-      else {
-        if (isEn) {
-          steps = [
-            'Restart the device completely (turn it off, unplug it for 30 seconds and plug it back in).',
-            'Check that all cables and connections are firmly plugged in (power, HDMI, network).',
-            'If possible, test the device on another TV, monitor or power outlet.',
-            'If the issue persists, contact a technician and share these steps you already tried.'
-          ];
-        } else {
-          steps = [
-            'Reiniciá el equipo por completo (apagalo, desenchufalo 30 segundos y volvé a enchufarlo).',
-            'Revisá que todos los cables y conexiones estén firmes (corriente, HDMI, red).',
-            'Si podés, probá el equipo en otro televisor, monitor o enchufe.',
-            'Si el problema sigue, contactá a un técnico y comentale estos pasos que ya probaste.'
-          ];
-        }
-      }
-    }
-
-    session.stage = STATES.BASIC_TESTS;
-    session.basicTests = steps;
-    session.currentTestIndex = 0;
-
-    const who = session.userName ? capitalizeToken(session.userName) : null;
-    const deviceLabel = device || (isEn ? 'equipo' : 'equipo');
-    const pSummary = (session.problem || '').trim().slice(0,200);
-
-    let intro;
-    if (isEn) {
-      intro = who
-        ? `Perfect, ${who}: so with your ${deviceLabel} this is happening: "${pSummary}".\n\nLet us try a few simple steps together:`
-        : `Perfect: so with your ${deviceLabel} this is happening: "${pSummary}".\n\nLet us try a few simple steps together:`;
-    } else if (isEsLatam) {
-      intro = who
-        ? `Perfecto, ${who}: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`
-        : `Perfecto: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`;
-    } else {
-      intro = who
-        ? `Perfecto, ${who}: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`
-        : `Perfecto: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`;
-    }
-
-    function enumerateSteps(list){
-      return list.map((s,idx) => `${idx+1}. ${s}`).join('\n');
-    }
-
-    const stepsText = enumerateSteps(steps);
-
-    let footer;
-    if (isEn) {
-      footer = '\n\nWhen you complete the steps, let me know:\n' +
-        '- If the problem was solved, choose "Lo pude solucionar ✔️".\n' +
-        '- If it persists, choose "El problema persiste ❌".\n' +
-        'You can also tell me "I did not understand step X" and I will explain it in more detail.';
-    } else {
-      footer = '\n\nCuando completes los pasos, contame:\n' +
-        '- Si se solucionó, elegí "Lo pude solucionar ✔️".\n' +
-        '- Si sigue igual, elegí "El problema persiste ❌".\n' +
-        'También podés decirme "No entendí el paso X" y te lo explico con más detalle.';
-    }
-
-    const reply = `${intro}\n\n${stepsText}${footer}`;
-
-    const options = [
-      BUTTONS.SOLVED,
-      BUTTONS.PERSIST,
-      BUTTONS.MORE_TESTS,
-      BUTTONS.CONNECT_TECH
-    ];
-
-    const payload = withOptions({ ok:true, reply }, options);
-    await saveSession(sid, session);
-    return res.status(200).json(payload);
-  } catch(err){
-    console.error('[generateAndShowSteps] error:', err?.message || err);
-    return res.status(200).json(withOptions({
-      ok:true,
-      reply: '😅 Tuve un problema al preparar los pasos. Probá de nuevo o contame si querés que conecte con un técnico.'
-    }));
-  }
-}
-
-// ========================================================
-// Image upload endpoint: /api/upload-image
-// ========================================================
-app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req, res) => {
-  const uploadStartTime = Date.now();
-  let uploadedFilePath = null;
-  
-  try {
-    // Validación básica
-    if (!req.file) {
-      updateMetric('uploads', 'failed', 1);
-      return res.status(400).json({ ok: false, error: 'No se recibió ninguna imagen' });
-    }
-
-    uploadedFilePath = req.file.path;
-    
-    // Validar session ID
-    const sid = req.sessionId;
-    if (!validateSessionId(sid)) {
-      updateMetric('uploads', 'failed', 1);
-      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
-        fs.unlinkSync(uploadedFilePath);
-      }
-      return res.status(400).json({ ok: false, error: 'Session ID inválido' });
-    }
-    
-    const session = await getSession(sid);
-    
+    let { sessionId, text, button } = req.body || {};
+    const incomingText = (text || '').toString().trim();
+    const buttonToken = (button || '').toString().trim() || null;
+
+    let session = getSession(sessionId);
     if (!session) {
-      updateMetric('uploads', 'failed', 1);
-      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
-        fs.unlinkSync(uploadedFilePath);
-      }
-      return res.status(400).json({ ok: false, error: 'Sesión no encontrada' });
-    }
-    
-    // Limitar uploads por sesión
-    if (!session.images) session.images = [];
-    if (session.images.length >= 10) {
-      updateMetric('uploads', 'failed', 1);
-      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
-        fs.unlinkSync(uploadedFilePath);
-      }
-      return res.status(400).json({ ok: false, error: 'Límite de imágenes por sesión alcanzado (10 máx)' });
+      // Si no hay sesión válida, crear una nueva
+      session = createFreshSession();
     }
 
-    // Validar que sea una imagen real
-    const validation = await validateImageFile(uploadedFilePath);
-    if (!validation.valid) {
-      updateMetric('uploads', 'failed', 1);
-      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
-        fs.unlinkSync(uploadedFilePath);
-      }
-      return res.status(400).json({ ok: false, error: validation.error });
+    const ts = nowIso();
+
+    if (incomingText) {
+      session.transcript.push({ who: 'user', text: incomingText, ts });
+    } else if (buttonToken) {
+      session.transcript.push({ who: 'user', text: `[BOTÓN] ${buttonToken}`, ts });
     }
 
-    // Compress image
-    const originalPath = uploadedFilePath;
-    const compressedPath = originalPath.replace(/(\.[^.]+)$/, '-compressed$1');
-    const compressionResult = await compressImage(originalPath, compressedPath);
-    
-    let finalPath = originalPath;
-    let finalSize = req.file.size;
-    
-    if (compressionResult.success && compressionResult.compressedSize < req.file.size) {
-      // Use compressed version
-      fs.unlinkSync(originalPath);
-      fs.renameSync(compressedPath, originalPath);
-      finalSize = compressionResult.compressedSize;
-      logMsg(`[UPLOAD] Compression saved ${(compressionResult.savedBytes/1024).toFixed(1)}KB`);
-    } else if (compressionResult.success) {
-      // Original was smaller, delete compressed
-      fs.unlinkSync(compressedPath);
-    }
-
-    // Build image URL (sanitized)
-    const safeFilename = path.basename(req.file.filename);
-    const imageUrl = `${PUBLIC_BASE_URL}/uploads/${safeFilename}`;
-    
-    // Analyze image with OpenAI Vision if available
-    let imageAnalysis = null;
-    const analysisStartTime = Date.now();
-    
-    if (openai) {
-      try {
-        const analysisPrompt = sanitizeInput(`Analizá esta imagen que subió un usuario de soporte técnico. 
-Identificá:
-1. ¿Qué tipo de problema o dispositivo se muestra?
-2. ¿Hay mensajes de error visibles? ¿Cuáles?
-3. ¿Qué información técnica relevante podés extraer?
-4. ¿Qué recomendaciones darías?
-
-Respondé en formato JSON:
-{
-  "deviceType": "tipo de dispositivo",
-  "problemDetected": "descripción del problema",
-  "errorMessages": ["mensaje1", "mensaje2"],
-  "technicalDetails": "detalles técnicos",
-  "recommendations": "recomendaciones"
-}`, 1500);
-
-        const visionResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: analysisPrompt },
-                { 
-                  type: 'image_url', 
-                  image_url: { 
-                    url: imageUrl,
-                    detail: 'high'
-                  } 
-                }
-              ]
-            }
-          ],
-          max_tokens: 500,
-          temperature: 0.3
-        });
-
-        const analysisTime = Date.now() - analysisStartTime;
-        
-        // Update average analysis time
-        const currentAvg = metrics.uploads.avgAnalysisTime;
-        const totalUploads = metrics.uploads.success + 1;
-        metrics.uploads.avgAnalysisTime = ((currentAvg * metrics.uploads.success) + analysisTime) / totalUploads;
-
-        const analysisText = visionResponse.choices[0]?.message?.content || '{}';
-        try {
-          imageAnalysis = JSON.parse(analysisText);
-        } catch (parseErr) {
-          imageAnalysis = { rawAnalysis: analysisText };
-        }
-
-        logMsg(`[VISION] Analyzed image for session ${sid} in ${analysisTime}ms: ${imageAnalysis.problemDetected || 'No problem detected'}`);
-      } catch (visionErr) {
-        console.error('[VISION] Error analyzing image:', visionErr);
-        imageAnalysis = { error: 'No se pudo analizar la imagen' };
-        updateMetric('errors', 'count', 1);
-        updateMetric('errors', 'lastError', { type: 'vision', message: visionErr.message, timestamp: new Date().toISOString() });
-      }
-    }
-
-    // Store image data in session
-    const imageData = {
-      url: imageUrl,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      size: finalSize,
-      uploadedAt: new Date().toISOString(),
-      analysis: imageAnalysis
-    };
-    
-    session.images.push(imageData);
-    
-    // Add to transcript
-    session.transcript.push({
-      who: 'user',
-      text: '[Imagen subida]',
-      imageUrl: imageUrl,
-      ts: nowIso()
-    });
-
-    await saveSession(sid, session);
-
-    // Build response
-    let replyText = '✅ Imagen recibida correctamente.';
-    
-    if (imageAnalysis && imageAnalysis.problemDetected) {
-      replyText += `\n\n🔍 **Análisis de la imagen:**\n${imageAnalysis.problemDetected}`;
-      
-      if (imageAnalysis.errorMessages && imageAnalysis.errorMessages.length > 0) {
-        replyText += `\n\n**Errores detectados:**\n${imageAnalysis.errorMessages.map(e => `• ${e}`).join('\n')}`;
-      }
-      
-      if (imageAnalysis.recommendations) {
-        replyText += `\n\n**Recomendación:**\n${imageAnalysis.recommendations}`;
-      }
-    }
-
-    session.transcript.push({
-      who: 'bot',
-      text: replyText,
-      ts: nowIso()
-    });
-
-    await saveSession(sid, session);
-
-    // Update metrics
-    updateMetric('uploads', 'total', 1);
-    updateMetric('uploads', 'success', 1);
-    updateMetric('uploads', 'totalBytes', finalSize);
-    
-    const totalUploadTime = Date.now() - uploadStartTime;
-    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize/1024).toFixed(1)}KB)`);
-
-    res.json({
-      ok: true,
-      imageUrl,
-      analysis: imageAnalysis,
-      reply: replyText,
-      sessionId: sid
-    });
-
-  } catch (err) {
-    console.error('[UPLOAD] Error:', err);
-    updateMetric('uploads', 'failed', 1);
-    updateMetric('errors', 'count', 1);
-    updateMetric('errors', 'lastError', { type: 'upload', message: err.message, timestamp: new Date().toISOString() });
-    res.status(500).json({ 
-      ok: false, 
-      error: err.message || 'Error al subir la imagen' 
-    });
-  }
-});
-
-// ========================================================
-// Core chat endpoint: /api/chat
-// ========================================================
-app.post('/api/chat', chatLimiter, async (req,res)=>{
-  try {
-    updateMetric('chat', 'totalMessages', 1);
-    
-    const body = req.body || {};
-    const tokenMap = {};
-    if (Array.isArray(CHAT?.ui?.buttons)) {
-      for (const b of CHAT.ui.buttons) {
-        if (b.token) tokenMap[b.token] = b.text || '';
-      }
-    }
-
-    let incomingText = String(body.text || '').trim();
-    let buttonToken = null;
-    let buttonLabel = null;
-
-    if (body.action === 'button' && body.value) {
-      buttonToken = String(body.value);
-      const def = getButtonDefinition(buttonToken);
-      if (tokenMap[buttonToken] !== undefined) {
-        incomingText = tokenMap[buttonToken];
-      } else if (buttonToken.startsWith('BTN_HELP_')) {
-        const n = buttonToken.split('_').pop();
-        incomingText = `ayuda paso ${n}`;
-      } else {
-        incomingText = buttonToken;
-      }
-      buttonLabel = body.label || (def && def.label) || buttonToken;
-    }
-
-    const t = String(incomingText || '').trim();
-    const sid = req.sessionId;
-    let session = await getSession(sid);
-    if (!session) {
-      session = {
-        id: sid,
-        userName: null,
-        stage: STATES.ASK_NAME,
-        device: null,
-        problem: null,
-        issueKey: null,
-        tests: { basic: [], ai: [], advanced: [] },
-        stepsDone: [],
-        fallbackCount: 0,
-        waEligible: false,
-        transcript: [],
-        pendingUtterance: null,
-        lastHelpStep: null,
-        startedAt: nowIso(),
-        helpAttempts: {},
-        nameAttempts: 0,
-        stepProgress: {},
-        pendingDeviceGroup: null,
-        userLocale: 'es-AR',
-        helpAttempts: {},
-        frustrationCount: 0,
-        pendingAction: null
-      };
-      console.log('[api/chat] nueva session', sid);
-    }
-    
-
-    // Confirm / cancel pending ticket actions
-    if (buttonToken === BUTTONS.CONFIRM_TICKET && session.pendingAction && session.pendingAction.type === 'create_ticket') {
-      session.pendingAction = null;
-      await saveSession(sid, session);
-      try {
-        return await createTicketAndRespond(session, sid, res);
-      } catch (errCT) {
-        console.error('[CONFIRM_TICKET]', errCT && errCT.message);
-        const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
-        return res.json(withOptions({ ok:false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
-      }
-    }
-    if (buttonToken === BUTTONS.CANCEL && session.pendingAction) {
-      session.pendingAction = null;
-      await saveSession(sid, session);
-      const loc = session.userLocale || 'es-AR';
-      const isEnCancel = String(loc).toLowerCase().startsWith('en');
-      let replyCancel;
-      if (isEnCancel) {
-        replyCancel = "Perfect, I won’t generate a ticket now. We can keep trying steps or you can change the problem description.";
-      } else {
-        replyCancel = "Perfecto, no genero el ticket ahora. Podemos seguir probando algunos pasos más o podés cambiar la descripción del problema.";
-      }
-      return res.json(withOptions({
-        ok: true,
-        reply: replyCancel,
-        stage: session.stage,
-        options: [BUTTONS.MORE_TESTS, BUTTONS.REPHRASE, BUTTONS.CLOSE]
-      }));
-    }
-
-    // Detección rápida de datos sensibles (PII) y frustración
-    const maskedPreview = maskPII(t);
-    if (maskedPreview !== t) {
-      session.frustrationCount = session.frustrationCount || 0;
-      const piiLocale = session.userLocale || 'es-AR';
-      if (String(piiLocale).toLowerCase().startsWith('en')) {
-        session.transcript.push({ who: 'bot', text: 'For your security I do not need passwords or bank details. Please, never send that kind of information here.', ts: nowIso() });
-      } else {
-        session.transcript.push({ who: 'bot', text: 'Por seguridad no necesito ni debo recibir contraseñas ni datos bancarios. Por favor, nunca los envíes por chat.', ts: nowIso() });
-      }
-    }
-
-    if (FRUSTRATION_RX.test(t)) {
-      session.frustrationCount = (session.frustrationCount || 0) + 1;
-      await saveSession(sid, session);
-      const loc = session.userLocale || 'es-AR';
-      const isEnFr = String(loc).toLowerCase().startsWith('en');
-      let replyFr;
-      let optsFr;
-      if (isEnFr) {
-        replyFr = "Sorry if I wasn’t clear. We can try one more quick thing or I can create a ticket so a human technician can help you. What do you prefer?";
-        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
-      } else {
-        replyFr = "Perdón si no fui claro. Podemos probar una cosa rápida más o genero un ticket para que te ayude un técnico humano. ¿Qué preferís?";
-        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
-      }
-      return res.json(withOptions({
-        ok: true,
-        reply: replyFr,
-        stage: session.stage,
-        options: optsFr
-      }));
-    }
-    // Selección de idioma (puede usarse al inicio del chat)
-    if (buttonToken === 'BTN_LANG_ES_AR' || buttonToken === 'BTN_LANG_ES' || buttonToken === 'BTN_LANG_EN') {
-      let locale = 'es-AR';
-      if (buttonToken === 'BTN_LANG_EN') {
-        locale = 'en';
-      } else if (buttonToken === 'BTN_LANG_ES') {
-        locale = 'es-419';
-      } else {
-        locale = 'es-AR';
-      }
-      session.userLocale = locale;
-      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-      let reply;
-      if (locale === 'en') {
-        reply = whoLabel
-          ? `Great, ${whoLabel}. We'll continue in English. What problem are you having or what do you need help with?`
-          : "Great, we'll continue in English. What's your name?";
-      } else if (locale === 'es-419') {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español neutro. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-          : 'Perfecto, seguimos en español neutro. Para ayudarte mejor, ¿cómo te llamas?';
-      } else {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español (Argentina). Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
-          : 'Perfecto, seguimos en español (Argentina). Para ayudarte mejor, ¿cómo te llamás?';
-      }
-      const tsLang = nowIso();
-      session.stage = whoLabel ? STATES.ASK_PROBLEM : STATES.ASK_NAME;
-      session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
-      await saveSession(sid, session);
-      return res.json(withOptions({
-        ok: true,
-        reply,
-        stage: session.stage,
-        options: session.stage === STATES.ASK_NAME ? ['BTN_NO_NAME'] : []
-      }));
-    }
-
-    // Cerrar chat de forma prolija (movido fuera del bloque de creación)
-    if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
-      const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
-      const replyClose = `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
-      const tsClose = nowIso();
-      session.stage = STATES.ENDED;
-      session.waEligible = false;
-      session.transcript.push({ who:'bot', text: replyClose, ts: tsClose });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply: replyClose, stage: session.stage, options: [] }));
-    }
-
-    // Quick escalate via button or text (confirmation step)
-    if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
-      session.pendingAction = { type: 'create_ticket' };
-      await saveSession(sid, session);
-      const loc = session.userLocale || 'es-AR';
-      const isEnCT = String(loc).toLowerCase().startsWith('en');
-      let replyCT;
-      if (isEnCT) {
-        replyCT = "I see you want to talk with a technician. Do you want me to create a ticket with this chat summary so you can send it by WhatsApp?";
-      } else {
-        replyCT = "Veo que querés hablar con un técnico. ¿Querés que genere un ticket con el resumen de esta conversación para enviarlo por WhatsApp?";
-      }
-      return res.json(withOptions({
-        ok: true,
-        reply: replyCT,
-        stage: session.stage,
-        options: [BUTTONS.CONFIRM_TICKET, BUTTONS.CANCEL]
-      }));
-    }
-
-    // Help step detection
-    session.helpAttempts = session.helpAttempts || {};
-    session.lastHelpStep = session.lastHelpStep || null;
-    let helpRequestedIndex = null;
-    if (buttonToken && /^BTN_HELP_\d+$/.test(buttonToken)) {
-      const m = buttonToken.match(/^BTN_HELP_(\d+)$/);
-      if (m) helpRequestedIndex = Number(m[1]);
-    } else {
-      const mText = (t || '').match(/\bayuda(?:\s+paso)?\s*(\d+)\b/i);
-      if (mText) helpRequestedIndex = Number(mText[1]);
-    }
-
-    if (helpRequestedIndex) {
-      try {
-        const idx = Number(helpRequestedIndex);
-        let steps = [];
-        if (session.stage === STATES.ADVANCED_TESTS) steps = Array.isArray(session.tests?.advanced) ? session.tests.advanced : [];
-        else if (session.stage === STATES.BASIC_TESTS) steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
-        else steps = [];
-
-        if (!steps || steps.length === 0) {
-          const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.';
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
-        }
-
-        if (idx < 1 || idx > steps.length) {
-          const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`;
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
-        }
-
-        session.helpAttempts[idx] = (session.helpAttempts[idx] || 0) + 1;
-        session.lastHelpStep = idx;
-        session.stage = session.stage || STATES.BASIC_TESTS;
-
-        const stepText = steps[idx - 1];
-        let helpDetail = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
-        if (!helpDetail || String(helpDetail).trim() === '') {
-          helpDetail = `Para realizar el paso ${idx}: ${stepText}\nSi necesitás más ayuda respondé "No entendí" o tocá 'Conectar con Técnico'.`;
-        }
-
-        const attempts = session.helpAttempts[idx] || 0;
-        let extraLine = '';
-        if (attempts >= 2) extraLine = '\n\nVeo que este paso viene costando. Si querés, te puedo conectar con un técnico por WhatsApp.';
-
-        const ts = nowIso();
-        const reply = `🛠️ Ayuda — Paso ${idx}\n\n${helpDetail}${extraLine}\n\nDespués de probar esto, ¿cómo te fue?`;
-
-        const userMsg = buttonToken ? `[BOTON] ${buttonLabel || ('BTN_HELP_' + idx)}` : `ayuda paso ${idx}`;
-        session.transcript.push({ who:'user', text: userMsg, ts });
-        session.transcript.push({ who:'bot', text: reply, ts });
-        await saveSession(sid, session);
-
-        try {
-          const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-          const userLine = `[${ts}] USER: ${userMsg}\n`;
-          const botLine  = `[${ts}] ASSISTANT: ${reply}\n`;
-          fs.appendFile(tf, userLine, ()=>{});
-          fs.appendFile(tf, botLine, ()=>{});
-        } catch(e){ /* noop */ }
-
-        const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪'];
-        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
-      } catch (err) {
-        console.error('[help_step] Error generando ayuda:', err && err.message);
-        const msg = 'No pude preparar la ayuda ahora. Probá de nuevo en unos segundos.';
-        session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
-      }
-    }
-
-    // Handle "Prefiero no decirlo"
-    const NO_NAME_RX = /^\s*(?:prefiero\s+no\s+decir(?:l[aeo])?|prefiero\s+no\s+dar\s+mi\s+nombre|no\s+quiero\s+decir\s+mi\s+nombre|no\s+deseo\s+decir\s+mi\s+nombre|prefiero\s+reservarme\s+el\s+nombre)\s*$/i;
-    if (buttonToken || NO_NAME_RX.test(t)) {
-      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
-      if (NO_NAME_RX.test(btnText)) {
-        try {
-          session.userName = 'Usuario';
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = 'Perfecto. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?';
-          const ts = nowIso();
-          session.transcript.push({ who: 'user', text: btnText, ts });
-          session.transcript.push({ who: 'bot', text: reply, ts });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
-        } catch (e) {
-          console.error('[prefiero-no-decirlo] Error', e && e.message);
-        }
-      }
-    }
-
-    // Record user message in transcript (masked for PII)
-    const userTs = nowIso();
-    if (buttonToken) {
-      const safeUserText = maskPII(`[BOTON] ${buttonLabel} (${buttonToken})`);
-      session.transcript.push({ who: 'user', text: safeUserText, ts: userTs });
-    } else {
-      const safeUserText = maskPII(t);
-      session.transcript.push({ who: 'user', text: safeUserText, ts: userTs });
-    }
-    
-    // Limitar transcript a últimos 100 mensajes para prevenir crecimiento indefinido
-    if (session.transcript.length > 100) {
-      session.transcript = session.transcript.slice(-100);
-    }
-
-    // ASK_LANGUAGE: Handle language selection first
-    if (session.stage === STATES.ASK_LANGUAGE) {
-      let selectedLocale = null;
-      
-      // Detectar selección de idioma por texto o botón
-      const tLower = t.toLowerCase();
-      if (tLower.includes('argentina') || buttonToken === 'BTN_LANG_ES_AR') {
-        selectedLocale = 'es-AR';
-      } else if (tLower.includes('españa') || tLower.includes('espana') || buttonToken === 'BTN_LANG_ES') {
-        selectedLocale = 'es-419';
-      } else if (tLower.includes('english') || tLower.includes('ingles') || buttonToken === 'BTN_LANG_EN') {
-        selectedLocale = 'en';
-      }
-      
-      if (selectedLocale) {
-        session.userLocale = selectedLocale;
-        session.stage = STATES.ASK_NAME;
-        const nameGreeting = buildNameGreeting(selectedLocale);
-        session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: ['BTN_NO_NAME'] }));
-      } else {
-        // No entendió la selección, pedir de nuevo
-        const retry = "🌐 Por favor, seleccioná un idioma tocando uno de los botones.\n🌐 Please select a language by tapping one of the buttons.";
-        session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: ['BTN_LANG_ES_AR', 'BTN_LANG_ES', 'BTN_LANG_EN'] }));
-      }
-    }
-
-    // ASK_NEED: Handle user need classification (help vs task) - según Flujo.csv
-    if (session.stage === STATES.ASK_NEED) {
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const tLower = t.toLowerCase();
-      
-      let needType = null;
-      
-      // Detectar por botón
-      if (buttonToken === 'BTN_HELP' || buttonToken === 'Ayuda técnica 🛠️') {
-        needType = 'problema';
-      } else if (buttonToken === 'BTN_TASK' || buttonToken === 'Asistencia 🤝') {
-        needType = 'tarea';
-      } 
-      // Detectar por palabras clave
-      else if (/problema|falla|error|no funciona|no anda|roto|dañado/i.test(tLower)) {
-        needType = 'problema';
-      } else if (/instalar|configurar|cómo|como|conectar|setup|how to|poner/i.test(tLower)) {
-        needType = 'tarea';
-      }
-      
-      if (needType) {
-        session.needType = needType;
-        session.stage = STATES.ASK_PROBLEM;
-        
-        let reply = '';
-        const empatia = addEmpatheticResponse('ASK_NEED', locale);
-        
-        if (needType === 'problema') {
-          reply = isEn
-            ? `${empatia}\n\nTell me what technical problem you're having.`
-            : (locale === 'es-419'
-                ? `${empatia}\n\nCuéntame qué problema técnico tienes.`
-                : `${empatia}\n\nContame qué problema técnico tenés.`);
-          session.isProblem = true;
-          session.isHowTo = false;
-        } else {
-          reply = isEn
-            ? `${empatia}\n\nTell me what task you want to do.`
-            : (locale === 'es-419'
-                ? `${empatia}\n\nCuéntame qué tarea quieres realizar.`
-                : `${empatia}\n\nContame qué tarea querés realizar.`);
-          session.isHowTo = true;
-          session.isProblem = false;
-        }
-        
+    // Helpers para respuesta
+    const respond = (payload) => {
+      const { reply, options, stage } = payload;
+      if (reply) {
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage }));
-      } else {
-        // No entendió la necesidad, pedir de nuevo
-        const retry = isEn
-          ? "Please select one of the options using the buttons."
-          : (locale === 'es-419'
-              ? "Por favor, selecciona una de las opciones usando los botones."
-              : "Por favor, seleccioná una de las opciones usando los botones.");
-        session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
       }
+      if (stage) {
+        session.stage = stage;
+      }
+      saveSession(session);
+      res.json({
+        ok: true,
+        sessionId: session.id,
+        stage: session.stage,
+        reply,
+        options: options || []
+      });
+    };
+
+    // =====================
+    // Lógica por estado
+    // =====================
+
+    // 1) ASK_LANGUAGE
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      let locale = null;
+
+      const lowered = incomingText.toLowerCase();
+
+      if (buttonToken === BUTTONS.LANG_ES_AR || /argentina/.test(lowered)) {
+        locale = 'es-AR';
+      } else if (buttonToken === BUTTONS.LANG_ES_ES || /espa(ñ|n)a/.test(lowered)) {
+        locale = 'es-ES';
+      } else if (buttonToken === BUTTONS.LANG_EN || /english|ingl(e|é)s/.test(lowered)) {
+        locale = 'en';
+      }
+
+      if (!locale) {
+        // No entendimos el idioma, repetir
+        const { text: greetText, options } = buildLanguageGreeting();
+        return respond({
+          reply: greetText + '\n\n⚠️ No entendí el idioma. Por favor, elegí una opción.',
+          options,
+          stage: STATES.ASK_LANGUAGE
+        });
+      }
+
+      session.userLocale = locale;
+
+      const askName = buildAskName(locale);
+      return respond({
+        reply: askName.text,
+        options: askName.options,
+        stage: STATES.ASK_NAME
+      });
     }
 
-    // ASK_NAME consolidated: validate locally and with OpenAI if available
-    
+    // 2) ASK_NAME
     if (session.stage === STATES.ASK_NAME) {
       const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
+      const profile = getLocaleProfile(locale);
+      const isEn = profile.isEn;
 
-      // 🔍 Detección temprana: el usuario ya contó el problema en vez de el nombre
-      const maybeProblem = basicITHeuristic(t || '');
-      const looksLikeProblem = maybeProblem && maybeProblem.isIT && (maybeProblem.isProblem || maybeProblem.isHowTo);
-
-      if (looksLikeProblem) {
-        // Si llegó hasta acá, usamos un nombre genérico y avanzamos al estado ASK_NEED
-        if (!session.userName) {
-          session.userName = isEn ? 'User' : 'Usuario';
-        }
-        session.problem = t || session.problem;
-        session.stage = STATES.ASK_NEED;
-
-        // Preguntar qué tipo de necesidad tiene
-        const empatia = addEmpatheticResponse('ASK_NAME', locale);
-        const reply = isEn
-          ? `${empatia} Thanks! What do you need today? Technical help 🛠️ or assistance 🤝?`
-          : (locale === 'es-419'
-              ? `${empatia} ¡Gracias! ¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-              : `${empatia} ¡Gracias! ¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
-        
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
-      } else {
-        // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
-        if ((session.nameAttempts || 0) >= 5) {
-          session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_NEED;
-
-          const reply = isEn
-            ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-            : (locale === 'es-419'
-                ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-                : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
-        }
-
-        // Prefiero no decirlo (texto o botón)
-        if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
-          session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_NEED;
-
-          const reply = isEn
-            ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-            : (locale === 'es-419'
-                ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-                : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: ['BTN_HELP', 'BTN_TASK']
-          }));
-        }
-
-        // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
-        if (looksClearlyNotName(t)) {
-          session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-          const reply = isEn
-            ? "I didn't detect a name. Could you tell me just your name? For example: “Ana” or “John Paul”."
-            : (locale === 'es-419'
-                ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”."
-                : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: [
-              { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-            ]
-          }));
-        }
-
-        const candidate = extractName(t);
-        if (!candidate || !isValidName(candidate)) {
-          session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-          const reply = isEn
-            ? "I didn't detect a valid name. Please tell me only your name, for example: “Ana” or “John Paul”."
-            : (locale === 'es-419'
-                ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”."
-                : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: [
-              { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-            ]
-          }));
-        }
-
-        // Nombre aceptado - transición a ASK_NEED según Flujo.csv
-        session.userName = candidate;
-        session.stage = STATES.ASK_NEED;
-        session.nameAttempts = 0;
-
-        const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
-        const reply = isEn
-          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
-          : (locale === 'es-419'
-              ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-              : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({
-          ok: true,
-          reply,
-          stage: session.stage,
-          options: ['BTN_HELP', 'BTN_TASK']
-        }));
-      }
-    }
-
-    // Inline fallback extraction (if we are not in ASK_NAME)
-    {
-      const nmInline2 = extractName(t);
-      if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
-        session.userName = nmInline2;
-        if(session.stage === STATES.ASK_NAME){
-          session.stage = STATES.ASK_NEED;
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          const empatia = addEmpatheticResponse('ASK_NAME', locale);
-          const reply = isEn
-            ? `${empatia} Great, ${session.userName}! 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
-            : (locale === 'es-419'
-                ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-                : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
-        }
-      }
-    }
-
-    // Reformulate problem
-    if (/^\s*reformular\s*problema\s*$/i.test(t)) {
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
-      const reply = isEn
-        ? `Let's try again, ${whoName}! 👍\n\nTell me: what problem are you having or what do you need help with?`
-        : (locale === 'es-419'
-            ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-            : `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
-      session.stage = STATES.ASK_PROBLEM;
-      session.problem = null;
-      session.issueKey = null;
-      session.tests = { basic: [], ai: [], advanced: [] };
-      session.lastHelpStep = null;
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
-    }
-
-    // State machine core: ASK_PROBLEM -> ASK_DEVICE -> BASIC_TESTS -> ...
-    let reply = '';
-    let options = [];
-
-    if (session.stage === STATES.ASK_PROBLEM){
-      session.problem = t || session.problem;
-
-// Device disambiguation: when user mentions "pc / compu / computadora" but device is still unknown
-if (!session.device) {
-  const locale = session.userLocale || 'es-AR';
-  const isEn = String(locale).toLowerCase().startsWith('en');
-  const mWord = (session.problem || '').match(/\b(compu|computadora|ordenador|pc|computer)\b/i);
-  if (mWord) {
-    const rawWord = mWord[1];
-    let shownWord;
-    if (/^pc$/i.test(rawWord)) shownWord = 'PC';
-    else if (/^compu$/i.test(rawWord)) shownWord = isEn ? 'computer' : 'la compu';
-    else shownWord = rawWord.toLowerCase();
-    session.stage = STATES.ASK_DEVICE;
-    session.pendingDeviceGroup = 'compu';
-    const replyText = isEn
-      ? `Perfect. When you say "${shownWord}", which of these devices do you mean?`
-      : (locale === 'es-419'
-          ? `Perfecto. Cuando dices "${shownWord}", ¿a cuál de estos dispositivos te refieres?`
-          : `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`);
-    const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-    const uiButtons = buildUiButtonsFromTokens(optionTokens);
-    const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyText, ts });
-    await saveSession(sid, session);
-    
-    const response = {
-      ok: true,
-      reply: replyText,
-      stage: session.stage,
-      options: uiButtons, // Enviar objetos completos en options
-      buttons: uiButtons, // Agregar también en nivel raíz
-      ui: { 
-        buttons: uiButtons 
-      }
-    };
-    
-    console.log('[ASK_DEVICE] Response:', JSON.stringify(response, null, 2));
-    
-    return res.json(response);
-  }
-}
-
-      // OA analyze problem (optional)
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const ai = await analyzeProblemWithOA(session.problem || '', locale);
-      const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
-      
-      if(!isIT){
-        const replyNotIT = isEn
-          ? 'Sorry, I didn\'t understand your query or it\'s not IT-related. Do you want to rephrase?'
-          : (locale === 'es-419'
-              ? 'Disculpa, no entendí tu consulta o no es informática. ¿Quieres reformular?'
-              : 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?');
-        const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
-        session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
-      }
-      
-      if(ai.device) session.device = session.device || ai.device;
-      if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
-
-      // Detectar si es solicitud de ayuda (How-To) o problema técnico
-      if(ai.isHowTo && !ai.isProblem){
-        // Es una solicitud de guía/instalación/configuración
-        session.isHowTo = true;
-        session.stage = STATES.ASK_HOWTO_DETAILS;
-        
-        let replyHowTo = '';
-        const deviceName = ai.device || (isEn ? 'device' : 'dispositivo');
-        
-        if(ai.issueKey === 'install_guide'){
-          replyHowTo = isEn
-            ? `Perfect, I'll help you install your ${deviceName}. To give you the exact instructions, I need to know:\n\n1. What operating system do you use? (Windows 10, Windows 11, Mac, Linux)\n2. What's the brand and model of the ${deviceName}?\n\nExample: "Windows 11, HP DeskJet 2720"`
-            : (locale === 'es-419'
-                ? `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usas? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`
-                : `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`);
-        } else if(ai.issueKey === 'setup_guide' || ai.issueKey === 'connect_guide'){
-          replyHowTo = isEn
-            ? `Sure, I'll help you set up your ${deviceName}. To give you the right instructions, tell me:\n\n1. What operating system do you have? (Windows 10, Windows 11, Mac, etc.)\n2. Brand and model of the ${deviceName}?\n\nExample: "Windows 10, Logitech C920"`
-            : (locale === 'es-419'
-                ? `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, cuéntame:\n\n1. ¿Qué sistema operativo tienes? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`
-                : `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`);
-        } else {
-          replyHowTo = isEn
-            ? `Sure, I'll help you with your ${deviceName}. To give you specific instructions:\n\n1. What operating system do you use?\n2. Brand and model of the device?\n\nSo I can guide you step by step.`
-            : (locale === 'es-419'
-                ? `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usas?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`
-                : `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`);
-        }
-        
-        session.transcript.push({ who:'bot', text: replyHowTo, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json({ ok:true, reply: replyHowTo, stage: session.stage });
-      }
-
-      // Si llegó acá, es un PROBLEMA técnico → generar pasos de diagnóstico
-      session.isProblem = true;
-      session.isHowTo = false;
-
-      // Generate and show steps
-      return await generateAndShowSteps(session, sid, res);
-
-    } else if (session.stage === STATES.ASK_HOWTO_DETAILS) {
-      // User is responding with OS + device model for how-to guide
-      const userResponse = t.toLowerCase();
-      
-      // Parse OS
-      let detectedOS = null;
-      if (/windows\s*11/i.test(userResponse)) detectedOS = 'Windows 11';
-      else if (/windows\s*10/i.test(userResponse)) detectedOS = 'Windows 10';
-      else if (/mac|macos|osx/i.test(userResponse)) detectedOS = 'macOS';
-      else if (/linux|ubuntu|debian/i.test(userResponse)) detectedOS = 'Linux';
-      
-      // Parse device model (any remaining text after OS)
-      let deviceModel = userResponse.trim();
-      if (detectedOS) {
-        deviceModel = userResponse.replace(/windows\s*(11|10)?|mac(os)?|osx|linux|ubuntu|debian/gi, '').trim();
-      }
-      
-      // Store in session
-      session.userOS = detectedOS || 'No especificado';
-      session.deviceModel = deviceModel || 'Modelo no especificado';
-      
-      // Generate how-to guide using AI
-      const deviceName = session.device || 'dispositivo';
-      const issueKey = session.issueKey || 'install_guide';
-      
-      try {
-        const howToPrompt = `Genera una guía paso a paso para ayudar a un usuario a ${
-          issueKey === 'install_guide' ? 'instalar' :
-          issueKey === 'setup_guide' ? 'configurar' :
-          issueKey === 'connect_guide' ? 'conectar' : 'trabajar con'
-        } su ${deviceName}.
-
-Sistema Operativo: ${session.userOS}
-Marca/Modelo: ${session.deviceModel}
-
-Devolvé una respuesta en formato JSON con esta estructura:
-{
-  "steps": [
-    "Paso 1: ...",
-    "Paso 2: ...",
-    "Paso 3: ..."
-  ],
-  "additionalInfo": "Información adicional útil (opcional)"
-}
-
-La guía debe ser:
-- Específica para el SO y modelo mencionados
-- Clara y fácil de seguir
-- Con 5-8 pasos concretos
-- Incluir enlaces oficiales de descarga si aplica (ej: sitio del fabricante)
-- En español argentino informal (vos, tené en cuenta, etc.)`;
-
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: 'Sos un asistente técnico experto en instalación y configuración de dispositivos.' },
-            { role: 'user', content: howToPrompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 1000
+      if (buttonToken === BUTTONS.NO_NAME) {
+        session.userName = isEn ? 'User' : 'Usuario';
+        const askProblem = buildAskProblem(locale, session.userName);
+        return respond({
+          reply: askProblem.text,
+          options: askProblem.options,
+          stage: STATES.ASK_PROBLEM
         });
-
-        const aiResponse = completion.choices[0]?.message?.content || '{}';
-        let guideData = { steps: [], additionalInfo: '' };
-        
-        try {
-          guideData = JSON.parse(aiResponse);
-        } catch (parseErr) {
-          console.error('[ASK_HOWTO_DETAILS] JSON parse error:', parseErr);
-          // Fallback: extract steps from text
-          const stepMatches = aiResponse.match(/Paso \d+:.*$/gm);
-          if (stepMatches && stepMatches.length > 0) {
-            guideData.steps = stepMatches;
-          } else {
-            guideData.steps = [aiResponse];
-          }
-        }
-
-        // Store steps in session
-        session.tests = session.tests || {};
-        session.tests.howto = guideData.steps || [];
-        session.currentStepIndex = 0;
-        session.stage = STATES.BASIC_TESTS; // Reuse BASIC_TESTS flow for showing steps
-        
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
-        let replyText = isEn
-          ? `Perfect, ${whoLabel}! Here's the guide for ${deviceName} on ${session.userOS}:\n\n`
-          : (locale === 'es-419'
-              ? `Perfecto, ${whoLabel}! Acá tienes la guía para ${deviceName} en ${session.userOS}:\n\n`
-              : `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`);
-        
-        if (guideData.steps && guideData.steps.length > 0) {
-          replyText += guideData.steps.join('\n\n');
-        } else {
-          replyText += isEn
-            ? 'I could not generate the specific steps, but I recommend visiting the manufacturer official website to download drivers and instructions.'
-            : (locale === 'es-419'
-                ? 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.'
-                : 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.');
-        }
-        
-        if (guideData.additionalInfo) {
-          replyText += `\n\n📌 ${guideData.additionalInfo}`;
-        }
-        
-        replyText += isEn
-          ? '\n\nDid it work? Reply "yes" or "no".'
-          : '\n\n¿Te funcionó? Respondé "sí" o "no".';
-        
-        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSession(sid, session);
-        
-        return res.json(withOptions({ 
-          ok: true, 
-          reply: replyText, 
-          stage: session.stage,
-          options: ['BTN_YES', 'BTN_NO']
-        }));
-        
-      } catch (aiError) {
-        console.error('[ASK_HOWTO_DETAILS] AI generation error:', aiError);
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const errorMsg = isEn
-          ? 'I could not generate the guide right now. Can you rephrase your query or try again later?'
-          : (locale === 'es-419'
-              ? 'No pude generar la guía en este momento. ¿Puedes reformular tu consulta o intentar más tarde?'
-              : 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?');
-        session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json({ ok: true, reply: errorMsg, stage: session.stage });
       }
 
-    } else if (session.stage === STATES.ASK_DEVICE) {
-      // Fallback handler for ASK_DEVICE
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      if (!buttonToken || !/^BTN_DEV_/.test(buttonToken)) {
-        const replyText = isEn
-          ? 'Please choose one of the options using the buttons I showed you.'
-          : (locale === 'es-419'
-              ? 'Por favor, elige una de las opciones con los botones que te mostré.'
-              : 'Por favor, elegí una de las opciones con los botones que te mostré.');
-        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSession(sid, session);
-        const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-        return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: optionTokens }));
+      const candidate = incomingText.split(/\s+/)[0] || '';
+      const looksValid = candidate.length >= 2 && candidate.length <= 20 && !/[0-9]/.test(candidate);
+
+      if (!looksValid) {
+        const msg = isEn
+          ? `I couldn't detect a proper name 🤔\n\nPlease tell me only your name, for example: "Ana" or "Juan Pablo".`
+          : `No detecté un nombre válido 🤔\n\nDecime solo tu nombre, por ejemplo: "Ana" o "Juan Pablo".`;
+        return respond({
+          reply: msg,
+          options: [{ token: BUTTONS.NO_NAME, label: isEn ? 'Prefer not to say my name' : 'Prefiero no decirlo' }],
+          stage: STATES.ASK_NAME
+        });
       }
 
-      // If user clicked a device token
-      if (buttonToken && /^BTN_DEV_/.test(buttonToken)) {
-        const deviceMap = {
-          BTN_DEV_PC_DESKTOP: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' },
-          BTN_DEV_PC_ALLINONE: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' },
-          BTN_DEV_NOTEBOOK: { device: 'notebook', pcType: null, label: 'Notebook' }
-        };
-        const devCfg = deviceMap[buttonToken];
-        if (devCfg) {
-          session.device = devCfg.device;
-          if (devCfg.pcType) session.pcType = devCfg.pcType;
-          session.pendingDeviceGroup = null;
-
-          // IMPORTANT: do not re-ask the problem; proceed to generate steps using existing session.problem
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          if (!session.problem || String(session.problem||'').trim()==='') {
-            session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
-            const replyText = isEn
-              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
-              : (locale === 'es-419'
-                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
-                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
-            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
-            await saveSession(sid, session);
-            return res.json(withOptions({ ok:true, reply: replyText, stage: session.stage, options: [] }));
-          } else {
-            // Provide short confirmation then show steps
-            session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
-            const replyIntro = isEn
-              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
-              : (locale === 'es-419'
-                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
-                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
-            const ts = nowIso();
-            session.transcript.push({ who:'bot', text: replyIntro, ts });
-            await saveSession(sid, session);
-            // proceed to generate steps
-            return await generateAndShowSteps(session, sid, res);
-          }
-        }
-      }
-
-      const fallbackMsg = isEn
-        ? 'I don\'t recognize that option. Please choose using the buttons.'
-        : (locale === 'es-419'
-            ? 'No reconozco esa opción. Elige por favor usando los botones.'
-            : 'No reconozco esa opción. Elegí por favor usando los botones.');
-      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
-      await saveSession(sid, session);
-      const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-      return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: optionTokens }));
-    } else if (session.stage === STATES.BASIC_TESTS) {
-      const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
-      if (rxDontKnow.test(t)) {
-        const result = await handleDontUnderstand(session, sid, t);
-        return res.json(withOptions(result));
-      }
-
-      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
-      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
-
-      if (rxShowSteps.test(t)) {
-        const result = handleShowSteps(session, 'basic');
-        if (result.error) {
-          session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: result.msg, stage: session.stage, options: [] }));
-        }
-        session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
-      }
-
-      if (rxYes.test(t)){
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-        const empatia = addEmpatheticResponse('ENDED', locale);
-        const firstLine = whoLabel
-          ? (isEn ? `I'm glad you were able to solve it, ${whoLabel}! 🙌` : `¡Me alegro que lo hayas podido resolver, ${whoLabel}! 🙌`)
-          : (isEn ? `I'm glad you were able to solve it! 🙌` : `¡Me alegro que lo hayas podido resolver! 🙌`);
-        reply = isEn 
-          ? `${firstLine}\n\n${empatia}\n\nIf it fails again at some point, you can reopen Tecnos chat and we'll continue from where we left off.\n\nYou can follow us on Instagram for tips and news: https://instagram.com/sti.rosario\nAnd visit our STI website — Servicio Técnico Inteligente for services and support: https://stia.com.ar 🚀\n\nThanks for using Tecnos from STI — Servicio Técnico Inteligente. 😉`
-          : `${firstLine}\n\n${empatia}\n\nSi en algún momento vuelve a fallar, podés abrir de nuevo el chat de Tecnos y seguimos desde donde lo dejamos.\n\nPodés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario\nY visitar nuestra web de STI — Servicio Técnico Inteligente para servicios y soporte: https://stia.com.ar 🚀\n\nGracias por usar Tecnos de STI — Servicio Técnico Inteligente. 😉`;
-        session.stage = STATES.ENDED;
-        session.waEligible = false;
-        options = [];
-      } else if (rxNo.test(t)){
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const empatia = addEmpatheticResponse('ESCALATE', locale);
-        reply = isEn
-          ? `💡 I understand. ${empatia} Do you want to try some extra solutions or connect you with a technician?`
-          : `💡 Entiendo. ${empatia} ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
-        options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH'];
-        session.stage = STATES.ESCALATE;
-      } else if (rxTech.test(t)) {
-        return await createTicketAndRespond(session, sid, res);
-      } else {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        reply = isEn
-          ? `I didn't understand. You can say "I solved it" or "The problem persists", or choose an option.`
-          : (locale === 'es-419'
-              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`
-              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`);
-        options = ['BTN_SOLVED','BTN_PERSIST'];
-      }
-    } else if (session.stage === STATES.ESCALATE) {
-      const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
-      const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
-      const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS';
-      const isOpt2 = opt2.test(t) || buttonToken === 'BTN_CONNECT_TECH';
-      
-      if (isOpt1){
-        try {
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          const device = session.device || '';
-          let aiSteps = [];
-          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
-          const limited = Array.isArray(aiSteps) ? aiSteps.slice(0,4) : [];
-          session.tests = session.tests || {};
-          session.tests.advanced = limited;
-          if (!limited || limited.length === 0) return await createTicketAndRespond(session, sid, res);
-          session.stepProgress = session.stepProgress || {};
-          limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
-          const numbered = enumerateSteps(limited);
-          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
-          const empatia = addEmpatheticResponse('ADVANCED_TESTS', locale);
-          const intro = isEn
-            ? `I understand, ${whoLabel}. ${empatia} Let's try some more advanced tests now:`
-            : `Entiendo, ${whoLabel}. ${empatia} Probemos ahora con algunas pruebas más avanzadas:`;
-          const footer = isEn
-            ? '\n\n🧩 If you need help with any step, tap on the number.\n\n🤔 Tell us how it went using the buttons:'
-            : '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
-          const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
-          session.stepsDone = session.stepsDone || [];
-          session.stepsDone.push('advanced_tests_shown');
-          session.waEligible = false;
-          session.lastHelpStep = null;
-          session.stage = STATES.ADVANCED_TESTS;
-          session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
-          await saveSession(sid, session);
-          const helpOptions = limited.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
-          const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
-          const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
-          const optionsResp = [...helpOptions, solvedBtn, persistBtn];
-          return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
-        } catch (errOpt1) {
-          console.error('[ESCALATE][more_tests] Error', errOpt1 && errOpt1.message);
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          reply = isEn
-            ? 'An error occurred generating more tests. Try again or ask me to connect you with a technician.'
-            : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply, stage: session.stage, options: ['BTN_CONNECT_TECH'] }));
-        }
-      } else if (isOpt2){
-        return await createTicketAndRespond(session, sid, res);
-      } else {
-        reply = 'Decime si querés probar más soluciones o conectar con un técnico.';
-        options = ['BTN_MORE_TESTS','BTN_CONNECT_TECH'];
-      }
-    } else if (session.stage === STATES.ADVANCED_TESTS) {
-      const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
-      if (rxDontKnowAdv.test(t)) {
-        const result = await handleDontUnderstand(session, sid, t);
-        return res.json(withOptions(result));
-      }
-
-      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
-      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
-
-      if (rxShowSteps.test(t)) {
-        const result = handleShowSteps(session, 'advanced');
-        if (result.error) {
-          session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: result.msg, stage: session.stage, options: [] }));
-        }
-        session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
-      }
-
-      if (rxYes.test(t)){
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const idx = session.lastHelpStep;
-        if (typeof idx === 'number' && idx >= 1) {
-          session.stepProgress = session.stepProgress || {};
-          session.stepProgress[`adv_${idx}`] = 'done';
-          await saveSession(sid, session);
-        }
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-        const empatia = addEmpatheticResponse('ENDED', locale);
-        const firstLine = whoLabel
-          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Excelente, ${whoLabel}! 🙌`)
-          : (isEn ? `Excellent, I'm glad you were able to solve it! 🙌` : `¡Excelente, me alegra que lo hayas podido resolver! 🙌`);
-        reply = isEn
-          ? `${firstLine}\n\n${empatia}\n\nIf it fails again later, you can reopen the chat and we'll resume the diagnosis together.`
-          : `${firstLine}\n\n${empatia}\n\nSi más adelante vuelve a fallar, podés volver a abrir el chat y retomamos el diagnóstico juntos.`;
-        session.stage = STATES.ENDED;
-        session.waEligible = false;
-        options = [];
-      } else if (rxNo.test(t)){
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const empatia = addEmpatheticResponse('ESCALATE', locale);
-        reply = isEn
-          ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
-          : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-        options = ['BTN_CONNECT_TECH'];
-        session.stage = STATES.ESCALATE;
-      } else if (rxTech.test(t)) {
-        return await createTicketAndRespond(session, sid, res);
-      } else {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        reply = isEn
-          ? `I didn't understand. You can say "I solved it" or "The problem persists", or ask to connect with a technician.`
-          : (locale === 'es-419'
-              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`
-              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`);
-        options = ['BTN_SOLVED','BTN_PERSIST','BTN_CONNECT_TECH'];
-      }
-    } else {
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      reply = isEn
-        ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
-        : (locale === 'es-419'
-            ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
-            : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
-      const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
-      options = [reformBtn];
+      session.userName = candidate[0].toUpperCase() + candidate.slice(1);
+      const askProblem = buildAskProblem(locale, session.userName);
+      return respond({
+        reply: askProblem.text,
+        options: askProblem.options,
+        stage: STATES.ASK_PROBLEM
+      });
     }
 
-    // Save bot reply + persist transcripts to file (single ts pair)
-    const pairTs = nowIso();
-    session.transcript.push({ who:'bot', text: reply, ts: pairTs });
-    await saveSession(sid, session);
-    try {
-      const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-      const userLine = `[${pairTs}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${pairTs}] ASSISTANT: ${reply}\n`;
-      fs.appendFile(tf, userLine, ()=>{});
-      fs.appendFile(tf, botLine, ()=>{});
-    } catch(e){ /* noop */ }
+    // 3) ASK_PROBLEM
+    if (session.stage === STATES.ASK_PROBLEM) {
+      const locale = session.userLocale || 'es-AR';
+      const profile = getLocaleProfile(locale);
+      const isEn = profile.isEn;
 
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
-    if (options && options.length) response.options = options;
-
-    try {
-      const areAllTokens = Array.isArray(options) && options.length > 0 && options.every(o => typeof o === 'string' && o.startsWith('BTN_'));
-      if (areAllTokens) {
-        const btns = buildUiButtonsFromTokens(options);
-        response.ui = response.ui || {};
-        response.ui.states = CHAT?.ui?.states || response.ui.states || {};
-        response.ui.buttons = btns;
-      } else if (CHAT?.ui && !response.ui) {
-        response.ui = CHAT.ui;
+      const problemText = incomingText;
+      if (!problemText) {
+        const msg = isEn
+          ? `Tell me a bit more about what is happening so I can help you.`
+          : `Contame un poco más qué está pasando así puedo ayudarte.`;
+        return respond({
+          reply: msg,
+          options: [],
+          stage: STATES.ASK_PROBLEM
+        });
       }
-    } catch (e) {
-      console.error('[response-ui] Error construyendo botones UI', e && e.message);
+
+      session.problem = problemText;
+
+      const cls = classifyProblem(problemText);
+      session.device = cls.device;
+      session.isHowTo = cls.isHowTo;
+      session.isProblem = cls.isProblem;
+
+      if (!cls.isIT) {
+        const msg = isEn
+          ? `From what you wrote, it doesn't seem to be a typical IT problem (PC, WiFi, printer...).\n\nIf it is related to a computer, notebook, printer or WiFi, tell me a bit more and mention the device.`
+          : `Por lo que me contás, no parece ser un problema típico de informática (PC, WiFi, impresora...).\n\nSi está relacionado con una computadora, notebook, impresora o WiFi, contame un poco más y nombrá el dispositivo.`;
+        return respond({
+          reply: msg,
+          options: [],
+          stage: STATES.ASK_PROBLEM
+        });
+      }
+
+      // Tenemos algo de IT → preparar pasos
+      let aiText = null;
+      if (openai) {
+        aiText = await callOpenAIHelp({
+          locale,
+          userName: session.userName,
+          device: session.device,
+          isHowTo: cls.isHowTo,
+          problem: session.problem
+        });
+      }
+
+      const replyObj = buildBasicStepsReply(locale, session.userName, session.device, cls.isHowTo, cls.isProblem, aiText);
+      return respond({
+        reply: replyObj.text,
+        options: replyObj.options,
+        stage: STATES.BASIC_TESTS
+      });
     }
 
-    if (session.waEligible) response.allowWhatsapp = true;
+    // 4) BASIC_TESTS
+    if (session.stage === STATES.BASIC_TESTS) {
+      const locale = session.userLocale || 'es-AR';
+      const profile = getLocaleProfile(locale);
+      const isEn = profile.isEn;
 
-    try {
-      const shortLog = `${sid} => reply len=${String(reply||'').length} options=${(options||[]).length}`;
-      const entry = formatLog('INFO', shortLog);
-      appendToLogFile(entry);
-      broadcastLog(entry);
-    } catch (e) { /* noop */ }
-
-    return res.json(response);
-
-  } catch(e){
-    console.error('[api/chat] Error', e && e.message);
-    return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
-  }
-});
-
-// Sessions listing
-app.get('/api/sessions', async (_req,res)=>{
-  const sessions = await listActiveSessions();
-  updateMetric('chat', 'sessions', sessions.length);
-  res.json({ ok:true, count: sessions.length, sessions });
-});
-
-// Metrics endpoint
-app.get('/api/metrics', async (req, res) => {
-  const token = req.headers.authorization || req.query.token;
-  
-  // Optional authentication
-  if (SSE_TOKEN && token !== SSE_TOKEN) {
-    return res.status(403).json({ ok: false, error: 'No autorizado' });
-  }
-  
-  try {
-    const sessions = await listActiveSessions();
-    const uploadsDir = fs.readdirSync(UPLOADS_DIR);
-    const uploadStats = uploadsDir.reduce((acc, file) => {
-      const filePath = path.join(UPLOADS_DIR, file);
-      const stats = fs.statSync(filePath);
-      return {
-        count: acc.count + 1,
-        totalBytes: acc.totalBytes + stats.size
-      };
-    }, { count: 0, totalBytes: 0 });
-    
-    res.json({
-      ok: true,
-      metrics: getMetrics(),
-      storage: {
-        uploads: {
-          files: uploadStats.count,
-          totalMB: (uploadStats.totalBytes / 1024 / 1024).toFixed(2)
-        }
-      },
-      sessions: {
-        active: sessions.length
+      if (buttonToken === BUTTONS.SOLVED) {
+        session.solved = true;
+        const solvedReply = buildSolvedReply(locale, session.userName);
+        return respond({
+          reply: solvedReply.text,
+          options: solvedReply.options,
+          stage: STATES.ENDED
+        });
       }
+
+      if (buttonToken === BUTTONS.PERSIST) {
+        const esc = buildEscalateReply(locale);
+        return respond({
+          reply: esc.text,
+          options: esc.options,
+          stage: STATES.ESCALATE
+        });
+      }
+
+      const msg = isEn
+        ? `Please choose if you solved the problem or if it still persists, using the buttons.`
+        : `Elegí con los botones si pudiste solucionarlo o si el problema persiste.`;
+      return respond({
+        reply: msg,
+        options: [
+          { token: BUTTONS.SOLVED, label: isEn ? 'I solved it ✔️' : 'Lo pude solucionar ✔️' },
+          { token: BUTTONS.PERSIST, label: isEn ? 'The problem persists ❌' : 'El problema persiste ❌' }
+        ],
+        stage: STATES.BASIC_TESTS
+      });
+    }
+
+    // 5) ESCALATE
+    if (session.stage === STATES.ESCALATE) {
+      const locale = session.userLocale || 'es-AR';
+      const profile = getLocaleProfile(locale);
+      const isEn = profile.isEn;
+
+      if (buttonToken === BUTTONS.MORE_TESTS) {
+        const adv = buildAdvancedTestsReply(locale, session.userName, session.device);
+        return respond({
+          reply: adv.text,
+          options: adv.options,
+          stage: STATES.ADVANCED_TESTS
+        });
+      }
+
+      if (buttonToken === BUTTONS.CONNECT_TECH) {
+        const ticket = buildWhatsAppTicket(locale, session);
+        const msg = isEn
+          ? `Perfect. I'll generate a ticket with this conversation.\n\nTap the green button below to open WhatsApp and send it (you can review/edit the text before sending).`
+          : `Perfecto. Voy a generar un ticket con esta conversación.\n\nTocá el botón verde de abajo para abrir WhatsApp y enviarlo (podés revisar/editar el texto antes de enviarlo).`;
+
+        return respond({
+          reply: msg + `\n\nWhatsApp: ${ticket.url}`,
+          options: [],
+          stage: STATES.ENDED
+        });
+      }
+
+      const esc = buildEscalateReply(locale);
+      return respond({
+        reply: esc.text,
+        options: esc.options,
+        stage: STATES.ESCALATE
+      });
+    }
+
+    // 6) ADVANCED_TESTS
+    if (session.stage === STATES.ADVANCED_TESTS) {
+      const locale = session.userLocale || 'es-AR';
+      const profile = getLocaleProfile(locale);
+      const isEn = profile.isEn;
+
+      if (buttonToken === BUTTONS.SOLVED) {
+        session.solved = true;
+        const solvedReply = buildSolvedReply(locale, session.userName);
+        return respond({
+          reply: solvedReply.text,
+          options: solvedReply.options,
+          stage: STATES.ENDED
+        });
+      }
+
+      if (buttonToken === BUTTONS.PERSIST) {
+        const esc = buildEscalateReply(locale);
+        return respond({
+          reply: esc.text,
+          options: esc.options,
+          stage: STATES.ESCALATE
+        });
+      }
+
+      const msg = isEn
+        ? `Please choose with the buttons if you solved it or if the problem still persists.`
+        : `Elegí con los botones si pudiste solucionarlo o si el problema persiste.`;
+      const adv = buildAdvancedTestsReply(locale, session.userName, session.device);
+
+      return respond({
+        reply: adv.text + '\n\n' + msg,
+        options: adv.options,
+        stage: STATES.ADVANCED_TESTS
+      });
+    }
+
+    // 7) ENDED
+    if (session.stage === STATES.ENDED) {
+      const ended = buildEndedFallback(session.userLocale || 'es-AR');
+      return respond({
+        reply: ended.text,
+        options: ended.options,
+        stage: STATES.ENDED
+      });
+    }
+
+    // Fallback total
+    const fallback = buildLanguageGreeting();
+    session.stage = STATES.ASK_LANGUAGE;
+    return respond({
+      reply: fallback.text,
+      options: fallback.options,
+      stage: STATES.ASK_LANGUAGE
     });
+
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    log('[api/chat error]', err);
+    res.status(500).json({
+      ok: false,
+      error: 'internal_error'
+    });
   }
 });
 
-// Serve index.html for root path
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+// Root
+app.get('/', (req, res) => {
+  res.send('STI Tecnos server (MODO DIOS v1) is running.');
 });
 
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
-
-// Start server
-const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, ()=> {
-  console.log(`STI Chat (v7) started on ${PORT}`);
-  console.log('[Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)');
-  console.log('[Performance] Compression enabled (gzip/brotli)');
-  console.log('[Performance] Session cache enabled (max 1000 sessions)');
+// Start
+app.listen(PORT, () => {
+  log(`STI Tecnos server (MODO DIOS v1) listening on port ${PORT}`);
 });
-
-// PERFORMANCE: Enable HTTP keep-alive
-server.keepAliveTimeout = 65000; // 65 segundos
-server.headersTimeout = 66000; // Ligeramente mayor que keepAlive
-
-// Graceful shutdown
-function gracefulShutdown(signal) {
-  console.log(`\n[${signal}] Iniciando apagado graceful...`);
-  
-  // Cerrar SSE clients
-  console.log(`[shutdown] Cerrando ${sseClients.size} clientes SSE...`);
-  for (const client of Array.from(sseClients)) {
-    try {
-      client.write('data: SERVER_SHUTDOWN\n\n');
-      client.end();
-    } catch(e) { /* ignore */ }
-  }
-  sseClients.clear();
-  
-  // Cerrar log stream
-  if (logStream && logStream.writable) {
-    try { logStream.end(); } catch(e) { /* ignore */ }
-  }
-  
-  // Cerrar servidor HTTP
-  server.close(() => {
-    console.log('[shutdown] Servidor HTTP cerrado');
-    process.exit(0);
-  });
-  
-  // Force exit después de 10 segundos
-  setTimeout(() => {
-    console.error('[shutdown] Forzando salida después de 10s');
-    process.exit(1);
-  }, 10000);
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
