@@ -2804,38 +2804,39 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
     // Selección de idioma (puede usarse al inicio del chat)
     if (buttonToken === 'BTN_LANG_ES_AR' || buttonToken === 'BTN_LANG_ES' || buttonToken === 'BTN_LANG_EN') {
       let locale = 'es-AR';
+      let languageName = '';
       if (buttonToken === 'BTN_LANG_EN') {
         locale = 'en';
+        languageName = 'English';
       } else if (buttonToken === 'BTN_LANG_ES') {
         locale = 'es-419';
+        languageName = 'Español';
       } else {
         locale = 'es-AR';
+        languageName = 'Español Argentina';
       }
       session.userLocale = locale;
-      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+      // Guardar el idioma como userName
+      session.userName = languageName;
+      
+      const whoLabel = capitalizeToken(session.userName);
       let reply;
       if (locale === 'en') {
-        reply = whoLabel
-          ? `Great, ${whoLabel}. We'll continue in English. What problem are you having or what do you need help with?`
-          : "Great, we'll continue in English. What's your name?";
+        reply = `Thanks, ${whoLabel}. 👍\n\nI'm here to help you with your PC, notebook, WiFi or printer. Now tell me: what problem are you having or what do you need help with?`;
       } else if (locale === 'es-419') {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español neutro. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-          : 'Perfecto, seguimos en español neutro. Para ayudarte mejor, ¿cómo te llamas?';
+        reply = `Gracias, ${whoLabel}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`;
       } else {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español (Argentina). Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
-          : 'Perfecto, seguimos en español (Argentina). Para ayudarte mejor, ¿cómo te llamás?';
+        reply = `Gracias, ${whoLabel}. 👍\n\nEstoy para ayudarte con tu PC, notebook, WiFi o impresora. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`;
       }
       const tsLang = nowIso();
-      session.stage = whoLabel ? STATES.ASK_PROBLEM : STATES.ASK_NAME;
+      session.stage = STATES.ASK_PROBLEM;
       session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
       await saveSession(sid, session);
       return res.json(withOptions({
         ok: true,
         reply,
         stage: session.stage,
-        options: session.stage === STATES.ASK_NAME ? ['BTN_NO_NAME'] : []
+        options: []
       }));
     }
 
