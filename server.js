@@ -1532,16 +1532,6 @@ function validateSessionId(sid) {
   if (timestamp > now || timestamp < (now - maxAge)) return false;
   
   return true;
-  if (sid.length < 20 || sid.length > 100) return false;
-  
-  // Debe empezar con srv-
-  if (!sid.startsWith('srv-')) return false;
-  
-  // Solo alfanumérico, guiones y puntos (sin espacios ni caracteres especiales)
-  if (!/^[a-zA-Z0-9._-]+$/.test(sid)) return false;
-  
-  // Prevenir timing attacks: usar crypto.timingSafeEqual si es posible
-  return true;
 }
 
 function getSessionId(req){
@@ -3324,7 +3314,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
         const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
         const reply = isEn
-          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\n¿What do you need today? Technical help 🛠️ or assistance 🤝?`
+          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
           : (locale === 'es-419'
               ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
               : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
