@@ -2307,3 +2307,15 @@
 2025-11-23T22:36:51.410Z [INFO] └─────────────────────────────────────────────────────────────────┘
 
 2025-11-23T22:36:51.932Z [INFO] [validateSessionId] ACCEPT: srv-[PHONE_REDACTED]-6b...
+2025-11-23T22:39:48.346Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T22:39:48.348Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T22:39:48.348Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T22:39:48.349Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:09:21.913Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-23T23:09:26.237Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:09:26.238Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:09:26.239Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:09:26.239Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:09:43.065Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

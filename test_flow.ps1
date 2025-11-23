@@ -1,8 +1,8 @@
 # Script de PowerShell para probar el flujo del chatbot STI con 4 conversaciones simuladas
 
-$BaseUrl = "http://localhost:3001"
+$BaseUrl = "http://localhost:3002"
 $Headers = @{
-    'Origin' = 'http://localhost:3001'
+    'Origin' = 'http://localhost:3002'
     'Content-Type' = 'application/json'
 }
 
