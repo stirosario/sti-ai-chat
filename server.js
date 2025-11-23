@@ -37,6 +37,8 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import fs, { createReadStream } from 'fs';
+const fsp = fs.promises;
+
 import path from 'path';
 import crypto from 'crypto';
 import OpenAI from 'openai';
@@ -140,25 +142,16 @@ const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tic
 const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
 const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'uploads');
 const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
-/**
- * Simple structured logger used across the server.
- * Writes to console and to LOG_FILE, but never throws if disk logging fails.
- */
-function logMsg(message, meta = null) {
-  const timestamp = new Date().toISOString();
-  const line = meta
-    ? `[${timestamp}] ${message} ${JSON.stringify(meta)}`
-    : `[${timestamp}] ${message}`;
-  console.log(line);
-  try {
-    fs.appendFile(LOG_FILE, line + '\n', () => {});
-  } catch (err) {
-    console.error('[LOG] Failed to write log file', err);
-  }
-}
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/+$/, '');
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 const SSE_TOKEN       = process.env.SSE_TOKEN || '';
+
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PROD  = NODE_ENV === 'production';
+if (IS_PROD && !SSE_TOKEN) {
+  console.error('[FATAL] SSE_TOKEN requerido en producción para proteger endpoints de administración y logs.');
+  process.exit(1);
+}
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
@@ -1533,7 +1526,7 @@ app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.param
   if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
   res.set('Content-Type','text/plain; charset=utf-8');
   try {
-    const raw = fs.readFileSync(file,'utf8');
+    const raw = await fsp.readFile(file,'utf8');
     const masked = maskPII(raw);
     res.send(masked);
   } catch (e) {
@@ -1599,12 +1592,15 @@ app.get('/api/logs/stream', async (req, res) => {
   }
 });
 
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', async (req, res) => {
   if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
     return res.status(401).json({ ok:false, error: 'unauthorized' });
   }
   try {
-    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
+    let txt = '';
+    if (fs.existsSync(LOG_FILE)) {
+      txt = await fsp.readFile(LOG_FILE, 'utf8');
+    }
     res.set('Content-Type','text/plain; charset=utf-8');
     res.send(txt);
   } catch (e) {
@@ -1715,9 +1711,9 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
       });
     }
 
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+    try { await fsp.mkdir(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
     const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
+    await fsp.writeFile(ticketPathTxt, lines.join('\n'), 'utf8');
 
     const ticketJson = {
       id: ticketId,
@@ -1730,7 +1726,7 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
       redactPublic: true
     };
     const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
+    await fsp.writeFile(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
 
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
@@ -1802,7 +1798,8 @@ app.get('/api/ticket/:tid', async (req, res) => {
   // SECURITY: Validar ownership (leer JSON para ver quién creó el ticket)
   if (fs.existsSync(jsonFile) && adminToken !== SSE_TOKEN) {
     try {
-      const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+      const jsonRaw = await fsp.readFile(jsonFile, 'utf8');
+      const ticketData = JSON.parse(jsonRaw);
       const ticketOwnerSid = ticketData.sid || '';
       
       if (ticketOwnerSid !== requestSessionId) {
@@ -1814,7 +1811,7 @@ app.get('/api/ticket/:tid', async (req, res) => {
     }
   }
 
-  const raw = fs.readFileSync(txtFile,'utf8');
+  const raw = await fsp.readFile(txtFile,'utf8');
   const maskedRaw = maskPII(raw);
 
   // parse lines into messages
@@ -1834,12 +1831,12 @@ app.get('/api/ticket/:tid', async (req, res) => {
 });
 
 // Pretty ticket view
-app.get('/ticket/:tid', (req, res) => {
+app.get('/ticket/:tid', async (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
 
-  const raw = fs.readFileSync(file,'utf8');
+  const raw = await fsp.readFile(file,'utf8');
   const safeRaw = escapeHtml(raw);
 
   const lines = raw.split(/\r?\n/);
@@ -2196,11 +2193,11 @@ async function createTicketAndRespond(session, sid, res) {
       });
     }
 
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
+    try { await fsp.mkdir(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
 
     // Public masked text file
     const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
+    await fsp.writeFile(ticketPathTxt, lines.join('\n'), 'utf8');
 
     // JSON estructurado para integraciones futuras
     const ticketJson = {
@@ -2217,7 +2214,7 @@ async function createTicketAndRespond(session, sid, res) {
       redactPublic: true
     };
     const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
+    await fsp.writeFile(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
 
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
@@ -2408,6 +2405,9 @@ async function generateAndShowSteps(session, sid, res){
     }
 
     session.stage = STATES.BASIC_TESTS;
+    // [V-POWER] Unificamos almacenamiento de pasos básicos en session.tests.basic
+    if (!session.tests) session.tests = { basic: [], ai: [], advanced: [] };
+    session.tests.basic = steps;
     session.basicTests = steps;
     session.currentTestIndex = 0;
 
@@ -2745,7 +2745,6 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         stepProgress: {},
         pendingDeviceGroup: null,
         userLocale: 'es-AR',
-        helpAttempts: {},
         frustrationCount: 0,
         pendingAction: null
       };
