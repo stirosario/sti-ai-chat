@@ -17,78 +17,97 @@ const redis = process.env.REDIS_URL
     })
   : null;
 
+// Fallback a memoria cuando no hay Redis
+const memoryStore = new Map();
+
 // Log de conexión
 if (redis) {
   redis.on('connect', () => console.log('[Redis] ✅ Connected'));
   redis.on('error', (err) => console.error('[Redis] ❌ Error:', err.message));
 } else {
-  console.warn('[Redis] ⚠️ REDIS_URL not set - sessions won\'t persist');
+  console.warn('[Redis] ⚠️ REDIS_URL not set - using in-memory store (sessions will be lost on restart)');
 }
 
 // TTL: 48 horas (se resetea en cada interacción)
 const SESSION_TTL = 48 * 60 * 60;
 
 /**
- * Obtener sesión desde Redis
+ * Obtener sesión desde Redis o memoria
  */
 export async function getSession(sessionId) {
-  if (!redis) {
-    console.warn('[getSession] Redis not available');
-    return null;
+  // Intentar Redis primero
+  if (redis) {
+    try {
+      const data = await redis.get(`session:${sessionId}`);
+      if (!data) {
+        console.log(`[getSession] No session found for ${sessionId}`);
+        return null;
+      }
+      
+      const session = JSON.parse(data);
+      console.log(`[getSession] ✅ Loaded ${sessionId}:`, {
+        userName: session.userName,
+        device: session.device,
+        stage: session.stage,
+        stepsDone: session.stepsDone?.length || 0
+      });
+      return session;
+    } catch (e) {
+      console.error('[getSession] Redis error:', e.message);
+      // Fall through to memory store
+    }
   }
   
-  try {
-    const data = await redis.get(`session:${sessionId}`);
-    if (!data) {
-      console.log(`[getSession] No session found for ${sessionId}`);
-      return null;
-    }
-    
-    const session = JSON.parse(data);
-    console.log(`[getSession] ✅ Loaded ${sessionId}:`, {
+  // Usar memoria como fallback
+  const session = memoryStore.get(sessionId);
+  if (session) {
+    console.log(`[getSession] ✅ Loaded from memory ${sessionId}:`, {
       userName: session.userName,
-      device: session.device,
-      stage: session.stage,
-      stepsDone: session.stepsDone?.length || 0
+      stage: session.stage
     });
-    return session;
-  } catch (e) {
-    console.error('[getSession] Error:', e.message);
-    return null;
+  } else {
+    console.log(`[getSession] No session in memory for ${sessionId}`);
   }
+  return session || null;
 }
 
 /**
- * Guardar sesión en Redis con TTL
+ * Guardar sesión en Redis o memoria con TTL
  */
 export async function saveSession(sessionId, data) {
-  if (!redis) {
-    console.warn('[saveSession] Redis not available');
-    return false;
+  // Actualizar timestamp
+  data.lastActivity = new Date().toISOString();
+  
+  // Intentar Redis primero
+  if (redis) {
+    try {
+      await redis.setex(
+        `session:${sessionId}`, 
+        SESSION_TTL, 
+        JSON.stringify(data)
+      );
+      
+      console.log(`[saveSession] ✅ Saved to Redis ${sessionId}:`, {
+        userName: data.userName,
+        device: data.device,
+        stage: data.stage,
+        transcriptLength: data.transcript?.length || 0
+      });
+      return true;
+    } catch (e) {
+      console.error('[saveSession] Redis error:', e.message);
+      // Fall through to memory store
+    }
   }
   
-  try {
-    // Actualizar timestamp
-    data.lastActivity = new Date().toISOString();
-    
-    // Guardar con expiración
-    await redis.setex(
-      `session:${sessionId}`, 
-      SESSION_TTL, 
-      JSON.stringify(data)
-    );
-    
-    console.log(`[saveSession] ✅ Saved ${sessionId}:`, {
-      userName: data.userName,
-      device: data.device,
-      stage: data.stage,
-      transcriptLength: data.transcript?.length || 0
-    });
-    return true;
-  } catch (e) {
-    console.error('[saveSession] Error:', e.message);
-    return false;
-  }
+  // Guardar en memoria como fallback
+  memoryStore.set(sessionId, data);
+  console.log(`[saveSession] ✅ Saved to memory ${sessionId}:`, {
+    userName: data.userName,
+    stage: data.stage,
+    transcriptLength: data.transcript?.length || 0
+  });
+  return true;
 }
 
 /**

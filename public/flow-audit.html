@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flow Audit - STI Chat</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f7fa;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: white;
+      color: #667eea;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      padding: 24px;
+      background: #f8f9fa;
+    }
+
+    .stat-card {
+      background: white;
+      padding: 16px;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #2d3748;
+    }
+
+    .filters {
+      padding: 20px 24px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .filter-input {
+      flex: 1;
+      padding: 10px 16px;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      background: #2d3748;
+      color: white;
+      z-index: 10;
+    }
+
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #e9ecef;
+      transition: background 0.2s;
+    }
+
+    tbody tr:hover {
+      background: #f8f9fa;
+    }
+
+    td {
+      padding: 12px 16px;
+      font-size: 14px;
+      color: #495057;
+    }
+
+    .stage-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .stage-ASK_LANGUAGE { background: #e3f2fd; color: #1976d2; }
+    .stage-ASK_NAME { background: #f3e5f5; color: #7b1fa2; }
+    .stage-ASK_NEED { background: #fff3e0; color: #f57c00; }
+    .stage-ASK_PROBLEM { background: #fce4ec; color: #c2185b; }
+    .stage-BASIC_TESTS { background: #e8f5e9; color: #388e3c; }
+    .stage-ESCALATE { background: #ffebee; color: #d32f2f; }
+
+    .trigger-badge {
+      background: #e9ecef;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+
+    .session-id {
+      font-family: monospace;
+      font-size: 12px;
+      color: #6c757d;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6c757d;
+    }
+
+    .alert {
+      padding: 12px 16px;
+      margin: 16px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .alert-warning {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      color: #856404;
+    }
+
+    .alert-danger {
+      background: #f8d7da;
+      border-left: 4px solid #dc3545;
+      color: #721c24;
+    }
+
+    .duration {
+      font-weight: 600;
+      color: #28a745;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1>📊 Flow Audit Dashboard</h1>
+        <p style="opacity: 0.9; font-size: 14px; margin-top: 4px;">Monitor y auditoría del flujo de conversación</p>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="refreshData()">🔄 Refresh</button>
+        <button class="btn btn-primary" onclick="exportToExcel()">📥 Export CSV</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Interactions</div>
+        <div class="stat-value">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Sessions</div>
+        <div class="stat-value">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Duration</div>
+        <div class="stat-value">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Loops Detected</div>
+        <div class="stat-value">-</div>
+      </div>
+    </div>
+
+    <div id="alerts"></div>
+
+    <div class="filters">
+      <input type="text" class="filter-input" id="filterSession" placeholder="Filter by Session ID...">
+      <input type="text" class="filter-input" id="filterStage" placeholder="Filter by Stage...">
+      <input type="text" class="filter-input" id="filterTrigger" placeholder="Filter by Trigger...">
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Nº</th>
+            <th>Timestamp</th>
+            <th>Session ID</th>
+            <th>Etapa Actual</th>
+            <th>Input Usuario</th>
+            <th>Trigger</th>
+            <th>Respuesta Bot</th>
+            <th>Siguiente Etapa</th>
+            <th>Acción</th>
+            <th>Duración</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr>
+            <td colspan="10" class="loading">
+              Cargando datos...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allData = [];
+
+    async function loadData() {
+      try {
+        const response = await fetch('/api/flow-audit');
+        const markdown = await response.text();
+        
+        // Para obtener los datos reales, necesitamos el CSV
+        const csvResponse = await fetch('/data/logs/flow-audit.csv');
+        const csvText = await csvResponse.text();
+        
+        parseCSV(csvText);
+        updateStats();
+      } catch (error) {
+        console.error('Error loading data:', error);
+        document.getElementById('tableBody').innerHTML = `
+          <tr><td colspan="10" class="loading" style="color: #dc3545;">
+            Error cargando datos: ${error.message}
+          </td></tr>
+        `;
+      }
+    }
+
+    function parseCSV(csv) {
+      const lines = csv.trim().split('\n');
+      allData = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        const matches = line.match(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g);
+        
+        if (matches && matches.length >= 10) {
+          const row = matches.map(m => {
+            let val = m.replace(/^,/, '').trim();
+            if (val.startsWith('"') && val.endsWith('"')) {
+              val = val.substring(1, val.length - 1).replace(/""/g, '"');
+            }
+            return val;
+          });
+          
+          allData.push({
+            numero: row[0],
+            timestamp: row[1],
+            sessionId: row[2],
+            etapaActual: row[3],
+            inputUsuario: row[4],
+            triggerDetectado: row[5],
+            respuestaBot: row[6],
+            siguienteEtapa: row[7],
+            accionServidor: row[8],
+            duracionMs: row[9]
+          });
+        }
+      }
+      
+      renderTable(allData);
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('tableBody');
+      
+      if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="loading">No hay datos disponibles</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = data.map(row => `
+        <tr>
+          <td>${row.numero}</td>
+          <td>${new Date(row.timestamp).toLocaleString()}</td>
+          <td><span class="session-id">${row.sessionId.substring(0, 12)}...</span></td>
+          <td><span class="stage-badge stage-${row.etapaActual}">${row.etapaActual}</span></td>
+          <td>${row.inputUsuario}</td>
+          <td><span class="trigger-badge">${row.triggerDetectado}</span></td>
+          <td>${row.respuestaBot}</td>
+          <td><span class="stage-badge stage-${row.siguienteEtapa}">${row.siguienteEtapa}</span></td>
+          <td>${row.accionServidor}</td>
+          <td><span class="duration">${row.duracionMs}ms</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function updateStats() {
+      const stats = document.querySelector('.stats');
+      const sessions = new Set(allData.map(d => d.sessionId));
+      const avgDuration = allData.length > 0 
+        ? Math.round(allData.reduce((sum, d) => sum + parseInt(d.duracionMs || 0), 0) / allData.length)
+        : 0;
+      
+      // Detectar loops (misma etapa consecutiva 3+ veces)
+      let loopCount = 0;
+      const sessionLoops = {};
+      
+      allData.forEach((row, idx) => {
+        if (idx < 2) return;
+        const prev1 = allData[idx - 1];
+        const prev2 = allData[idx - 2];
+        
+        if (row.sessionId === prev1.sessionId && row.sessionId === prev2.sessionId) {
+          if (row.etapaActual === prev1.etapaActual && row.etapaActual === prev2.etapaActual) {
+            if (!sessionLoops[row.sessionId]) {
+              loopCount++;
+              sessionLoops[row.sessionId] = row.etapaActual;
+            }
+          }
+        }
+      });
+      
+      stats.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Total Interactions</div>
+          <div class="stat-value">${allData.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Sessions</div>
+          <div class="stat-value">${sessions.size}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Duration</div>
+          <div class="stat-value">${avgDuration}ms</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Loops Detected</div>
+          <div class="stat-value" style="color: ${loopCount > 0 ? '#dc3545' : '#28a745'}">${loopCount}</div>
+        </div>
+      `;
+      
+      if (loopCount > 0) {
+        const alerts = document.getElementById('alerts');
+        alerts.innerHTML = `
+          <div class="alert alert-warning">
+            ⚠️ Se detectaron ${loopCount} loops en el flujo. Revisa las sesiones afectadas.
+          </div>
+        `;
+      }
+    }
+
+    function applyFilters() {
+      const sessionFilter = document.getElementById('filterSession').value.toLowerCase();
+      const stageFilter = document.getElementById('filterStage').value.toLowerCase();
+      const triggerFilter = document.getElementById('filterTrigger').value.toLowerCase();
+      
+      const filtered = allData.filter(row => {
+        return (
+          row.sessionId.toLowerCase().includes(sessionFilter) &&
+          row.etapaActual.toLowerCase().includes(stageFilter) &&
+          row.triggerDetectado.toLowerCase().includes(triggerFilter)
+        );
+      });
+      
+      renderTable(filtered);
+    }
+
+    document.getElementById('filterSession').addEventListener('input', applyFilters);
+    document.getElementById('filterStage').addEventListener('input', applyFilters);
+    document.getElementById('filterTrigger').addEventListener('input', applyFilters);
+
+    function refreshData() {
+      loadData();
+    }
+
+    function exportToExcel() {
+      window.location.href = '/api/flow-audit/export';
+    }
+
+    // Load data on page load
+    loadData();
+    
+    // Auto-refresh every 10 seconds
+    setInterval(loadData, 10000);
+  </script>
+</body>
+</html>

@@ -47,6 +47,7 @@ import cron from 'node-cron';
 import compression from 'compression';
 
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel } from './flowLogger.js';
 
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
@@ -995,7 +996,7 @@ app.use(helmet({
 // CORS: lista blanca de orígenes permitidos (configurable vía ALLOWED_ORIGINS)
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:5173'];
+  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'];
 
 app.use(cors({ 
   origin: (origin, callback) => {
@@ -1515,22 +1516,35 @@ function isPathSafe(filePath, allowedDir) {
 }
 
 function validateSessionId(sid) {
-  if (!sid || typeof sid !== 'string') return false;
+  if (!sid || typeof sid !== 'string') {
+    console.log(`[validateSessionId] REJECT: not string or empty`);
+    return false;
+  }
   
-  // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 81 caracteres
+  // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 82 caracteres
   // Formato: srv-1700000000000-<64 hex>
-  if (sid.length !== 81) return false;
+  if (sid.length !== 82) {
+    console.log(`[validateSessionId] REJECT: length ${sid.length} (expected 82)`);
+    return false;
+  }
   
   // Validar formato exacto con regex estricto
   const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
-  if (!sessionIdRegex.test(sid)) return false;
+  if (!sessionIdRegex.test(sid)) {
+    console.log(`[validateSessionId] REJECT: format mismatch`);
+    return false;
+  }
   
   // Validar que el timestamp sea razonable (no futuro, no muy antiguo)
   const timestamp = parseInt(sid.substring(4, 17));
   const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-  if (timestamp > now || timestamp < (now - maxAge)) return false;
+  const maxAge = 48 * 60 * 60 * 1000; // 48 horas (match SESSION_TTL)
+  if (timestamp > now || timestamp < (now - maxAge)) {
+    console.log(`[validateSessionId] REJECT: timestamp out of range (ts=${timestamp}, now=${now})`);
+    return false;
+  }
   
+  console.log(`[validateSessionId] ACCEPT: ${sid.substring(0,20)}...`);
   return true;
 }
 
@@ -2800,6 +2814,39 @@ Respondé en formato JSON:
 // Core chat endpoint: /api/chat
 // ========================================================
 app.post('/api/chat', chatLimiter, async (req,res)=>{
+  const startTime = Date.now(); // Para medir duración
+  let flowLogData = {
+    sessionId: null,
+    currentStage: null,
+    userInput: null,
+    trigger: null,
+    botResponse: null,
+    nextStage: null,
+    serverAction: null,
+    duration: 0
+  };
+  
+  // Helper para retornar y loggear automáticamente
+  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent') => {
+    flowLogData.currentStage = stage;
+    flowLogData.nextStage = nextStage;
+    flowLogData.trigger = trigger;
+    flowLogData.botResponse = response.reply;
+    flowLogData.serverAction = action;
+    flowLogData.duration = Date.now() - startTime;
+    
+    // Log la interacción
+    logFlowInteraction(flowLogData);
+    
+    // Detectar loops
+    const loopDetection = detectLoops(flowLogData.sessionId);
+    if (loopDetection && loopDetection.detected) {
+      console.warn(loopDetection.message);
+    }
+    
+    return res.json(response);
+  };
+  
   try {
     updateMetric('chat', 'totalMessages', 1);
     
@@ -2831,12 +2878,17 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
+    
+    // Inicializar datos de log
+    flowLogData.sessionId = sid;
+    flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
+    
     let session = await getSession(sid);
     if (!session) {
       session = {
         id: sid,
         userName: null,
-        stage: STATES.ASK_NAME,
+        stage: STATES.ASK_LANGUAGE,
         device: null,
         problem: null,
         issueKey: null,
@@ -2930,44 +2982,6 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
     session.transcript.push({ who:'user', text: userMsg, ts: userTs });
-
-    // Selección de idioma (puede usarse al inicio del chat)
-    if (buttonToken === 'BTN_LANG_ES_AR' || buttonToken === 'BTN_LANG_ES_ES' || buttonToken === 'BTN_LANG_EN') {
-      let locale = 'es-AR';
-      if (buttonToken === 'BTN_LANG_EN') {
-        locale = 'en';
-      } else if (buttonToken === 'BTN_LANG_ES') {
-        locale = 'es-419';
-      } else {
-        locale = 'es-AR';
-      }
-      session.userLocale = locale;
-      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-      let reply;
-      if (locale === 'en') {
-        reply = whoLabel
-          ? `Great, ${whoLabel}. We'll continue in English. What problem are you having or what do you need help with?`
-          : "Great, we'll continue in English. What's your name?";
-      } else if (locale === 'es-419') {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español neutro. Ahora contame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-          : 'Perfecto, seguimos en español neutro. Para ayudarte mejor, ¿cómo te llamas?';
-      } else {
-        reply = whoLabel
-          ? `Perfecto, ${whoLabel}. Seguimos en español (Argentina). Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`
-          : 'Perfecto, seguimos en español (Argentina). Para ayudarte mejor, ¿cómo te llamás?';
-      }
-      const tsLang = nowIso();
-      session.stage = whoLabel ? STATES.ASK_PROBLEM : STATES.ASK_NAME;
-      session.transcript.push({ who: 'bot', text: reply, ts: tsLang });
-      await saveSession(sid, session);
-      return res.json(withOptions({
-        ok: true,
-        reply,
-        stage: session.stage,
-        options: session.stage === STATES.ASK_NAME ? ['BTN_NO_NAME'] : []
-      }));
-    }
 
     // Cerrar chat de forma prolija (movido fuera del bloque de creación)
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
@@ -3075,26 +3089,6 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       }
     }
 
-    // Handle "Prefiero no decirlo"
-    const NO_NAME_RX = /^\s*(?:prefiero\s+no\s+decir(?:l[aeo])?|prefiero\s+no\s+dar\s+mi\s+nombre|no\s+quiero\s+decir\s+mi\s+nombre|no\s+deseo\s+decir\s+mi\s+nombre|prefiero\s+reservarme\s+el\s+nombre)\s*$/i;
-    if (buttonToken || NO_NAME_RX.test(t)) {
-      const btnText = (buttonLabel || buttonToken || incomingText || '').toString().trim();
-      if (NO_NAME_RX.test(btnText)) {
-        try {
-          session.userName = 'Usuario';
-          session.stage = STATES.ASK_PROBLEM;
-          const reply = 'Perfecto. Ahora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?';
-          const ts = nowIso();
-          session.transcript.push({ who: 'user', text: btnText, ts });
-          session.transcript.push({ who: 'bot', text: reply, ts });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: [] }));
-        } catch (e) {
-          console.error('[prefiero-no-decirlo] Error', e && e.message);
-        }
-      }
-    }
-
     // Limitar transcript a últimos 100 mensajes para prevenir crecimiento indefinido
     if (session.transcript.length > 100) {
       session.transcript = session.transcript.slice(-100);
@@ -3102,16 +3096,20 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
     // ASK_LANGUAGE: Handle language selection first
     if (session.stage === STATES.ASK_LANGUAGE) {
+      flowLogData.currentStage = STATES.ASK_LANGUAGE;
       let selectedLocale = null;
       
       // Detectar selección de idioma por texto o botón
       const tLower = t.toLowerCase();
       if (tLower.includes('argentina') || buttonToken === 'BTN_LANG_ES_AR') {
         selectedLocale = 'es-AR';
+        flowLogData.trigger = buttonToken || 'text:argentina';
       } else if (tLower.includes('españa') || tLower.includes('espana') || tLower.includes('latinoamérica') || tLower.includes('latinoamerica') || buttonToken === 'BTN_LANG_ES_ES') {
         selectedLocale = 'es-419';
+        flowLogData.trigger = buttonToken || 'text:español';
       } else if (tLower.includes('english') || tLower.includes('ingles') || tLower.includes('inglés') || buttonToken === 'BTN_LANG_EN') {
         selectedLocale = 'en';
+        flowLogData.trigger = buttonToken || 'text:english';
       }
       
       if (selectedLocale) {
@@ -3120,13 +3118,17 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         const nameGreeting = buildNameGreeting(selectedLocale);
         session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_NO_NAME']) }));
+        
+        const response = withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_NO_NAME']) });
+        return logAndReturn(response, STATES.ASK_LANGUAGE, STATES.ASK_NAME, flowLogData.trigger, 'language_selected');
       } else {
         // No entendió la selección, pedir de nuevo SIN repetir el saludo completo
         const retry = "⚠️ No entendí el idioma. Por favor, elegí una opción:\n⚠️ I didn't understand the language. Please choose an option:";
         session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_LANG_ES_AR', 'BTN_LANG_ES_ES', 'BTN_LANG_EN']) }));
+        
+        const response = withOptions({ ok:true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_LANG_ES_AR', 'BTN_LANG_ES_ES', 'BTN_LANG_EN']) });
+        return logAndReturn(response, STATES.ASK_LANGUAGE, STATES.ASK_LANGUAGE, 'invalid_language', 'retry_language');
       }
     }
 
@@ -3920,8 +3922,14 @@ La guía debe ser:
     return res.json(response);
 
   } catch(e){
-    console.error('[api/chat] Error', e && e.message);
-    return res.status(200).json(withOptions({ ok:true, reply: '😅 Tuve un problema momentáneo. Probá de nuevo.' }));
+    console.error('[api/chat] Error completo:', e);
+    console.error('[api/chat] Stack:', e && e.stack);
+    const locale = session?.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    const errorMsg = isEn 
+      ? '😅 I had a momentary problem. Please try again.'
+      : '😅 Tuve un problema momentáneo. Probá de nuevo.';
+    return res.status(200).json(withOptions({ ok:true, reply: errorMsg }));
   }
 });
 
@@ -3930,6 +3938,46 @@ app.get('/api/sessions', async (_req,res)=>{
   const sessions = await listActiveSessions();
   updateMetric('chat', 'sessions', sessions.length);
   res.json({ ok:true, count: sessions.length, sessions });
+});
+
+// ========================================================
+// Flow Audit Endpoints
+// ========================================================
+
+// Get audit for specific session
+app.get('/api/flow-audit/:sessionId', (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    const audit = getSessionAudit(sessionId);
+    res.json({ ok: true, audit });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Get full audit report
+app.get('/api/flow-audit', (req, res) => {
+  try {
+    const report = generateAuditReport();
+    res.setHeader('Content-Type', 'text/markdown');
+    res.send(report);
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Export audit to Excel
+app.get('/api/flow-audit/export', (req, res) => {
+  try {
+    const filePath = exportToExcel();
+    if (filePath) {
+      res.download(filePath, path.basename(filePath));
+    } else {
+      res.status(500).json({ ok: false, error: 'Export failed' });
+    }
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 // Metrics endpoint
