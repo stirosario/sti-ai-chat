@@ -2319,3 +2319,679 @@
 2025-11-23T23:09:26.239Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-23T23:09:43.065Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-23T23:11:56.167Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:11:56.168Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:11:56.169Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:11:56.170Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:16:41.641Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:16:41.642Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:16:41.642Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:16:41.642Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:17:10.876Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-23T23:18:01.873Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:18:01.874Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:18:01.874Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:18:01.874Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:18:20.295Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-23T23:19:32.079Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:19:32.080Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:19:32.080Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:19:32.080Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:20:37.661Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:20:37.662Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-cd78d234c656...
+
+2025-11-23T23:20:37.665Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-cd78d234c[PHONE_REDACTED]b755dd[PHONE_REDACTED]f990b[PHONE_REDACTED]b406ebcc96a[PHONE_REDACTED]c87f43fe5: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:20:37.736Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-cd78d234c656..." (length=82)
+2025-11-23T23:20:37.737Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-cd...
+2025-11-23T23:20:37.737Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:20:37.737Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:20:37.741Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-cd78d234c[PHONE_REDACTED]b755dd[PHONE_REDACTED]f990b[PHONE_REDACTED]b406ebcc96a[PHONE_REDACTED]c87f43fe5: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:20:37.742Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-cd78d234c[PHONE_REDACTED]b755dd[PHONE_REDACTED]f990b[PHONE_REDACTED]b406ebcc96a[PHONE_REDACTED]c87f43fe5: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:20:37.744Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:20:37.744Z [INFO] │ 📊 FLOW LOG #137                                                 │
+2025-11-23T23:20:37.744Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:20:37.744Z [INFO] │ Session:    srv-[PHONE_REDACTED]-cd78d234c[PHONE_REDACTED]b755dd[PHONE_REDACTED]f990│
+2025-11-23T23:20:37.744Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:20:37.744Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-23T23:20:37.745Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-23T23:20:37.748Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:20:37.749Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:20:37.751Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:20:37.751Z [INFO] │ Duration:   2ms                                             │
+2025-11-23T23:20:37.757Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:20:37.764Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-cd78d234c656..." (length=82)
+2025-11-23T23:22:19.695Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:22:19.696Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:22:19.696Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:22:19.697Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:30:58.766Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:30:58.767Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:30:58.767Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:30:58.768Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:31:19.000Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-23T23:34:20.592Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:34:20.593Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:34:20.593Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:34:20.594Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:34:38.178Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-23T23:34:49.582Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:34:49.583Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:34:49.583Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:34:49.584Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:35:07.237Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-23T23:35:39.019Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:35:39.020Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:35:39.020Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:35:39.021Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:35:48.189Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-23T23:36:03.815Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-23T23:37:19.895Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:37:19.896Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:37:19.896Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:37:19.897Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:37:29.624Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:37:29.625Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-ab723aec944a...
+
+2025-11-23T23:37:29.630Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]daf0db02bc[PHONE_REDACTED]d9d6d2d069a: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:38:33.118Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ab723aec944a..." (length=82)
+2025-11-23T23:38:33.118Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ab...
+2025-11-23T23:38:33.118Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:38:33.119Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:38:33.124Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]daf0db02bc[PHONE_REDACTED]d9d6d2d069a: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:38:33.126Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]daf0db02bc[PHONE_REDACTED]d9d6d2d069a: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:38:33.128Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:38:33.128Z [INFO] │ 📊 FLOW LOG #138                                                 │
+2025-11-23T23:38:33.128Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:38:33.128Z [INFO] │ Session:    srv-[PHONE_REDACTED]-ab723aec944a7e46f1d777cdb750b5│
+2025-11-23T23:38:33.129Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:38:33.129Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-23T23:38:33.129Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-23T23:38:33.130Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:38:33.130Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:38:33.130Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:38:33.131Z [INFO] │ Duration:   3ms                                             │
+2025-11-23T23:38:33.131Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:39:10.409Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ab723aec944a..." (length=82)
+2025-11-23T23:43:14.896Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:43:14.898Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:43:14.898Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:43:14.899Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:43:25.452Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:43:25.454Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]...
+
+2025-11-23T23:43:25.458Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:43:31.937Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:43:31.938Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-a9...
+2025-11-23T23:43:31.938Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:43:31.939Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:43:31.944Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:43:31.946Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:43:31.948Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:43:31.948Z [INFO] │ 📊 FLOW LOG #139                                                 │
+2025-11-23T23:43:31.948Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:43:31.948Z [INFO] │ Session:    srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]│
+2025-11-23T23:43:31.949Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:43:31.949Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-23T23:43:31.949Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-23T23:43:31.949Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:43:31.949Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:43:31.950Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:43:31.950Z [INFO] │ Duration:   3ms                                             │
+2025-11-23T23:43:31.950Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:43:43.203Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:43:43.204Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-a9...
+2025-11-23T23:43:43.204Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:43:43.205Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:43:43.206Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:43:43.209Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":"Fabio","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:43:53.616Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:43:53.616Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-a9...
+2025-11-23T23:43:53.616Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:43:53.616Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:43:53.617Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":"Fabio","stage":"ASK_NEED"}
+2025-11-23T23:43:53.618Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-a9a[PHONE_REDACTED]e42a[PHONE_REDACTED]aef[PHONE_REDACTED]f4d8aa943da6c39cd4a[PHONE_REDACTED]e52eceb[PHONE_REDACTED]: {"userName":"Fabio","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:45:02.661Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:45:02.661Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-f3d9a3ce10c9...
+
+2025-11-23T23:45:02.663Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:45:02.751Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:02.752Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:02.799Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:02.799Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:02.800Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:45:02.801Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:45:02.802Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:45:02.803Z [INFO] │ 📊 FLOW LOG #140                                                 │
+2025-11-23T23:45:02.803Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:45:02.804Z [INFO] │ Session:    srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a6│
+2025-11-23T23:45:02.805Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:45:02.805Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-23T23:45:02.805Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-23T23:45:02.806Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:45:02.806Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:45:02.806Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:45:02.806Z [INFO] │ Duration:   1ms                                             │
+2025-11-23T23:45:02.807Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:45:03.324Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:03.324Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:03.325Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:03.325Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:03.326Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:45:03.327Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:45:03.842Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:03.842Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:03.843Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:03.843Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:03.844Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_NEED"}
+2025-11-23T23:45:03.845Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:45:04.359Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:04.359Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:04.360Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:04.360Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:04.361Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:04.363Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_DEVICE","transcriptLength":9}
+2025-11-23T23:45:04.366Z [INFO] [ASK_DEVICE] Response: {
+  "ok": true,
+  "reply": "Perfecto. Cuando decís \"la compu\", ¿a cuál de estos dispositivos te referís?",
+  "stage": "ASK_DEVICE",
+  "options": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "PC de escritorio",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "PC All in One",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "buttons": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "PC de escritorio",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "PC All in One",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "ui": {
+    "buttons": [
+      {
+        "token": "BTN_DEV_PC_DESKTOP",
+        "label": "PC de escritorio",
+        "text": "pc de escritorio"
+      },
+      {
+        "token": "BTN_DEV_PC_ALLINONE",
+        "label": "PC All in One",
+        "text": "pc all in one"
+      },
+      {
+        "token": "BTN_DEV_NOTEBOOK",
+        "label": "Notebook",
+        "text": "notebook"
+      }
+    ]
+  }
+}
+2025-11-23T23:45:04.883Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:04.884Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:04.884Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:04.884Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:04.885Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_DEVICE"}
+2025-11-23T23:45:04.886Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_DEVICE","transcriptLength":11}
+2025-11-23T23:45:05.411Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-f3d9a3ce10c9..." (length=82)
+2025-11-23T23:45:05.412Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-f3...
+2025-11-23T23:45:05.412Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:05.412Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:05.414Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_DEVICE"}
+2025-11-23T23:45:05.414Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f3d9a3ce10c9f4ff1fc[PHONE_REDACTED]a7fa2a[PHONE_REDACTED]d[PHONE_REDACTED]f939cdb9c5a1fa9f[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_DEVICE","transcriptLength":13}
+2025-11-23T23:45:05.948Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:45:05.949Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b...
+
+2025-11-23T23:45:05.949Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:45:05.958Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b..." (length=82)
+2025-11-23T23:45:05.958Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ad...
+2025-11-23T23:45:05.958Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:05.958Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:05.959Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:45:05.960Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:45:05.961Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:45:05.961Z [INFO] │ 📊 FLOW LOG #141                                                 │
+2025-11-23T23:45:05.961Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:45:05.961Z [INFO] │ Session:    srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED]eff7│
+2025-11-23T23:45:05.962Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:45:05.962Z [INFO] │ Input:      [BTN] 🌎 Español                                │
+2025-11-23T23:45:05.962Z [INFO] │ Trigger:    BTN_LANG_ES_ES                                  │
+2025-11-23T23:45:05.962Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:45:05.962Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:45:05.962Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:45:05.963Z [INFO] │ Duration:   1ms                                             │
+2025-11-23T23:45:05.963Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:45:06.483Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b..." (length=82)
+2025-11-23T23:45:06.483Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ad...
+2025-11-23T23:45:06.484Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:06.484Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:06.485Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:45:06.486Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:45:07.010Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b..." (length=82)
+2025-11-23T23:45:07.010Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ad...
+2025-11-23T23:45:07.010Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:07.011Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:07.011Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_NEED"}
+2025-11-23T23:45:07.012Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:45:07.537Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b..." (length=82)
+2025-11-23T23:45:07.537Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ad...
+2025-11-23T23:45:07.538Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:07.538Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:07.538Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:08.502Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:08.504Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_PROBLEM","transcriptLength":9}
+2025-11-23T23:45:09.024Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b..." (length=82)
+2025-11-23T23:45:09.024Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-ad...
+2025-11-23T23:45:09.025Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:09.025Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:09.026Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:09.845Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:09.846Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-ad720b[PHONE_REDACTED]b541a[PHONE_REDACTED]e[PHONE_REDACTED][TOKEN_REDACTED]: {"userName":"Roberto","stage":"ASK_PROBLEM","transcriptLength":11}
+2025-11-23T23:45:10.368Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:45:10.369Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d...
+
+2025-11-23T23:45:10.370Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:45:10.378Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:10.378Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:10.378Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:10.379Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:10.380Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:45:10.380Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:45:10.381Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:45:10.382Z [INFO] │ 📊 FLOW LOG #142                                                 │
+2025-11-23T23:45:10.382Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:45:10.382Z [INFO] │ Session:    srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce2│
+2025-11-23T23:45:10.382Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:45:10.382Z [INFO] │ Input:      [BTN] 🇬🇧 English                              │
+2025-11-23T23:45:10.383Z [INFO] │ Trigger:    BTN_LANG_EN                                     │
+2025-11-23T23:45:10.383Z [INFO] │ Response:   👋 Hi, I'm Tecnos, the intelligent assistant of │
+2025-11-23T23:45:10.383Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:45:10.383Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:45:10.383Z [INFO] │ Duration:   1ms                                             │
+2025-11-23T23:45:10.384Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:45:10.899Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:10.899Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:10.900Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:10.900Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:10.901Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:45:10.901Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:45:11.425Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:11.426Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:11.426Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:11.427Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:11.428Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_NEED"}
+2025-11-23T23:45:11.429Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:45:11.952Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:11.953Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:11.954Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:11.954Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:11.955Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:12.793Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:12.793Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM","transcriptLength":9}
+2025-11-23T23:45:13.315Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:13.315Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:13.315Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:13.315Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:13.316Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:13.535Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:13.536Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM","transcriptLength":11}
+2025-11-23T23:45:14.059Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:14.059Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:14.060Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:14.060Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:14.061Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:14.874Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:14.875Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM","transcriptLength":13}
+2025-11-23T23:45:15.394Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d..." (length=82)
+2025-11-23T23:45:15.394Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-3c...
+2025-11-23T23:45:15.394Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:15.395Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:15.395Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:16.231Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:16.232Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-3c15d[PHONE_REDACTED]b2d[PHONE_REDACTED]e5afd4ff8ce27c9a8a[PHONE_REDACTED]b[PHONE_REDACTED]adb5ea19a[PHONE_REDACTED]da: {"userName":"Heber","stage":"ASK_PROBLEM","transcriptLength":15}
+2025-11-23T23:45:16.773Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:45:16.773Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]...
+
+2025-11-23T23:45:16.774Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:45:16.782Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:16.782Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:16.782Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:16.782Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:16.783Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:45:16.784Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:45:16.785Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:45:16.785Z [INFO] │ 📊 FLOW LOG #143                                                 │
+2025-11-23T23:45:16.785Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:45:16.785Z [INFO] │ Session:    srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca8│
+2025-11-23T23:45:16.786Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:45:16.786Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-23T23:45:16.786Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-23T23:45:16.787Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-23T23:45:16.787Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:45:16.788Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:45:16.788Z [INFO] │ Duration:   1ms                                             │
+2025-11-23T23:45:16.788Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:45:17.299Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:17.299Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:17.299Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:17.299Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:17.300Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:45:17.301Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:45:17.823Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:17.823Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:17.823Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:17.823Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:17.824Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_NEED"}
+2025-11-23T23:45:17.824Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:45:18.346Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:18.347Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:18.347Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:18.347Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:18.348Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:19.261Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:19.261Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":9}
+2025-11-23T23:45:19.775Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:19.776Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:19.776Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:19.776Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:19.777Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:20.525Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:20.525Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":11}
+2025-11-23T23:45:21.049Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:21.049Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:21.050Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:21.050Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:21.051Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:21.617Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:21.618Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":13}
+2025-11-23T23:45:22.128Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:22.128Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:22.128Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:22.129Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:22.129Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:22.348Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:22.349Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":15}
+2025-11-23T23:45:22.861Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:22.861Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:22.861Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:22.861Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:22.862Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:23.098Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:23.099Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":18}
+2025-11-23T23:45:23.608Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]..." (length=82)
+2025-11-23T23:45:23.609Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b4...
+2025-11-23T23:45:23.609Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:45:23.609Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:45:23.610Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM"}
+2025-11-23T23:45:24.151Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:45:24.151Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b48b287a[PHONE_REDACTED]fe[PHONE_REDACTED]f[PHONE_REDACTED]ca[PHONE_REDACTED]bd31aa31d13a541f[PHONE_REDACTED]e[PHONE_REDACTED]ae39: {"userName":"Valeria","stage":"ASK_PROBLEM","transcriptLength":21}
+2025-11-23T23:48:15.760Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:48:15.761Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-453b0d5c5cc9...
+
+2025-11-23T23:48:15.762Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:48:24.684Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:48:24.684Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:48:24.684Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:48:24.684Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:48:24.685Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:48:24.686Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:48:24.688Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:48:24.688Z [INFO] │ 📊 FLOW LOG #144                                                 │
+2025-11-23T23:48:24.689Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:48:24.689Z [INFO] │ Session:    srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d│
+2025-11-23T23:48:24.689Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:48:24.689Z [INFO] │ Input:      [BTN] 🇬🇧 English                              │
+2025-11-23T23:48:24.690Z [INFO] │ Trigger:    BTN_LANG_EN                                     │
+2025-11-23T23:48:24.690Z [INFO] │ Response:   👋 Hi, I'm Tecnos, the intelligent assistant of │
+2025-11-23T23:48:24.690Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:48:24.690Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:48:24.690Z [INFO] │ Duration:   2ms                                             │
+2025-11-23T23:48:24.691Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:48:32.726Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:48:32.726Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:48:32.726Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:48:32.727Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:48:32.727Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:48:32.728Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:48:39.917Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:48:39.918Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:48:39.918Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:48:39.919Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:48:39.921Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_NEED"}
+2025-11-23T23:48:39.922Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:48:49.194Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:48:49.194Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:48:49.195Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:48:49.195Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:48:49.196Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM"}
+2025-11-23T23:48:49.506Z [ERROR] [analyzeProblemWithOA] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:48:49.506Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM","transcriptLength":9}
+2025-11-23T23:49:03.828Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:49:03.829Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:49:03.829Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:49:03.829Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:49:03.830Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM"}
+2025-11-23T23:49:03.831Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_DEVICE","transcriptLength":11}
+2025-11-23T23:49:03.834Z [INFO] [ASK_DEVICE] Response: {
+  "ok": true,
+  "reply": "Perfect. When you say \"computer\", which of these devices do you mean?",
+  "stage": "ASK_DEVICE",
+  "options": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "PC de escritorio",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "PC All in One",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "buttons": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "PC de escritorio",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "PC All in One",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "ui": {
+    "buttons": [
+      {
+        "token": "BTN_DEV_PC_DESKTOP",
+        "label": "PC de escritorio",
+        "text": "pc de escritorio"
+      },
+      {
+        "token": "BTN_DEV_PC_ALLINONE",
+        "label": "PC All in One",
+        "text": "pc all in one"
+      },
+      {
+        "token": "BTN_DEV_NOTEBOOK",
+        "label": "Notebook",
+        "text": "notebook"
+      }
+    ]
+  }
+}
+2025-11-23T23:49:26.698Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-453b0d5c5cc9..." (length=82)
+2025-11-23T23:49:26.698Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-45...
+2025-11-23T23:49:26.699Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:49:26.699Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:49:26.699Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_DEVICE"}
+2025-11-23T23:49:26.700Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM","transcriptLength":13}
+2025-11-23T23:49:27.001Z [ERROR] [aiQuickTests] error: 400 Unrecognized request argument supplied: signal
+2025-11-23T23:49:27.002Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"BASIC_TESTS","transcriptLength":13}

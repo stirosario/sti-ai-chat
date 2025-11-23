@@ -379,12 +379,26 @@ function getButtonDefinition(token){
   if(!token || !CHAT?.ui?.buttons) return null;
   return CHAT.ui.buttons.find(b => String(b.token) === String(token)) || null;
 }
-function buildUiButtonsFromTokens(tokens = []){
+
+// Obtener etiquetas de botones de dispositivos según idioma
+function getDeviceButtonLabel(token, locale = 'es-AR') {
+  const isEn = String(locale).toLowerCase().startsWith('en');
+  const deviceLabels = {
+    'BTN_DEV_PC_DESKTOP': isEn ? 'Desktop PC' : 'PC de escritorio',
+    'BTN_DEV_PC_ALLINONE': isEn ? 'All-in-One PC' : 'PC All in One',
+    'BTN_DEV_NOTEBOOK': isEn ? 'Notebook' : 'Notebook'
+  };
+  return deviceLabels[token] || null;
+}
+
+function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR'){
   if(!Array.isArray(tokens)) return [];
   return tokens.map(t => {
     if(!t) return null;
     const def = getButtonDefinition(t);
-    const label = def?.label || def?.text || (typeof t === 'string' ? t : String(t));
+    // Si es un botón de dispositivo, usar etiqueta según idioma
+    const deviceLabel = getDeviceButtonLabel(String(t), locale);
+    const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
     const text  = def?.text  || label;
     return { token: String(t), label, text };
   }).filter(Boolean);
@@ -411,6 +425,9 @@ const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|
 const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi[-\s]*fi|wifi|impresora|printer|tv\s*stick|stick\s*tv|amazon\s*stick|fire\s*stick|magistv|magis\s*tv|windows|android|correo|email|outlook|office|word|excel)\b/i;
 
 const FRUSTRATION_RX = /(esto no sirve|no sirve para nada|qué porquería|que porquería|no funciona nada|estoy cansado de esto|me cansé de esto|ya probé todo|sigo igual|no ayuda|no me ayuda)/i;
+
+// Regex para detectar cuando el usuario no quiere dar su nombre
+const NO_NAME_RX = /(prefiero no|no quiero|no te lo|no dar|no digo|no decir|sin nombre|anonimo|anónimo|skip|saltar|omitir)/i;
 
 const NAME_STOPWORDS = new Set([
   'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
@@ -996,7 +1013,7 @@ app.use(helmet({
 // CORS: lista blanca de orígenes permitidos (configurable vía ALLOWED_ORIGINS)
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'];
+  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:5173'];
 
 app.use(cors({ 
   origin: (origin, callback) => {
@@ -1521,21 +1538,29 @@ function validateSessionId(sid) {
     return false;
   }
   
-  // Longitud exacta esperada: srv-<13 dígitos timestamp>-<64 hex chars> = 82 caracteres
-  // Formato: srv-1700000000000-<64 hex>
+  // TEMPORAL: Validación simplificada para debugging
+  if (!sid.startsWith('srv-')) {
+    console.log(`[validateSessionId] REJECT: doesn't start with 'srv-'`);
+    return false;
+  }
+  
   if (sid.length !== 82) {
     console.log(`[validateSessionId] REJECT: length ${sid.length} (expected 82)`);
     return false;
   }
   
-  // Validar formato exacto con regex estricto
+  // Validar formato básico con regex
   const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
   if (!sessionIdRegex.test(sid)) {
-    console.log(`[validateSessionId] REJECT: format mismatch`);
+    console.log(`[validateSessionId] REJECT: format mismatch (regex failed)`);
+    // DEBUG: Mostrar qué parte falla
+    const parts = sid.split('-');
+    console.log(`  Parts: prefix="${parts[0]}", timestamp="${parts[1]}" (${parts[1]?.length}), hash="${parts[2]?.substring(0,10)}..." (${parts[2]?.length})`);
     return false;
   }
   
-  // Validar que el timestamp sea razonable (no futuro, no muy antiguo)
+  // TEMPORAL: Comentar validación de timestamp para ver si es eso
+  /*
   const timestamp = parseInt(sid.substring(4, 17));
   const now = Date.now();
   const maxAge = 48 * 60 * 60 * 1000; // 48 horas (match SESSION_TTL)
@@ -1543,8 +1568,9 @@ function validateSessionId(sid) {
     console.log(`[validateSessionId] REJECT: timestamp out of range (ts=${timestamp}, now=${now})`);
     return false;
   }
+  */
   
-  console.log(`[validateSessionId] ACCEPT: ${sid.substring(0,20)}...`);
+  console.log(`[validateSessionId] ✅ ACCEPT: ${sid.substring(0,20)}...`);
   return true;
 }
 
@@ -1555,13 +1581,25 @@ function getSessionId(req){
   
   const sid = h || b || q;
   
-  // Validate existing session ID
-  if (sid && validateSessionId(sid)) {
-    return sid;
+  // DEBUG: Log detallado para encontrar el bug
+  if (sid) {
+    console.log(`\n[getSessionId] Recibido sid: "${sid.substring(0,30)}..." (length=${sid.length})`);
+    const isValid = validateSessionId(sid);
+    console.log(`[getSessionId] Resultado validación: ${isValid}`);
+    if (isValid) {
+      console.log(`[getSessionId] ✅ Usando sessionId existente\n`);
+      return sid;
+    } else {
+      console.log(`[getSessionId] ❌ Rechazado - generando nuevo sessionId\n`);
+    }
+  } else {
+    console.log(`[getSessionId] No hay sessionId en la petición - generando nuevo\n`);
   }
   
   // Generate new SECURE session ID (32 bytes = 256 bits de entropía)
-  return generateSecureSessionId();
+  const newSid = generateSecureSessionId();
+  console.log(`[getSessionId] Nuevo sessionId: ${newSid.substring(0,30)}...\n`);
+  return newSid;
 }
 app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
 
@@ -3203,8 +3241,10 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       const isEn = String(locale).toLowerCase().startsWith('en');
 
       // 🔍 Detección temprana: el usuario ya contó el problema en vez de el nombre
-      const maybeProblem = basicITHeuristic(t || '');
-      const looksLikeProblem = maybeProblem && maybeProblem.isIT && (maybeProblem.isProblem || maybeProblem.isHowTo);
+      // COMENTADO: basicITHeuristic no está definido - causa ReferenceError
+      // const maybeProblem = basicITHeuristic(t || '');
+      // const looksLikeProblem = maybeProblem && maybeProblem.isIT && (maybeProblem.isProblem || maybeProblem.isHowTo);
+      const looksLikeProblem = false; // Desactivado temporalmente
 
       if (looksLikeProblem) {
         // Si llegó hasta acá, usamos un nombre genérico y avanzamos al estado ASK_NEED
@@ -3398,7 +3438,7 @@ if (!session.device) {
           ? `Perfecto. Cuando dices "${shownWord}", ¿a cuál de estos dispositivos te refieres?`
           : `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`);
     const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-    const uiButtons = buildUiButtonsFromTokens(optionTokens);
+    const uiButtons = buildUiButtonsFromTokens(optionTokens, locale);
     const ts = nowIso();
     session.transcript.push({ who:'bot', text: replyText, ts });
     await saveSession(sid, session);
@@ -3630,7 +3670,7 @@ La guía debe ser:
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
         const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-        return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens) }));
+        return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
       }
 
       // If user clicked a device token
@@ -3924,7 +3964,19 @@ La guía debe ser:
   } catch(e){
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
-    const locale = session?.userLocale || 'es-AR';
+    
+    // Intentar obtener locale de la request o usar default
+    let locale = 'es-AR';
+    try {
+      const sid = req.sessionId;
+      const existingSession = await getSession(sid);
+      if (existingSession && existingSession.userLocale) {
+        locale = existingSession.userLocale;
+      }
+    } catch (errLocale) {
+      // Si falla, usar el default
+    }
+    
     const isEn = String(locale).toLowerCase().startsWith('en');
     const errorMsg = isEn 
       ? '😅 I had a momentary problem. Please try again.'
