@@ -3233,7 +3233,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
               : `${empatia} ¡Gracias! ¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
         
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionCached(sid, session);
+        await saveSession(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
       } else {
         // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
@@ -3248,7 +3248,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
                 : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionCached(sid, session);
+          await saveSession(sid, session);
           return res.json(withOptions({ ok: true, reply, stage: session.stage, options: ['BTN_HELP', 'BTN_TASK'] }));
         }
 
@@ -3264,7 +3264,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
                 : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionCached(sid, session);
+          await saveSession(sid, session);
           return res.json(withOptions({
             ok: true,
             reply,
@@ -3284,7 +3284,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
                 : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionCached(sid, session);
+          await saveSession(sid, session);
           return res.json(withOptions({
             ok: true,
             reply,
@@ -3306,7 +3306,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
                 : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionCached(sid, session);
+          await saveSession(sid, session);
           return res.json(withOptions({
             ok: true,
             reply,
@@ -3330,7 +3330,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
               : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionCached(sid, session);
+        await saveSession(sid, session);
         return res.json(withOptions({
           ok: true,
           reply,
