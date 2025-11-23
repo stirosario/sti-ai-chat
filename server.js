@@ -2097,7 +2097,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
     await saveSession(sid, fresh);
-    const langOptions = ['Español Argentina', 'Español España', 'English'];
+    const langOptions = ['BTN_LANG_ES_AR', 'BTN_LANG_ES', 'BTN_LANG_EN'];
     
     // Incluir CSRF token en respuesta
     return res.json(withOptions({
@@ -3120,11 +3120,11 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
       
       // Detectar selección de idioma por texto o botón
       const tLower = t.toLowerCase();
-      if (tLower.includes('argentina') || buttonToken === 'Español Argentina') {
+      if (tLower.includes('argentina') || buttonToken === 'BTN_LANG_ES_AR') {
         selectedLocale = 'es-AR';
-      } else if (tLower.includes('españa') || tLower.includes('espana') || buttonToken === 'Español España') {
+      } else if (tLower.includes('españa') || tLower.includes('espana') || buttonToken === 'BTN_LANG_ES') {
         selectedLocale = 'es-419';
-      } else if (tLower.includes('english') || tLower.includes('ingles') || buttonToken === 'English') {
+      } else if (tLower.includes('english') || tLower.includes('ingles') || buttonToken === 'BTN_LANG_EN') {
         selectedLocale = 'en';
       }
       
@@ -3140,7 +3140,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         const retry = "🌐 Por favor, seleccioná un idioma tocando uno de los botones.\n🌐 Please select a language by tapping one of the buttons.";
         session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: ['Español Argentina', 'Español España', 'English'] }));
+        return res.json(withOptions({ ok:true, reply: retry, stage: session.stage, options: ['BTN_LANG_ES_AR', 'BTN_LANG_ES', 'BTN_LANG_EN'] }));
       }
     }
 
