@@ -3160,7 +3160,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
         session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
         await saveSession(sid, session);
         
-        const response = withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_NO_NAME']) });
+        const response = withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_NO_NAME'], selectedLocale) });
         return logAndReturn(response, STATES.ASK_LANGUAGE, STATES.ASK_NAME, flowLogData.trigger, 'language_selected');
       } else {
         // No entendió la selección, pedir de nuevo SIN repetir el saludo completo
@@ -3730,7 +3730,7 @@ La guía debe ser:
       session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
       const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-      return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens) }));
+      return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
     } else if (session.stage === STATES.BASIC_TESTS) {
       const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
       if (rxDontKnow.test(t)) {
@@ -3840,7 +3840,7 @@ La guía debe ser:
             : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
           session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH']) }));
+          return res.json(withOptions({ ok:false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
         }
       } else if (isOpt2){
         return await createTicketAndRespond(session, sid, res);
@@ -3899,7 +3899,7 @@ La guía debe ser:
         reply = isEn
           ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
           : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-        options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH']);
+        options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
         session.stage = STATES.ESCALATE;
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
@@ -3943,7 +3943,8 @@ La guía debe ser:
     try {
       const areAllTokens = Array.isArray(options) && options.length > 0 && options.every(o => typeof o === 'string' && o.startsWith('BTN_'));
       if (areAllTokens) {
-        const btns = buildUiButtonsFromTokens(options);
+        const locale = session?.userLocale || 'es-AR';
+        const btns = buildUiButtonsFromTokens(options, locale);
         response.ui = response.ui || {};
         response.ui.states = CHAT?.ui?.states || response.ui.states || {};
         response.ui.buttons = btns;
