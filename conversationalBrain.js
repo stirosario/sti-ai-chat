@@ -189,8 +189,8 @@ function handleGreetingState(analysis, session, userMessage) {
   if (!session.gdprConsent) {
     const lowerMsg = userMessage.toLowerCase().trim();
     
-    // Detectar aceptación
-    if (/\b(acepto|aceptar|si|sí|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
+    // Detectar aceptación (incluyendo "si" simple)
+    if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
       session.gdprConsent = true;
       session.gdprConsentDate = new Date().toISOString();
       console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
@@ -200,14 +200,14 @@ function handleGreetingState(analysis, session, userMessage) {
         reply: `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`,
         expectingInput: true,
         buttons: [
-          { text: '🇦🇷 Español', value: 'español' },
-          { text: '🇺🇸 English', value: 'english' }
+          { text: 'Español', value: 'español' },
+          { text: 'English', value: 'english' }
         ]
       };
     }
     
-    // Detectar rechazo
-    if (/\b(no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+    // Detectar rechazo (incluyendo "no" simple)
+    if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
       return {
         reply: `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: soporte@stia.com.ar`,
         expectingInput: false
@@ -219,8 +219,8 @@ function handleGreetingState(analysis, session, userMessage) {
       reply: `📋 **Política de Privacidad y Consentimiento**\n\nAntes de continuar, quiero informarte:\n\n✅ Guardaré tu nombre y nuestra conversación durante **48 horas**\n✅ Los datos se usarán **solo para brindarte soporte técnico**\n✅ Podés solicitar **eliminación de tus datos** en cualquier momento\n✅ **No compartimos** tu información con terceros\n✅ Cumplimos con **GDPR y normativas de privacidad**\n\n🔗 Política completa: https://stia.com.ar/politica-privacidad.html\n\n**¿Aceptás estos términos?**`,
       expectingInput: true,
       buttons: [
-        { text: '✅ Acepto', value: 'acepto' },
-        { text: '❌ No acepto', value: 'no acepto' }
+        { text: 'Sí', value: 'si' },
+        { text: 'No', value: 'no' }
       ]
     };
   }
