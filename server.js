@@ -1128,13 +1128,9 @@ app.use(cors({
       return callback(new Error('CORS: null origin not allowed'), false);
     }
     
-    // PRODUCTION: Rechazar requests sin origin
+    // Permitir requests sin origin (para health checks, curl, Postman)
+    // Estos requests NO tendrán credentials, así que son seguros
     if (!origin) {
-      if (process.env.NODE_ENV === 'production') {
-        console.warn(`[SECURITY] ⚠️  CORS blocked request without origin in production`);
-        return callback(new Error('CORS: origin header required in production'), false);
-      }
-      // Development: permitir (para Postman, curl, etc.)
       return callback(null, true);
     }
     
