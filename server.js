@@ -2451,12 +2451,22 @@ function buildTimeGreeting() {
 }
 
 function buildLanguageSelectionGreeting() {
-  const saludos = [
-    "¡Hola! Soy el asistente técnico de STI. ¿Cómo te llamás?",
-    "¡Buen día! Soy el asistente de soporte. ¿Cuál es tu nombre?",
-    "¡Hola! Estoy acá para ayudarte. Antes que nada, ¿cómo te llamás?"
-  ];
-  return saludos[Math.floor(Math.random() * saludos.length)];
+  return `📋 **Política de Privacidad y Consentimiento**
+
+Antes de continuar, quiero informarte:
+
+✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Los datos se usarán **solo para brindarte soporte técnico**
+✅ Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **No compartimos** tu información con terceros
+✅ Cumplimos con **GDPR y normativas de privacidad**
+
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+
+**¿Aceptás estos términos?**
+
+Respondé "acepto" o "sí" para continuar
+Respondé "no acepto" para cancelar`;
 }
 
 // Función para agregar respuestas empáticas según Flujo.csv
