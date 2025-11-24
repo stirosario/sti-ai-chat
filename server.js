@@ -2378,7 +2378,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fresh = {
       id: sid,
       userName: null,
-      stage: 'CONVERSATIONAL',  // Nuevo: modo conversacional libre
+      stage: STATES.ASK_LANGUAGE,  // Comenzar con GDPR y selección de idioma
       conversationState: 'greeting',  // greeting, has_name, understanding_problem, solving, resolved
       device: null,
       problem: null,
