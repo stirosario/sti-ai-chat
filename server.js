@@ -1663,11 +1663,6 @@ function generateSessionId() {
   return 'web-' + crypto.randomBytes(12).toString('hex');
 }
 
-// Función para obtener timestamp ISO
-function nowIso() {
-  return new Date().toISOString();
-}
-
 // ========================================================
 // Security: Input Validation & Sanitization
 // ========================================================
