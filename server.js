@@ -50,6 +50,12 @@ import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel } from './flowLogger.js';
 
 // ========================================================
+// 🔥 CONVERSATIONAL AI MODULES (nuevos)
+// ========================================================
+import { analyzeUserIntent, generateConversationalResponse } from './conversationalBrain.js';
+import setupConversationalChat from './chatEndpointV2.js';
+
+// ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
 // ========================================================
 const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
@@ -1147,6 +1153,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Session ID middleware (extract from header)
+app.use((req, res, next) => {
+  const sessionId = req.headers['x-session-id'] || req.body?.sessionId;
+  if (sessionId && validateSessionId(sessionId)) {
+    req.sessionId = sessionId;
+  }
+  next();
+});
+
 // Validar Content-Length (prevenir DOS)
 app.use((req, res, next) => {
   const contentLength = parseInt(req.headers['content-length'] || '0', 10);
@@ -1212,7 +1227,7 @@ app.use((req, res, next) => {
   // CORS más restrictivo
   const allowedOrigin = req.headers.origin;
   if (allowedOrigins.includes(allowedOrigin) || process.env.NODE_ENV === 'development') {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin || '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
@@ -1605,44 +1620,36 @@ function isPathSafe(filePath, allowedDir) {
 
 function validateSessionId(sid) {
   if (!sid || typeof sid !== 'string') {
-    console.log(`[validateSessionId] REJECT: not string or empty`);
     return false;
   }
   
-  // TEMPORAL: Validación simplificada para debugging
-  if (!sid.startsWith('srv-')) {
-    console.log(`[validateSessionId] REJECT: doesn't start with 'srv-'`);
+  // Permitir tanto sesiones del servidor (srv-) como del cliente web (web-)
+  if (!sid.startsWith('srv-') && !sid.startsWith('web-')) {
     return false;
   }
   
-  if (sid.length !== 82) {
-    console.log(`[validateSessionId] REJECT: length ${sid.length} (expected 82)`);
-    return false;
+  // Para sesiones del servidor: formato srv-TIMESTAMP-HASH64
+  if (sid.startsWith('srv-')) {
+    if (sid.length !== 82) { // 4 + 1 + 13 + 1 + 64 = 83, pero verificar
+      return false;
+    }
+    const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
+    return sessionIdRegex.test(sid);
   }
   
-  // Validar formato básico con regex
-  const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
-  if (!sessionIdRegex.test(sid)) {
-    console.log(`[validateSessionId] REJECT: format mismatch (regex failed)`);
-    // DEBUG: Mostrar qué parte falla
-    const parts = sid.split('-');
-    console.log(`  Parts: prefix="${parts[0]}", timestamp="${parts[1]}" (${parts[1]?.length}), hash="${parts[2]?.substring(0,10)}..." (${parts[2]?.length})`);
-    return false;
+  // Para sesiones del cliente web: formato web-TIMESTAMP36-RANDOM6
+  // Ejemplo: web-lo123abc-xy9z0m (4 + 1 + 8 + 1 + 6 = 20 caracteres aprox)
+  if (sid.startsWith('web-')) {
+    // Validación más flexible para IDs generados en el cliente
+    if (sid.length < 15 || sid.length > 50) {
+      return false;
+    }
+    // Permitir letras, números y guiones
+    const webSessionRegex = /^web-[a-z0-9]{6,15}-[a-z0-9]{4,10}$/;
+    return webSessionRegex.test(sid);
   }
   
-  // TEMPORAL: Comentar validación de timestamp para ver si es eso
-  /*
-  const timestamp = parseInt(sid.substring(4, 17));
-  const now = Date.now();
-  const maxAge = 48 * 60 * 60 * 1000; // 48 horas (match SESSION_TTL)
-  if (timestamp > now || timestamp < (now - maxAge)) {
-    console.log(`[validateSessionId] REJECT: timestamp out of range (ts=${timestamp}, now=${now})`);
-    return false;
-  }
-  */
-  
-  console.log(`[validateSessionId] ✅ ACCEPT: ${sid.substring(0,20)}...`);
-  return true;
+  return false;
 }
 
 function getSessionId(req){
@@ -1652,32 +1659,13 @@ function getSessionId(req){
   
   const sid = h || b || q;
   
-  // DEBUG: Log detallado para encontrar el bug
-  if (sid) {
-    console.log(`\n[getSessionId] Recibido sid: "${sid.substring(0,30)}..." (length=${sid.length})`);
-    const isValid = validateSessionId(sid);
-    console.log(`[getSessionId] Resultado validación: ${isValid}`);
-    if (isValid) {
-      console.log(`[getSessionId] ✅ Usando sessionId existente\n`);
-      return sid;
-    } else {
-      console.log(`[getSessionId] ❌ Rechazado - generando nuevo sessionId\n`);
-    }
-  } else {
-    console.log(`[getSessionId] No hay sessionId en la petición - generando nuevo\n`);
+  if (sid && validateSessionId(sid)) {
+    return sid;
   }
   
   // Generate new SECURE session ID (32 bytes = 256 bits de entropía)
-  const newSid = generateSecureSessionId();
-  console.log(`[getSessionId] Nuevo sessionId: ${newSid.substring(0,30)}...\n`);
-  return newSid;
+  return generateSecureSessionId();
 }
-app.use((req,_res,next)=>{ req.sessionId = getSessionId(req); next(); });
-
-// Health & maintenance endpoints
-app.get('/api/health', (_req,res) => {
-  res.json({ ok:true, hasOpenAI: !!process.env.OPENAI_API_KEY, openaiModel: OPENAI_MODEL, version: CHAT?.version || 'embedded' });
-});
 
 // CSP Report endpoint (para monitorear violaciones)
 app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
@@ -2251,9 +2239,11 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fresh = {
       id: sid,
       userName: null,
-      stage: STATES.ASK_NAME,  // Ir directo a pedir nombre
+      stage: 'CONVERSATIONAL',  // Nuevo: modo conversacional libre
+      conversationState: 'greeting',  // greeting, has_name, understanding_problem, solving, resolved
       device: null,
       problem: null,
+      problemDescription: '',  // Acumula lo que cuenta el usuario
       issueKey: null,
       tests: { basic: [], ai: [], advanced: [] },
       stepsDone: [],
@@ -2266,10 +2256,16 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       nameAttempts: 0,
       stepProgress: {},
       pendingDeviceGroup: null,
-      userLocale: 'es-AR',  // Idioma por defecto español Argentina
+      userLocale: 'es-AR',
       needType: null,
       isHowTo: false,
-      isProblem: false
+      isProblem: false,
+      contextWindow: [],  // Últimos 5 mensajes para contexto
+      detectedEntities: {  // Detectar automáticamente
+        device: null,
+        action: null,  // 'no funciona', 'quiero instalar', etc
+        urgency: 'normal'
+      }
     };
     const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
@@ -2317,8 +2313,12 @@ function buildTimeGreeting() {
 }
 
 function buildLanguageSelectionGreeting() {
-  // Mensaje simple y directo en el idioma principal (español)
-  return "Para empezar: ¿cómo te llamás?";
+  const saludos = [
+    "¡Hola! Soy el asistente técnico de STI. ¿Cómo te llamás?",
+    "¡Buen día! Soy el asistente de soporte. ¿Cuál es tu nombre?",
+    "¡Hola! Estoy acá para ayudarte. Antes que nada, ¿cómo te llamás?"
+  ];
+  return saludos[Math.floor(Math.random() * saludos.length)];
 }
 
 // Función para agregar respuestas empáticas según Flujo.csv
@@ -4085,6 +4085,183 @@ La guía debe ser:
   }
 });
 
+// ========================================================
+// Health check endpoint
+// ========================================================
+app.get('/api/health', (_req, res) => {
+  res.json({ 
+    ok: true, 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// ========================================================
+// Greeting endpoint - Initial session setup
+// ========================================================
+app.all('/api/greeting', greetingLimiter, async (req, res) => {
+  try {
+    const sid = req.sessionId || generateSecureSessionId();
+    
+    // Obtener o crear sesión
+    let session = await getSession(sid);
+    if (!session) {
+      session = {
+        id: sid,
+        userName: null,
+        stage: STATES.ASK_NAME,
+        device: null,
+        problem: null,
+        issueKey: null,
+        tests: { basic: [], ai: [], advanced: [] },
+        stepsDone: [],
+        fallbackCount: 0,
+        waEligible: false,
+        transcript: [],
+        pendingUtterance: null,
+        lastHelpStep: null,
+        startedAt: nowIso(),
+        helpAttempts: {},
+        nameAttempts: 0,
+        stepProgress: {},
+        pendingDeviceGroup: null,
+        userLocale: 'es-AR',
+        frustrationCount: 0,
+        pendingAction: null,
+        images: []
+      };
+      await saveSession(sid, session);
+      console.log('[api/greeting] Nueva sesión creada:', sid);
+    }
+    
+    // Generar CSRF token para esta sesión
+    const csrfToken = generateCSRFToken();
+    csrfTokenStore.set(sid, {
+      token: csrfToken,
+      createdAt: Date.now()
+    });
+    
+    // Mensaje de saludo inicial
+    const locale = session.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    
+    const greeting = isEn
+      ? '👋 Hello! I\'m Tecnos from STI — Servicio Técnico Inteligente. What\'s your name?'
+      : '👋 ¡Hola! Soy Tecnos de STI — Servicio Técnico Inteligente. ¿Cómo te llamás?';
+    
+    // Registrar en transcript
+    session.transcript.push({ 
+      who: 'bot', 
+      text: greeting, 
+      ts: nowIso() 
+    });
+    await saveSession(sid, session);
+    
+    // Preparar opciones opcionales (botón para no dar nombre)
+    const options = isEn 
+      ? [{ token: 'BTN_NO_NAME', label: "I'd rather not say", value: 'BTN_NO_NAME' }]
+      : [{ token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', value: 'BTN_NO_NAME' }];
+    
+    res.json({
+      ok: true,
+      greeting,
+      sessionId: sid,
+      csrfToken,
+      stage: session.stage,
+      ui: {
+        buttons: options
+      },
+      options
+    });
+    
+    logMsg(`[GREETING] Session started: ${sid}`);
+  } catch (error) {
+    console.error('[api/greeting] Error:', error);
+    res.status(500).json({ 
+      ok: false, 
+      error: 'Error initializing session',
+      greeting: '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?'
+    });
+  }
+});
+
+// ========================================================
+// Reset session endpoint
+// ========================================================
+app.post('/api/reset', async (req, res) => {
+  try {
+    const sid = req.body?.sid || req.sessionId;
+    
+    if (!sid || !validateSessionId(sid)) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'Invalid or missing session ID' 
+      });
+    }
+    
+    // Obtener sesión existente para preservar algunos datos si es necesario
+    const existingSession = await getSession(sid);
+    const locale = existingSession?.userLocale || 'es-AR';
+    
+    // Crear nueva sesión limpia
+    const newSession = {
+      id: sid,
+      userName: null,
+      stage: STATES.ASK_NAME,
+      device: null,
+      problem: null,
+      issueKey: null,
+      tests: { basic: [], ai: [], advanced: [] },
+      stepsDone: [],
+      fallbackCount: 0,
+      waEligible: false,
+      transcript: [],
+      pendingUtterance: null,
+      lastHelpStep: null,
+      startedAt: nowIso(),
+      helpAttempts: {},
+      nameAttempts: 0,
+      stepProgress: {},
+      pendingDeviceGroup: null,
+      userLocale: locale, // Preservar idioma
+      frustrationCount: 0,
+      pendingAction: null,
+      images: []
+    };
+    
+    await saveSession(sid, newSession);
+    
+    // Limpiar cache de sesión si existe
+    if (sessionCache.has(sid)) {
+      sessionCache.delete(sid);
+    }
+    
+    // Renovar CSRF token
+    const csrfToken = generateCSRFToken();
+    csrfTokenStore.set(sid, {
+      token: csrfToken,
+      createdAt: Date.now()
+    });
+    
+    logMsg(`[RESET] Session reset: ${sid}`);
+    
+    res.json({ 
+      ok: true, 
+      message: 'Session reset successfully',
+      sessionId: sid,
+      csrfToken,
+      stage: newSession.stage
+    });
+  } catch (error) {
+    console.error('[api/reset] Error:', error);
+    res.status(500).json({ 
+      ok: false, 
+      error: 'Error resetting session' 
+    });
+  }
+});
+
 // Sessions listing
 app.get('/api/sessions', async (_req,res)=>{
   const sessions = await listActiveSessions();
@@ -4177,6 +4354,24 @@ app.get('/', (_req, res) => {
 });
 
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+
+// ========================================================
+// 🔥 CONFIGURAR ENDPOINT CONVERSACIONAL (V2)
+// ========================================================
+setupConversationalChat(app, {
+  chatLimiter,
+  getSession,
+  saveSession,
+  nowIso,
+  logFlowInteraction,
+  updateMetric: (metricName) => {
+    // Incrementar métrica global
+    metrics[metricName] = (metrics[metricName] || 0) + 1;
+  },
+  analyzeUserIntent,
+  generateConversationalResponse
+});
+console.log('✅ Endpoint conversacional /api/chat-v2 configurado');
 
 // Start server
 const PORT = process.env.PORT || 3001;

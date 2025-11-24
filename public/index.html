@@ -568,36 +568,9 @@
     // Initialize chat - Recuperar sesión si existe
     async function initChat() {
       try {
-        // Si tenemos sessionId, intentar recuperar la sesión
-        if (sessionId) {
-          try {
-            const validateResponse = await fetch('/api/session/validate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sessionId }),
-              credentials: 'same-origin'
-            });
-            
-            if (validateResponse.ok) {
-              const validateData = await validateResponse.json();
-              if (validateData.valid && validateData.session) {
-                console.log('[SESSION] Sesión existente recuperada:', sessionId);
-                addMessage('bot', '¡Bienvenido de nuevo! 👋 Continuemos donde lo dejamos.');
-                
-                // Restaurar transcript si existe
-                if (validateData.session.transcript && validateData.session.transcript.length > 0) {
-                  for (const msg of validateData.session.transcript) {
-                    addMessage(msg.who === 'user' ? 'user' : 'bot', msg.text, false);
-                  }
-                }
-                return;
-              }
-            }
-          } catch (validateErr) {
-            console.warn('[SESSION] No se pudo validar sesión anterior:', validateErr);
-            // Continuar creando nueva sesión
-          }
-        }
+        // SIMPLIFICADO: Siempre crear nueva sesión, NO recuperar anteriores
+        sessionStorage.removeItem('sti_sessionId'); // Limpiar sesión vieja
+        sessionId = null;
         
         // Crear nueva sesión
         const response = await fetch('/api/greeting', {
@@ -703,7 +676,7 @@
       await sendMessage(null, value);
     }
 
-    // Send message (with validation)
+    // Send message (CONVERSACIONAL - sin botones)
     async function sendMessage(text = null, buttonValue = null) {
       const input = document.getElementById('messageInput');
       const messageText = validateInput(text || input.value, 1000);
@@ -732,12 +705,11 @@
 
         const payload = {
           sessionId: sessionId,
-          text: messageText || '',
-          action: buttonValue ? 'button' : 'text',
-          value: buttonValue || messageText
+          text: messageText || buttonValue || '',
+          // NO MÁS action/value - solo texto libre
         };
 
-        const response = await fetch('/api/chat', {
+        const response = await fetch('/api/chat-v2', {  // 🔥 NUEVO ENDPOINT CONVERSACIONAL
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -757,8 +729,16 @@
 
         if (data.ok && data.reply) {
           addMessage('bot', data.reply);
-          if (data.options && Array.isArray(data.options) && data.options.length > 0) {
-            addButtons(data.options);
+          
+          // NO MÁS BOTONES - todo conversacional
+          // if (data.options) { ... } <- ELIMINADO
+          
+          // Actualizar metadata si viene
+          if (data.metadata) {
+            console.log('[💡 Metadata]', data.metadata);
+            if (data.metadata.userName) {
+              document.title = `Chat STI - ${data.metadata.userName}`;
+            }
           }
         } else {
           addMessage('bot', 'No se recibió respuesta del servidor.');

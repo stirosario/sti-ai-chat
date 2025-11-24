@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reset Session</title>
+</head>
+<body>
+    <h1>Limpiando sesión...</h1>
+    <script>
+        sessionStorage.clear();
+        localStorage.clear();
+        alert('Sesión limpiada. Recargando...');
+        window.location.href = '/';
+    </script>
+</body>
+</html>

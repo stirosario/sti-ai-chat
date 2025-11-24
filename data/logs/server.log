@@ -3390,3 +3390,207 @@
     at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
 2025-11-24T02:42:48.585Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-24T02:42:56.347Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:42:56.348Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:42:56.349Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:42:56.350Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T03:36:50.181Z [ERROR] Error: Invalid JSON
+    at verify (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:13)
+    at C:\sti-ai-chat\node_modules\body-parser\lib\read.js:111:9
+    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)
+    at invokeCallback (C:\sti-ai-chat\node_modules\raw-body\index.js:238:16)
+    at done (C:\sti-ai-chat\node_modules\raw-body\index.js:227:7)
+    at IncomingMessage.onEnd (C:\sti-ai-chat\node_modules\raw-body\index.js:287:7)
+    at IncomingMessage.emit (node:events:519:28)
+    at endReadableNT (node:internal/streams/readable:[PHONE_REDACTED]:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+2025-11-24T03:37:03.933Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-24T03:37:03.933Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-f27ee2d39f7c...
+
+2025-11-24T03:37:03.937Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-f27ee2d39f7cb[PHONE_REDACTED]fcf[PHONE_REDACTED]c3e[PHONE_REDACTED]f790f06ec[PHONE_REDACTED]fdf[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME","transcriptLength":1}
+2025-11-24T03:37:25.045Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T03:37:51.763Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T04:26:15.058Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T04:26:15.059Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T04:26:15.065Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T04:26:15.066Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T04:26:15.066Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T04:26:15.066Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T04:27:08.160Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T04:28:27.650Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T04:28:27.651Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T04:28:27.656Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T04:28:27.656Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T04:28:27.656Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T04:28:27.656Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T04:29:28.201Z [ERROR] TypeError [ERR_HTTP_INVALID_HEADER_VALUE]: Invalid value "undefined" for header "Access-Control-Allow-Origin"
+    at ServerResponse.setHeader (node:_http_outgoing:703:3)
+    at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:9
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+2025-11-24T04:32:00.533Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T04:32:00.534Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T04:32:00.539Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T04:32:00.540Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T04:32:00.540Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T04:32:00.540Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T04:32:14.579Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-24T04:32:14.580Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-b9f93a560a59...
+
+2025-11-24T04:33:01.053Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T04:33:16.866Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T04:33:16.868Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T04:33:16.873Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T04:33:16.873Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T04:33:16.873Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T04:33:16.873Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T04:33:31.871Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T04:34:08.939Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T04:34:08.941Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T04:34:08.946Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T04:34:08.947Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T04:34:08.947Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T04:34:08.947Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T04:34:27.582Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T05:46:17.921Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T05:47:25.137Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T05:47:25.139Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T05:47:25.144Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T05:47:25.144Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T05:47:25.144Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T05:47:25.145Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T05:47:42.295Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T05:47:52.651Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T05:47:52.652Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T05:47:52.657Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T05:47:52.657Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T05:47:52.657Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T05:47:52.657Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T05:48:02.324Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T05:48:11.358Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-sim001 buttonToken: null text: Hola
+2025-11-24T05:48:11.359Z [INFO] [getSession] No session in memory for web-[PHONE_REDACTED]-sim001
+2025-11-24T05:48:11.359Z [INFO] [DEBUG] Session loaded - stage:  userName: 
+2025-11-24T05:48:11.359Z [INFO] [api/chat] nueva session web-[PHONE_REDACTED]-sim001
+2025-11-24T05:48:11.363Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-sim001: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-11-24T05:48:11.363Z [INFO] web-[PHONE_REDACTED]-sim001 => reply len=91 options=1
+2025-11-24T05:49:33.342Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: Hola
+2025-11-24T05:49:33.342Z [INFO] [getSession] No session in memory for web-[PHONE_REDACTED]-heber001
+2025-11-24T05:49:33.343Z [INFO] [DEBUG] Session loaded - stage:  userName: 
+2025-11-24T05:49:33.343Z [INFO] [api/chat] nueva session web-[PHONE_REDACTED]-heber001
+2025-11-24T05:49:33.344Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-11-24T05:49:33.344Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:34.840Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: Heber
+2025-11-24T05:49:34.841Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]-heber001: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:34.841Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-11-24T05:49:34.842Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":4}
+2025-11-24T05:49:34.842Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:35.966Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: No puedo configurar el DHCP en mi MikroTik para la
+2025-11-24T05:49:35.967Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:35.967Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: Heber
+2025-11-24T05:49:35.968Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":6}
+2025-11-24T05:49:35.968Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:37.088Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: Cuando entro a IP > DHCP Server no me deja agregar
+2025-11-24T05:49:37.088Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:37.089Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: Heber
+2025-11-24T05:49:37.090Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":8}
+2025-11-24T05:49:37.090Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:38.200Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: Ya tiene IP configurada en la interface
+2025-11-24T05:49:38.201Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:38.201Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: Heber
+2025-11-24T05:49:38.202Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":10}
+2025-11-24T05:49:38.202Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:39.319Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]-heber001 buttonToken: null text: No me sale, necesito que un t�cnico me ayude
+2025-11-24T05:49:39.320Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:39.320Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: Heber
+2025-11-24T05:49:39.322Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]-heber001: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":12}
+2025-11-24T05:49:39.323Z [INFO] web-[PHONE_REDACTED]-heber001 => reply len=91 options=1
+2025-11-24T05:49:49.827Z [INFO] [DEBUG /api/chat] SessionId: web-hebersim-[PHONE_REDACTED] buttonToken: null text: Hola
+2025-11-24T05:49:49.827Z [INFO] [getSession] No session in memory for web-hebersim-[PHONE_REDACTED]
+2025-11-24T05:49:49.827Z [INFO] [DEBUG] Session loaded - stage:  userName: 
+2025-11-24T05:49:49.828Z [INFO] [api/chat] nueva session web-hebersim-[PHONE_REDACTED]
+2025-11-24T05:49:49.828Z [INFO] [saveSession] ✅ Saved to memory web-hebersim-[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-11-24T05:49:49.828Z [INFO] web-hebersim-[PHONE_REDACTED] => reply len=91 options=1
+2025-11-24T05:49:50.849Z [INFO] [DEBUG /api/chat] SessionId: web-hebersim-[PHONE_REDACTED] buttonToken: null text: Heber
+2025-11-24T05:49:50.850Z [INFO] [getSession] ✅ Loaded from memory web-hebersim-[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:50.850Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-11-24T05:49:50.851Z [INFO] [saveSession] ✅ Saved to memory web-hebersim-[PHONE_REDACTED]: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":4}
+2025-11-24T05:49:50.851Z [INFO] web-hebersim-[PHONE_REDACTED] => reply len=91 options=1
+2025-11-24T05:49:51.873Z [INFO] [DEBUG /api/chat] SessionId: web-hebersim-[PHONE_REDACTED] buttonToken: null text: No puedo configurar DHCP en mi MikroTik LAN 4
+2025-11-24T05:49:51.873Z [INFO] [getSession] ✅ Loaded from memory web-hebersim-[PHONE_REDACTED]: {"userName":"Heber","stage":"ASK_LANGUAGE"}
+2025-11-24T05:49:51.873Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: Heber
+2025-11-24T05:49:51.874Z [INFO] [saveSession] ✅ Saved to memory web-hebersim-[PHONE_REDACTED]: {"userName":"Heber","stage":"ASK_LANGUAGE","transcriptLength":6}
+2025-11-24T05:49:51.874Z [INFO] web-hebersim-[PHONE_REDACTED] => reply len=91 options=1
+2025-11-24T05:50:03.942Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":null,"stage":"CONVERSATIONAL","transcriptLength":1}
+2025-11-24T05:50:04.954Z [INFO] [DEBUG /api/chat] SessionId:  buttonToken: null text: Heber
+2025-11-24T05:50:04.955Z [INFO] [getSession] ✅ Loaded from memory undefined: {"userName":null,"stage":"CONVERSATIONAL"}
+2025-11-24T05:50:04.956Z [INFO] [DEBUG] Session loaded - stage: CONVERSATIONAL userName: null
+2025-11-24T05:50:04.956Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":"Heber","stage":"CONVERSATIONAL","transcriptLength":3}
+2025-11-24T05:50:04.956Z [INFO] undefined => reply len=91 options=1
+2025-11-24T05:50:05.973Z [INFO] [DEBUG /api/chat] SessionId:  buttonToken: null text: No puedo configurar el DHCP en mi router MikroTik 
+2025-11-24T05:50:05.974Z [INFO] [getSession] ✅ Loaded from memory undefined: {"userName":"Heber","stage":"CONVERSATIONAL"}
+2025-11-24T05:50:05.974Z [INFO] [DEBUG] Session loaded - stage: CONVERSATIONAL userName: Heber
+2025-11-24T05:50:05.975Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":"Heber","stage":"CONVERSATIONAL","transcriptLength":5}
+2025-11-24T05:50:05.975Z [INFO] undefined => reply len=91 options=1
+2025-11-24T05:53:58.131Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":null,"stage":"CONVERSATIONAL","transcriptLength":1}
+2025-11-24T05:53:59.144Z [INFO] 
+[======================================================================]
+2025-11-24T05:54:23.810Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T05:54:23.811Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T05:54:23.815Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T05:54:23.815Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T05:54:23.815Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T05:54:23.815Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T06:00:00.039Z [ERROR] [[PHONE_REDACTED]T06:00:00.037Z] [PID: [PHONE_REDACTED]] [32m[NODE-CRON][32m [31m[ERROR][0m logMsg is not defined {}
