@@ -2343,7 +2343,12 @@ app.post('/api/session/validate', async (req, res) => {
 // Greeting endpoint (con CSRF token generation)
 app.all('/api/greeting', greetingLimiter, async (req,res)=>{
   try{
-    const sid = req.sessionId;
+    // Si no hay sessionId, generar uno nuevo
+    let sid = req.sessionId;
+    if (!sid) {
+      sid = generateSessionId();
+      req.sessionId = sid;
+    }
     
     // Validar longitud de inputs si vienen en body
     if (req.body) {
