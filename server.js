@@ -3433,9 +3433,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     }
 
     // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
+    console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
+    
     if (session.stage === STATES.ASK_LANGUAGE) {
       const lowerMsg = t.toLowerCase().trim();
-      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken);
+      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken, 'GDPR consent:', session.gdprConsent);
       
       // Detectar aceptación de GDPR
       if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
