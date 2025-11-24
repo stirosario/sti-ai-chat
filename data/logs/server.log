@@ -3331,3 +3331,15 @@
     at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
     at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
     at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T02:24:39.497Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:24:39.499Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:24:39.499Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:24:39.500Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T02:31:24.212Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T02:32:36.902Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:32:36.904Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:32:36.904Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:32:36.904Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T02:32:50.034Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

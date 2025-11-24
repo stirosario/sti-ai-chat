@@ -2251,7 +2251,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fresh = {
       id: sid,
       userName: null,
-      stage: STATES.ASK_LANGUAGE,
+      stage: STATES.ASK_NAME,  // Ir directo a pedir nombre
       device: null,
       problem: null,
       issueKey: null,
@@ -2266,7 +2266,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       nameAttempts: 0,
       stepProgress: {},
       pendingDeviceGroup: null,
-      userLocale: null,
+      userLocale: 'es-AR',  // Idioma por defecto español Argentina
       needType: null,
       isHowTo: false,
       isProblem: false
@@ -2274,18 +2274,17 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
     await saveSession(sid, fresh);
-    const langOptions = buildUiButtonsFromTokens(['BTN_LANG_ES_AR', 'BTN_LANG_ES_ES', 'BTN_LANG_EN']);
     
+    // Sin botones de idioma, input libre para nombre
     // Incluir CSRF token en respuesta
-    return res.json(withOptions({
+    return res.json({
       ok: true,
       greeting: fullGreeting,
       reply: fullGreeting,
       stage: fresh.stage,
       sessionId: sid,
-      csrfToken: csrfToken, // NUEVO: token CSRF
-      options: langOptions
-    }));
+      csrfToken: csrfToken
+    });
   } catch(e){
     console.error(e);
     return res.status(500).json({ ok:false, error:'greeting_failed' });
@@ -2318,12 +2317,8 @@ function buildTimeGreeting() {
 }
 
 function buildLanguageSelectionGreeting() {
-  const base = buildTimeGreeting();
-  
-  // Construir mensaje multilingüe claro
-  const greeting = `${base.es}\n\n${base.en}\n\n━━━━━━━━━━━━━━━\n\n🌐 **Para empezar, seleccioná un idioma:**\n🌐 **To begin, select a language:**`;
-  
-  return greeting;
+  // Mensaje simple y directo en el idioma principal (español)
+  return "Para empezar: ¿cómo te llamás?";
 }
 
 // Función para agregar respuestas empáticas según Flujo.csv
