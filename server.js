@@ -144,7 +144,21 @@ const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'upl
 const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
-const SSE_TOKEN       = process.env.SSE_TOKEN || '';
+
+// SECURITY: Generar token seguro si no está configurado
+const SSE_TOKEN = process.env.SSE_TOKEN || crypto.randomBytes(32).toString('hex');
+if (!process.env.SSE_TOKEN) {
+  console.error('\n'.repeat(3) + '='.repeat(80));
+  console.error('[SECURITY CRITICAL] ⚠️  SSE_TOKEN NOT CONFIGURED!');
+  console.error('[SECURITY] Generated RANDOM token for this session ONLY.');
+  console.error('[SECURITY] This token will change on every restart!');
+  console.error('[SECURITY] ');
+  console.error('[SECURITY] Current session token:', SSE_TOKEN);
+  console.error('[SECURITY] ');
+  console.error('[SECURITY] To fix: Add to your .env file:');
+  console.error('[SECURITY] SSE_TOKEN=' + SSE_TOKEN);
+  console.error('='.repeat(80) + '\n'.repeat(2));
+}
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
@@ -993,6 +1007,56 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
 // ========================================================
 const app = express();
 
+// ========================================================
+// CSRF Validation Middleware
+// ========================================================
+function validateCSRF(req, res, next) {
+  // Skip validación para métodos seguros (GET, HEAD, OPTIONS)
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+  
+  const sessionId = req.sessionId;
+  const csrfToken = req.headers['x-csrf-token'] || req.body?.csrfToken;
+  
+  // Si no hay sesión aún, permitir (será creada en /api/greeting)
+  if (!sessionId) {
+    return next();
+  }
+  
+  const stored = csrfTokenStore.get(sessionId);
+  
+  // Token inválido o no existe
+  if (!stored || stored.token !== csrfToken) {
+    console.warn(`[CSRF] REJECTED - Invalid or missing token:`);
+    console.warn(`  Session: ${sessionId}`);
+    console.warn(`  IP: ${req.ip}`);
+    console.warn(`  Method: ${req.method}`);
+    console.warn(`  Path: ${req.path}`);
+    console.warn(`  Provided Token: ${csrfToken ? csrfToken.substring(0, 10) + '...' : 'NONE'}`);
+    return res.status(403).json({ 
+      ok: false, 
+      error: 'CSRF token inválido o expirado. Por favor recargá la página.' 
+    });
+  }
+  
+  // Token expirado (1 hora de vida)
+  if (Date.now() - stored.createdAt > 60 * 60 * 1000) {
+    csrfTokenStore.delete(sessionId);
+    console.warn(`[CSRF] REJECTED - Expired token: session=${sessionId}, age=${Math.floor((Date.now() - stored.createdAt) / 1000)}s`);
+    return res.status(403).json({ 
+      ok: false, 
+      error: 'CSRF token expirado. Por favor recargá la página.' 
+    });
+  }
+  
+  // Token válido
+  next();
+}
+
+// NOTA: validateCSRF se aplicará selectivamente en endpoints sensibles
+// No se aplica globalmente para no bloquear /api/greeting inicial
+
 // SECURITY: Helmet para headers de seguridad
 app.use(helmet({
   contentSecurityPolicy: false, // Lo manejaremos manualmente para PWA
@@ -1200,9 +1264,8 @@ const uploadLimiter = rateLimit({
 });
 
 const chatLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20, // REDUCIDO: 20 mensajes por minuto (era 30)
-  message: { ok: false, error: 'Demasiados mensajes. Esperá un momento antes de continuar.' },
+  windowMs: 60 * 1000, // 1 minuto
+  max: 20, // 20 mensajes por minuto (protege contra spam y abuse)
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
@@ -1210,8 +1273,16 @@ const chatLimiter = rateLimit({
     return `${ip}:${req.sessionId || 'no-session'}`;
   },
   handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] Chat blocked: IP=${req.ip}, Session=${req.sessionId}`);
-    res.status(429).json({ ok: false, error: 'Demasiados mensajes. Esperá un momento.' });
+    console.warn(`[RATE_LIMIT] Chat BLOCKED - Too many messages:`);
+    console.warn(`  IP: ${req.ip}`);
+    console.warn(`  Session: ${req.sessionId}`);
+    console.warn(`  Path: ${req.path}`);
+    res.status(429).json({ 
+      ok: false, 
+      reply: '😅 Estás escribiendo muy rápido. Tomate un respiro y probá de nuevo en un momento.',
+      error: 'Demasiados mensajes. Esperá un momento antes de continuar.',
+      retryAfter: 60
+    });
   }
 });
 
@@ -1909,19 +1980,36 @@ app.get('/api/ticket/:tid', async (req, res) => {
     return res.status(404).json({ ok:false, error: 'not_found' });
   }
   
-  // SECURITY: Validar ownership (leer JSON para ver quién creó el ticket)
-  if (fs.existsSync(jsonFile) && adminToken !== SSE_TOKEN) {
-    try {
-      const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
-      const ticketOwnerSid = ticketData.sid || '';
-      
-      if (ticketOwnerSid !== requestSessionId) {
-        console.warn(`[SECURITY] Unauthorized ticket access: ticket=${tid}, owner=${ticketOwnerSid}, requester=${requestSessionId}, IP=${req.ip}`);
-        return res.status(403).json({ ok:false, error: 'No autorizado para ver este ticket' });
+  // SECURITY: Validar ownership - Admin con token válido tiene acceso completo
+  const isValidAdmin = adminToken && adminToken === SSE_TOKEN && SSE_TOKEN && process.env.SSE_TOKEN;
+  
+  if (!isValidAdmin) {
+    // No es admin: validar ownership obligatorio
+    if (fs.existsSync(jsonFile)) {
+      try {
+        const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+        const ticketOwnerSid = ticketData.sid || '';
+        
+        if (ticketOwnerSid !== requestSessionId) {
+          console.warn(`[SECURITY] DENIED - Unauthorized ticket access attempt:`);
+          console.warn(`  Ticket: ${tid}`);
+          console.warn(`  Owner Session: ${ticketOwnerSid}`);
+          console.warn(`  Requester Session: ${requestSessionId}`);
+          console.warn(`  IP: ${req.ip}`);
+          console.warn(`  Headers: ${JSON.stringify(req.headers)}`);
+          return res.status(403).json({ ok:false, error: 'No autorizado para ver este ticket' });
+        }
+      } catch (parseErr) {
+        console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
+        return res.status(500).json({ ok:false, error: 'Error al validar ticket' });
       }
-    } catch (parseErr) {
-      console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
+    } else {
+      // Sin JSON, denegar por defecto (security by default)
+      console.warn(`[SECURITY] Ticket JSON missing, denying access: ticket=${tid}, IP=${req.ip}`);
+      return res.status(403).json({ ok:false, error: 'Ticket no disponible' });
     }
+  } else {
+    console.log(`[TICKET] Admin access granted with valid token: ticket=${tid}`);
   }
 
   const raw = fs.readFileSync(txtFile,'utf8');
@@ -2082,6 +2170,53 @@ const BUTTONS = {
   CANCEL: 'BTN_CANCEL',
   MORE_SIMPLE: 'BTN_MORE_SIMPLE'
 };
+
+// ========================================================
+// Session Validation Endpoint (para recuperar sesiones)
+// ========================================================
+app.post('/api/session/validate', async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.json({ valid: false, error: 'SessionId inválido' });
+    }
+    
+    // Verificar que la sesión existe y está activa
+    const session = await getSession(sessionId);
+    
+    if (!session) {
+      console.log(`[SESSION] Validación fallida: sesión no encontrada ${sessionId}`);
+      return res.json({ valid: false, error: 'Sesión no encontrada' });
+    }
+    
+    // Verificar que no haya expirado (48 horas)
+    const MAX_AGE = 48 * 60 * 60 * 1000;
+    const sessionAge = Date.now() - (session.createdAt || 0);
+    
+    if (sessionAge > MAX_AGE) {
+      console.log(`[SESSION] Validación fallida: sesión expirada ${sessionId}, age=${Math.floor(sessionAge/1000/60)}min`);
+      await deleteSession(sessionId);
+      return res.json({ valid: false, error: 'Sesión expirada' });
+    }
+    
+    console.log(`[SESSION] Validación exitosa: ${sessionId}, stage=${session.stage}`);
+    
+    // Devolver datos de sesión (sin info sensible)
+    return res.json({ 
+      valid: true, 
+      session: {
+        stage: session.stage,
+        userLocale: session.userLocale,
+        transcript: session.transcript || [],
+        createdAt: session.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('[SESSION] Error validando sesión:', error);
+    return res.status(500).json({ valid: false, error: 'Error interno' });
+  }
+});
 
 // Greeting endpoint (con CSRF token generation)
 app.all('/api/greeting', greetingLimiter, async (req,res)=>{
@@ -2902,6 +3037,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
     if (body.action === 'button' && body.value) {
       buttonToken = String(body.value);
+      console.log('[DEBUG BUTTON] Received button - action:', body.action, 'value:', body.value, 'token:', buttonToken);
       const def = getButtonDefinition(buttonToken);
       if (tokenMap[buttonToken] !== undefined) {
         incomingText = tokenMap[buttonToken];

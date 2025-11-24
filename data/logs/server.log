@@ -3144,3 +3144,190 @@
 2025-11-24T00:14:29.184Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-24T00:14:43.370Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-24T00:14:53.430Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T00:14:53.431Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T00:14:53.431Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T00:14:53.432Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:14:56.478Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-24T00:14:56.479Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-eb8af7c136f6...
+
+2025-11-24T00:14:56.483Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]cb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-24T00:15:09.252Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-eb8af7c136f6..." (length=82)
+2025-11-24T00:15:09.253Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-eb...
+2025-11-24T00:15:09.254Z [INFO] [getSessionId] Resultado validación: true
+2025-11-24T00:15:09.254Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-24T00:15:09.258Z [INFO] [DEBUG /api/chat] SessionId: srv-[PHONE_REDACTED]-eb8af7c136f6 buttonToken: BTN_LANG_ES_AR text: Español (Argentina)
+2025-11-24T00:15:09.259Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]cb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-24T00:15:09.259Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-11-24T00:15:09.260Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]cb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-24T00:15:09.262Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-24T00:15:09.262Z [INFO] │ 📊 FLOW LOG #146                                                 │
+2025-11-24T00:15:09.262Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-24T00:15:09.263Z [INFO] │ Session:    srv-[PHONE_REDACTED]-eb8af7c136f64f1f609cbb0d8a79f8│
+2025-11-24T00:15:09.263Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-24T00:15:09.264Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-24T00:15:09.264Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-24T00:15:09.264Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-24T00:15:09.264Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-24T00:15:09.265Z [INFO] │ Action:     language_selected                               │
+2025-11-24T00:15:09.265Z [INFO] │ Duration:   2ms                                             │
+2025-11-24T00:15:09.265Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-24T00:15:18.757Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-eb8af7c136f6..." (length=82)
+2025-11-24T00:15:18.758Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-eb...
+2025-11-24T00:15:18.758Z [INFO] [getSessionId] Resultado validación: true
+2025-11-24T00:15:18.758Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-24T00:15:18.759Z [INFO] [DEBUG /api/chat] SessionId: srv-[PHONE_REDACTED]-eb8af7c136f6 buttonToken: BTN_NO_NAME text: Prefiero no decirlo
+2025-11-24T00:15:18.759Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]cb[PHONE_REDACTED]: {"userName":null,"stage":"ASK_NAME"}
+2025-11-24T00:15:18.759Z [INFO] [DEBUG] Session loaded - stage: ASK_NAME userName: null
+2025-11-24T00:15:18.760Z [INFO] [ASK_NAME] DEBUG - buttonToken: BTN_NO_NAME text: Prefiero no decirlo
+2025-11-24T00:15:18.761Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[TOKEN_REDACTED][PHONE_REDACTED]cb[PHONE_REDACTED]: {"userName":"Usuario","stage":"ASK_NEED","transcriptLength":5}
+2025-11-24T00:17:51.147Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T00:17:51.149Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T00:17:51.149Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T00:17:51.150Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:21:18.354Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T00:22:12.071Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T00:22:12.072Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T00:22:12.072Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T00:22:12.073Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:22:38.877Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-24T00:22:38.878Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f...
+
+2025-11-24T00:22:38.882Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f68c7df[PHONE_REDACTED]de838a[PHONE_REDACTED]aa[PHONE_REDACTED]ca8c240: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-24T00:22:49.561Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f..." (length=82)
+2025-11-24T00:22:49.561Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b2...
+2025-11-24T00:22:49.562Z [INFO] [getSessionId] Resultado validación: true
+2025-11-24T00:22:49.562Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-24T00:22:49.567Z [INFO] [DEBUG BUTTON] Received button - action: button value: BTN_LANG_ES_AR token: BTN_LANG_ES_AR
+2025-11-24T00:22:49.567Z [INFO] [DEBUG /api/chat] SessionId: srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f buttonToken: BTN_LANG_ES_AR text: Español (Argentina)
+2025-11-24T00:22:49.567Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f68c7df[PHONE_REDACTED]de838a[PHONE_REDACTED]aa[PHONE_REDACTED]ca8c240: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-24T00:22:49.568Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-11-24T00:22:49.569Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f68c7df[PHONE_REDACTED]de838a[PHONE_REDACTED]aa[PHONE_REDACTED]ca8c240: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-24T00:22:49.571Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-24T00:22:49.571Z [INFO] │ 📊 FLOW LOG #147                                                 │
+2025-11-24T00:22:49.571Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-24T00:22:49.572Z [INFO] │ Session:    srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f6│
+2025-11-24T00:22:49.572Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-24T00:22:49.572Z [INFO] │ Input:      [BTN] 🇦🇷 Español (Argentina)                  │
+2025-11-24T00:22:49.573Z [INFO] │ Trigger:    BTN_LANG_ES_AR                                  │
+2025-11-24T00:22:49.573Z [INFO] │ Response:   👋 Hola, soy Tecnos, asistente inteligente de ST│
+2025-11-24T00:22:49.573Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-24T00:22:49.573Z [INFO] │ Action:     language_selected                               │
+2025-11-24T00:22:49.574Z [INFO] │ Duration:   3ms                                             │
+2025-11-24T00:22:49.574Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-24T00:23:11.131Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f..." (length=82)
+2025-11-24T00:23:11.132Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-b2...
+2025-11-24T00:23:11.132Z [INFO] [getSessionId] Resultado validación: true
+2025-11-24T00:23:11.132Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-24T00:23:11.133Z [INFO] [DEBUG BUTTON] Received button - action: button value: BTN_NO_NAME token: BTN_NO_NAME
+2025-11-24T00:23:11.133Z [INFO] [DEBUG /api/chat] SessionId: srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f buttonToken: BTN_NO_NAME text: Prefiero no decirlo
+2025-11-24T00:23:11.133Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f68c7df[PHONE_REDACTED]de838a[PHONE_REDACTED]aa[PHONE_REDACTED]ca8c240: {"userName":null,"stage":"ASK_NAME"}
+2025-11-24T00:23:11.134Z [INFO] [DEBUG] Session loaded - stage: ASK_NAME userName: null
+2025-11-24T00:23:11.134Z [INFO] [ASK_NAME] DEBUG - buttonToken: BTN_NO_NAME text: Prefiero no decirlo
+2025-11-24T00:23:11.135Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-b2e[PHONE_REDACTED]a8e9f[PHONE_REDACTED]b[PHONE_REDACTED]cd9f68c7df[PHONE_REDACTED]de838a[PHONE_REDACTED]aa[PHONE_REDACTED]ca8c240: {"userName":"Usuario","stage":"ASK_NEED","transcriptLength":5}
+2025-11-24T00:48:38.882Z [ERROR] Error: Invalid JSON
+    at verify (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:13)
+    at C:\sti-ai-chat\node_modules\body-parser\lib\read.js:111:9
+    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)
+    at invokeCallback (C:\sti-ai-chat\node_modules\raw-body\index.js:238:16)
+    at done (C:\sti-ai-chat\node_modules\raw-body\index.js:227:7)
+    at IncomingMessage.onEnd (C:\sti-ai-chat\node_modules\raw-body\index.js:287:7)
+    at IncomingMessage.emit (node:events:519:28)
+    at endReadableNT (node:internal/streams/readable:[PHONE_REDACTED]:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+2025-11-24T00:48:50.133Z [ERROR] TypeError [ERR_HTTP_INVALID_HEADER_VALUE]: Invalid value "undefined" for header "Access-Control-Allow-Origin"
+    at ServerResponse.setHeader (node:_http_outgoing:703:3)
+    at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:9
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+2025-11-24T00:49:52.735Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T00:49:52.736Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T00:49:52.737Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T00:49:52.737Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:51:00.216Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T00:51:48.913Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T00:52:15.165Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T00:52:41.581Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T00:53:19.140Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T00:55:55.932Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)

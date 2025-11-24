@@ -557,16 +557,49 @@
       return input.trim().slice(0, maxLength);
     }
     
-    let sessionId = null;
+    // MEJORA: Persistir sessionId en sessionStorage para mantener conversación en reloads
+    let sessionId = sessionStorage.getItem('sti_sessionId') || null;
     let pendingImage = null;
     const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const MAX_IMAGES_PER_SESSION = 10;
     let uploadedImagesCount = 0;
 
-    // Initialize chat
+    // Initialize chat - Recuperar sesión si existe
     async function initChat() {
       try {
+        // Si tenemos sessionId, intentar recuperar la sesión
+        if (sessionId) {
+          try {
+            const validateResponse = await fetch('/api/session/validate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId }),
+              credentials: 'same-origin'
+            });
+            
+            if (validateResponse.ok) {
+              const validateData = await validateResponse.json();
+              if (validateData.valid && validateData.session) {
+                console.log('[SESSION] Sesión existente recuperada:', sessionId);
+                addMessage('bot', '¡Bienvenido de nuevo! 👋 Continuemos donde lo dejamos.');
+                
+                // Restaurar transcript si existe
+                if (validateData.session.transcript && validateData.session.transcript.length > 0) {
+                  for (const msg of validateData.session.transcript) {
+                    addMessage(msg.who === 'user' ? 'user' : 'bot', msg.text, false);
+                  }
+                }
+                return;
+              }
+            }
+          } catch (validateErr) {
+            console.warn('[SESSION] No se pudo validar sesión anterior:', validateErr);
+            // Continuar creando nueva sesión
+          }
+        }
+        
+        // Crear nueva sesión
         const response = await fetch('/api/greeting', {
           method: 'POST',
           headers: { 
@@ -583,6 +616,10 @@
         
         if (data.ok && data.sessionId) {
           sessionId = data.sessionId;
+          // MEJORA: Persistir sessionId para mantener sesión en reloads
+          sessionStorage.setItem('sti_sessionId', sessionId);
+          console.log('[SESSION] Nueva sesión creada:', sessionId);
+          
           addMessage('bot', data.reply || 'Hola, ¿en qué puedo ayudarte?');
           if (data.options && Array.isArray(data.options) && data.options.length > 0) {
             addButtons(data.options);
