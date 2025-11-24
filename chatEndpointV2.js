@@ -152,6 +152,7 @@ export function setupConversationalChat(app, {
         conversationState: session.conversationState,
         sessionId: sid,
         expectingInput: response.expectingInput !== false,
+        buttons: response.buttons || [],  // 🆕 Incluir botones si existen
         metadata: {
           messageCount: session.metrics.messages,
           detectedDevice: session.detectedEntities.device,

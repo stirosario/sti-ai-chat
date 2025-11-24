@@ -5632,3 +5632,10 @@
 2025-11-24T18:41:29.793Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-24T18:50:42.147Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-24T19:16:22.514Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-11-24T19:16:22.560Z [INFO] [SETUP] ✅ Chat conversacional v2 configurado en /api/chat-v2
+2025-11-24T19:16:22.561Z [INFO] ✅ Endpoint conversacional /api/chat-v2 configurado
+2025-11-24T19:16:22.567Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T19:16:22.567Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T19:16:22.568Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T19:16:22.569Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)

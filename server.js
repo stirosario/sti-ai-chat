@@ -2406,18 +2406,19 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       }
     };
     const fullGreeting = buildLanguageSelectionGreeting();
-    fresh.transcript.push({ who:'bot', text: fullGreeting, ts: nowIso() });
+    fresh.transcript.push({ who:'bot', text: fullGreeting.text, ts: nowIso() });
     await saveSession(sid, fresh);
     
-    // Sin botones de idioma, input libre para nombre
+    // CON botones para GDPR
     // Incluir CSRF token en respuesta
     return res.json({
       ok: true,
-      greeting: fullGreeting,
-      reply: fullGreeting,
+      greeting: fullGreeting.text,
+      reply: fullGreeting.text,
       stage: fresh.stage,
       sessionId: sid,
-      csrfToken: csrfToken
+      csrfToken: csrfToken,
+      buttons: fullGreeting.buttons || []
     });
   } catch(e){
     console.error(e);
@@ -2451,7 +2452,8 @@ function buildTimeGreeting() {
 }
 
 function buildLanguageSelectionGreeting() {
-  return `📋 **Política de Privacidad y Consentimiento**
+  return {
+    text: `📋 **Política de Privacidad y Consentimiento**
 
 Antes de continuar, quiero informarte:
 
@@ -2463,10 +2465,12 @@ Antes de continuar, quiero informarte:
 
 🔗 Política completa: https://stia.com.ar/politica-privacidad.html
 
-**¿Aceptás estos términos?**
-
-Respondé "acepto" o "sí" para continuar
-Respondé "no acepto" para cancelar`;
+**¿Aceptás estos términos?**`,
+    buttons: [
+      { text: '✅ Acepto', value: 'acepto' },
+      { text: '❌ No acepto', value: 'no acepto' }
+    ]
+  };
 }
 
 // Función para agregar respuestas empáticas según Flujo.csv

@@ -197,8 +197,12 @@ function handleGreetingState(analysis, session, userMessage) {
       
       // Continuar al flujo de idioma
       return {
-        reply: `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**\n\n🇦🇷 **Español (Argentina)** - Escribí "español" o "1"\n🇺🇸 **English** - Type "english" or "2"\n\n_Podés cambiar de idioma en cualquier momento_`,
-        expectingInput: true
+        reply: `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`,
+        expectingInput: true,
+        buttons: [
+          { text: '🇦🇷 Español', value: 'español' },
+          { text: '🇺🇸 English', value: 'english' }
+        ]
       };
     }
     
@@ -212,8 +216,12 @@ function handleGreetingState(analysis, session, userMessage) {
     
     // Mostrar política de privacidad (primera interacción)
     return {
-      reply: `📋 **Política de Privacidad y Consentimiento**\n\nAntes de continuar, quiero informarte:\n\n✅ Guardaré tu nombre y nuestra conversación durante **48 horas**\n✅ Los datos se usarán **solo para brindarte soporte técnico**\n✅ Podés solicitar **eliminación de tus datos** en cualquier momento\n✅ **No compartimos** tu información con terceros\n✅ Cumplimos con **GDPR y normativas de privacidad**\n\n🔗 Política completa: https://stia.com.ar/politica-privacidad.html\n\n**¿Aceptás estos términos?**\n\nRespondé "acepto" o "sí" para continuar\nRespondé "no acepto" para cancelar`,
-      expectingInput: true
+      reply: `📋 **Política de Privacidad y Consentimiento**\n\nAntes de continuar, quiero informarte:\n\n✅ Guardaré tu nombre y nuestra conversación durante **48 horas**\n✅ Los datos se usarán **solo para brindarte soporte técnico**\n✅ Podés solicitar **eliminación de tus datos** en cualquier momento\n✅ **No compartimos** tu información con terceros\n✅ Cumplimos con **GDPR y normativas de privacidad**\n\n🔗 Política completa: https://stia.com.ar/politica-privacidad.html\n\n**¿Aceptás estos términos?**`,
+      expectingInput: true,
+      buttons: [
+        { text: '✅ Acepto', value: 'acepto' },
+        { text: '❌ No acepto', value: 'no acepto' }
+      ]
     };
   }
   
