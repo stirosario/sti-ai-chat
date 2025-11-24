@@ -2995,3 +2995,130 @@
 2025-11-23T23:49:26.700Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"ASK_PROBLEM","transcriptLength":13}
 2025-11-23T23:49:27.001Z [ERROR] [aiQuickTests] error: 400 Unrecognized request argument supplied: signal
 2025-11-23T23:49:27.002Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-453b0d5c5cc[PHONE_REDACTED]d483a8e6e[PHONE_REDACTED]d[PHONE_REDACTED]db5aad7cded[PHONE_REDACTED]df4f5b4f667d: {"userName":"Kevin","stage":"BASIC_TESTS","transcriptLength":13}
+2025-11-23T23:52:36.781Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:52:36.782Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:52:36.783Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:52:36.783Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-23T23:52:59.360Z [INFO] [getSessionId] No hay sessionId en la petición - generando nuevo
+
+2025-11-23T23:52:59.362Z [INFO] [getSessionId] Nuevo sessionId: srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e...
+
+2025-11-23T23:52:59.367Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-11-23T23:52:59.400Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e..." (length=82)
+2025-11-23T23:52:59.401Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-86...
+2025-11-23T23:52:59.401Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:52:59.402Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:52:59.407Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-11-23T23:52:59.409Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":null,"stage":"ASK_NAME","transcriptLength":3}
+2025-11-23T23:52:59.411Z [INFO] 
+┌─────────────────────────────────────────────────────────────────┐
+2025-11-23T23:52:59.411Z [INFO] │ 📊 FLOW LOG #145                                                 │
+2025-11-23T23:52:59.411Z [INFO] ├─────────────────────────────────────────────────────────────────┤
+2025-11-23T23:52:59.411Z [INFO] │ Session:    srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e91cc741d09c7a03c0d│
+2025-11-23T23:52:59.412Z [INFO] │ Stage:      ASK_LANGUAGE                                    │
+2025-11-23T23:52:59.412Z [INFO] │ Input:      [BTN] 🇬🇧 English                              │
+2025-11-23T23:52:59.412Z [INFO] │ Trigger:    BTN_LANG_EN                                     │
+2025-11-23T23:52:59.412Z [INFO] │ Response:   👋 Hi, I'm Tecnos, the intelligent assistant of │
+2025-11-23T23:52:59.412Z [INFO] │ Next Stage: ASK_NAME                                        │
+2025-11-23T23:52:59.412Z [INFO] │ Action:     language_selected                               │
+2025-11-23T23:52:59.413Z [INFO] │ Duration:   3ms                                             │
+2025-11-23T23:52:59.413Z [INFO] └─────────────────────────────────────────────────────────────────┘
+
+2025-11-23T23:53:21.604Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e..." (length=82)
+2025-11-23T23:53:21.604Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-86...
+2025-11-23T23:53:21.604Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:53:21.605Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:53:21.606Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":null,"stage":"ASK_NAME"}
+2025-11-23T23:53:21.610Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":"Kevin","stage":"ASK_NEED","transcriptLength":5}
+2025-11-23T23:53:21.613Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e..." (length=82)
+2025-11-23T23:53:21.614Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-86...
+2025-11-23T23:53:21.614Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:53:21.614Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:53:21.615Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":"Kevin","stage":"ASK_NEED"}
+2025-11-23T23:53:21.616Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":"Kevin","stage":"ASK_PROBLEM","transcriptLength":7}
+2025-11-23T23:53:35.572Z [INFO] 
+[getSessionId] Recibido sid: "srv-[PHONE_REDACTED]-[PHONE_REDACTED]b5e..." (length=82)
+2025-11-23T23:53:35.572Z [INFO] [validateSessionId] ✅ ACCEPT: srv-[PHONE_REDACTED]-86...
+2025-11-23T23:53:35.572Z [INFO] [getSessionId] Resultado validación: true
+2025-11-23T23:53:35.573Z [INFO] [getSessionId] ✅ Usando sessionId existente
+
+2025-11-23T23:53:35.574Z [INFO] [getSession] ✅ Loaded from memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":"Kevin","stage":"ASK_PROBLEM"}
+2025-11-23T23:53:35.576Z [INFO] [saveSession] ✅ Saved to memory srv-[PHONE_REDACTED]-[PHONE_REDACTED][TOKEN_REDACTED][PHONE_REDACTED]aa35b483de3ffcbb: {"userName":"Kevin","stage":"ASK_DEVICE","transcriptLength":9}
+2025-11-23T23:53:35.580Z [INFO] [ASK_DEVICE] Response: {
+  "ok": true,
+  "reply": "Perfect. When you say \"computer\", which of these devices do you mean?",
+  "stage": "ASK_DEVICE",
+  "options": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "Desktop PC",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "All-in-One PC",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "buttons": [
+    {
+      "token": "BTN_DEV_PC_DESKTOP",
+      "label": "Desktop PC",
+      "text": "pc de escritorio"
+    },
+    {
+      "token": "BTN_DEV_PC_ALLINONE",
+      "label": "All-in-One PC",
+      "text": "pc all in one"
+    },
+    {
+      "token": "BTN_DEV_NOTEBOOK",
+      "label": "Notebook",
+      "text": "notebook"
+    }
+  ],
+  "ui": {
+    "buttons": [
+      {
+        "token": "BTN_DEV_PC_DESKTOP",
+        "label": "Desktop PC",
+        "text": "pc de escritorio"
+      },
+      {
+        "token": "BTN_DEV_PC_ALLINONE",
+        "label": "All-in-One PC",
+        "text": "pc all in one"
+      },
+      {
+        "token": "BTN_DEV_NOTEBOOK",
+        "label": "Notebook",
+        "text": "notebook"
+      }
+    ]
+  }
+}
+2025-11-23T23:58:47.901Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-23T23:58:47.902Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-23T23:58:47.902Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-23T23:58:47.902Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:00:19.635Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T00:00:24.217Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-24T00:00:42.306Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T00:00:42.307Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T00:00:42.307Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T00:00:42.307Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T00:01:03.744Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

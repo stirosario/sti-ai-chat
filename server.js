@@ -3237,6 +3237,7 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
     // ASK_NAME consolidated: validate locally and with OpenAI if available
     
     if (session.stage === STATES.ASK_NAME) {
+      console.log('[ASK_NAME] DEBUG - buttonToken:', buttonToken, 'text:', t);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
 
