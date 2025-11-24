@@ -2,6 +2,7 @@
  * flowLogger.js
  * Sistema de logging para auditoría del flujo de conversación
  * Exporta cada interacción en formato tabla CSV
+ * 🔐 GDPR COMPLIANT: Aplica maskPII automáticamente
  */
 
 import fs from 'fs';
@@ -10,6 +11,43 @@ import path from 'path';
 const LOG_DIR = process.env.LOGS_DIR || path.join(process.cwd(), 'data', 'logs');
 const FLOW_LOG_FILE = path.join(LOG_DIR, 'flow-audit.csv');
 const FLOW_LOG_JSON = path.join(LOG_DIR, 'flow-audit.json');
+
+// ========================================================
+// 🔐 MASK PII - GDPR Compliant (Centralizado)
+// ========================================================
+export function maskPII(text) {
+  if (!text) return text;
+  let s = String(text);
+  
+  // Emails
+  s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, '[EMAIL_REDACTED]');
+  
+  // Tarjetas de crédito (16 dígitos)
+  s = s.replace(/\b(?:\d{4}[- ]?){3}\d{4}\b/g, '[CARD_REDACTED]');
+  
+  // CBU/CVU (22 dígitos)
+  s = s.replace(/\b\d{22}\b/g, '[CBU_REDACTED]');
+  
+  // CUIT/CUIL (XX-XXXXXXXX-X)
+  s = s.replace(/\b\d{2}[-\s]?\d{8}[-\s]?\d{1}\b/g, '[CUIT_REDACTED]');
+  
+  // DNI (7-8 dígitos aislados) - ANTES de teléfonos
+  s = s.replace(/\b\d{7,8}\b/g, '[DNI_REDACTED]');
+  
+  // Teléfonos internacionales
+  s = s.replace(/\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{1,9}/g, '[PHONE_REDACTED]');
+  
+  // IPs
+  s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]');
+  
+  // Contraseñas obvias
+  s = s.replace(/(?:password|pwd|pass|clave|contraseña)\s*[=:]\s*[^\s]+/gi, '[PASSWORD_REDACTED]');
+  
+  // Tokens y API keys
+  s = s.replace(/\b[A-Za-z0-9]{32,}\b/g, '[TOKEN_REDACTED]');
+  
+  return s;
+}
 
 // Contador global de interacciones
 let interactionCounter = 0;
@@ -78,14 +116,16 @@ export function logFlowInteraction(data) {
     interactionCounter++;
     
     const timestamp = new Date().toISOString();
+    
+    // 🔐 APLICAR maskPII a TODOS los campos sensibles
     const entry = {
       numero: interactionCounter,
       timestamp,
-      sessionId: data.sessionId || 'N/A',
+      sessionId: maskPII(data.sessionId || 'N/A'),
       etapaActual: data.currentStage || 'N/A',
-      inputUsuario: truncate(data.userInput, 150),
+      inputUsuario: maskPII(truncate(data.userInput, 150)),
       triggerDetectado: data.trigger || 'N/A',
-      respuestaBot: truncate(data.botResponse, 150),
+      respuestaBot: maskPII(truncate(data.botResponse, 150)),
       siguienteEtapa: data.nextStage || 'N/A',
       accionServidor: data.serverAction || 'N/A',
       duracionMs: data.duration || 0
@@ -117,7 +157,7 @@ export function logFlowInteraction(data) {
     const jsonEntry = JSON.stringify(entry) + '\n';
     fs.appendFileSync(FLOW_LOG_JSON, jsonEntry, 'utf8');
 
-    // Log en consola con formato tabla
+    // Log en consola con formato tabla (DATOS YA SANITIZADOS)
     console.log('\n┌─────────────────────────────────────────────────────────────────┐');
     console.log(`│ 📊 FLOW LOG #${entry.numero.toString().padEnd(52)}│`);
     console.log('├─────────────────────────────────────────────────────────────────┤');

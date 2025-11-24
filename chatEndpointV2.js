@@ -11,15 +11,16 @@ export function setupConversationalChat(app, {
   logFlowInteraction,
   updateMetric,
   analyzeUserIntent,
-  generateConversationalResponse
+  generateConversationalResponse,
+  getSessionId
 }) {
   
   app.post('/api/chat-v2', chatLimiter, async (req, res) => {
     const startTime = Date.now();
-    const sid = req.sessionId;
+    const sid = req.sessionId || getSessionId(req);
     
     console.log(`\n[${'='.repeat(70)}]`);
-    console.log(`[CHAT-V2] 💬 Nueva conversación - Session: ${sid.substring(0, 25)}...`);
+    console.log(`[CHAT-V2] 💬 Nueva conversación - Session: ${sid ? sid.substring(0, 25) : 'UNKNOWN'}...`);
     
     try {
       // 1. OBTENER O CREAR SESIÓN
@@ -75,6 +76,12 @@ export function setupConversationalChat(app, {
         ts: nowIso()
       });
       
+      // 🆕 LÍMITE DE TRANSCRIPT: Mantener máximo 100 mensajes
+      if (session.transcript.length > 100) {
+        session.transcript = session.transcript.slice(-100); // Mantener últimos 100
+        console.log('[CHAT-V2] ⚠️  Transcript truncado a 100 mensajes');
+      }
+      
       // 4. MANTENER CONTEXTO
       session.contextWindow.push(userMessage);
       if (session.contextWindow.length > 5) {
@@ -92,7 +99,7 @@ export function setupConversationalChat(app, {
       });
       
       // 6. GENERAR RESPUESTA (NLG - Natural Language Generation)
-      const response = generateConversationalResponse(analysis, session, userMessage);
+      const response = await generateConversationalResponse(analysis, session, userMessage);
       console.log(`[CHAT-V2] 🤖 Bot: "${response.reply.substring(0, 100)}..."`);
       
       // 7. AGREGAR RESPUESTA AL TRANSCRIPT
@@ -133,6 +140,8 @@ export function setupConversationalChat(app, {
       }
       
       console.log(`[CHAT-V2] ⏱️  Tiempo: ${responseTime}ms | Mensajes sesión: ${session.metrics.messages}`);
+      console.log(`[CHAT-V2] 🔍 DEBUG - Estado antes de responder: '${session.conversationState}'`);
+      console.log(`[CHAT-V2] 🔍 DEBUG - userName antes de responder: '${session.userName}'`);
       console.log(`[${'='.repeat(70)}]\n`);
       
       // 12. RESPONDER

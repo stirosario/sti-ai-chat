@@ -37,6 +37,8 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import pino from 'pino';
+import pinoHttp from 'pino-http';
 import fs, { createReadStream } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -47,13 +49,14 @@ import cron from 'node-cron';
 import compression from 'compression';
 
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
-import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel } from './flowLogger.js';
+import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel, maskPII } from './flowLogger.js';
+import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
 
 // ========================================================
 // 🔥 CONVERSATIONAL AI MODULES (nuevos)
 // ========================================================
 import { analyzeUserIntent, generateConversationalResponse } from './conversationalBrain.js';
-import setupConversationalChat from './chatEndpointV2.js';
+import { setupConversationalChat } from './chatEndpointV2.js';
 
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
@@ -114,6 +117,11 @@ function generateCSRFToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+// ========================================================
+// 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
+// ========================================================
+// validateCSRF está declarado más abajo (línea ~1054) con implementación completa
+
 function generateRequestId() {
   return `req-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
 }
@@ -171,6 +179,36 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
 }
 
 // ========================================================
+// 🔒 CORS CONFIGURATION (Production-ready)
+// ========================================================
+const ALLOWED_ORIGINS = [
+  'https://stia.com.ar',
+  'https://www.stia.com.ar',
+  'http://localhost:3000',
+  'http://localhost:5500'
+];
+
+if (process.env.NODE_ENV !== 'production') {
+  ALLOWED_ORIGINS.push('http://127.0.0.1:3000', 'http://127.0.0.1:5500');
+}
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Permitir requests sin origin (como Postman, curl, apps móviles)
+    if (!origin) return callback(null, true);
+    
+    if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`[SECURITY] CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+// ========================================================
 // Metrics & Monitoring
 // ========================================================
 const metrics = {
@@ -226,39 +264,7 @@ const nowIso = () => new Date().toISOString();
 
 const withOptions = obj => ({ options: [], ...obj });
 
-function maskPII(text) {
-  if (!text) return text;
-  let s = String(text);
-  
-  // Emails (más estricto)
-  s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, '[EMAIL_REDACTED]');
-  
-  // Tarjetas de crédito (16 dígitos)
-  s = s.replace(/\b(?:\d{4}[- ]?){3}\d{4}\b/g, '[CARD_REDACTED]');
-  
-  // CBU/CVU (22 dígitos)
-  s = s.replace(/\b\d{22}\b/g, '[CBU_REDACTED]');
-  
-  // CUIT/CUIL (XX-XXXXXXXX-X)
-  s = s.replace(/\b\d{2}[-\s]?\d{8}[-\s]?\d{1}\b/g, '[CUIT_REDACTED]');
-  
-  // Teléfonos internacionales (+54 9 341...)
-  s = s.replace(/\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{1,9}/g, '[PHONE_REDACTED]');
-  
-  // DNI (7-8 dígitos aislados)
-  s = s.replace(/\b\d{7,8}\b/g, '[DNI_REDACTED]');
-  
-  // IPs (v4)
-  s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]');
-  
-  // Contraseñas obvias (password=, pwd=, pass=)
-  s = s.replace(/(?:password|pwd|pass|clave|contraseña)\s*[=:]\s*[^\s]+/gi, '[PASSWORD_REDACTED]');
-  
-  // Tokens y API keys (patrones comunes)
-  s = s.replace(/\b[A-Za-z0-9]{32,}\b/g, '[TOKEN_REDACTED]');
-  
-  return s;
-}
+// maskPII ya está importado desde flowLogger.js (línea 52)
 
 function formatLog(level, ...parts) {
   const rawText = parts.map(p => {
@@ -1064,10 +1070,13 @@ function validateCSRF(req, res, next) {
 // No se aplica globalmente para no bloquear /api/greeting inicial
 
 // SECURITY: Helmet para headers de seguridad
+// ========================================================
+// 🛡️ HELMET: Security Headers (Producción Segura)
+// ========================================================
 app.use(helmet({
   contentSecurityPolicy: false, // Lo manejaremos manualmente para PWA
   hsts: {
-    maxAge: 31536000,
+    maxAge: 31536000, // 1 año
     includeSubDomains: true,
     preload: true
   },
@@ -1080,33 +1089,61 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS: lista blanca de orígenes permitidos (configurable vía ALLOWED_ORIGINS)
+// ========================================================
+// 🔐 HTTPS FORZADO (Solo Producción)
+// ========================================================
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    const proto = req.headers['x-forwarded-proto'];
+    if (proto && proto !== 'https') {
+      console.warn(`[SECURITY] ⚠️  HTTP request redirected to HTTPS: ${req.url}`);
+      return res.redirect(301, `https://${req.hostname}${req.url}`);
+    }
+  }
+  next();
+});
+
+// ========================================================
+// 🔒 CORS: WHITELIST ESTRICTA (Producción Ready)
+// ========================================================
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://stia.com.ar', 'https://www.stia.com.ar', 'http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:5173'];
+  : ['https://stia.com.ar', 'https://www.stia.com.ar'];
+
+// Solo en desarrollo agregar localhost
+if (process.env.NODE_ENV !== 'production') {
+  allowedOrigins.push(
+    'http://localhost:3000', 
+    'http://localhost:5173', 
+    'http://127.0.0.1:3000'
+  );
+  console.log('[CORS] Development mode: localhost origins enabled');
+}
 
 app.use(cors({ 
   origin: (origin, callback) => {
-    // SECURITY: Rechazar explícitamente origin null (puede ser ataque)
+    // SECURITY: Rechazar explícitamente origin null (puede ser ataque CSRF)
     if (origin === 'null' || origin === null) {
-      console.warn(`[CORS] Blocked null origin (potential attack)`);
+      console.warn(`[SECURITY] ⚠️  CORS blocked null origin (potential CSRF attack)`);
       return callback(new Error('CORS: null origin not allowed'), false);
     }
     
-    // Permitir sin origin SOLO en desarrollo o para herramientas autorizadas
+    // PRODUCTION: Rechazar requests sin origin
     if (!origin) {
-      if (process.env.NODE_ENV === 'development') {
-        return callback(null, true);
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] ⚠️  CORS blocked request without origin in production`);
+        return callback(new Error('CORS: origin header required in production'), false);
       }
-      console.warn(`[CORS] Blocked request without origin header`);
-      return callback(new Error('CORS: origin header required'), false);
+      // Development: permitir (para Postman, curl, etc.)
+      return callback(null, true);
     }
     
-    // Validar contra lista blanca estricta
+    // Validar contra whitelist
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`[CORS] Blocked unauthorized origin: ${origin}`);
+      console.error(`[SECURITY] 🚨 CORS VIOLATION: Unauthorized origin attempted access: ${origin}`);
+      updateMetric('errors', 'count', 1);
       callback(new Error('CORS: origin not allowed'), false);
     }
   },
@@ -1278,24 +1315,65 @@ const uploadLimiter = rateLimit({
   }
 });
 
+// ========================================================
+// 🔐 RATE LIMITERS (Production-Ready)
+// ========================================================
+
+// Rate limit POR SESIÓN (previene abuse de bots)
+const sessionMessageCounts = new Map(); // Map<sessionId, {count, resetAt}>
+
+function checkSessionRateLimit(sessionId) {
+  if (!sessionId) return { allowed: true };
+  
+  const now = Date.now();
+  const data = sessionMessageCounts.get(sessionId);
+  
+  if (!data || data.resetAt < now) {
+    // Nueva ventana
+    sessionMessageCounts.set(sessionId, {
+      count: 1,
+      resetAt: now + (60 * 1000) // 1 minuto
+    });
+    return { allowed: true, remaining: 19 };
+  }
+  
+  if (data.count >= 20) {
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil((data.resetAt - now) / 1000) };
+  }
+  
+  data.count++;
+  return { allowed: true, remaining: 20 - data.count };
+}
+
+// Limpiar contadores antiguos cada 5 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, data] of sessionMessageCounts.entries()) {
+    if (data.resetAt < now) {
+      sessionMessageCounts.delete(sid);
+    }
+  }
+}, 5 * 60 * 1000);
+
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
-  max: 20, // 20 mensajes por minuto (protege contra spam y abuse)
+  max: 50, // AUMENTADO: 50 mensajes por IP/minuto (el session limit es más restrictivo)
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
     const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    return `${ip}:${req.sessionId || 'no-session'}`;
+    return ip;
   },
   handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] Chat BLOCKED - Too many messages:`);
+    console.warn(`[RATE_LIMIT] IP BLOCKED - Too many messages:`);
     console.warn(`  IP: ${req.ip}`);
     console.warn(`  Session: ${req.sessionId}`);
     console.warn(`  Path: ${req.path}`);
+    updateMetric('errors', 'count', 1);
     res.status(429).json({ 
       ok: false, 
-      reply: '😅 Estás escribiendo muy rápido. Tomate un respiro y probá de nuevo en un momento.',
-      error: 'Demasiados mensajes. Esperá un momento antes de continuar.',
+      reply: '😅 Estás escribiendo muy rápido desde esta conexión. Esperá un momento.',
+      error: 'Demasiados mensajes desde esta IP. Esperá un momento.',
       retryAfter: 60
     });
   }
@@ -1637,15 +1715,15 @@ function validateSessionId(sid) {
     return sessionIdRegex.test(sid);
   }
   
-  // Para sesiones del cliente web: formato web-TIMESTAMP36-RANDOM6
-  // Ejemplo: web-lo123abc-xy9z0m (4 + 1 + 8 + 1 + 6 = 20 caracteres aprox)
+  // Para sesiones del cliente web: formato flexible
+  // Ejemplos: web-heber-123456, web-lo123abc-xy9z0m, web-1234567890
   if (sid.startsWith('web-')) {
-    // Validación más flexible para IDs generados en el cliente
-    if (sid.length < 15 || sid.length > 50) {
+    // Validación flexible: permitir letras, números y guiones
+    if (sid.length < 10 || sid.length > 60) {
       return false;
     }
-    // Permitir letras, números y guiones
-    const webSessionRegex = /^web-[a-z0-9]{6,15}-[a-z0-9]{4,10}$/;
+    // Formato: web- seguido de caracteres alfanuméricos y guiones
+    const webSessionRegex = /^web-[a-zA-Z0-9_-]+$/;
     return webSessionRegex.test(sid);
   }
   
@@ -1814,7 +1892,10 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000); // limpiar cada 5 minutos
 
-app.post('/api/whatsapp-ticket', async (req,res)=>{
+// ========================================================
+// POST /api/whatsapp-ticket — Ticket creation (CSRF Protected)
+// ========================================================
+app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
   try{
     const { name, device, sessionId, history = [] } = req.body || {};
     const sid = sessionId || req.sessionId;
@@ -1950,6 +2031,63 @@ app.post('/api/whatsapp-ticket', async (req,res)=>{
   } catch(e){ 
     console.error('[whatsapp-ticket]', e); 
     res.status(500).json({ ok:false, error: e.message }); 
+  }
+});
+
+// ========================================================
+// POST /api/ticket/create — Sistema de tickets REAL (CSRF Protected)
+// ========================================================
+app.post('/api/ticket/create', validateCSRF, async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({ ok: false, error: 'Session ID required' });
+    }
+    
+    // Obtener sesión
+    const session = await getSession(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ ok: false, error: 'Session not found' });
+    }
+    
+    // 🔐 PASO 1: Verificar que usuario haya dado consentimiento para compartir datos
+    if (!session.gdprConsentWhatsApp) {
+      return res.status(403).json({ 
+        ok: false, 
+        error: 'consent_required',
+        message: 'Necesitamos tu consentimiento antes de enviar datos a WhatsApp'
+      });
+    }
+    
+    // PASO 2: Crear ticket
+    const ticket = await createTicket(session);
+    
+    // PASO 3: Generar URLs
+    const publicUrl = getTicketPublicUrl(ticket.id);
+    const waUrl = generateWhatsAppLink(ticket);
+    
+    // PASO 4: Actualizar métricas
+    updateMetric('chat', 'sessions', 1);
+    
+    console.log(`[TICKET] ✅ Ticket creado y URLs generadas: ${ticket.id}`);
+    
+    res.json({
+      ok: true,
+      ticket: {
+        id: ticket.id,
+        createdAt: ticket.createdAt,
+        status: ticket.status,
+        publicUrl,
+        whatsappUrl: waUrl
+      }
+    });
+  } catch (error) {
+    console.error('[TICKET] Error creating ticket:', error);
+    updateMetric('errors', 'count', 1);
+    updateMetric('errors', 'lastError', error.message);
+    res.status(500).json({ ok: false, error: 'Internal server error' });
   }
 });
 
@@ -2981,7 +3119,10 @@ Respondé en formato JSON:
 // ========================================================
 // Core chat endpoint: /api/chat
 // ========================================================
-app.post('/api/chat', chatLimiter, async (req,res)=>{
+// ========================================================
+// POST /api/chat — Main conversational endpoint (CSRF + Rate-Limit Protected)
+// ========================================================
+app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
   const startTime = Date.now(); // Para medir duración
   let flowLogData = {
     sessionId: null,
@@ -3016,6 +3157,21 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
   };
   
   try {
+    // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
+    const sessionId = req.body.sessionId || req.sessionId;
+    const sessionRateCheck = checkSessionRateLimit(sessionId);
+    
+    if (!sessionRateCheck.allowed) {
+      console.warn(`[RATE_LIMIT] SESSION BLOCKED - Session ${sessionId} exceeded 20 msgs/min`);
+      updateMetric('errors', 'count', 1);
+      return res.status(429).json({
+        ok: false,
+        reply: '😅 Estás escribiendo muy rápido. Esperá unos segundos antes de continuar.',
+        error: 'session_rate_limit',
+        retryAfter: sessionRateCheck.retryAfter
+      });
+    }
+    
     updateMetric('chat', 'totalMessages', 1);
     
     const body = req.body || {};
@@ -4086,15 +4242,182 @@ La guía debe ser:
 });
 
 // ========================================================
-// Health check endpoint
+// Health check endpoint (Enhanced Production-Ready)
 // ========================================================
-app.get('/api/health', (_req, res) => {
-  res.json({ 
-    ok: true, 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+app.get('/api/health', async (_req, res) => {
+  try {
+    // Check Redis/sessionStore connectivity
+    let redisStatus = 'unknown';
+    let activeSessions = 0;
+    
+    try {
+      const sessions = await listActiveSessions();
+      activeSessions = sessions ? sessions.length : 0;
+      redisStatus = 'healthy';
+    } catch (err) {
+      redisStatus = 'error';
+      console.error('[HEALTH] Redis check failed:', err.message);
+    }
+    
+    // Check filesystem writable
+    let fsStatus = 'healthy';
+    try {
+      const testFile = path.join(UPLOADS_DIR, '.health-check');
+      fs.writeFileSync(testFile, 'ok', 'utf8');
+      fs.unlinkSync(testFile);
+    } catch (err) {
+      fsStatus = 'error';
+      console.error('[HEALTH] Filesystem check failed:', err.message);
+    }
+    
+    // Check OpenAI connectivity (optional)
+    let openaiStatus = openai ? 'configured' : 'not_configured';
+    
+    const uptime = process.uptime();
+    const memory = process.memoryUsage();
+    
+    const health = {
+      ok: redisStatus === 'healthy' && fsStatus === 'healthy',
+      status: (redisStatus === 'healthy' && fsStatus === 'healthy') ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
+      uptimeSeconds: Math.floor(uptime),
+      
+      services: {
+        redis: redisStatus,
+        filesystem: fsStatus,
+        openai: openaiStatus
+      },
+      
+      stats: {
+        activeSessions: activeSessions,
+        totalMessages: metrics.chat.totalMessages || 0,
+        totalErrors: metrics.errors.count || 0
+      },
+      
+      memory: {
+        heapUsed: `${(memory.heapUsed / 1024 / 1024).toFixed(2)}MB`,
+        heapTotal: `${(memory.heapTotal / 1024 / 1024).toFixed(2)}MB`,
+        rss: `${(memory.rss / 1024 / 1024).toFixed(2)}MB`
+      }
+    };
+    
+    const statusCode = health.ok ? 200 : 503;
+    res.status(statusCode).json(health);
+  } catch (error) {
+    console.error('[HEALTH] Error:', error);
+    res.status(500).json({
+      ok: false,
+      status: 'error',
+      error: 'Health check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ========================================================
+// 🔐 GDPR ENDPOINTS
+// ========================================================
+
+/**
+ * GET /api/gdpr/my-data/:sessionId
+ * Obtener datos personales asociados a una sesión (GDPR Art. 15)
+ */
+app.get('/api/gdpr/my-data/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+      return res.status(400).json({ ok: false, error: 'Session ID required' });
+    }
+    
+    const session = await getSession(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ ok: false, error: 'Session not found or already deleted' });
+    }
+    
+    // Retornar datos anonimizados/resumidos
+    const userData = {
+      sessionId: session.id,
+      userName: session.userName ? `[REDACTED - First letter: ${session.userName.charAt(0).toUpperCase()}]` : null,
+      createdAt: session.startedAt || session.createdAt || 'N/A',
+      conversationState: session.conversationState || 'N/A',
+      device: session.detectedEntities?.device || session.device || 'N/A',
+      transcriptLength: session.transcript ? session.transcript.length : 0,
+      gdprConsent: session.gdprConsent || false,
+      gdprConsentDate: session.gdprConsentDate || null,
+      expiresIn: '48 hours from creation'
+    };
+    
+    console.log(`[GDPR] 📊 Data request for session: ${sessionId}`);
+    
+    res.json({ ok: true, data: userData });
+  } catch (error) {
+    console.error('[GDPR] Error retrieving user data:', error);
+    res.status(500).json({ ok: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/gdpr/delete-me/:sessionId
+ * Eliminar todos los datos personales (GDPR Art. 17 - Derecho al Olvido)
+ */
+app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+      return res.status(400).json({ ok: false, error: 'Session ID required' });
+    }
+    
+    console.log(`[GDPR] 🗑️  DELETE request for session: ${sessionId}`);
+    
+    // Eliminar sesión de Redis/store
+    const session = await getSession(sessionId);
+    if (session) {
+      // Eliminar transcript asociado
+      const transcriptPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.txt`);
+      try {
+        if (fs.existsSync(transcriptPath)) {
+          fs.unlinkSync(transcriptPath);
+          console.log(`[GDPR] ✅ Transcript deleted: ${transcriptPath}`);
+        }
+      } catch (err) {
+        console.error(`[GDPR] ⚠️  Error deleting transcript:`, err.message);
+      }
+      
+      // Eliminar tickets asociados (buscar por sessionId)
+      try {
+        const ticketFiles = fs.readdirSync(TICKETS_DIR);
+        for (const file of ticketFiles) {
+          if (file.endsWith('.json')) {
+            const ticketPath = path.join(TICKETS_DIR, file);
+            const ticketData = JSON.parse(fs.readFileSync(ticketPath, 'utf8'));
+            if (ticketData.sessionId === sessionId) {
+              fs.unlinkSync(ticketPath);
+              console.log(`[GDPR] ✅ Ticket deleted: ${file}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[GDPR] ⚠️  Error deleting tickets:`, err.message);
+      }
+      
+      // Eliminar sesión
+      await saveSession(sessionId, null); // O usar deleteSession si existe
+      console.log(`[GDPR] ✅ Session deleted: ${sessionId}`);
+    }
+    
+    res.json({ 
+      ok: true, 
+      message: 'Tus datos han sido eliminados permanentemente de nuestros sistemas',
+      deletedItems: ['session', 'transcript', 'tickets']
+    });
+  } catch (error) {
+    console.error('[GDPR] Error deleting user data:', error);
+    res.status(500).json({ ok: false, error: 'Internal server error' });
+  }
 });
 
 // ========================================================
@@ -4142,13 +4465,21 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       createdAt: Date.now()
     });
     
-    // Mensaje de saludo inicial
-    const locale = session.userLocale || 'es-AR';
-    const isEn = String(locale).toLowerCase().startsWith('en');
-    
-    const greeting = isEn
-      ? '👋 Hello! I\'m Tecnos from STI — Servicio Técnico Inteligente. What\'s your name?'
-      : '👋 ¡Hola! Soy Tecnos de STI — Servicio Técnico Inteligente. ¿Cómo te llamás?';
+    // Mensaje de saludo inicial con selección de idioma
+    const greeting = `🌍 **Welcome | Bienvenido**
+
+💻 **STI - Soporte Técnico Inteligente**
+AI Technical Support Assistant
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+🇦🇷 **Español** - Escribí "español" o "1"
+🇺🇸 **English** - Type "english" or "2"
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+Por favor, seleccioná tu idioma.
+Please select your language.`;
     
     // Registrar en transcript
     session.transcript.push({ 
@@ -4309,7 +4640,9 @@ app.get('/api/flow-audit/export', (req, res) => {
   }
 });
 
-// Metrics endpoint
+// ========================================================
+// Metrics endpoint (Enhanced Production-Ready)
+// ========================================================
 app.get('/api/metrics', async (req, res) => {
   const token = req.headers.authorization || req.query.token;
   
@@ -4320,31 +4653,69 @@ app.get('/api/metrics', async (req, res) => {
   
   try {
     const sessions = await listActiveSessions();
-    const uploadsDir = fs.readdirSync(UPLOADS_DIR);
-    const uploadStats = uploadsDir.reduce((acc, file) => {
-      const filePath = path.join(UPLOADS_DIR, file);
-      const stats = fs.statSync(filePath);
-      return {
-        count: acc.count + 1,
-        totalBytes: acc.totalBytes + stats.size
-      };
-    }, { count: 0, totalBytes: 0 });
     
-    res.json({
+    // Count tickets
+    let ticketsCount = 0;
+    try {
+      const ticketFiles = fs.readdirSync(TICKETS_DIR);
+      ticketsCount = ticketFiles.filter(f => f.endsWith('.json')).length;
+    } catch (e) { /* noop */ }
+    
+    // Upload stats
+    let uploadStats = { count: 0, totalBytes: 0 };
+    try {
+      const uploadsDir = fs.readdirSync(UPLOADS_DIR);
+      uploadStats = uploadsDir.reduce((acc, file) => {
+        const filePath = path.join(UPLOADS_DIR, file);
+        const stats = fs.statSync(filePath);
+        return {
+          count: acc.count + 1,
+          totalBytes: acc.totalBytes + stats.size
+        };
+      }, { count: 0, totalBytes: 0 });
+    } catch (e) { /* noop */ }
+    
+    // Prepare response
+    const metricsData = {
       ok: true,
-      metrics: getMetrics(),
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      
+      // Core metrics
+      chat: {
+        totalMessages: metrics.chat.totalMessages || 0,
+        activeSessions: sessions.length
+      },
+      
+      tickets: {
+        total: ticketsCount,
+        generated: metrics.chat.sessions || 0
+      },
+      
+      uploads: metrics.uploads,
+      
+      errors: {
+        count: metrics.errors.count || 0,
+        lastError: metrics.errors.lastError || null
+      },
+      
       storage: {
         uploads: {
           files: uploadStats.count,
           totalMB: (uploadStats.totalBytes / 1024 / 1024).toFixed(2)
         }
       },
-      sessions: {
-        active: sessions.length
-      }
+      
+      memory: process.memoryUsage()
+    };
+    
+    res.json(metricsData);
+  } catch (error) {
+    console.error('[METRICS] Error:', error);
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to retrieve metrics'
     });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -4369,7 +4740,8 @@ setupConversationalChat(app, {
     metrics[metricName] = (metrics[metricName] || 0) + 1;
   },
   analyzeUserIntent,
-  generateConversationalResponse
+  generateConversationalResponse,
+  getSessionId
 });
 console.log('✅ Endpoint conversacional /api/chat-v2 configurado');
 

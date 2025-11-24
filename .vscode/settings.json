@@ -1,0 +1,12 @@
+{
+  "simpleBrowser.trustedDomains": [
+    "localhost",
+    "127.0.0.1",
+    "localhost:3001",
+    "http://localhost:3001"
+  ],
+  "security.workspace.trust.untrustedFiles": "open",
+  "security.promptForLocalFileProtocolHandling": false,
+  "security.allowedUNCHosts": ["localhost"],
+  "security.restrictUNCAccess": false
+}
