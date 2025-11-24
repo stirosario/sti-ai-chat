@@ -2917,11 +2917,14 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
     
+    console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
+    
     // Inicializar datos de log
     flowLogData.sessionId = sid;
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
     
     let session = await getSession(sid);
+    console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
     if (!session) {
       session = {
         id: sid,
