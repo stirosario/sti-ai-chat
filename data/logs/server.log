@@ -3343,3 +3343,50 @@
 2025-11-24T02:32:36.904Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-24T02:32:50.034Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-11-24T02:32:59.112Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:32:59.113Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:32:59.113Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:32:59.113Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T02:33:49.976Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T02:33:57.440Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T02:35:23.471Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:35:23.472Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:35:23.473Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:35:23.473Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T02:41:36.064Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-24T02:41:36.065Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)
+2025-11-24T02:41:36.065Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-24T02:41:36.065Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-24T02:41:57.710Z [ERROR] Error: CORS: origin header required
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:23)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at internalNext (file:///C:/sti-ai-chat/node_modules/helmet/index.mjs:533:6)
+2025-11-24T02:42:48.585Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

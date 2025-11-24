@@ -3263,48 +3263,12 @@ app.post('/api/chat', chatLimiter, async (req,res)=>{
 
     // Limitar transcript a últimos 100 mensajes para prevenir crecimiento indefinido
     if (session.transcript.length > 100) {
-      session.transcript = session.transcript.slice(-100);
+      session.transcript = session.slice(-100);
     }
 
-    // ASK_LANGUAGE: Handle language selection first
-    if (session.stage === STATES.ASK_LANGUAGE) {
-      flowLogData.currentStage = STATES.ASK_LANGUAGE;
-      let selectedLocale = null;
-      
-      // Detectar selección de idioma por texto o botón
-      const tLower = t.toLowerCase();
-      if (tLower.includes('argentina') || buttonToken === 'BTN_LANG_ES_AR') {
-        selectedLocale = 'es-AR';
-        flowLogData.trigger = buttonToken || 'text:argentina';
-      } else if (tLower.includes('españa') || tLower.includes('espana') || tLower.includes('latinoamérica') || tLower.includes('latinoamerica') || buttonToken === 'BTN_LANG_ES_ES') {
-        selectedLocale = 'es-419';
-        flowLogData.trigger = buttonToken || 'text:español';
-      } else if (tLower.includes('english') || tLower.includes('ingles') || tLower.includes('inglés') || buttonToken === 'BTN_LANG_EN') {
-        selectedLocale = 'en';
-        flowLogData.trigger = buttonToken || 'text:english';
-      }
-      
-      if (selectedLocale) {
-        session.userLocale = selectedLocale;
-        session.stage = STATES.ASK_NAME;
-        const nameGreeting = buildNameGreeting(selectedLocale);
-        session.transcript.push({ who:'bot', text: nameGreeting, ts: nowIso() });
-        await saveSession(sid, session);
-        
-        const response = withOptions({ ok:true, reply: nameGreeting, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_NO_NAME'], selectedLocale) });
-        return logAndReturn(response, STATES.ASK_LANGUAGE, STATES.ASK_NAME, flowLogData.trigger, 'language_selected');
-      } else {
-        // No entendió la selección, pedir de nuevo SIN repetir el saludo completo
-        const retry = "⚠️ No entendí el idioma. Por favor, elegí una opción:\n⚠️ I didn't understand the language. Please choose an option:";
-        session.transcript.push({ who:'bot', text: retry, ts: nowIso() });
-        await saveSession(sid, session);
-        
-        const response = withOptions({ ok:true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_LANG_ES_AR', 'BTN_LANG_ES_ES', 'BTN_LANG_EN']) });
-        return logAndReturn(response, STATES.ASK_LANGUAGE, STATES.ASK_LANGUAGE, 'invalid_language', 'retry_language');
-      }
-    }
-
-    // ASK_NEED: Handle user need classification (help vs task) - según Flujo.csv
+    // ASK_LANGUAGE: ELIMINADO - Ya no se pregunta idioma, va directo a ASK_NAME con español
+    
+    // ASK_NAME consolidated: validate locally and with OpenAI if available
     if (session.stage === STATES.ASK_NEED) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
