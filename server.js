@@ -3432,7 +3432,99 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       session.transcript = session.slice(-100);
     }
 
-    // ASK_LANGUAGE: ELIMINADO - Ya no se pregunta idioma, va directo a ASK_NAME con español
+    // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      const lowerMsg = t.toLowerCase().trim();
+      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken);
+      
+      // Detectar aceptación de GDPR
+      if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
+        session.gdprConsent = true;
+        session.gdprConsentDate = nowIso();
+        console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
+        
+        // Mostrar selección de idioma
+        const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply,
+          stage: session.stage,
+          buttons: [
+            { text: '🇦🇷 Español', value: 'español' },
+            { text: '🇺🇸 English', value: 'english' }
+          ]
+        });
+      }
+      
+      // Detectar rechazo de GDPR
+      if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: soporte@stia.com.ar`;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply,
+          stage: session.stage
+        });
+      }
+      
+      // Detectar selección de idioma (después de aceptar GDPR)
+      if (session.gdprConsent) {
+        if (/español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+          session.userLocale = 'es-AR';
+          session.stage = STATES.ASK_NAME;
+          
+          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Cómo te llamás? (o escribí "Prefiero no decirlo")`;
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          
+          return res.json({
+            ok: true,
+            reply,
+            stage: session.stage
+          });
+        }
+        
+        if (/english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+          session.userLocale = 'en-US';
+          session.stage = STATES.ASK_NAME;
+          
+          const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name? (or type "I prefer not to say")`;
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          
+          return res.json({
+            ok: true,
+            reply,
+            stage: session.stage
+          });
+        }
+      }
+      
+      // Si no se reconoce la respuesta, re-mostrar opciones
+      const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
+      session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
+      await saveSession(sid, session);
+      
+      return res.json({
+        ok: true,
+        reply: retry,
+        stage: session.stage,
+        buttons: session.gdprConsent 
+          ? [
+              { text: '🇦🇷 Español', value: 'español' },
+              { text: '🇺🇸 English', value: 'english' }
+            ]
+          : [
+              { text: 'Sí', value: 'si' },
+              { text: 'No', value: 'no' }
+            ]
+      });
+    }
     
     // ASK_NAME consolidated: validate locally and with OpenAI if available
     if (session.stage === STATES.ASK_NEED) {
