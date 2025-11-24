@@ -1,0 +1,119 @@
+═══════════════════════════════════════════════════════════════
+🔧 FIX URGENTE: Actualizar index.php en Producción
+═══════════════════════════════════════════════════════════════
+
+PROBLEMA ACTUAL:
+El chat NO muestra los botones "Sí/No" porque el index.php en tu 
+servidor NO está buscando el campo "buttons" que envía el backend.
+
+═══════════════════════════════════════════════════════════════
+📋 OPCIÓN 1: EDITAR DIRECTAMENTE EN EL SERVIDOR (RECOMENDADO)
+═══════════════════════════════════════════════════════════════
+
+1. Accede a tu panel de hosting (cPanel / Plesk / Ferozo)
+
+2. Abre "Administrador de archivos" o "File Manager"
+
+3. Navega a: public_html/index.php
+
+4. Click en "Editar" o "Edit"
+
+5. Busca la línea 843 (aprox), que dice:
+   
+   const btns = normalizeButtons(d.ui || d.options);
+
+6. REEMPLAZA por:
+   
+   const btns = normalizeButtons(d.buttons || d.ui || d.options);
+
+7. Guarda el archivo (Save)
+
+8. Limpia caché del navegador (Ctrl+Shift+Delete)
+
+9. Prueba el chat en modo incógnito
+
+═══════════════════════════════════════════════════════════════
+📋 OPCIÓN 2: SUBIR VÍA FTP
+═══════════════════════════════════════════════════════════════
+
+1. Abre FileZilla (o tu cliente FTP)
+
+2. Conecta a tu servidor:
+   - Host: ftp.stia.com.ar (o el que uses)
+   - Usuario: [tu usuario de hosting]
+   - Puerto: 21
+
+3. Navega a public_html/
+
+4. Sube el archivo index.php actualizado desde:
+   c:\Users\Lucas\AppData\Roaming\Code\User\globalStorage\
+   humy2833.ftp-simple\remote-workspace-temp\
+   43566b752ae77bd8bd94dd45b0671119\public_html\index.php
+
+5. Sobrescribe el archivo existente
+
+6. Limpia caché del navegador
+
+═══════════════════════════════════════════════════════════════
+📋 OPCIÓN 3: USAR FTP-SIMPLE DE VS CODE
+═══════════════════════════════════════════════════════════════
+
+1. En VS Code, abre el archivo:
+   public_html/index.php (del workspace remoto)
+
+2. Click derecho → "Upload" o "Sync Remote"
+
+3. Confirma la subida
+
+4. Espera 5 segundos
+
+5. Prueba el chat
+
+═══════════════════════════════════════════════════════════════
+✅ VERIFICACIÓN
+═══════════════════════════════════════════════════════════════
+
+Después de aplicar el fix:
+
+1. Abre https://stia.com.ar en modo incógnito
+
+2. Abre el chat
+
+3. Deberías ver:
+   
+   📋 Política de Privacidad y Consentimiento
+   
+   [Botón: Sí]  [Botón: No]
+
+4. Click en "Sí" → debe mostrar selección de idioma:
+   
+   [Botón: Español]  [Botón: English]
+
+5. Click en "Español" → debe pedir tu nombre
+
+═══════════════════════════════════════════════════════════════
+🚨 SI SIGUE SIN FUNCIONAR
+═══════════════════════════════════════════════════════════════
+
+1. Verifica que Render está desplegado:
+   https://sti-rosario-ai.onrender.com/api/health
+
+2. Prueba el endpoint de greeting:
+   https://sti-rosario-ai.onrender.com/api/greeting
+   
+   Debe devolver JSON con: "buttons": [{"text":"Sí","value":"si"}...]
+
+3. Verifica que el index.php tiene la línea correcta:
+   Busca "normalizeButtons(d.buttons"
+
+═══════════════════════════════════════════════════════════════
+
+CAMBIO NECESARIO (RESUMEN):
+
+ANTES (línea ~843):
+const btns = normalizeButtons(d.ui || d.options);
+
+DESPUÉS (línea ~843):
+const btns = normalizeButtons(d.buttons || d.ui || d.options);
+
+═══════════════════════════════════════════════════════════════         
