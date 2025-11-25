@@ -12,7 +12,6 @@
  *
  * ENDPOINTS DISPONIBLES:
  * - GET  /api/health              → Health check del servidor
- * - POST /api/reload              → Recargar configuración
  * - ALL  /api/greeting            → Saludo inicial y creación de sesión
  * - POST /api/chat                → Endpoint principal de conversación
  * - POST /api/reset               → Resetear sesión
@@ -1850,8 +1849,6 @@ app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (r
   
   res.status(204).end();
 });
-
-app.post('/api/reload', (_req,res)=>{ try{ res.json({ ok:true, version: CHAT.version||null }); } catch(e){ res.status(500).json({ ok:false, error: e.message }); } });
 
 // Transcript retrieval (REQUIERE AUTENTICACIÓN)
 app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
@@ -3926,33 +3923,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         });
       }
 
-      // 🔍 Detección temprana: el usuario ya contó el problema en vez de el nombre
-      // COMENTADO: basicITHeuristic no está definido - causa ReferenceError
-      // const maybeProblem = basicITHeuristic(t || '');
-      // const looksLikeProblem = maybeProblem && maybeProblem.isIT && (maybeProblem.isProblem || maybeProblem.isHowTo);
-      const looksLikeProblem = false; // Desactivado temporalmente
-
-      if (looksLikeProblem) {
-        // Si llegó hasta acá, usamos un nombre genérico y avanzamos al estado ASK_NEED
-        if (!session.userName) {
-          session.userName = isEn ? 'User' : 'Usuario';
-        }
-        session.problem = t || session.problem;
-        session.stage = STATES.ASK_NEED;
-
-        // Preguntar qué tipo de necesidad tiene
-        const empatia = addEmpatheticResponse('ASK_NAME', locale);
-        const reply = isEn
-          ? `${empatia} Thanks! **How can I help you today?**`
-          : (locale === 'es-419'
-              ? `${empatia} ¡Gracias! **¿Cómo puedo ayudarte hoy?**`
-              : `${empatia} ¡Gracias! **¿Cómo puedo ayudarte hoy?**`);
-        
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
-      } else {
-        // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
+      // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
         if ((session.nameAttempts || 0) >= 5) {
           session.userName = isEn ? 'User' : 'Usuario';
           session.stage = STATES.ASK_NEED;
