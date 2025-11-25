@@ -51,6 +51,7 @@ import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel, maskPII } from './flowLogger.js';
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
 import { normalizarTextoCompleto } from './normalizarTexto.js';
+import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
@@ -258,179 +259,8 @@ const withOptions = obj => ({ options: [], ...obj });
 // ========================================================
 // 🎯 SISTEMA DE DESAMBIGUACIÓN DE DISPOSITIVOS
 // ========================================================
-// Detecta términos ambiguos (compu, equipo, pantalla) y sugiere dispositivos específicos
-// ACTUALIZACIÓN 2025-11-25: Agregado soporte para typos comunes (kompu, pamtaya, screan, etc.)
-
-const DEVICE_DISAMBIGUATION = {
-  // Computadoras - términos genéricos + typos
-  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil|dispositivo|kompu|komputer|komputadora|compuetr|computr|divice|devize|devise|aparto|dispocitivo|dispositibo': {
-    candidates: [
-      { 
-        id: 'PC_DESKTOP', 
-        icon: '💻', 
-        label: 'PC de Escritorio',
-        description: 'Torre con monitor separado',
-        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre', 'desktop', 'ventilador']
-      },
-      { 
-        id: 'NOTEBOOK', 
-        icon: '💼', 
-        label: 'Notebook / Laptop',
-        description: 'Computadora portátil con batería',
-        keywords: ['bateria', 'batería', 'battery', 'batery', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop', 'cargador', 'cargadoor', 'cargadorrr', 'chager', 'charger', 'desconecto', 'desconectar', 'sobrecalentamiento', 'unpluged']
-      },
-      { 
-        id: 'ALL_IN_ONE', 
-        icon: '🖥️', 
-        label: 'All-in-One',
-        description: 'Pantalla y procesador integrados',
-        keywords: ['pantalla tactil', 'táctil', 'tactil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo', 'all in one', 'aio', 'touch']
-      }
-    ]
-  },
-  
-  // Pantallas - puede ser monitor o parte de dispositivo + typos
-  'pantalla|monitor|display|screen|imagen|pamtaya|panatya|panatlla|pantaya|pantasha|pantalya|screan|scren|screenn|imajen': {
-    candidates: [
-      { 
-        id: 'MONITOR', 
-        icon: '🖥️', 
-        label: 'Monitor Externo',
-        description: 'Pantalla conectada a PC',
-        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal', 'señaal', 'senyal', 'sin señal', 'no signal', 'signall', 'conectada']
-      },
-      { 
-        id: 'NOTEBOOK_SCREEN', 
-        icon: '💼', 
-        label: 'Pantalla de Notebook',
-        description: 'Pantalla integrada de laptop',
-        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil', 'bateria', 'batería', 'battery', 'batery']
-      },
-      { 
-        id: 'ALL_IN_ONE_SCREEN', 
-        icon: '🖥️', 
-        label: 'Pantalla All-in-One',
-        description: 'Computadora todo en uno',
-        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre', 'all in one', 'touch']
-      },
-      { 
-        id: 'TV', 
-        icon: '📺', 
-        label: 'TV / Smart TV',
-        description: 'Televisor',
-        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv', 'tv', 'television', 'streaming']
-      }
-    ]
-  },
-  
-  // Mouse / Ratón + typos
-  'raton|ratón|mouse|bicho|touchpad|cursor|mause|cursos|crusor': {
-    candidates: [
-      { 
-        id: 'MOUSE_WIRELESS', 
-        icon: '🖱️', 
-        label: 'Mouse Inalámbrico',
-        description: 'Mouse sin cable (Bluetooth/RF)',
-        keywords: ['pilas', 'bateria', 'batería', 'battery', 'batery', 'bluetooth', 'bluetut', 'blutuz', 'bluetoth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle', 'wireless']
-      },
-      { 
-        id: 'MOUSE_USB', 
-        icon: '🖱️', 
-        label: 'Mouse USB',
-        description: 'Mouse con cable USB',
-        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico', 'con cable']
-      },
-      { 
-        id: 'TOUCHPAD', 
-        icon: '👆', 
-        label: 'Touchpad',
-        description: 'Mouse táctil de notebook',
-        keywords: ['integrado', 'notebook', 'laptop', 'tactil', 'táctil', 'panel', 'touchpad']
-      }
-    ]
-  },
-  
-  // Teclado + typos
-  'teclado|keyboard|teclas|teclaco|keybord': {
-    candidates: [
-      { 
-        id: 'KEYBOARD_WIRELESS', 
-        icon: '⌨️', 
-        label: 'Teclado Inalámbrico',
-        description: 'Teclado sin cable',
-        keywords: ['pilas', 'bateria', 'batería', 'battery', 'batery', 'bluetooth', 'bluetut', 'blutuz', 'sin cable', 'inalambrico', 'inalámbrico']
-      },
-      { 
-        id: 'KEYBOARD_USB', 
-        icon: '⌨️', 
-        label: 'Teclado USB',
-        description: 'Teclado con cable USB',
-        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico']
-      },
-      { 
-        id: 'KEYBOARD_NOTEBOOK', 
-        icon: '💼', 
-        label: 'Teclado de Notebook',
-        description: 'Teclado integrado de laptop',
-        keywords: ['integrado', 'notebook', 'laptop', 'incorporado']
-      }
-    ]
-  }
-};
-
-/**
- * Detecta si el texto del usuario contiene términos ambiguos y calcula confidence score
- * ACTUALIZACIÓN 2025-11-25: Usa normalizarTextoCompleto() para corregir typos antes de detectar
- * 
- * @param {string} text - Texto del usuario (puede contener typos: "kompu", "pamtaya", etc.)
- * @returns {Object|null} - { term, candidates, confidence, bestMatch } o null
- * 
- * @example
- * detectAmbiguousDevice("Mi kompu no enziende")
- * // → { term: "compu", candidates: [...], confidence: 0, bestMatch: null }
- */
-function detectAmbiguousDevice(text) {
-  // 1. Normalizar con corrección de typos
-  const normalized = normalizarTextoCompleto(text);
-  
-  for (const [pattern, config] of Object.entries(DEVICE_DISAMBIGUATION)) {
-    const regex = new RegExp(`\\b(${pattern})`, 'i');
-    const match = normalized.match(regex);
-    
-    if (match) {
-      // Buscar keywords específicos en cada candidato
-      let maxScore = 0;
-      let bestDevice = null;
-      
-      for (const candidate of config.candidates) {
-        let score = 0;
-        for (const keyword of candidate.keywords) {
-          if (normalized.includes(keyword.toLowerCase())) {
-            score++;
-          }
-        }
-        
-        if (score > maxScore) {
-          maxScore = score;
-          bestDevice = candidate;
-        }
-      }
-      
-      // Calcular confidence: 0 = ambiguo total, 1 = muy claro
-      const confidence = maxScore / 3; // Normalizar a 0-1 (asumiendo max 3 keywords)
-      
-      return {
-        term: match[1],
-        candidates: config.candidates,
-        confidence: Math.min(confidence, 1),
-        bestMatch: bestDevice,
-        matchedKeywords: maxScore
-      };
-    }
-  }
-  
-  return null;
-}
+// Importado desde deviceDetection.js (ver línea 54)
+// ACTUALIZACIÓN 2025-11-25: DEVICE_DISAMBIGUATION y detectAmbiguousDevice() ahora están en módulo separado
 
 /**
  * Genera botones de desambiguación para que el usuario elija dispositivo
@@ -4300,7 +4130,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       // 🎯 DETECCIÓN INTELIGENTE DE DISPOSITIVOS AMBIGUOS
       // ========================================================
       if (!session.device && session.problem) {
+        console.log('[detectAmbiguousDevice] Llamando con:', session.problem);
         const ambiguousResult = detectAmbiguousDevice(session.problem);
+        console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
         
         if (ambiguousResult) {
           const locale = session.userLocale || 'es-AR';
@@ -5412,3 +5244,7 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// ===== EXPORTS (Para tests) =====
+export { detectAmbiguousDevice };
+
