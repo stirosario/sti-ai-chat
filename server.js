@@ -2134,6 +2134,51 @@ app.post('/api/ticket/create', validateCSRF, async (req, res) => {
 });
 
 // ticket public routes (CON AUTENTICACIÓN)
+// GET /api/tickets — Listar todos los tickets (Solo admin)
+app.get('/api/tickets', async (req, res) => {
+  try {
+    // Verificar token de administrador
+    const adminToken = req.headers.authorization || req.query.token;
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+    
+    // Leer todos los archivos JSON del directorio de tickets
+    const files = fs.readdirSync(TICKETS_DIR).filter(f => f.endsWith('.json'));
+    const tickets = [];
+    
+    for (const file of files) {
+      try {
+        const filePath = path.join(TICKETS_DIR, file);
+        const content = fs.readFileSync(filePath, 'utf8');
+        const ticket = JSON.parse(content);
+        tickets.push(ticket);
+      } catch (err) {
+        console.error(`[Tickets] Error reading ${file}:`, err.message);
+      }
+    }
+    
+    // Ordenar por fecha de creación (más recientes primero)
+    tickets.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0);
+      const dateB = new Date(b.createdAt || 0);
+      return dateB - dateA;
+    });
+    
+    res.json({
+      ok: true,
+      tickets,
+      total: tickets.length
+    });
+    
+  } catch (error) {
+    console.error('[Tickets] Error listing tickets:', error);
+    res.status(500).json({ ok: false, error: 'Error al listar tickets' });
+  }
+});
+
 app.get('/api/ticket/:tid', async (req, res) => {
   const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
   
