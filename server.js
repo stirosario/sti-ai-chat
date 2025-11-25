@@ -1009,6 +1009,32 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
 const app = express();
 
 // ========================================================
+// 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #4
+// ========================================================
+// ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
+// 📅 Última validación: 25/11/2025
+// ✅ Estado: FUNCIONAL Y TESTEADO
+//
+// 🚨 ANTES DE MODIFICAR:
+//    1. Consultar con equipo de seguridad
+//    2. Verificar que no rompa flujo de autenticación
+//    3. Testear con y sin CSRF token
+//    4. Validar rechazo 403 funciona correctamente
+//
+// 📋 Funcionalidad protegida:
+//    - Validación de CSRF token en requests POST
+//    - Skip para métodos seguros (GET, HEAD, OPTIONS)
+//    - Verificación de token contra csrfTokenStore
+//    - Expiración de tokens después de 1 hora
+//    - Rechazo con 403 si token inválido/expirado
+//
+// 🔗 Dependencias:
+//    - Frontend: sendButton() y sendMsg() deben enviar csrfToken
+//    - Greeting: genera y almacena CSRF token inicial
+//    - Security: Protección contra ataques CSRF
+//    - Todos los endpoints POST dependen de esta validación
+//
+// ========================================================
 // CSRF Validation Middleware
 // ========================================================
 function validateCSRF(req, res, next) {
@@ -1092,6 +1118,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// ========================================================
+// 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #5
+// ========================================================
+// ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
+// 📅 Última validación: 25/11/2025
+// ✅ Estado: FUNCIONAL Y TESTEADO
+//
+// 🚨 ANTES DE MODIFICAR:
+//    1. Consultar con equipo de seguridad
+//    2. Verificar que nuevos dominios son legítimos
+//    3. NUNCA agregar '*' como origen permitido
+//    4. Testear que rechaza null origin (previene file://)
+//
+// 📋 Funcionalidad protegida:
+//    - Whitelist estricta de dominios permitidos
+//    - Rechazo de origin null (ataques file://)
+//    - Configuración credentials: true para cookies
+//    - Localhost permitido solo en desarrollo
+//    - Headers CORS correctamente configurados
+//
+// 🔗 Dependencias:
+//    - Frontend: stia.com.ar debe estar en whitelist
+//    - Security: Previene ataques CSRF cross-origin
+//    - Environment: ALLOWED_ORIGINS en variables de entorno
+//    - Todos los requests del frontend dependen de esta config
+//
 // ========================================================
 // 🔒 CORS: WHITELIST ESTRICTA (Producción Ready)
 // ========================================================
@@ -3435,6 +3487,33 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       session.transcript = session.slice(-100);
     }
 
+    // ========================================================
+    // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #2
+    // ========================================================
+    // ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
+    // 📅 Última validación: 25/11/2025
+    // ✅ Estado: FUNCIONAL Y TESTEADO
+    //
+    // 🚨 ANTES DE MODIFICAR:
+    //    1. Consultar con el equipo
+    //    2. Verificar compliance GDPR
+    //    3. Testear ambos idiomas (ES/EN)
+    //    4. Validar flujo de rechazo (botón "No")
+    //
+    // 📋 Funcionalidad protegida:
+    //    - Detección de aceptación GDPR (Sí/acepto/ok/dale)
+    //    - Detección de rechazo GDPR (No/no acepto/rechazo)
+    //    - Selección de idioma (Español/English)
+    //    - Transición a stage ASK_NAME después de idioma
+    //    - Guardado de gdprConsent + gdprConsentDate
+    //
+    // 🔗 Dependencias:
+    //    - Frontend: Botones "Sí"/"No" envían estos valores
+    //    - Frontend: Botones idioma envían "español"/"english"
+    //    - Next stage: ASK_NAME espera userLocale configurado
+    //    - Legal: GDPR compliance depende de este consentimiento
+    //
+    // ========================================================
     // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
     console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
     
@@ -3601,6 +3680,33 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       }
     }
 
+    // ========================================================
+    // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #3
+    // ========================================================
+    // ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
+    // 📅 Última validación: 25/11/2025
+    // ✅ Estado: FUNCIONAL Y TESTEADO
+    //
+    // 🚨 ANTES DE MODIFICAR:
+    //    1. Consultar con el equipo
+    //    2. Verificar validación de nombres
+    //    3. Testear botón "Prefiero no decirlo"
+    //    4. Validar extracción y capitalización de nombres
+    //
+    // 📋 Funcionalidad protegida:
+    //    - Detección de botón "Prefiero no decirlo" (ambos idiomas)
+    //    - Validación de nombres con extractName() e isValidName()
+    //    - Capitalización de nombres multi-palabra
+    //    - Límite de 5 intentos antes de continuar sin nombre
+    //    - Transición a stage ASK_NEED con botones técnica/asistencia
+    //
+    // 🔗 Dependencias:
+    //    - Frontend: Botón "Prefiero no decirlo" envía value específico
+    //    - Frontend: Input de texto envía nombre como text
+    //    - Funciones: extractName(), isValidName(), capitalizeToken()
+    //    - Next stage: ASK_NEED usa userName en saludos
+    //
+    // ========================================================
     // ASK_NAME consolidated: validate locally and with OpenAI if available
     
     if (session.stage === STATES.ASK_NAME) {
