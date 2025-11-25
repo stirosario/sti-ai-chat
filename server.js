@@ -4125,6 +4125,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
     if (session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
+      console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
 
       // ========================================================
       // 🎯 DETECCIÓN INTELIGENTE DE DISPOSITIVOS AMBIGUOS
