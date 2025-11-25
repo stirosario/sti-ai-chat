@@ -261,68 +261,68 @@ const withOptions = obj => ({ options: [], ...obj });
 
 const DEVICE_DISAMBIGUATION = {
   // Computadoras - términos genéricos
-  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil': {
+  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil|dispositivo': {
     candidates: [
       { 
         id: 'PC_DESKTOP', 
         icon: '💻', 
         label: 'PC de Escritorio',
         description: 'Torre con monitor separado',
-        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre', 'desktop']
+        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre', 'desktop', 'ventilador']
       },
       { 
         id: 'NOTEBOOK', 
         icon: '💼', 
         label: 'Notebook / Laptop',
         description: 'Computadora portátil con batería',
-        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop']
+        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop', 'cargador', 'desconecto', 'desconectar', 'sobrecalentamiento']
       },
       { 
         id: 'ALL_IN_ONE', 
         icon: '🖥️', 
         label: 'All-in-One',
         description: 'Pantalla y procesador integrados',
-        keywords: ['pantalla tactil', 'táctil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo', 'all in one', 'aio']
+        keywords: ['pantalla tactil', 'táctil', 'tactil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo', 'all in one', 'aio', 'touch']
       }
     ]
   },
   
   // Pantallas - puede ser monitor o parte de dispositivo
-  'pantalla|monitor|display|screen': {
+  'pantalla|monitor|display|screen|imagen': {
     candidates: [
       { 
         id: 'MONITOR', 
         icon: '🖥️', 
         label: 'Monitor Externo',
         description: 'Pantalla conectada a PC',
-        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal']
+        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal', 'sin señal', 'no signal', 'conectada']
       },
       { 
         id: 'NOTEBOOK_SCREEN', 
         icon: '💼', 
         label: 'Pantalla de Notebook',
         description: 'Pantalla integrada de laptop',
-        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil']
+        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil', 'bateria', 'batería']
       },
       { 
         id: 'ALL_IN_ONE_SCREEN', 
         icon: '🖥️', 
         label: 'Pantalla All-in-One',
         description: 'Computadora todo en uno',
-        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre', 'all in one']
+        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre', 'all in one', 'touch']
       },
       { 
         id: 'TV', 
         icon: '📺', 
         label: 'TV / Smart TV',
         description: 'Televisor',
-        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv', 'tv']
+        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv', 'tv', 'television', 'streaming']
       }
     ]
   },
   
   // Mouse / Ratón
-  'raton|ratón|mouse|bicho|touchpad': {
+  'raton|ratón|mouse|bicho|touchpad|cursor': {
     candidates: [
       { 
         id: 'MOUSE_WIRELESS', 
@@ -349,7 +349,7 @@ const DEVICE_DISAMBIGUATION = {
   },
   
   // Teclado
-  'teclado|keyboard': {
+  'teclado|keyboard|teclas': {
     candidates: [
       { 
         id: 'KEYBOARD_WIRELESS', 
