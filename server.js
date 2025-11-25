@@ -50,6 +50,7 @@ import compression from 'compression';
 import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
 import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel, maskPII } from './flowLogger.js';
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
+import { normalizarTextoCompleto } from './normalizarTexto.js';
 
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
@@ -258,10 +259,11 @@ const withOptions = obj => ({ options: [], ...obj });
 // 🎯 SISTEMA DE DESAMBIGUACIÓN DE DISPOSITIVOS
 // ========================================================
 // Detecta términos ambiguos (compu, equipo, pantalla) y sugiere dispositivos específicos
+// ACTUALIZACIÓN 2025-11-25: Agregado soporte para typos comunes (kompu, pamtaya, screan, etc.)
 
 const DEVICE_DISAMBIGUATION = {
-  // Computadoras - términos genéricos
-  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil|dispositivo': {
+  // Computadoras - términos genéricos + typos
+  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil|dispositivo|kompu|komputer|komputadora|compuetr|computr|divice|devize|devise|aparto|dispocitivo|dispositibo': {
     candidates: [
       { 
         id: 'PC_DESKTOP', 
@@ -275,7 +277,7 @@ const DEVICE_DISAMBIGUATION = {
         icon: '💼', 
         label: 'Notebook / Laptop',
         description: 'Computadora portátil con batería',
-        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop', 'cargador', 'desconecto', 'desconectar', 'sobrecalentamiento']
+        keywords: ['bateria', 'batería', 'battery', 'batery', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop', 'cargador', 'cargadoor', 'cargadorrr', 'chager', 'charger', 'desconecto', 'desconectar', 'sobrecalentamiento', 'unpluged']
       },
       { 
         id: 'ALL_IN_ONE', 
@@ -287,22 +289,22 @@ const DEVICE_DISAMBIGUATION = {
     ]
   },
   
-  // Pantallas - puede ser monitor o parte de dispositivo
-  'pantalla|monitor|display|screen|imagen': {
+  // Pantallas - puede ser monitor o parte de dispositivo + typos
+  'pantalla|monitor|display|screen|imagen|pamtaya|panatya|panatlla|pantaya|pantasha|pantalya|screan|scren|screenn|imajen': {
     candidates: [
       { 
         id: 'MONITOR', 
         icon: '🖥️', 
         label: 'Monitor Externo',
         description: 'Pantalla conectada a PC',
-        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal', 'sin señal', 'no signal', 'conectada']
+        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal', 'señaal', 'senyal', 'sin señal', 'no signal', 'signall', 'conectada']
       },
       { 
         id: 'NOTEBOOK_SCREEN', 
         icon: '💼', 
         label: 'Pantalla de Notebook',
         description: 'Pantalla integrada de laptop',
-        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil', 'bateria', 'batería']
+        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil', 'bateria', 'batería', 'battery', 'batery']
       },
       { 
         id: 'ALL_IN_ONE_SCREEN', 
@@ -321,15 +323,15 @@ const DEVICE_DISAMBIGUATION = {
     ]
   },
   
-  // Mouse / Ratón
-  'raton|ratón|mouse|bicho|touchpad|cursor': {
+  // Mouse / Ratón + typos
+  'raton|ratón|mouse|bicho|touchpad|cursor|mause|cursos|crusor': {
     candidates: [
       { 
         id: 'MOUSE_WIRELESS', 
         icon: '🖱️', 
         label: 'Mouse Inalámbrico',
         description: 'Mouse sin cable (Bluetooth/RF)',
-        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle', 'wireless']
+        keywords: ['pilas', 'bateria', 'batería', 'battery', 'batery', 'bluetooth', 'bluetut', 'blutuz', 'bluetoth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle', 'wireless']
       },
       { 
         id: 'MOUSE_USB', 
@@ -348,15 +350,15 @@ const DEVICE_DISAMBIGUATION = {
     ]
   },
   
-  // Teclado
-  'teclado|keyboard|teclas': {
+  // Teclado + typos
+  'teclado|keyboard|teclas|teclaco|keybord': {
     candidates: [
       { 
         id: 'KEYBOARD_WIRELESS', 
         icon: '⌨️', 
         label: 'Teclado Inalámbrico',
         description: 'Teclado sin cable',
-        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico']
+        keywords: ['pilas', 'bateria', 'batería', 'battery', 'batery', 'bluetooth', 'bluetut', 'blutuz', 'sin cable', 'inalambrico', 'inalámbrico']
       },
       { 
         id: 'KEYBOARD_USB', 
@@ -378,11 +380,18 @@ const DEVICE_DISAMBIGUATION = {
 
 /**
  * Detecta si el texto del usuario contiene términos ambiguos y calcula confidence score
- * @param {string} text - Texto del usuario
+ * ACTUALIZACIÓN 2025-11-25: Usa normalizarTextoCompleto() para corregir typos antes de detectar
+ * 
+ * @param {string} text - Texto del usuario (puede contener typos: "kompu", "pamtaya", etc.)
  * @returns {Object|null} - { term, candidates, confidence, bestMatch } o null
+ * 
+ * @example
+ * detectAmbiguousDevice("Mi kompu no enziende")
+ * // → { term: "compu", candidates: [...], confidence: 0, bestMatch: null }
  */
 function detectAmbiguousDevice(text) {
-  const normalized = normalizeText(text.toLowerCase());
+  // 1. Normalizar con corrección de typos
+  const normalized = normalizarTextoCompleto(text);
   
   for (const [pattern, config] of Object.entries(DEVICE_DISAMBIGUATION)) {
     const regex = new RegExp(`\\b(${pattern})`, 'i');

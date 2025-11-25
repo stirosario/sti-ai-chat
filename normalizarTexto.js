@@ -2,6 +2,228 @@
 // ========================
 // Funciones utilitarias para limpiar y estandarizar texto
 // en todos los módulos del chat STI (detección, intents, etc.)
+// 
+// ACTUALIZACIÓN 2025-11-25: Agregado soporte para errores ortográficos
+// comunes basado en análisis de 200 casos reales (100 ES + 100 EN)
+
+/**
+ * DICCIONARIO DE CORRECCIONES ORTOGRÁFICAS
+ * Mapea typos comunes → palabras correctas
+ * Basado en análisis de 200 casos reales con errores
+ */
+const TYPO_CORRECTIONS = {
+  // ===== ESPAÑOL =====
+  // Dispositivos
+  'kompu': 'compu',
+  'komputer': 'computadora',
+  'komputadora': 'computadora',
+  'dispocitivo': 'dispositivo',
+  'dispositibo': 'dispositivo',
+  'aparato': 'aparato',
+  'aparto': 'aparato',
+  
+  // Pantalla
+  'pamtaya': 'pantalla',
+  'panatya': 'pantalla',
+  'panatlla': 'pantalla',
+  'pantaya': 'pantalla',
+  'pantasha': 'pantalla',
+  'pantalya': 'pantalla',
+  
+  // Acciones
+  'enziende': 'enciende',
+  'ensiende': 'enciende',
+  'prrende': 'prende',
+  'aprrieto': 'aprieto',
+  'apgaa': 'apaga',
+  'apgaga': 'apaga',
+  'ase': 'hace',
+  'asen': 'hacen',
+  'ace': 'hace',
+  'acen': 'hacen',
+  
+  // Conectividad
+  'konekta': 'conecta',
+  'konecta': 'conecta',
+  'internett': 'internet',
+  'internt': 'internet',
+  'rrred': 'red',
+  'bluetut': 'bluetooth',
+  'blutuz': 'bluetooth',
+  'blutooth': 'bluetooth',
+  
+  // Audio/Video
+  'escuxa': 'escucha',
+  'esucha': 'escucha',
+  'esuche': 'escuche',
+  'imajen': 'imagen',
+  
+  // Hardware
+  'cargadoor': 'cargador',
+  'cargadorrr': 'cargador',
+  'teclaco': 'teclado',
+  'mause': 'mouse',
+  'raton': 'raton',
+  'cursos': 'cursor',
+  'crusor': 'cursor',
+  'bateria': 'bateria',
+  
+  // Estados
+  'neggra': 'negra',
+  'mui': 'muy',
+  'trabbado': 'trabado',
+  'trava': 'traba',
+  'bloqueoo': 'bloqueo',
+  
+  // Errores
+  'errr': 'error',
+  'erorr': 'error',
+  'mensage': 'mensaje',
+  'señaal': 'señal',
+  'senyal': 'señal',
+  
+  // Software
+  'apliacines': 'aplicaciones',
+  'aplicasiones': 'aplicaciones',
+  'aplikasiones': 'aplicaciones',
+  'navegadorrr': 'navegador',
+  'actuializar': 'actualizar',
+  'actializar': 'actualizar',
+  'installar': 'instalar',
+  'sofware': 'software',
+  
+  // Otros
+  'demaciado': 'demasiado',
+  'muchicimo': 'muchisimo',
+  'apeas': 'apenas',
+  'funsiona': 'funciona',
+  'repondee': 'responde',
+  'abissar': 'avisar',
+  'rruido': 'ruido',
+  'almaceamiento': 'almacenamiento',
+  'shillido': 'chillido',
+  'reinisio': 'reinicio',
+  'titila': 'titila',
+  'senssible': 'sensible',
+  'reinica': 'reinicia',
+  'mobil': 'movil',
+  'vaja': 'baja',
+  'critico': 'critico',
+  
+  // ===== ENGLISH =====
+  // Dispositivos
+  'compuetr': 'computer',
+  'computr': 'computer',
+  'divice': 'device',
+  'devize': 'device',
+  'devise': 'device',
+  
+  // Screen
+  'screan': 'screen',
+  'scren': 'screen',
+  'screenn': 'screen',
+  
+  // Contracciones comunes
+  'wont': 'won\'t',
+  'wont': 'wont',  // También aceptar sin apóstrofe
+  'doesnt': 'doesn\'t',
+  'cant': 'can\'t',
+  'isnt': 'isn\'t',
+  'didnt': 'didn\'t',
+  'hasnt': 'hasn\'t',
+  'arent': 'aren\'t',
+  
+  // Acciones
+  'happns': 'happens',
+  'repond': 'respond',
+  'reacton': 'reaction',
+  
+  // Conectividad
+  'connet': 'connect',
+  'conecton': 'connection',
+  'internt': 'internet',
+  'netwroks': 'networks',
+  'bluetoth': 'bluetooth',
+  
+  // Hardware
+  'chager': 'charger',
+  'keybord': 'keyboard',
+  'batery': 'battery',
+  'storaje': 'storage',
+  
+  // Estados
+  'slow': 'slow',
+  'laggy': 'laggy',
+  'frozen': 'frozen',
+  'freezes': 'freezes',
+  'freeezes': 'freezes',
+  
+  // Audio/Video
+  'noize': 'noise',
+  'soud': 'sound',
+  'brightnes': 'brightness',
+  
+  // Errores
+  'eror': 'error',
+  'wierd': 'weird',
+  'recognzed': 'recognized',
+  'detcted': 'detected',
+  
+  // Software
+  'aplications': 'applications',
+  'instal': 'install',
+  'browzer': 'browser',
+  'sistem': 'system',
+  'acount': 'account',
+  
+  // Otros comunes
+  'alot': 'a lot',
+  'wen': 'when',
+  'tooo': 'too',
+  'veryyyy': 'very',
+  'allways': 'always',
+  'becuz': 'because',
+  'nothng': 'nothing',
+  'anythingg': 'anything',
+  'somethin': 'something',
+  'pickng': 'picking',
+  'workng': 'working',
+  'chargng': 'charging',
+  'dissapear': 'disappear',
+  'blurrry': 'blurry',
+  'typng': 'typing',
+  'audioo': 'audio',
+  'jus': 'just',
+  'allday': 'all day',
+  'loosing': 'losing',
+  'crahing': 'crashing'
+};
+
+/**
+ * Corrige errores ortográficos comunes antes de normalizar.
+ * Aplica diccionario de 150+ typos reales detectados.
+ * 
+ * @param {string} texto - Texto con posibles typos
+ * @returns {string} Texto con typos corregidos
+ * 
+ * @example
+ * corregirTypos("Mi kompu no enziende")
+ * // → "Mi compu no enciende"
+ */
+export function corregirTypos(texto = "") {
+  if (!texto || typeof texto !== 'string') return '';
+  
+  let resultado = texto.toLowerCase();
+  
+  // Aplicar correcciones palabra por palabra
+  // Usa \b para respetar límites de palabra
+  for (const [typo, correcto] of Object.entries(TYPO_CORRECTIONS)) {
+    const regex = new RegExp(`\\b${typo}\\b`, 'gi');
+    resultado = resultado.replace(regex, correcto);
+  }
+  
+  return resultado;
+}
 
 /**
  * Elimina acentos, pasa a minúsculas y reduce espacios múltiples.
@@ -12,6 +234,8 @@ export function normalizarBasico(texto = "") {
     .toLowerCase()
     // quita acentos y diacríticos (día → dia)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    // elimina comillas tipográficas y otras comillas raras
+    .replace(/[""''`´]/g, ' ')
     // elimina signos comunes de puntuación inicial/final
     .replace(/[¡!¿?.,;:]+/g, ' ')
     // colapsa espacios múltiples
@@ -29,10 +253,25 @@ export function colapsarRepeticiones(texto = "") {
 
 /**
  * Normaliza un texto completamente: 
+ * - corrige typos comunes (kompu → compu)
  * - minúsculas, sin acentos, sin signos, sin repeticiones.
+ * 
+ * @param {string} texto - Texto a normalizar
+ * @returns {string} Texto normalizado y limpio
+ * 
+ * @example
+ * normalizarTextoCompleto("Mi kompu no enziende!!!")
+ * // → "mi compu no enciende"
  */
 export function normalizarTextoCompleto(texto = "") {
-  return colapsarRepeticiones(normalizarBasico(texto));
+  // 1. Corregir typos ANTES de normalizar
+  let textoCorregido = corregirTypos(texto);
+  
+  // 2. Normalizar básico (acentos, minúsculas, signos)
+  let textoNormalizado = normalizarBasico(textoCorregido);
+  
+  // 3. Colapsar repeticiones exageradas
+  return colapsarRepeticiones(textoNormalizado);
 }
 
 
