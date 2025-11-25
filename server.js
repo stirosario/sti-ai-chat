@@ -53,12 +53,6 @@ import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, 
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
 
 // ========================================================
-// 🔥 CONVERSATIONAL AI MODULES (nuevos)
-// ========================================================
-import { analyzeUserIntent, generateConversationalResponse } from './conversationalBrain.js';
-import { setupConversationalChat } from './chatEndpointV2.js';
-
-// ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
 // ========================================================
 const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
@@ -124,11 +118,6 @@ function generateCSRFToken() {
 
 function generateRequestId() {
   return `req-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
-}
-
-function generateSecureSessionId() {
-  // Usar 32 bytes de entropía (256 bits) para session IDs
-  return `srv-${Date.now()}-${crypto.randomBytes(32).toString('hex')}`;
 }
 
 // ========================================================
@@ -1742,8 +1731,8 @@ function getSessionId(req){
     return sid;
   }
   
-  // Generate new SECURE session ID (32 bytes = 256 bits de entropía)
-  return generateSecureSessionId();
+  // Generate new session ID
+  return generateSessionId();
 }
 
 // CSP Report endpoint (para monitorear violaciones)
@@ -4534,179 +4523,6 @@ app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
   }
 });
 
-// ========================================================
-// Greeting endpoint - Initial session setup
-// ========================================================
-app.all('/api/greeting', greetingLimiter, async (req, res) => {
-  try {
-    const sid = req.sessionId || generateSecureSessionId();
-    
-    // Obtener o crear sesión
-    let session = await getSession(sid);
-    if (!session) {
-      session = {
-        id: sid,
-        userName: null,
-        stage: STATES.ASK_NAME,
-        device: null,
-        problem: null,
-        issueKey: null,
-        tests: { basic: [], ai: [], advanced: [] },
-        stepsDone: [],
-        fallbackCount: 0,
-        waEligible: false,
-        transcript: [],
-        pendingUtterance: null,
-        lastHelpStep: null,
-        startedAt: nowIso(),
-        helpAttempts: {},
-        nameAttempts: 0,
-        stepProgress: {},
-        pendingDeviceGroup: null,
-        userLocale: 'es-AR',
-        frustrationCount: 0,
-        pendingAction: null,
-        images: []
-      };
-      await saveSession(sid, session);
-      console.log('[api/greeting] Nueva sesión creada:', sid);
-    }
-    
-    // Generar CSRF token para esta sesión
-    const csrfToken = generateCSRFToken();
-    csrfTokenStore.set(sid, {
-      token: csrfToken,
-      createdAt: Date.now()
-    });
-    
-    // Mensaje de saludo inicial con selección de idioma
-    const greeting = `🌍 **Welcome | Bienvenido**
-
-💻 **STI - Soporte Técnico Inteligente**
-AI Technical Support Assistant
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🇦🇷 **Español** - Escribí "español" o "1"
-🇺🇸 **English** - Type "english" or "2"
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-Por favor, seleccioná tu idioma.
-Please select your language.`;
-    
-    // Registrar en transcript
-    session.transcript.push({ 
-      who: 'bot', 
-      text: greeting, 
-      ts: nowIso() 
-    });
-    await saveSession(sid, session);
-    
-    // Preparar opciones opcionales (botón para no dar nombre)
-    const options = isEn 
-      ? [{ token: 'BTN_NO_NAME', label: "I'd rather not say", value: 'BTN_NO_NAME' }]
-      : [{ token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', value: 'BTN_NO_NAME' }];
-    
-    res.json({
-      ok: true,
-      greeting,
-      sessionId: sid,
-      csrfToken,
-      stage: session.stage,
-      ui: {
-        buttons: options
-      },
-      options
-    });
-    
-    logMsg(`[GREETING] Session started: ${sid}`);
-  } catch (error) {
-    console.error('[api/greeting] Error:', error);
-    res.status(500).json({ 
-      ok: false, 
-      error: 'Error initializing session',
-      greeting: '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?'
-    });
-  }
-});
-
-// ========================================================
-// Reset session endpoint
-// ========================================================
-app.post('/api/reset', async (req, res) => {
-  try {
-    const sid = req.body?.sid || req.sessionId;
-    
-    if (!sid || !validateSessionId(sid)) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'Invalid or missing session ID' 
-      });
-    }
-    
-    // Obtener sesión existente para preservar algunos datos si es necesario
-    const existingSession = await getSession(sid);
-    const locale = existingSession?.userLocale || 'es-AR';
-    
-    // Crear nueva sesión limpia
-    const newSession = {
-      id: sid,
-      userName: null,
-      stage: STATES.ASK_NAME,
-      device: null,
-      problem: null,
-      issueKey: null,
-      tests: { basic: [], ai: [], advanced: [] },
-      stepsDone: [],
-      fallbackCount: 0,
-      waEligible: false,
-      transcript: [],
-      pendingUtterance: null,
-      lastHelpStep: null,
-      startedAt: nowIso(),
-      helpAttempts: {},
-      nameAttempts: 0,
-      stepProgress: {},
-      pendingDeviceGroup: null,
-      userLocale: locale, // Preservar idioma
-      frustrationCount: 0,
-      pendingAction: null,
-      images: []
-    };
-    
-    await saveSession(sid, newSession);
-    
-    // Limpiar cache de sesión si existe
-    if (sessionCache.has(sid)) {
-      sessionCache.delete(sid);
-    }
-    
-    // Renovar CSRF token
-    const csrfToken = generateCSRFToken();
-    csrfTokenStore.set(sid, {
-      token: csrfToken,
-      createdAt: Date.now()
-    });
-    
-    logMsg(`[RESET] Session reset: ${sid}`);
-    
-    res.json({ 
-      ok: true, 
-      message: 'Session reset successfully',
-      sessionId: sid,
-      csrfToken,
-      stage: newSession.stage
-    });
-  } catch (error) {
-    console.error('[api/reset] Error:', error);
-    res.status(500).json({ 
-      ok: false, 
-      error: 'Error resetting session' 
-    });
-  }
-});
-
 // Sessions listing
 app.get('/api/sessions', async (_req,res)=>{
   const sessions = await listActiveSessions();
@@ -4839,25 +4655,6 @@ app.get('/', (_req, res) => {
 });
 
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
-
-// ========================================================
-// 🔥 CONFIGURAR ENDPOINT CONVERSACIONAL (V2)
-// ========================================================
-setupConversationalChat(app, {
-  chatLimiter,
-  getSession,
-  saveSession,
-  nowIso,
-  logFlowInteraction,
-  updateMetric: (metricName) => {
-    // Incrementar métrica global
-    metrics[metricName] = (metrics[metricName] || 0) + 1;
-  },
-  analyzeUserIntent,
-  generateConversationalResponse,
-  getSessionId
-});
-console.log('✅ Endpoint conversacional /api/chat-v2 configurado');
 
 // Start server
 const PORT = process.env.PORT || 3001;
