@@ -2879,7 +2879,7 @@ function handleShowSteps(session, stepsKey) {
   }
   
   const numbered = enumerateSteps(stepsAr);
-  const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
+  const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
   const intro = stepsKey === 'advanced' 
     ? `Volvemos a las pruebas avanzadas, ${whoLabel}:`
     : `Volvemos a los pasos sugeridos:`;
@@ -3441,7 +3441,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
     // Cerrar chat de forma prolija (movido fuera del bloque de creación)
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
-      const whoLabel = session.userName ? capitalizeToken(session.userName) : 'usuario';
+      const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
       const replyClose = `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
       const tsClose = nowIso();
       session.stage = STATES.ENDED;
@@ -3799,12 +3799,12 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
       // 🔘 Detectar botón "Prefiero no decirlo"
       if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(t)) {
-        session.userName = null;
+        session.userName = isEn ? 'User' : 'Usuari@';
         session.stage = STATES.ASK_NEED;
         
         const reply = isEn
-          ? `✅ No problem! Let's continue.\n\n**How can I help you?**`
-          : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte?**`;
+          ? `✅ No problem! Let's continue.\n\n**How can I help you, User?**`
+          : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte, Usuari@?**`;
         
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
@@ -4013,7 +4013,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     if (/^\s*reformular\s*problema\s*$/i.test(t)) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
       const reply = isEn
         ? `Let's try again, ${whoName}! 👍\n\nTell me: what problem are you having or what do you need help with?`
         : (locale === 'es-419'
@@ -4225,7 +4225,7 @@ La guía debe ser:
         
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
         let replyText = isEn
           ? `Perfect, ${whoLabel}! Here's the guide for ${deviceName} on ${session.userOS}:\n\n`
           : (locale === 'es-419'
@@ -4308,7 +4308,7 @@ La guía debe ser:
           const isEn = String(locale).toLowerCase().startsWith('en');
           if (!session.problem || String(session.problem||'').trim()==='') {
             session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
             const replyText = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
               : (locale === 'es-419'
@@ -4320,7 +4320,7 @@ La guía debe ser:
           } else {
             // Provide short confirmation then show steps
             session.stage = STATES.ASK_PROBLEM;
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
             const replyIntro = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
               : (locale === 'es-419'
@@ -4423,7 +4423,7 @@ La guía debe ser:
           session.stepProgress = session.stepProgress || {};
           limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
           const numbered = enumerateSteps(limited);
-          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'user' : 'usuario');
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
           const empatia = addEmpatheticResponse('ADVANCED_TESTS', locale);
           const intro = isEn
             ? `I understand, ${whoLabel}. ${empatia} Let's try some more advanced tests now:`
