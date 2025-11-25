@@ -3681,12 +3681,12 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     // ============================================
     // BLOQUE: Detección de intent por botones y palabras clave
     // Propósito: Mapear botones/texto a tipos de necesidad del usuario
-    // Funcionalidad: Detecta 5 intents (problema, asistencia_guiada, configuracion_nuevo, guias, consulta_general)
+    // Funcionalidad: Detecta 2 intents principales (problema, consulta_general)
     // Autor: Sistema STI - GitHub Copilot + Lucas
-    // Última modificación: 25/11/2025
+    // Última modificación: 25/11/2025 - Simplificado de 5 a 2 categorías
     // 
     // ADVERTENCIA: Esta lógica debe sincronizarse con:
-    //   - Tokens en CONFIG.ui.buttons (línea ~333)
+    //   - Tokens en CONFIG.ui.buttons (línea ~348)
     //   - Handlers de cada needType (líneas posteriores)
     // No modificar sin implementar lógica para nuevos tipos.
     // ============================================
@@ -3708,9 +3708,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       else if (/problema|no\s+prende|no\s+enciende|no\s+carga|no\s+funciona|no\s+anda|roto|da[ñn]ado|error|falla|fallo|se\s+rompi[oó]/i.test(tLower)) {
         needType = 'problema';
       } 
-      // Detectar por palabras clave según CSV: instalar, configurar, cómo hago para, conectar, poner, setup
-      else if (/instalar|configurar|c[oó]mo\s+(hago|hacer|puedo)|conectar|setup|how\s+to|poner|agregar|a[ñn]adir/i.test(tLower)) {
-        needType = 'asistencia_guiada';
+      // Detectar consultas: instalar, configurar, cómo hago para, conectar, poner, setup, ayuda, guía
+      else if (/instalar|configurar|c[oó]mo\s+(hago|hacer|puedo)|conectar|setup|how\s+to|poner|agregar|a[ñn]adir|gu[ií]a|ayuda|consulta/i.test(tLower)) {
+        needType = 'consulta_general';
       }
       
       if (needType) {
@@ -3727,29 +3727,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
             : `Perfecto ${whoName}. Contame: ¿qué problema estás teniendo?`;
           session.isProblem = true;
           session.isHowTo = false;
-        } else if (needType === 'asistencia_guiada') {
-          reply = isEn
-            ? `Great ${whoName}, what exactly do you need help with?`
-            : `Dale ${whoName}, ¿con qué necesitas ayuda exactamente?`;
-          session.isHowTo = true;
-          session.isProblem = false;
-        } else if (needType === 'configuracion_nuevo') {
-          reply = isEn
-            ? `Awesome ${whoName} 🎉 What device do you want to set up?`
-            : `Genial ${whoName} 🎉 ¿Qué dispositivo querés configurar?`;
-          session.isHowTo = true;
-          session.isProblem = false;
-        } else if (needType === 'guias') {
-          reply = isEn
-            ? `Happy to help ${whoName}. Tell me, what device or function do you need a guide for?`
-            : `Encantado ${whoName}. Decime, ¿sobre qué dispositivo o función necesitas una guía?`;
-          session.isHowTo = true;
-          session.isProblem = false;
         } else if (needType === 'consulta_general') {
           reply = isEn
-            ? `Ok! ${whoName} What's your question?`
-            : `Ok! ${whoName} ¿qué consulta tenés?`;
-          session.isHowTo = false;
+            ? `Great ${whoName}! What do you need help with?`
+            : `Dale ${whoName}! ¿Con qué necesitás ayuda?`;
+          session.isHowTo = true;
           session.isProblem = false;
         } else {
           // Fallback para needType no reconocido
