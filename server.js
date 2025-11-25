@@ -3727,23 +3727,45 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         session.stage = STATES.ASK_PROBLEM;
         
         let reply = '';
-        const empatia = addEmpatheticResponse('ASK_NEED', locale);
+        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
         
+        // Respuestas personalizadas según el tipo de necesidad
         if (needType === 'problema') {
           reply = isEn
-            ? `${empatia}\n\nTell me what technical problem you're having.`
-            : (locale === 'es-419'
-                ? `${empatia}\n\nCuéntame qué problema técnico tienes.`
-                : `${empatia}\n\nContame qué problema técnico tenés.`);
+            ? `Perfect ${whoName}. Tell me: what problem are you having?`
+            : `Perfecto ${whoName}. Contame: ¿qué problema estás teniendo?`;
           session.isProblem = true;
           session.isHowTo = false;
-        } else {
+        } else if (needType === 'asistencia_guiada') {
           reply = isEn
-            ? `${empatia}\n\nTell me what task you want to do.`
-            : (locale === 'es-419'
-                ? `${empatia}\n\nCuéntame qué tarea quieres realizar.`
-                : `${empatia}\n\nContame qué tarea querés realizar.`);
+            ? `Great ${whoName}, what exactly do you need help with?`
+            : `Dale ${whoName}, ¿con qué necesitas ayuda exactamente?`;
           session.isHowTo = true;
+          session.isProblem = false;
+        } else if (needType === 'configuracion_nuevo') {
+          reply = isEn
+            ? `Awesome ${whoName} 🎉 What device do you want to set up?`
+            : `Genial ${whoName} 🎉 ¿Qué dispositivo querés configurar?`;
+          session.isHowTo = true;
+          session.isProblem = false;
+        } else if (needType === 'guias') {
+          reply = isEn
+            ? `Happy to help ${whoName}. Tell me, what device or function do you need a guide for?`
+            : `Encantado ${whoName}. Decime, ¿sobre qué dispositivo o función necesitas una guía?`;
+          session.isHowTo = true;
+          session.isProblem = false;
+        } else if (needType === 'consulta_general') {
+          reply = isEn
+            ? `Ok! ${whoName} What's your question?`
+            : `Ok! ${whoName} ¿qué consulta tenés?`;
+          session.isHowTo = false;
+          session.isProblem = false;
+        } else {
+          // Fallback para needType no reconocido
+          reply = isEn
+            ? `Tell me what you need help with.`
+            : `Contame en qué necesitás ayuda.`;
+          session.isHowTo = false;
           session.isProblem = false;
         }
         
