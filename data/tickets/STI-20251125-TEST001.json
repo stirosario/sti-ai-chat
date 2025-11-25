@@ -1,0 +1,35 @@
+{
+    "sessionId":  "test-session-023455",
+    "id":  "STI-20251125-TEST001",
+    "userName":  "Juan Pérez (PRUEBA)",
+    "gdprConsentWhatsApp":  true,
+    "device":  "PC de escritorio",
+    "gdprConsent":  true,
+    "ticketId":  "STI-20251125-TEST001",
+    "category":  "Conectividad",
+    "description":  "La computadora no se conecta a la red WiFi después de actualizar Windows 11. Reinicié el router pero el problema persiste.",
+    "problem":  "Problema de conexión WiFi en PC",
+    "userEmail":  "juan.test@example.com",
+    "gdprConsentDate":  "2025-11-25T05:34:55.506Z",
+    "priority":  "media",
+    "status":  "open",
+    "createdAt":  "2025-11-25T05:34:55.499Z",
+    "conversationLog":  [
+                            {
+                                "content":  "Hola, tengo un problema con mi PC",
+                                "role":  "user"
+                            },
+                            {
+                                "content":  "¿Qué tipo de problema tienes?",
+                                "role":  "assistant"
+                            },
+                            {
+                                "content":  "No se conecta al WiFi",
+                                "role":  "user"
+                            },
+                            {
+                                "content":  "Voy a crear un ticket de soporte",
+                                "role":  "assistant"
+                            }
+                        ]
+}
