@@ -29,7 +29,7 @@
  * - Optional OpenAI integration controlled by OPENAI_API_KEY env var
  * - Configure directories via env: DATA_BASE, TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR
  * - Set ALLOWED_ORIGINS for CORS security
- * - Set SSE_TOKEN to protect logs endpoint
+ * - Set LOG_TOKEN to protect logs endpoint
  */
 
 import 'dotenv/config';
@@ -130,8 +130,8 @@ if (!process.env.OPENAI_API_KEY) {
 if (!process.env.ALLOWED_ORIGINS) {
   console.warn('[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.');
 }
-if (!process.env.SSE_TOKEN) {
-  console.warn('[WARN] SSE_TOKEN no configurado. Endpoint /api/logs sin protección.');
+if (!process.env.LOG_TOKEN) {
+  console.warn('[WARN] LOG_TOKEN no configurado. Endpoint /api/logs sin protección.');
 }
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -149,17 +149,17 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
 // SECURITY: Generar token seguro si no está configurado
-const SSE_TOKEN = process.env.SSE_TOKEN || crypto.randomBytes(32).toString('hex');
-if (!process.env.SSE_TOKEN) {
+const LOG_TOKEN = process.env.LOG_TOKEN || crypto.randomBytes(32).toString('hex');
+if (!process.env.LOG_TOKEN) {
   console.error('\n'.repeat(3) + '='.repeat(80));
-  console.error('[SECURITY CRITICAL] ⚠️  SSE_TOKEN NOT CONFIGURED!');
+  console.error('[SECURITY CRITICAL] ⚠️  LOG_TOKEN NOT CONFIGURED!');
   console.error('[SECURITY] Generated RANDOM token for this session ONLY.');
   console.error('[SECURITY] This token will change on every restart!');
   console.error('[SECURITY] ');
-  console.error('[SECURITY] Current session token:', SSE_TOKEN);
+  console.error('[SECURITY] Current session token:', LOG_TOKEN);
   console.error('[SECURITY] ');
   console.error('[SECURITY] To fix: Add to your .env file:');
-  console.error('[SECURITY] SSE_TOKEN=' + SSE_TOKEN);
+  console.error('[SECURITY] LOG_TOKEN=' + LOG_TOKEN);
   console.error('='.repeat(80) + '\n'.repeat(2));
 }
 
@@ -1647,7 +1647,7 @@ cron.schedule('0 3 * * *', async () => {
 // Manual cleanup endpoint (protected)
 app.post('/api/cleanup', async (req, res) => {
   const token = req.headers.authorization || req.query.token;
-  if (token !== SSE_TOKEN) {
+  if (token !== LOG_TOKEN) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
   
@@ -1813,7 +1813,7 @@ app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.param
   // Permitir solo si:
   // 1. El session ID del request coincide con el transcript solicitado
   // 2. O tiene un admin token válido
-  if (sid !== requestSessionId && adminToken !== SSE_TOKEN) {
+  if (sid !== requestSessionId && adminToken !== LOG_TOKEN) {
     console.warn(`[SECURITY] Unauthorized transcript access attempt: requested=${sid}, session=${requestSessionId}, IP=${req.ip}`);
     return res.status(403).json({ ok:false, error:'No autorizado para ver este transcript' });
   }
@@ -1834,7 +1834,7 @@ app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.param
 // Logs SSE and plain endpoints
 app.get('/api/logs/stream', async (req, res) => {
   try {
-    if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
+    if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
       return res.status(401).send('unauthorized');
     }
     if (String(req.query.mode || '') === 'once') {
@@ -1889,7 +1889,7 @@ app.get('/api/logs/stream', async (req, res) => {
 });
 
 app.get('/api/logs', (req, res) => {
-  if (SSE_TOKEN && String(req.query.token || '') !== SSE_TOKEN) {
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
     return res.status(401).json({ ok:false, error: 'unauthorized' });
   }
   try {
@@ -2149,7 +2149,7 @@ app.get('/api/ticket/:tid', async (req, res) => {
   }
   
   // SECURITY: Validar ownership - Admin con token válido tiene acceso completo
-  const isValidAdmin = adminToken && adminToken === SSE_TOKEN && SSE_TOKEN && process.env.SSE_TOKEN;
+  const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
   
   if (!isValidAdmin) {
     // No es admin: validar ownership obligatorio
@@ -4719,7 +4719,7 @@ app.get('/api/metrics', async (req, res) => {
   const token = req.headers.authorization || req.query.token;
   
   // Optional authentication
-  if (SSE_TOKEN && token !== SSE_TOKEN) {
+  if (LOG_TOKEN && token !== LOG_TOKEN) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
   
@@ -4802,7 +4802,7 @@ function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>
 const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, ()=> {
   console.log(`STI Chat (v7) started on ${PORT}`);
-  console.log('[Logs] SSE available at /api/logs/stream (use token param if SSE_TOKEN set)');
+  console.log('[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)');
   console.log('[Performance] Compression enabled (gzip/brotli)');
   console.log('[Performance] Session cache enabled (max 1000 sessions)');
 });
