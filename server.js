@@ -323,6 +323,21 @@ const EMBEDDED_CHAT = {
     OA_MIN_CONF: '0.6',
     whatsapp_ticket: { prefix: 'Hola STI. Vengo del chat web. Dejo mi consulta:' }
   },
+  // ============================================
+  // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
+  // ============================================
+  // BLOQUE: Definiciones de tokens de botones UI
+  // Propósito: Tokens centralizados para sistema de botones del flujo conversacional
+  // Funcionalidad: 5 opciones principales de servicio (Problema, Asistencia, Configuración, Guías, Consulta)
+  // Autor: Sistema STI - GitHub Copilot + Lucas
+  // Última modificación: 25/11/2025
+  // 
+  // ADVERTENCIA: Estos tokens se usan en 3 lugares críticos:
+  //   1. Detección de intent (línea ~3675)
+  //   2. Renderizado de botones (líneas ~3785, ~3920)
+  //   3. buildUiButtonsFromTokens (5 ubicaciones)
+  // Modificar sin actualizar todas las referencias causará botones rotos.
+  // ============================================
   ui: {
     buttons: [
       // Botones del flujo según Flujo.csv
@@ -3664,6 +3679,20 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       });
     }
     
+    // ============================================
+    // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
+    // ============================================
+    // BLOQUE: Detección de intent por botones y palabras clave
+    // Propósito: Mapear botones/texto a tipos de necesidad del usuario
+    // Funcionalidad: Detecta 5 intents (problema, asistencia_guiada, configuracion_nuevo, guias, consulta_general)
+    // Autor: Sistema STI - GitHub Copilot + Lucas
+    // Última modificación: 25/11/2025
+    // 
+    // ADVERTENCIA: Esta lógica debe sincronizarse con:
+    //   - Tokens en CONFIG.ui.buttons (línea ~333)
+    //   - Handlers de cada needType (líneas posteriores)
+    // No modificar sin implementar lógica para nuevos tipos.
+    // ============================================
     // ASK_NAME consolidated: validate locally and with OpenAI if available
     if (session.stage === STATES.ASK_NEED) {
       const locale = session.userLocale || 'es-AR';
@@ -3780,6 +3809,20 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
         
+        // ============================================
+        // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
+        // ============================================
+        // BLOQUE: Renderizado de botones sin nombre de usuario
+        // Propósito: Mostrar 5 opciones cuando usuario omite su nombre
+        // Funcionalidad: Mismo set de botones que flujo normal, soporte bilingüe
+        // Autor: Sistema STI - GitHub Copilot + Lucas
+        // Última modificación: 25/11/2025
+        // 
+        // ADVERTENCIA: Este bloque debe ser idéntico al de línea ~3920.
+        // Los valores (BTN_*) deben coincidir con:
+        //   - CONFIG.ui.buttons (línea ~333)
+        //   - Detección de intent (línea ~3675)
+        // ============================================
         return res.json({
           ok: true,
           reply,
@@ -3915,6 +3958,20 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
+        // ============================================
+        // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
+        // ============================================
+        // BLOQUE: Renderizado de botones después de capturar nombre
+        // Propósito: Mostrar 5 opciones de servicio al usuario
+        // Funcionalidad: Botones bilingües (ES/EN) con valores de token
+        // Autor: Sistema STI - GitHub Copilot + Lucas
+        // Última modificación: 25/11/2025
+        // 
+        // ADVERTENCIA: Los valores (BTN_*) deben coincidir con:
+        //   - CONFIG.ui.buttons (línea ~333)
+        //   - Detección de intent (línea ~3675)
+        // Las etiquetas (text) deben mantenerse sincronizadas con traducciones.
+        // ============================================
         return res.json({
           ok: true,
           reply,
