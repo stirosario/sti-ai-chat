@@ -3745,19 +3745,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
         const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
         const reply = isEn
-          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
+          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today?`
           : (locale === 'es-419'
-              ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-              : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
+              ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy?`
+              : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({
+        return res.json({
           ok: true,
           reply,
           stage: session.stage,
-          options: buildUiButtonsFromTokens(['BTN_HELP', 'BTN_TASK'])
-        }));
+          buttons: [
+            { text: isEn ? '🛠️ Technical help' : '🛠️ Ayuda técnica', value: 'BTN_HELP' },
+            { text: isEn ? '🤝 Assistance' : '🤝 Asistencia', value: 'BTN_TASK' }
+          ]
+        });
       }
     }
 
