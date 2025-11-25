@@ -3168,6 +3168,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
   try {
     // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     const sessionId = req.body.sessionId || req.sessionId;
+    console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
+    console.log('[DEBUG /api/chat] Body completo:', JSON.stringify(req.body));
+    console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
+    
     const sessionRateCheck = checkSessionRateLimit(sessionId);
     
     if (!sessionRateCheck.allowed) {
