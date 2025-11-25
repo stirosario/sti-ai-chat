@@ -1,0 +1,959 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-11-25",
+  "categories": {
+    "entrada": {
+      "icon": "📥",
+      "name": "Dispositivos de entrada",
+      "description": "Dispositivos que permiten ingresar datos e instrucciones al sistema",
+      "devices": [
+        {
+          "id": "teclado",
+          "name": "Teclado",
+          "commonIssues": ["teclas no responden", "teclas pegadas", "no se detecta"],
+          "keywords": ["keyboard", "tecla", "key"],
+          "realUserProblems": [
+            {"es": "Algunas teclas no me funcionan", "en": "Some keys don't work"},
+            {"es": "Cuando escribo salen letras repetidas", "en": "When I type, letters repeat"},
+            {"es": "El teclado escribe solo", "en": "Keyboard types by itself"},
+            {"es": "Aprieto una letra y aparece otra distinta", "en": "I press one key and another appears"},
+            {"es": "El teclado dejó de responder de golpe", "en": "Keyboard stopped responding suddenly"},
+            {"es": "No me toma la tecla Enter", "en": "Enter key doesn't work"},
+            {"es": "Las teclas están durísimas", "en": "Keys are very stiff"},
+            {"es": "Escribo y aparece todo con retraso", "en": "I type and everything appears delayed"},
+            {"es": "Las teclas parecen pegadas", "en": "Keys seem stuck"},
+            {"es": "El teclado se conecta y desconecta solo", "en": "Keyboard connects and disconnects by itself"},
+            {"es": "El teclado Bluetooth no sincroniza", "en": "Bluetooth keyboard won't sync"},
+            {"es": "No funciona la luz del teclado", "en": "Keyboard backlight doesn't work"},
+            {"es": "El teclado no lo detecta Windows", "en": "Windows doesn't detect the keyboard"},
+            {"es": "Me cambiaron el idioma del teclado", "en": "Keyboard language changed"},
+            {"es": "No funciona el teclado numérico", "en": "Numeric keypad doesn't work"},
+            {"es": "Las teclas hacen ruido raro", "en": "Keys make weird noise"},
+            {"es": "El teclado quedó bloqueado", "en": "Keyboard is locked"},
+            {"es": "Escribo y no aparece nada", "en": "I type and nothing appears"},
+            {"es": "El teclado funciona solo algunas veces", "en": "Keyboard works only sometimes"},
+            {"es": "Se mojó el teclado y ahora falla", "en": "Keyboard got wet and now fails"}
+          ]
+        },
+        {
+          "id": "mouse",
+          "name": "Mouse",
+          "commonIssues": ["cursor no se mueve", "clic no funciona", "scroll no responde"],
+          "keywords": ["ratón", "cursor", "click"],
+          "realUserProblems": [
+            {"es": "El mouse se mueve solo", "en": "Mouse moves by itself"},
+            {"es": "El puntero salta por todos lados", "en": "Cursor jumps everywhere"},
+            {"es": "El click izquierdo no anda", "en": "Left click doesn't work"},
+            {"es": "Hace doble click sin que yo lo haga", "en": "It double-clicks without me doing it"},
+            {"es": "La rueda no baja bien", "en": "Scroll wheel doesn't work properly"},
+            {"es": "No lo detecta la computadora", "en": "Computer doesn't detect it"},
+            {"es": "El mouse se desconecta a cada rato", "en": "Mouse disconnects constantly"},
+            {"es": "El Bluetooth no lo encuentra", "en": "Bluetooth can't find it"},
+            {"es": "El sensor no lee bien", "en": "Sensor doesn't read properly"},
+            {"es": "El mouse se arrastra lento", "en": "Mouse drags slowly"},
+            {"es": "Va con mucho retraso", "en": "It lags a lot"},
+            {"es": "No puedo hacer click derecho", "en": "Can't right-click"},
+            {"es": "El scroll sube solo", "en": "Scroll goes up by itself"},
+            {"es": "No se mueve en algunas superficies", "en": "Doesn't move on some surfaces"},
+            {"es": "El cable está flojo", "en": "Cable is loose"},
+            {"es": "Aparece un cartel de 'dispositivo USB no reconocido'", "en": "Shows 'USB device not recognized' message"},
+            {"es": "El mouse no responde para nada", "en": "Mouse doesn't respond at all"},
+            {"es": "El DPI cambia solo", "en": "DPI changes by itself"},
+            {"es": "La batería dura poquísimo", "en": "Battery lasts very little"},
+            {"es": "No puedo calibrarlo", "en": "Can't calibrate it"}
+          ]
+        },
+        {
+          "id": "trackpad",
+          "name": "Trackpad",
+          "commonIssues": ["no responde al tacto", "cursor errático", "gestos no funcionan"],
+          "keywords": ["touchpad", "panel táctil"],
+          "realUserProblems": [
+            {"es": "El touchpad no responde al tacto", "en": "Touchpad doesn't respond to touch"},
+            {"es": "El cursor se mueve raro", "en": "Cursor moves weird"},
+            {"es": "No funcionan los gestos de dos dedos", "en": "Two-finger gestures don't work"},
+            {"es": "No hace click", "en": "Doesn't click"},
+            {"es": "Hace click solo", "en": "Clicks by itself"},
+            {"es": "Está muy lento", "en": "It's very slow"},
+            {"es": "El touchpad está desactivado", "en": "Touchpad is disabled"},
+            {"es": "Desapareció el icono del touchpad", "en": "Touchpad icon disappeared"},
+            {"es": "El cursor se va para los costados", "en": "Cursor goes to the sides"},
+            {"es": "El touchpad se congela", "en": "Touchpad freezes"},
+            {"es": "No funciona el scroll", "en": "Scroll doesn't work"},
+            {"es": "Toca solo, como si estuviera fantasma", "en": "Touches by itself, like a ghost"},
+            {"es": "Es muy sensible", "en": "It's too sensitive"},
+            {"es": "Tiene un retraso enorme", "en": "Has huge lag"},
+            {"es": "El click derecho no funciona", "en": "Right-click doesn't work"},
+            {"es": "Al tocarlo vibra raro", "en": "Vibrates weird when touched"},
+            {"es": "El touchpad no aparece en el Administrador de dispositivos", "en": "Touchpad doesn't appear in Device Manager"},
+            {"es": "Después de suspender la laptop deja de andar", "en": "Stops working after laptop sleeps"},
+            {"es": "El puntero se queda trabado", "en": "Pointer gets stuck"},
+            {"es": "A veces no detecta mis dedos", "en": "Sometimes doesn't detect my fingers"}
+          ]
+        },
+        {
+          "id": "escaner",
+          "name": "Escáner",
+          "commonIssues": ["no escanea", "calidad baja", "no se detecta"],
+          "keywords": ["scanner", "digitalizar"],
+          "realUserProblems": [
+            {"es": "El escáner no lo detecta la PC", "en": "PC doesn't detect the scanner"},
+            {"es": "Me salen líneas negras en el escaneo", "en": "Black lines appear in the scan"},
+            {"es": "Escanea todo borroso", "en": "Scans everything blurry"},
+            {"es": "Hace un ruido raro y no escanea", "en": "Makes a weird noise and doesn't scan"},
+            {"es": "Dice tapa abierta pero está cerrada", "en": "Says lid open but it's closed"},
+            {"es": "El escaneo tarda muchísimo", "en": "Scanning takes forever"},
+            {"es": "El escáner no inicia", "en": "Scanner doesn't start"},
+            {"es": "No aparece en la lista de dispositivos", "en": "Doesn't appear in device list"},
+            {"es": "El programa dice que el driver está mal", "en": "Program says driver is wrong"},
+            {"es": "Escanea con manchas", "en": "Scans with stains"},
+            {"es": "No me deja elegir formato", "en": "Won't let me choose format"},
+            {"es": "Se desconecta mientras escanea", "en": "Disconnects while scanning"},
+            {"es": "No me deja escanear por red", "en": "Won't let me scan over network"},
+            {"es": "No digitaliza a color", "en": "Doesn't digitize in color"},
+            {"es": "El escaneo queda cortado", "en": "Scan gets cut off"},
+            {"es": "No abre el software del escáner", "en": "Scanner software won't open"},
+            {"es": "Dice error TWAIN", "en": "Says TWAIN error"},
+            {"es": "No reconoce la resolución", "en": "Doesn't recognize resolution"},
+            {"es": "El vidrio se empaña", "en": "Glass fogs up"},
+            {"es": "Directamente no prende", "en": "Simply doesn't turn on"}
+          ]
+        },
+        {
+          "id": "camara-web",
+          "name": "Cámara web",
+          "commonIssues": ["no se ve imagen", "imagen borrosa", "no se detecta"],
+          "keywords": ["webcam", "videollamada", "zoom"],
+          "realUserProblems": [
+            {"es": "La cámara se ve negra", "en": "Camera shows black"},
+            {"es": "La cámara no me detecta", "en": "Camera doesn't detect me"},
+            {"es": "Se ve borroso", "en": "Looks blurry"},
+            {"es": "Está siendo usada por otra aplicación", "en": "Being used by another application"},
+            {"es": "La imagen se congela", "en": "Image freezes"},
+            {"es": "Los colores salen mal", "en": "Colors come out wrong"},
+            {"es": "La cámara aparece y desaparece", "en": "Camera appears and disappears"},
+            {"es": "La cámara no aparece en Windows", "en": "Camera doesn't appear in Windows"},
+            {"es": "Dice 'no disponible'", "en": "Says 'not available'"},
+            {"es": "La cámara se traba en videollamadas", "en": "Camera freezes in video calls"},
+            {"es": "La luz de la cámara no prende", "en": "Camera light doesn't turn on"},
+            {"es": "Tiene delay", "en": "Has delay"},
+            {"es": "Me veo todo oscuro", "en": "I look all dark"},
+            {"es": "Me veo azul/verde", "en": "I look blue/green"},
+            {"es": "La cámara no enfoca", "en": "Camera doesn't focus"},
+            {"es": "La laptop no reconoce la cámara interna", "en": "Laptop doesn't recognize internal camera"},
+            {"es": "Cuando abro Zoom se apaga", "en": "Turns off when I open Zoom"},
+            {"es": "La cámara gira la imagen al revés", "en": "Camera flips image upside down"},
+            {"es": "La cámara se escucha mal (micrófono integrado)", "en": "Camera sounds bad (integrated microphone)"},
+            {"es": "Se pone roja la pantalla en la cámara", "en": "Screen turns red on camera"}
+          ]
+        },
+        {
+          "id": "microfono",
+          "name": "Micrófono",
+          "commonIssues": ["no se escucha", "ruido de fondo", "volumen bajo"],
+          "keywords": ["mic", "audio entrada"],
+          "realUserProblems": [
+            {"es": "No me escuchan", "en": "They can't hear me"},
+            {"es": "Me escuchan muy bajo", "en": "They hear me very low"},
+            {"es": "Se escucha con eco", "en": "Sounds with echo"},
+            {"es": "Hace un ruido como viento", "en": "Makes a wind-like noise"},
+            {"es": "Cambia solo el volumen", "en": "Volume changes by itself"},
+            {"es": "No aparece el micrófono en Windows", "en": "Microphone doesn't appear in Windows"},
+            {"es": "El micrófono no responde", "en": "Microphone doesn't respond"},
+            {"es": "Solo me toma el micrófono de la cámara", "en": "Only picks up camera microphone"},
+            {"es": "No me deja elegir entrada", "en": "Won't let me choose input"},
+            {"es": "Se escucha muy saturado", "en": "Sounds very distorted"},
+            {"es": "El micrófono está deshabilitado", "en": "Microphone is disabled"},
+            {"es": "Discord no me detecta", "en": "Discord doesn't detect me"},
+            {"es": "WhatsApp Web no toma el audio", "en": "WhatsApp Web doesn't pick up audio"},
+            {"es": "Me escuchan entrecortado", "en": "They hear me choppy"},
+            {"es": "Suena a robot", "en": "Sounds robotic"},
+            {"es": "No reconoce el micrófono USB", "en": "Doesn't recognize USB microphone"},
+            {"es": "No captura nada después de una actualización", "en": "Doesn't capture anything after an update"},
+            {"es": "Windows bloquea el micrófono por privacidad", "en": "Windows blocks microphone for privacy"},
+            {"es": "El micrófono aparece como ocupado", "en": "Microphone appears as busy"},
+            {"es": "Pega chasquidos o ruidos raros", "en": "Makes clicks or weird noises"}
+          ]
+        },
+        {
+          "id": "tableta-grafica",
+          "name": "Tableta gráfica",
+          "commonIssues": ["lápiz no responde", "sensibilidad incorrecta", "no se detecta"],
+          "keywords": ["wacom", "pen tablet", "stylus"],
+          "realUserProblems": [
+            {"es": "La tablet no la detecta la PC", "en": "PC doesn't detect the tablet"},
+            {"es": "El lápiz no responde", "en": "Pen doesn't respond"},
+            {"es": "El trazo sale con retraso", "en": "Stroke comes out delayed"},
+            {"es": "No reconoce los niveles de presión", "en": "Doesn't recognize pressure levels"},
+            {"es": "El trazo queda cortado", "en": "Stroke gets cut off"},
+            {"es": "El cursor salta", "en": "Cursor jumps"},
+            {"es": "La tablet se desconecta", "en": "Tablet disconnects"},
+            {"es": "El lápiz no funciona si lo cargo", "en": "Pen doesn't work while charging"},
+            {"es": "El lápiz escribe sin tocar", "en": "Pen writes without touching"},
+            {"es": "No funciona en Photoshop", "en": "Doesn't work in Photoshop"},
+            {"es": "El mapeo quedó desconfigurado", "en": "Mapping got misconfigured"},
+            {"es": "No detecta la inclinación", "en": "Doesn't detect tilt"},
+            {"es": "La tablet no aparece en el panel de control", "en": "Tablet doesn't appear in control panel"},
+            {"es": "Los botones de la tablet no funcionan", "en": "Tablet buttons don't work"},
+            {"es": "Dibuja torcido", "en": "Draws crooked"},
+            {"es": "La presión se pierde de repente", "en": "Pressure is lost suddenly"},
+            {"es": "Dice que los drivers están dañados", "en": "Says drivers are damaged"},
+            {"es": "El lápiz marca doble trazo", "en": "Pen marks double stroke"},
+            {"es": "La tablet queda en negro", "en": "Tablet goes black"},
+            {"es": "No la reconoce después de reiniciar", "en": "Doesn't recognize it after reboot"}
+          ]
+        },
+        {
+          "id": "lector-codigo-barras",
+          "name": "Lector de código de barras",
+          "commonIssues": ["no lee códigos", "lectura intermitente"],
+          "keywords": ["barcode scanner", "pistola"],
+          "realUserProblems": [
+            {"es": "No lee ningún código", "en": "Doesn't read any code"},
+            {"es": "Lee muy lento", "en": "Reads very slow"},
+            {"es": "Hace el bip pero no carga los datos", "en": "Beeps but doesn't load data"},
+            {"es": "No lo reconoce USB", "en": "USB doesn't recognize it"},
+            {"es": "Lee cuando quiere", "en": "Reads when it wants"},
+            {"es": "No lee códigos impresos", "en": "Doesn't read printed codes"},
+            {"es": "No lee códigos en pantalla", "en": "Doesn't read codes on screen"},
+            {"es": "Los códigos salen incompletos", "en": "Codes come out incomplete"},
+            {"es": "Pega números repetidos", "en": "Pastes repeated numbers"},
+            {"es": "Tengo que pegar muy cerca", "en": "Have to hold it very close"},
+            {"es": "Tengo que pegar muy lejos", "en": "Have to hold it very far"},
+            {"es": "El láser no enciende", "en": "Laser doesn't turn on"},
+            {"es": "Cambió el idioma del teclado", "en": "Keyboard language changed"},
+            {"es": "Se desconecta solo", "en": "Disconnects by itself"},
+            {"es": "Lee pero al revés", "en": "Reads but backwards"},
+            {"es": "El lector se queda trabado", "en": "Reader gets stuck"},
+            {"es": "No entra en modo continuo", "en": "Won't enter continuous mode"},
+            {"es": "No entra en modo gatillo", "en": "Won't enter trigger mode"},
+            {"es": "No funciona en mi sistema de stock", "en": "Doesn't work in my stock system"},
+            {"es": "Los códigos largos no los toma", "en": "Doesn't pick up long codes"}
+          ]
+        },
+        {
+          "id": "lector-tarjetas",
+          "name": "Lector de tarjetas magnéticas",
+          "commonIssues": ["no lee tarjetas", "error de lectura"],
+          "keywords": ["card reader", "banda magnética"],
+          "realUserProblems": [
+            {"es": "No me lee la tarjeta", "en": "Doesn't read the card"},
+            {"es": "Lee solo a veces", "en": "Reads only sometimes"},
+            {"es": "La tarjeta entra dura", "en": "Card goes in hard"},
+            {"es": "Tira error de pista 1", "en": "Throws track 1 error"},
+            {"es": "Tira error de pista 2", "en": "Throws track 2 error"},
+            {"es": "Me arma mal los datos", "en": "Assembles data wrong"},
+            {"es": "Lee incompleto", "en": "Reads incomplete"},
+            {"es": "No lo reconoce USB", "en": "USB doesn't recognize it"},
+            {"es": "El lector hace ruido", "en": "Reader makes noise"},
+            {"es": "Tengo que pasar varias veces", "en": "Have to swipe several times"},
+            {"es": "Lee al revés", "en": "Reads backwards"},
+            {"es": "La tarjeta se desmagnetizó", "en": "Card got demagnetized"},
+            {"es": "El software no la reconoce", "en": "Software doesn't recognize it"},
+            {"es": "No aparece en dispositivos", "en": "Doesn't appear in devices"},
+            {"es": "Se desconecta al instante", "en": "Disconnects instantly"},
+            {"es": "El cabezal está sucio", "en": "Head is dirty"},
+            {"es": "No lee tarjetas nuevas", "en": "Doesn't read new cards"},
+            {"es": "No funciona en mi sistema de cobro", "en": "Doesn't work in my billing system"},
+            {"es": "Manda caracteres raros", "en": "Sends weird characters"},
+            {"es": "Los datos llegan cortados", "en": "Data arrives cut off"}
+          ]
+        },
+        {
+          "id": "lector-biometrico",
+          "name": "Lector biométrico",
+          "commonIssues": ["no reconoce huella", "falla facial", "iris no detecta"],
+          "keywords": ["fingerprint", "facial", "huella", "rostro"],
+          "realUserProblems": [
+            {"es": "No me toma la huella", "en": "Doesn't take my fingerprint"},
+            {"es": "Dice dedo no reconocido", "en": "Says finger not recognized"},
+            {"es": "Demora mucho", "en": "Takes too long"},
+            {"es": "Tengo que apoyar varias veces", "en": "Have to place finger several times"},
+            {"es": "El sensor está tibio o caliente", "en": "Sensor is warm or hot"},
+            {"es": "El sensor no prende", "en": "Sensor doesn't turn on"},
+            {"es": "Me dice que la huella está llena", "en": "Says fingerprint storage is full"},
+            {"es": "Lee pero tarda demasiado", "en": "Reads but takes too long"},
+            {"es": "Dice huella inválida", "en": "Says invalid fingerprint"},
+            {"es": "No deja registrar nuevas huellas", "en": "Won't let me register new fingerprints"},
+            {"es": "No me reconoce la cara", "en": "Doesn't recognize my face"},
+            {"es": "Tengo que mover la cabeza", "en": "Have to move my head"},
+            {"es": "Dice que hay poca luz", "en": "Says there's low light"},
+            {"es": "La cámara no detecta mi rostro", "en": "Camera doesn't detect my face"},
+            {"es": "Reconoce a otra persona", "en": "Recognizes another person"},
+            {"es": "Me detecta con barbijo/lentes", "en": "Detects me with mask/glasses"},
+            {"es": "No prende el infrarrojo", "en": "Infrared doesn't turn on"},
+            {"es": "Luz muy fuerte y no reconoce", "en": "Too much light and won't recognize"},
+            {"es": "Se queda cargando", "en": "Stays loading"},
+            {"es": "Después de actualizar dejó de funcionar", "en": "Stopped working after update"}
+          ]
+        },
+        {
+          "id": "joystick",
+          "name": "Joystick",
+          "commonIssues": ["deriva", "botones no responden", "no se calibra"],
+          "keywords": ["palanca", "flight stick"],
+          "realUserProblems": [
+            {"es": "El joystick se mueve solo", "en": "Joystick moves by itself"},
+            {"es": "La palanca quedó inclinada", "en": "Stick is tilted"},
+            {"es": "Un botón no responde", "en": "One button doesn't respond"},
+            {"es": "Vibra todo el tiempo", "en": "Vibrates all the time"},
+            {"es": "No vibra nada", "en": "Doesn't vibrate at all"},
+            {"es": "No lo detecta Windows", "en": "Windows doesn't detect it"},
+            {"es": "Se descalibra", "en": "Gets uncalibrated"},
+            {"es": "Me tira todo para la izquierda", "en": "Pulls everything to the left"},
+            {"es": "El Bluetooth no conecta", "en": "Bluetooth won't connect"},
+            {"es": "El cable está suelto", "en": "Cable is loose"},
+            {"es": "Los botones se quedan pegados", "en": "Buttons get stuck"},
+            {"es": "La cruceta no responde", "en": "D-pad doesn't respond"},
+            {"es": "Los gatillos fallan", "en": "Triggers fail"},
+            {"es": "Se desconecta en medio del juego", "en": "Disconnects mid-game"},
+            {"es": "Aparece como mando genérico", "en": "Appears as generic controller"},
+            {"es": "El stick tiene drift", "en": "Stick has drift"},
+            {"es": "Input lag constante", "en": "Constant input lag"},
+            {"es": "No funciona en Steam", "en": "Doesn't work in Steam"},
+            {"es": "Se queda vibrando", "en": "Stays vibrating"},
+            {"es": "A veces no prende", "en": "Sometimes doesn't turn on"}
+          ]
+        },
+        {
+          "id": "gamepad",
+          "name": "Gamepad",
+          "commonIssues": ["botones pegados", "sticks derivan", "no se conecta"],
+          "keywords": ["control", "mando", "xbox", "playstation"],
+          "realUserProblems": [
+            {"es": "El mando no prende", "en": "Controller doesn't turn on"},
+            {"es": "No empareja con la consola", "en": "Won't pair with console"},
+            {"es": "Los gatillos no funcionan", "en": "Triggers don't work"},
+            {"es": "El joystick se va solo", "en": "Joystick drifts"},
+            {"es": "No responde el botón Home", "en": "Home button doesn't respond"},
+            {"es": "El juego no detecta el mando", "en": "Game doesn't detect controller"},
+            {"es": "La batería dura nada", "en": "Battery lasts nothing"},
+            {"es": "El Bluetooth falla", "en": "Bluetooth fails"},
+            {"es": "Se desconecta jugando", "en": "Disconnects while playing"},
+            {"es": "La vibración no funciona", "en": "Vibration doesn't work"},
+            {"es": "No mapea bien los botones", "en": "Doesn't map buttons correctly"},
+            {"es": "El touchpad no responde", "en": "Touchpad doesn't respond"},
+            {"es": "El mando se calienta", "en": "Controller gets hot"},
+            {"es": "Cuando lo cargo no funciona", "en": "Doesn't work while charging"},
+            {"es": "Dice 'mando desconocido'", "en": "Says 'unknown controller'"},
+            {"es": "El mando se queda trabado en un botón", "en": "Controller gets stuck on a button"},
+            {"es": "Demora en responder", "en": "Delays in responding"},
+            {"es": "No lo reconoce en PC", "en": "PC doesn't recognize it"},
+            {"es": "A veces se invierten los ejes", "en": "Sometimes axes are inverted"},
+            {"es": "No carga más", "en": "Won't charge anymore"}
+          ]
+        },
+        {
+          "id": "control-vr",
+          "name": "Control de realidad virtual",
+          "commonIssues": ["tracking perdido", "botones no responden", "batería se agota"],
+          "keywords": ["vr controller", "quest", "vive"],
+          "realUserProblems": [
+            {"es": "El control no lo detecta el visor", "en": "Headset doesn't detect controller"},
+            {"es": "Pierde tracking a cada rato", "en": "Loses tracking constantly"},
+            {"es": "Los botones no funcionan", "en": "Buttons don't work"},
+            {"es": "El gatillo hace ruido", "en": "Trigger makes noise"},
+            {"es": "Tiembla solo", "en": "Shakes by itself"},
+            {"es": "Se mueve aunque no lo toque", "en": "Moves even though I don't touch it"},
+            {"es": "La vibración no anda", "en": "Vibration doesn't work"},
+            {"es": "El control se va para un lado", "en": "Controller drifts to one side"},
+            {"es": "La batería dura muy poco", "en": "Battery lasts very little"},
+            {"es": "No aparece en la app", "en": "Doesn't appear in app"},
+            {"es": "Se desconecta jugando", "en": "Disconnects while playing"},
+            {"es": "No sincroniza", "en": "Won't sync"},
+            {"es": "Los sensores no responden", "en": "Sensors don't respond"},
+            {"es": "La luz LED no enciende", "en": "LED light doesn't turn on"},
+            {"es": "Marca error de emparejamiento", "en": "Shows pairing error"},
+            {"es": "El tracking se pierde con luz fuerte", "en": "Tracking is lost with bright light"},
+            {"es": "Se recalienta", "en": "Overheats"},
+            {"es": "Hace ruido interno", "en": "Makes internal noise"},
+            {"es": "No detecta el movimiento del brazo", "en": "Doesn't detect arm movement"},
+            {"es": "Los botones quedan apretados", "en": "Buttons stay pressed"}
+          ]
+        },
+        {
+          "id": "sensor-movimiento",
+          "name": "Sensores de movimiento",
+          "commonIssues": ["no detecta movimiento", "falsos positivos"],
+          "keywords": ["motion sensor", "acelerómetro", "giroscopio"],
+          "realUserProblems": [
+            {"es": "No detecta nada", "en": "Doesn't detect anything"},
+            {"es": "Detecta movimiento cuando no hay", "en": "Detects movement when there isn't any"},
+            {"es": "Detecta con retraso", "en": "Detects with delay"},
+            {"es": "El sensor está muy sensible", "en": "Sensor is too sensitive"},
+            {"es": "El sensor no prende", "en": "Sensor doesn't turn on"},
+            {"es": "No aparece en la app", "en": "Doesn't appear in app"},
+            {"es": "Me marca actividad todo el día", "en": "Shows activity all day"},
+            {"es": "Detecta solo de un lado", "en": "Detects only from one side"},
+            {"es": "No envía las alertas", "en": "Doesn't send alerts"},
+            {"es": "Se desconecta del WiFi", "en": "Disconnects from WiFi"},
+            {"es": "Se queda congelado", "en": "Gets frozen"},
+            {"es": "La batería se agota rápido", "en": "Battery drains fast"},
+            {"es": "Se activa con mascotas", "en": "Activates with pets"},
+            {"es": "No se activa ni pasando adelante", "en": "Doesn't activate even passing in front"},
+            {"es": "Reporta fallos aleatorios", "en": "Reports random failures"},
+            {"es": "Detecta solo de noche", "en": "Detects only at night"},
+            {"es": "No detecta a larga distancia", "en": "Doesn't detect at long distance"},
+            {"es": "Hace alarma sin motivo", "en": "Makes alarm without reason"},
+            {"es": "Tira error de sensor bloqueado", "en": "Throws blocked sensor error"},
+            {"es": "No calibra", "en": "Won't calibrate"}
+          ]
+        },
+        {
+          "id": "sensor-voz",
+          "name": "Sensores de voz",
+          "commonIssues": ["no reconoce comandos", "activación accidental"],
+          "keywords": ["voice sensor", "reconocimiento de voz"],
+          "realUserProblems": [
+            {"es": "No me escucha", "en": "Doesn't hear me"},
+            {"es": "Activa cuando no le hablo", "en": "Activates when I'm not talking to it"},
+            {"es": "No reconoce mis comandos", "en": "Doesn't recognize my commands"},
+            {"es": "Responde cualquier cosa", "en": "Responds anything"},
+            {"es": "Activa con la TV", "en": "Activates with TV"},
+            {"es": "Demora mucho en responder", "en": "Takes too long to respond"},
+            {"es": "Dice que no me entiende", "en": "Says it doesn't understand me"},
+            {"es": "Detecta voz pero no procesa", "en": "Detects voice but doesn't process"},
+            {"es": "No aparece en la app", "en": "Doesn't appear in app"},
+            {"es": "Se cae la conexión", "en": "Connection drops"},
+            {"es": "El micrófono no anda", "en": "Microphone doesn't work"},
+            {"es": "Reconoce pero se queda cargando", "en": "Recognizes but stays loading"},
+            {"es": "Activa con voces de otras personas", "en": "Activates with other people's voices"},
+            {"es": "Confunde palabras", "en": "Confuses words"},
+            {"es": "Hace ruido constante", "en": "Makes constant noise"},
+            {"es": "No reconoce mi acento", "en": "Doesn't recognize my accent"},
+            {"es": "Pierde sensibilidad", "en": "Loses sensitivity"},
+            {"es": "Detecta demasiado lejos", "en": "Detects too far"},
+            {"es": "Detecta solo muy cerca", "en": "Detects only very close"},
+            {"es": "Da error después de actualizar", "en": "Gives error after updating"}
+          ]
+        },
+        {
+          "id": "sensor-tactil",
+          "name": "Sensores táctiles",
+          "commonIssues": ["no responde al tacto", "sensibilidad incorrecta"],
+          "keywords": ["touch sensor", "capacitivo"],
+          "realUserProblems": [
+            {"es": "No detecta el tacto", "en": "Doesn't detect touch"},
+            {"es": "Detecta cuando no lo toco", "en": "Detects when I don't touch it"},
+            {"es": "Tengo que presionar fuerte", "en": "Have to press hard"},
+            {"es": "No reconoce varios dedos", "en": "Doesn't recognize multiple fingers"},
+            {"es": "El tacto está descalibrado", "en": "Touch is uncalibrated"},
+            {"es": "El sensor se traba", "en": "Sensor gets stuck"},
+            {"es": "No funciona por zonas", "en": "Doesn't work in zones"},
+            {"es": "Hace cosas solo", "en": "Does things by itself"},
+            {"es": "No detecta gestos", "en": "Doesn't detect gestures"},
+            {"es": "El tacto responde con retraso", "en": "Touch responds with delay"},
+            {"es": "Se vuelve loco si hay humedad", "en": "Goes crazy if there's moisture"},
+            {"es": "El tacto se apaga", "en": "Touch turns off"},
+            {"es": "Los toques no coinciden con donde toco", "en": "Touches don't match where I touch"},
+            {"es": "Se queda pegado un toque", "en": "A touch gets stuck"},
+            {"es": "Los botones táctiles no responden", "en": "Touch buttons don't respond"},
+            {"es": "Mueve cosas sin tocar", "en": "Moves things without touching"},
+            {"es": "El sensor no aparece en ajustes", "en": "Sensor doesn't appear in settings"},
+            {"es": "El sensor dejó de responder con el frío", "en": "Sensor stopped responding in cold"},
+            {"es": "El tacto se nota lento", "en": "Touch feels slow"},
+            {"es": "Después de actualizar dejó de funcionar", "en": "Stopped working after update"}
+          ]
+        }
+      ]
+    },
+    "salida": {
+      "icon": "📤",
+      "name": "Dispositivos de salida",
+      "description": "Dispositivos que muestran o presentan información procesada",
+      "devices": [
+        {
+          "id": "monitor-lcd",
+          "name": "Monitor LCD",
+          "commonIssues": ["pantalla negra", "líneas verticales", "píxeles muertos"],
+          "keywords": ["screen", "display", "pantalla"]
+        },
+        {
+          "id": "monitor-led",
+          "name": "Monitor LED",
+          "commonIssues": ["no enciende", "brillo irregular", "parpadeo"],
+          "keywords": ["screen", "display"]
+        },
+        {
+          "id": "monitor-oled",
+          "name": "Monitor OLED",
+          "commonIssues": ["burn-in", "manchas", "colores incorrectos"],
+          "keywords": ["pantalla oled"]
+        },
+        {
+          "id": "monitor-miniled",
+          "name": "Monitor MiniLED",
+          "commonIssues": ["blooming", "zonas oscuras", "retroiluminación desigual"],
+          "keywords": ["pantalla miniled"]
+        },
+        {
+          "id": "pantalla-flexible",
+          "name": "Pantalla flexible/plegable",
+          "commonIssues": ["pliegue visible", "grieta en pantalla", "no despliega"],
+          "keywords": ["foldable", "plegable"]
+        },
+        {
+          "id": "proyector",
+          "name": "Proyector",
+          "commonIssues": ["imagen borrosa", "no proyecta", "colores apagados"],
+          "keywords": ["projector", "cañón"]
+        },
+        {
+          "id": "impresora-laser",
+          "name": "Impresora láser",
+          "commonIssues": ["no imprime", "rayas en página", "atasco de papel"],
+          "keywords": ["printer", "laser printer"]
+        },
+        {
+          "id": "impresora-tinta",
+          "name": "Impresora de inyección de tinta",
+          "commonIssues": ["inyectores tapados", "colores incorrectos", "no imprime"],
+          "keywords": ["inkjet", "printer"]
+        },
+        {
+          "id": "impresora-3d",
+          "name": "Impresora 3D",
+          "commonIssues": ["cama desnivelada", "extrusión irregular", "capas separadas"],
+          "keywords": ["3d printer", "filamento"]
+        },
+        {
+          "id": "plotter",
+          "name": "Plotter",
+          "commonIssues": ["corte impreciso", "papel atascado", "cabezal no se mueve"],
+          "keywords": ["plotter", "trazador"]
+        },
+        {
+          "id": "auriculares",
+          "name": "Auriculares",
+          "commonIssues": ["sin audio", "audio en un solo lado", "ruido estático"],
+          "keywords": ["headphones", "cascos"]
+        },
+        {
+          "id": "parlantes",
+          "name": "Parlantes",
+          "commonIssues": ["sin sonido", "distorsión", "volumen bajo"],
+          "keywords": ["speakers", "altavoces"]
+        },
+        {
+          "id": "dispositivo-haptico",
+          "name": "Dispositivos hápticos",
+          "commonIssues": ["vibración no funciona", "feedback débil"],
+          "keywords": ["haptic", "vibración", "feedback táctil"]
+        },
+        {
+          "id": "pantalla-holografica",
+          "name": "Pantallas holográficas",
+          "commonIssues": ["imagen distorsionada", "proyección incompleta"],
+          "keywords": ["holographic display", "holograma"]
+        }
+      ]
+    },
+    "entrada-salida": {
+      "icon": "🔄",
+      "name": "Dispositivos de entrada/salida",
+      "description": "Dispositivos que permiten tanto ingresar como recibir datos",
+      "devices": [
+        {
+          "id": "pantalla-tactil",
+          "name": "Pantalla táctil",
+          "commonIssues": ["no responde al tacto", "toques fantasma", "calibración incorrecta"],
+          "keywords": ["touchscreen", "touch"]
+        },
+        {
+          "id": "smartphone",
+          "name": "Smartphone",
+          "commonIssues": ["pantalla rota", "batería se agota", "no carga", "lento"],
+          "keywords": ["celular", "móvil", "teléfono"]
+        },
+        {
+          "id": "tablet",
+          "name": "Tablet",
+          "commonIssues": ["no enciende", "pantalla congelada", "batería no carga"],
+          "keywords": ["tableta", "ipad"]
+        },
+        {
+          "id": "consola-videojuegos",
+          "name": "Consola de videojuegos",
+          "commonIssues": ["no lee discos", "sobrecalentamiento", "error de red"],
+          "keywords": ["playstation", "xbox", "nintendo", "switch"]
+        },
+        {
+          "id": "disco-duro-hdd",
+          "name": "Disco duro (HDD)",
+          "commonIssues": ["ruido extraño", "lento", "no se detecta", "sectores dañados"],
+          "keywords": ["hard drive", "hdd"]
+        },
+        {
+          "id": "ssd",
+          "name": "Unidad de estado sólido (SSD)",
+          "commonIssues": ["no se detecta", "velocidad reducida", "errores de lectura"],
+          "keywords": ["solid state", "nvme"]
+        },
+        {
+          "id": "memoria-usb",
+          "name": "Memoria USB",
+          "commonIssues": ["no se detecta", "archivos corruptos", "solo lectura"],
+          "keywords": ["pendrive", "flash drive"]
+        },
+        {
+          "id": "tarjeta-memoria",
+          "name": "Tarjeta de memoria",
+          "commonIssues": ["no se lee", "archivos dañados", "protegida contra escritura"],
+          "keywords": ["sd card", "microsd"]
+        },
+        {
+          "id": "tarjeta-sonido",
+          "name": "Tarjeta de sonido",
+          "commonIssues": ["sin audio", "ruido estático", "no se detecta"],
+          "keywords": ["sound card", "audio"]
+        },
+        {
+          "id": "egpu",
+          "name": "Tarjeta gráfica externa (eGPU)",
+          "commonIssues": ["no se detecta", "bajo rendimiento", "desconexiones"],
+          "keywords": ["external gpu", "tarjeta gráfica externa"]
+        },
+        {
+          "id": "interfaz-midi",
+          "name": "Interfaces MIDI",
+          "commonIssues": ["no se detecta", "latencia alta", "notas perdidas"],
+          "keywords": ["midi interface", "controlador midi"]
+        },
+        {
+          "id": "smartwatch",
+          "name": "Smartwatch",
+          "commonIssues": ["no sincroniza", "batería se agota rápido", "pantalla no responde"],
+          "keywords": ["reloj inteligente", "apple watch"]
+        },
+        {
+          "id": "smart-glasses",
+          "name": "Smart glasses",
+          "commonIssues": ["pantalla borrosa", "no se conecta", "batería corta"],
+          "keywords": ["gafas inteligentes", "google glass"]
+        }
+      ]
+    },
+    "procesamiento": {
+      "icon": "⚙️",
+      "name": "Dispositivos de procesamiento",
+      "description": "Dispositivos que ejecutan operaciones y procesan datos",
+      "devices": [
+        {
+          "id": "cpu",
+          "name": "Unidad central de procesamiento (CPU)",
+          "commonIssues": ["sobrecalentamiento", "throttling", "falla al arrancar"],
+          "keywords": ["procesador", "intel", "amd"]
+        },
+        {
+          "id": "gpu",
+          "name": "Unidad de procesamiento gráfico (GPU)",
+          "commonIssues": ["artefactos visuales", "pantalla negra", "temperaturas altas"],
+          "keywords": ["tarjeta gráfica", "nvidia", "amd", "video"]
+        },
+        {
+          "id": "npu",
+          "name": "Unidad de procesamiento neuronal (NPU)",
+          "commonIssues": ["IA no funciona", "rendimiento bajo en tareas ML"],
+          "keywords": ["neural processor", "ai chip"]
+        },
+        {
+          "id": "chipset",
+          "name": "Chipset",
+          "commonIssues": ["puertos no funcionan", "dispositivos no detectados"],
+          "keywords": ["placa base", "motherboard"]
+        },
+        {
+          "id": "servidor-computo",
+          "name": "Servidor de cómputo",
+          "commonIssues": ["no arranca", "servicios caídos", "lento"],
+          "keywords": ["server", "rack"]
+        },
+        {
+          "id": "microcontrolador",
+          "name": "Microcontrolador",
+          "commonIssues": ["no ejecuta programa", "reset constante", "pines dañados"],
+          "keywords": ["arduino", "esp32", "pic"]
+        },
+        {
+          "id": "microprocesador",
+          "name": "Microprocesador",
+          "commonIssues": ["no procesa", "falla en boot", "calentamiento"],
+          "keywords": ["microprocessor", "chip"]
+        },
+        {
+          "id": "fpga",
+          "name": "FPGA",
+          "commonIssues": ["no programa", "configuración perdida", "pines no responden"],
+          "keywords": ["field programmable gate array"]
+        },
+        {
+          "id": "asic",
+          "name": "ASIC",
+          "commonIssues": ["falla específica de función", "sobrecalentamiento"],
+          "keywords": ["application specific integrated circuit"]
+        },
+        {
+          "id": "pc-escritorio",
+          "name": "Computadora de escritorio",
+          "commonIssues": ["no enciende", "lenta", "reinicio aleatorio", "pantalla azul"],
+          "keywords": ["desktop", "pc", "computadora"]
+        },
+        {
+          "id": "notebook",
+          "name": "Notebook",
+          "commonIssues": ["no carga", "pantalla negra", "lenta", "sobrecalentamiento"],
+          "keywords": ["laptop", "portátil"]
+        },
+        {
+          "id": "mini-pc",
+          "name": "Mini PC",
+          "commonIssues": ["no arranca", "puertos no funcionan", "lento"],
+          "keywords": ["nuc", "mini computer"]
+        },
+        {
+          "id": "estacion-trabajo",
+          "name": "Estación de trabajo",
+          "commonIssues": ["rendimiento bajo", "errores ECC", "componentes fallan"],
+          "keywords": ["workstation"]
+        },
+        {
+          "id": "supercomputadora",
+          "name": "Supercomputadora",
+          "commonIssues": ["nodos caídos", "refrigeración insuficiente", "red saturada"],
+          "keywords": ["supercomputer", "hpc"]
+        },
+        {
+          "id": "edge-computing",
+          "name": "Dispositivo de edge computing",
+          "commonIssues": ["latencia alta", "desconexión", "procesamiento lento"],
+          "keywords": ["edge device", "iot gateway"]
+        }
+      ]
+    },
+    "comunicacion": {
+      "icon": "📡",
+      "name": "Dispositivos de comunicación",
+      "description": "Dispositivos que facilitan la transmisión de datos entre sistemas",
+      "devices": [
+        {
+          "id": "router",
+          "name": "Router",
+          "commonIssues": ["sin internet", "wifi no funciona", "reinicio constante", "lento"],
+          "keywords": ["enrutador", "wifi"]
+        },
+        {
+          "id": "switch",
+          "name": "Switch",
+          "commonIssues": ["puertos no funcionan", "paquetes perdidos", "lento"],
+          "keywords": ["conmutador", "network switch"]
+        },
+        {
+          "id": "modem",
+          "name": "Módem",
+          "commonIssues": ["sin conexión", "luz roja", "desconexiones frecuentes"],
+          "keywords": ["modem", "internet"]
+        },
+        {
+          "id": "access-point",
+          "name": "Punto de acceso inalámbrico",
+          "commonIssues": ["no emite señal", "cobertura baja", "desconexiones"],
+          "keywords": ["ap", "wifi"]
+        },
+        {
+          "id": "repetidor-wifi",
+          "name": "Repetidor WiFi",
+          "commonIssues": ["no amplifica señal", "desconexiones", "velocidad baja"],
+          "keywords": ["extender", "amplificador"]
+        },
+        {
+          "id": "antena-red",
+          "name": "Antena de red",
+          "commonIssues": ["señal débil", "direccionamiento incorrecto"],
+          "keywords": ["antenna", "direccional"]
+        },
+        {
+          "id": "tarjeta-red",
+          "name": "Tarjeta de red",
+          "commonIssues": ["no se detecta", "sin conexión", "drivers faltantes"],
+          "keywords": ["network card", "ethernet", "wifi", "bluetooth"]
+        },
+        {
+          "id": "telefono-ip",
+          "name": "Teléfono IP",
+          "commonIssues": ["sin tono", "audio cortado", "no registra"],
+          "keywords": ["voip phone", "sip"]
+        },
+        {
+          "id": "gateway-voip",
+          "name": "Gateway VoIP",
+          "commonIssues": ["llamadas caídas", "eco en llamadas", "no conecta"],
+          "keywords": ["voip gateway", "pbx"]
+        },
+        {
+          "id": "iot-comunicacion",
+          "name": "Dispositivo IoT de comunicación",
+          "commonIssues": ["no envía datos", "batería agotada", "desconectado"],
+          "keywords": ["sensor conectado", "iot device"]
+        },
+        {
+          "id": "satelite-comunicaciones",
+          "name": "Satélite de comunicaciones",
+          "commonIssues": ["señal perdida", "latencia alta", "alineación incorrecta"],
+          "keywords": ["satellite terminal", "starlink"]
+        }
+      ]
+    },
+    "almacenamiento": {
+      "icon": "🗄️",
+      "name": "Dispositivos de almacenamiento",
+      "description": "Dispositivos dedicados a guardar datos de forma persistente",
+      "devices": [
+        {
+          "id": "hdd-storage",
+          "name": "Disco duro (HDD)",
+          "commonIssues": ["ruido anormal", "sectores dañados", "lento", "no se detecta"],
+          "keywords": ["hard drive", "disco rígido"]
+        },
+        {
+          "id": "ssd-nvme",
+          "name": "Unidad de estado sólido (SSD, NVMe)",
+          "commonIssues": ["no se detecta", "velocidad baja", "errores de escritura"],
+          "keywords": ["solid state", "m.2"]
+        },
+        {
+          "id": "sshd",
+          "name": "Unidad híbrida (SSHD)",
+          "commonIssues": ["lento", "caché no funciona", "ruido"],
+          "keywords": ["hybrid drive"]
+        },
+        {
+          "id": "usb-storage",
+          "name": "Memoria USB",
+          "commonIssues": ["no se reconoce", "archivos corruptos", "solo lectura"],
+          "keywords": ["pendrive", "flash drive"]
+        },
+        {
+          "id": "sd-storage",
+          "name": "Tarjeta de memoria (SD, microSD)",
+          "commonIssues": ["no se lee", "protegida contra escritura", "velocidad baja"],
+          "keywords": ["memory card"]
+        },
+        {
+          "id": "nas",
+          "name": "NAS (Network Attached Storage)",
+          "commonIssues": ["no accesible en red", "discos fallando", "lento"],
+          "keywords": ["almacenamiento en red", "synology", "qnap"]
+        },
+        {
+          "id": "san",
+          "name": "SAN (Storage Area Network)",
+          "commonIssues": ["volúmenes no accesibles", "problemas de fibra", "lento"],
+          "keywords": ["storage area network"]
+        },
+        {
+          "id": "servidor-archivos",
+          "name": "Servidor de archivos",
+          "commonIssues": ["permisos incorrectos", "no se puede acceder", "lento"],
+          "keywords": ["file server"]
+        },
+        {
+          "id": "cloud-gateway",
+          "name": "Cloud storage gateway",
+          "commonIssues": ["sincronización lenta", "no conecta", "archivos desactualizados"],
+          "keywords": ["pasarela nube"]
+        },
+        {
+          "id": "tape-library",
+          "name": "Biblioteca de cintas magnéticas",
+          "commonIssues": ["cinta atascada", "lectura fallida", "brazo no mueve"],
+          "keywords": ["tape library", "backup tape"]
+        },
+        {
+          "id": "almacenamiento-optico",
+          "name": "Almacenamiento óptico",
+          "commonIssues": ["no lee disco", "grabación fallida", "disco rayado"],
+          "keywords": ["cd", "dvd", "blu-ray"]
+        }
+      ]
+    },
+    "especializados": {
+      "icon": "🧩",
+      "name": "Dispositivos especializados y modernos",
+      "description": "Tecnologías emergentes y dispositivos de propósito específico",
+      "devices": [
+        {
+          "id": "ar-glasses",
+          "name": "Gafas de realidad aumentada",
+          "commonIssues": ["imagen superpuesta incorrecta", "tracking perdido", "batería corta"],
+          "keywords": ["ar glasses", "hololens"]
+        },
+        {
+          "id": "vr-headset",
+          "name": "Gafas de realidad virtual",
+          "commonIssues": ["pantalla negra", "tracking inestable", "náuseas", "lentes empañados"],
+          "keywords": ["vr headset", "oculus", "quest", "vive"]
+        },
+        {
+          "id": "mr-headset",
+          "name": "Cascos de realidad mixta",
+          "commonIssues": ["entorno no mapea", "objetos virtuales no se anclan", "passthrough borroso"],
+          "keywords": ["mixed reality", "vision pro"]
+        },
+        {
+          "id": "smartwatch-specialized",
+          "name": "Smartwatch",
+          "commonIssues": ["no sincroniza", "sensores no leen", "batería se agota"],
+          "keywords": ["reloj inteligente", "apple watch", "galaxy watch"]
+        },
+        {
+          "id": "smartband",
+          "name": "Smartband",
+          "commonIssues": ["no cuenta pasos", "sensor de pulso falla", "no vibra"],
+          "keywords": ["pulsera inteligente", "mi band"]
+        },
+        {
+          "id": "smart-speaker",
+          "name": "Altavoz inteligente",
+          "commonIssues": ["no responde a voz", "no se conecta a wifi", "audio distorsionado"],
+          "keywords": ["alexa", "google home", "echo"]
+        },
+        {
+          "id": "haptico-avanzado",
+          "name": "Dispositivos hápticos avanzados",
+          "commonIssues": ["feedback no funciona", "vibración irregular", "tracking perdido"],
+          "keywords": ["guantes vr", "haptic gloves"]
+        },
+        {
+          "id": "sensor-iot",
+          "name": "Sensores IoT",
+          "commonIssues": ["no envía datos", "lecturas incorrectas", "batería agotada"],
+          "keywords": ["temperatura", "humedad", "movimiento", "zigbee", "zwave"]
+        },
+        {
+          "id": "robot-asistencia",
+          "name": "Robots de asistencia",
+          "commonIssues": ["no navega", "motores no responden", "cámara no funciona"],
+          "keywords": ["robot", "roomba", "asistente robótico"]
+        },
+        {
+          "id": "drone-camara",
+          "name": "Drones con cámara integrada",
+          "commonIssues": ["no despega", "cámara desestabilizada", "no graba", "gps perdido"],
+          "keywords": ["drone", "dji", "quadcopter"]
+        },
+        {
+          "id": "edge-ai",
+          "name": "Dispositivos de edge AI",
+          "commonIssues": ["modelo no carga", "inferencia lenta", "precisión baja"],
+          "keywords": ["edge computing", "ai local", "jetson", "coral"]
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "totalCategories": 7,
+    "totalDevices": 145,
+    "usage": "Este archivo contiene la base de conocimiento de dispositivos para el sistema Tecnos STI",
+    "structure": "Organizado por categorías funcionales con datos comunes de problemas y palabras clave"
+  }
+}
