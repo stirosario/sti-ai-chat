@@ -13,26 +13,166 @@
           "commonIssues": ["teclas no responden", "teclas pegadas", "no se detecta"],
           "keywords": ["keyboard", "tecla", "key"],
           "realUserProblems": [
-            {"es": "Algunas teclas no me funcionan", "en": "Some keys don't work"},
-            {"es": "Cuando escribo salen letras repetidas", "en": "When I type, letters repeat"},
-            {"es": "El teclado escribe solo", "en": "Keyboard types by itself"},
-            {"es": "Aprieto una letra y aparece otra distinta", "en": "I press one key and another appears"},
-            {"es": "El teclado dejó de responder de golpe", "en": "Keyboard stopped responding suddenly"},
-            {"es": "No me toma la tecla Enter", "en": "Enter key doesn't work"},
-            {"es": "Las teclas están durísimas", "en": "Keys are very stiff"},
-            {"es": "Escribo y aparece todo con retraso", "en": "I type and everything appears delayed"},
-            {"es": "Las teclas parecen pegadas", "en": "Keys seem stuck"},
-            {"es": "El teclado se conecta y desconecta solo", "en": "Keyboard connects and disconnects by itself"},
-            {"es": "El teclado Bluetooth no sincroniza", "en": "Bluetooth keyboard won't sync"},
-            {"es": "No funciona la luz del teclado", "en": "Keyboard backlight doesn't work"},
-            {"es": "El teclado no lo detecta Windows", "en": "Windows doesn't detect the keyboard"},
-            {"es": "Me cambiaron el idioma del teclado", "en": "Keyboard language changed"},
-            {"es": "No funciona el teclado numérico", "en": "Numeric keypad doesn't work"},
-            {"es": "Las teclas hacen ruido raro", "en": "Keys make weird noise"},
-            {"es": "El teclado quedó bloqueado", "en": "Keyboard is locked"},
-            {"es": "Escribo y no aparece nada", "en": "I type and nothing appears"},
-            {"es": "El teclado funciona solo algunas veces", "en": "Keyboard works only sometimes"},
-            {"es": "Se mojó el teclado y ahora falla", "en": "Keyboard got wet and now fails"}
+            {
+              "es": "Algunas teclas no me funcionan",
+              "en": "Some keys don't work",
+              "typos": {
+                "es": ["Algunas teclas no me funsionan", "Algunnas teclas no me funcionan", "Algunas teclaz no me funcionan", "Algunas teclas no me fucionan", "Alguna teclas no me funsionan"],
+                "en": ["Some keys dont work", "Sum keys don't work", "Some keyz don't work", "Some keys don't wrok", "Some keis don't work"]
+              }
+            },
+            {
+              "es": "Cuando escribo salen letras repetidas",
+              "en": "When I type, letters repeat",
+              "typos": {
+                "es": ["Cuando escrivo salen letras repetidas", "Cuendo escribo salen letras repettidas", "Cuando escribo salen letras repwtidas", "Cuado escribo salen letras repetidas", "Cuando escribo salen letas repetidas"],
+                "en": ["When I tipe, letters repeat", "Wen I type, letters repeat", "When I type, leters repeat", "When I type, letters repat", "When I type, lettters repeat"]
+              }
+            },
+            {
+              "es": "El teclado escribe solo",
+              "en": "Keyboard types by itself",
+              "typos": {
+                "es": ["El tecllado escribe solo", "El teclao escribe solo", "El teklado escribe solo", "El teclado escrive solo", "El tecladdo escribe solo"],
+                "en": ["Keybord types by itself", "Keyboard types by itslef", "Keyboard tipes by itself", "Keyboard types by it self", "Keybaord types by itself"]
+              }
+            },
+            {
+              "es": "Aprieto una letra y aparece otra distinta",
+              "en": "I press one key and another appears",
+              "typos": {
+                "es": ["Aprieto una letra y aparce otra distinta", "Aprieto una letra y aprece otra distinta", "Apreto una letra y aparece otra distina", "Aprieto una lethra y aparece otra distinta", "Aprieto una letra y aparece otra distnta"],
+                "en": ["I pres one key and another appears", "I press one key and another apears", "I press one kei and another appears", "I press one key and anothr appears", "I press one key and another appers"]
+              }
+            },
+            {
+              "es": "El teclado dejó de responder de golpe",
+              "en": "Keyboard stopped responding suddenly",
+              "typos": {
+                "es": ["El teclado dejo de responder de golpe", "El tecllado dejó de responder de golpe", "El teclado dejo de respoder de golpe", "El teclao dejó de responder de golpe", "El teclado desjó de responder de golpe"],
+                "en": ["Keyboard stoped responding suddenly", "Keybord stopped responding suddenly", "Keyboard stopped respondng suddenly", "Keyboard stopped responding sudenly", "Keyboard stoppd responding suddenly"]
+              }
+            },
+            {
+              "es": "No me toma la tecla Enter",
+              "en": "Enter key doesn't work",
+              "typos": {
+                "es": ["No me toma la tecla Enteer", "No me toma la tecla enter", "No me toma la tecla Entter", "No me toma la tecla Etner", "No me toma la tecla Enetr"],
+                "en": ["Enter key doesnt work", "Enter kei doesn't work", "Entr key doesn't work", "Enter key doesn't wrk", "Enter key doesn't wrok"]
+              }
+            },
+            {
+              "es": "Las teclas están durísimas",
+              "en": "Keys are very stiff",
+              "typos": {
+                "es": ["Las teclas estan durisimas", "Las teclas estan duricimas", "Las teclaz estan durisimas", "Las teclas estan durizimas", "Las teklas estan durisimas"],
+                "en": ["Keys are very stif", "Keys are veri stiff", "Keis are very stiff", "Keys are very stiff", "Keys r very stiff"]
+              }
+            },
+            {
+              "es": "Escribo y aparece todo con retraso",
+              "en": "I type and everything appears delayed",
+              "typos": {
+                "es": ["Escrivo y aparece todo con retraso", "Escribo y aparce todo con retraso", "Escribo y aparece todo con retrazo", "Escrivo y aparece todo con rettraso", "Escribo y aparece todo con retrazo"],
+                "en": ["I tipe and everything appears delayed", "I type and evrything appears delayed", "I type and everything apears delayed", "I type and everything appears delaied", "I type and everything appears delyed"]
+              }
+            },
+            {
+              "es": "Las teclas parecen pegadas",
+              "en": "Keys seem stuck",
+              "typos": {
+                "es": ["Las teclas paresen pegadas", "Las teclaz parecen pegadas", "Las teclas parecen pegadaz", "Las teclas parecén pegadas", "Las teclas paracen pegadas"],
+                "en": ["Keys seem stuk", "Keis seem stuck", "Keys seem stuck", "Keys seem stucked", "Keys seam stuck"]
+              }
+            },
+            {
+              "es": "El teclado se conecta y desconecta solo",
+              "en": "Keyboard connects and disconnects by itself",
+              "typos": {
+                "es": ["El tecllado se conecta y desconecta solo", "El teclado se coneta y desconecta solo", "El teclado se conecta y desconeta solo", "El teclao se conecta y desconecta solo", "El teclado se conectta y desconecta solo"],
+                "en": ["Keyboard conects and disconnects by itself", "Keybord connects and disconnects by itself", "Keyboard connects and disconects by itself", "Keyboard connects and disconnects by itslef", "Keyboard connects and disconnects by it self"]
+              }
+            },
+            {
+              "es": "El teclado Bluetooth no sincroniza",
+              "en": "Bluetooth keyboard won't sync",
+              "typos": {
+                "es": ["El teclado bluetoth no sincroniza", "El teclado blutooht no sincronisa", "El teclado bluetooth no sincronsiza", "El tecllado bluethoot no sincroniza", "El teclado bluethooth no sincronzia"],
+                "en": ["Bluetooth keybord won't sync", "Bluetoth keyboard won't sync", "Bluetooth keyboard wont sync", "Bluetooth keyboard won't synk", "Bluetooth keyboard won't sinc"]
+              }
+            },
+            {
+              "es": "No funciona la luz del teclado",
+              "en": "Keyboard backlight doesn't work",
+              "typos": {
+                "es": ["No funsiona la luz del teclado", "No funciona la lus del teclado", "No funciona la luz del tecllado", "No fuciona la luz del teclado", "No funciona la luz del teklado"],
+                "en": ["Keybord backlight doesn't work", "Keyboard backlight doesnt work", "Keyboard baklight doesn't work", "Keyboard backlight doesn't wrk", "Keyboard backlight doesn't wrok"]
+              }
+            },
+            {
+              "es": "El teclado no lo detecta Windows",
+              "en": "Windows doesn't detect the keyboard",
+              "typos": {
+                "es": ["El teclado no lo detecta Windos", "El tecllado no lo detecta Windows", "El teclado no lo deteta Windows", "El teclado no lo detecta Wndows", "El teclado no lo detecta Windws"],
+                "en": ["Windows doesnt detect the keyboard", "Windos doesn't detect the keyboard", "Windows doesn't detect the keybord", "Windows doesn't detect the keybaord", "Windows doesn't detec the keyboard"]
+              }
+            },
+            {
+              "es": "Me cambiaron el idioma del teclado",
+              "en": "Keyboard language changed",
+              "typos": {
+                "es": ["Me canbiaron el idioma del teclado", "Me cambiaron el idiom del teclado", "Me cambiaron el idioma del tecllado", "Me cambiaro el idioma del teclado", "Me cambiaron el ydioma del teclado"],
+                "en": ["Keybord language changed", "Keyboard languaje changed", "Keyboard language chaged", "Keyboard language changd", "Keyboard lenguage changed"]
+              }
+            },
+            {
+              "es": "No funciona el teclado numérico",
+              "en": "Numeric keypad doesn't work",
+              "typos": {
+                "es": ["No funsiona el teclado numerico", "No funciona el tecllado numerico", "No funciona el teclado numeriko", "No funciona el teclado numeriko", "No funciona el teclado numéricco"],
+                "en": ["Numeric keypad doesnt work", "Numric keypad doesn't work", "Numeric keypad doesn't wrk", "Numeric keypad doesn't wrok", "Numerik keypad doesn't work"]
+              }
+            },
+            {
+              "es": "Las teclas hacen ruido raro",
+              "en": "Keys make weird noise",
+              "typos": {
+                "es": ["Las teclas asen ruido raro", "Las teclaz hacen ruido raro", "Las teclas hacen rruido raro", "Las teclas hacen rido raro", "Las teklas hacen ruido raro"],
+                "en": ["Keys make wierd noise", "Keis make weird noise", "Keys make weird nois", "Keys make weird noize", "Keys mak weird noise"]
+              }
+            },
+            {
+              "es": "El teclado quedó bloqueado",
+              "en": "Keyboard is locked",
+              "typos": {
+                "es": ["El teclado quedo blokeado", "El tecllado quedó bloqueado", "El teclado kedo bloqueado", "El teclado quedó bloqueaado", "El teclado quedo blocqueado"],
+                "en": ["Keyboard is lokced", "Keybord is locked", "Keyboard is locked", "Keyboard is lockd", "Keyboard is loced"]
+              }
+            },
+            {
+              "es": "Escribo y no aparece nada",
+              "en": "I type and nothing appears",
+              "typos": {
+                "es": ["Escrivo y no aparece nada", "Escribo y no aprece nada", "Escribo y no aparece nadda", "Escribo y no aparce nada", "Escrivo y no aparece nada"],
+                "en": ["I tipe and nothing appears", "I type and nothing apears", "I type and nothing appearz", "I type and nothng appears", "I type and nothing appers"]
+              }
+            },
+            {
+              "es": "El teclado funciona solo algunas veces",
+              "en": "Keyboard works only sometimes",
+              "typos": {
+                "es": ["El teclado funsiona solo algunas veces", "El teclado funciona solo algunnas veces", "El tecllado funciona solo algunas vezes", "El teclado funcina solo algunas veces", "El teclado funciona solo algunas veses"],
+                "en": ["Keybord works only sometimes", "Keyboard works only sumtimes", "Keyboard wrks only sometimes", "Keyboard works only sometims", "Keyboard works onli sometimes"]
+              }
+            },
+            {
+              "es": "Se mojó el teclado y ahora falla",
+              "en": "Keyboard got wet and now fails",
+              "typos": {
+                "es": ["Se mojo el teclado y ahora falla", "Se mojó el tecllado y ahora falla", "Se mojo el teclado y ahora faalla", "Se mojó el teclado y aora falla", "Se mojo el teclado y ahora faya"],
+                "en": ["Keybord got wet and now fails", "Keyboard got wet and now failes", "Keyboard got wet and now fails", "Keyboard got wet and now fales", "Keyboard got wet and now failz"]
+              }
+            }
           ]
         },
         {
@@ -41,26 +181,166 @@
           "commonIssues": ["cursor no se mueve", "clic no funciona", "scroll no responde"],
           "keywords": ["ratón", "cursor", "click"],
           "realUserProblems": [
-            {"es": "El mouse se mueve solo", "en": "Mouse moves by itself"},
-            {"es": "El puntero salta por todos lados", "en": "Cursor jumps everywhere"},
-            {"es": "El click izquierdo no anda", "en": "Left click doesn't work"},
-            {"es": "Hace doble click sin que yo lo haga", "en": "It double-clicks without me doing it"},
-            {"es": "La rueda no baja bien", "en": "Scroll wheel doesn't work properly"},
-            {"es": "No lo detecta la computadora", "en": "Computer doesn't detect it"},
-            {"es": "El mouse se desconecta a cada rato", "en": "Mouse disconnects constantly"},
-            {"es": "El Bluetooth no lo encuentra", "en": "Bluetooth can't find it"},
-            {"es": "El sensor no lee bien", "en": "Sensor doesn't read properly"},
-            {"es": "El mouse se arrastra lento", "en": "Mouse drags slowly"},
-            {"es": "Va con mucho retraso", "en": "It lags a lot"},
-            {"es": "No puedo hacer click derecho", "en": "Can't right-click"},
-            {"es": "El scroll sube solo", "en": "Scroll goes up by itself"},
-            {"es": "No se mueve en algunas superficies", "en": "Doesn't move on some surfaces"},
-            {"es": "El cable está flojo", "en": "Cable is loose"},
-            {"es": "Aparece un cartel de 'dispositivo USB no reconocido'", "en": "Shows 'USB device not recognized' message"},
-            {"es": "El mouse no responde para nada", "en": "Mouse doesn't respond at all"},
-            {"es": "El DPI cambia solo", "en": "DPI changes by itself"},
-            {"es": "La batería dura poquísimo", "en": "Battery lasts very little"},
-            {"es": "No puedo calibrarlo", "en": "Can't calibrate it"}
+            {
+              "es": "El mouse se mueve solo",
+              "en": "Mouse moves by itself",
+              "typos": {
+                "es": ["El maus se mueve solo", "El mouse se muebe solo", "El mouuse se mueve solo", "El mouse se muebe solo", "El mosue se mueve solo"],
+                "en": ["Mouse moves by itslef", "Mous moves by itself", "Mouse moves by it self", "Mouse movs by itself", "Mouse moves by itsself"]
+              }
+            },
+            {
+              "es": "El puntero salta por todos lados",
+              "en": "Cursor jumps everywhere",
+              "typos": {
+                "es": ["El puntero salta por todos lador", "El puntero salta x todos lados", "El puntero salta por todoz lados", "El puntero salta por tods lados", "El pntero salta por todos lados"],
+                "en": ["Cursor jumps everwhere", "Cursr jumps everywhere", "Cursor jumps evrywhere", "Cursor jmps everywhere", "Cursor jumps everywher"]
+              }
+            },
+            {
+              "es": "El click izquierdo no anda",
+              "en": "Left click doesn't work",
+              "typos": {
+                "es": ["El clic isquierdo no anda", "El click izkierdo no anda", "El clik izquierdo no anda", "El click izqierdo no anda", "El clic izquierdo no anda"],
+                "en": ["Left clik doesn't work", "Left click doesnt work", "Lef click doesn't work", "Left click doesn't wrk", "Left click doesn't wrok"]
+              }
+            },
+            {
+              "es": "Hace doble click sin que yo lo haga",
+              "en": "It double-clicks without me doing it",
+              "typos": {
+                "es": ["Hace doble clik sin que yo lo aga", "Hace doble clic sin que yo lo haga", "Ase doble click sin que yo lo haga", "Hace doble click sin ke yo lo haga", "Hace dobble click sin que yo lo haga"],
+                "en": ["It double-cliks without me doing it", "It double-clicks without me dooing it", "It double-clicks witout me doing it", "It double-clicks without me doin it", "It doubble-clicks without me doing it"]
+              }
+            },
+            {
+              "es": "La rueda no baja bien",
+              "en": "Scroll wheel doesn't work properly",
+              "typos": {
+                "es": ["La rrueda no baja bien", "La rueda no vaja bien", "La ruueda no baja bien", "La rueda no baja vien", "La rueda no vaja bien"],
+                "en": ["Scroll wheel doesnt work properly", "Scroll whel doesn't work properly", "Scroll wheel doesn't work properlly", "Scroll wheel doesn't wrk properly", "Scroll wheel doesn't work proprly"]
+              }
+            },
+            {
+              "es": "No lo detecta la computadora",
+              "en": "Computer doesn't detect it",
+              "typos": {
+                "es": ["No lo detecta la compu", "No lo detecta la computadoraa", "No lo deteta la computadora", "No lo detecta la copmutadora", "No lo detecta la computaodra"],
+                "en": ["Computer doesnt detect it", "Compter doesn't detect it", "Computer doesn't detec it", "Computer doesn't detect it", "Computer doesn't deteect it"]
+              }
+            },
+            {
+              "es": "El mouse se desconecta a cada rato",
+              "en": "Mouse disconnects constantly",
+              "typos": {
+                "es": ["El mouse se desconecta a cada ratoo", "El maus se desconecta a cada rato", "El mouse se desconeta a cada rato", "El mouse se desconecta a cadda rato", "El mosue se desconecta a cada rato"],
+                "en": ["Mouse disconects constantly", "Mous disconnects constantly", "Mouse disconnects constanly", "Mouse disconnects constantli", "Mouse disconnects constatly"]
+              }
+            },
+            {
+              "es": "El Bluetooth no lo encuentra",
+              "en": "Bluetooth can't find it",
+              "typos": {
+                "es": ["El bluetoth no lo encuentra", "El bluetooth no lo enkuentra", "El Bluetooth no lo encunetra", "El blutooht no lo encuentra", "El bluethoot no lo encuentra"],
+                "en": ["Bluetoth can't find it", "Bluetooth cant find it", "Bluetooth can't fnd it", "Bluetooth can't find it", "Bluetooth can't finde it"]
+              }
+            },
+            {
+              "es": "El sensor no lee bien",
+              "en": "Sensor doesn't read properly",
+              "typos": {
+                "es": ["El zensor no lee bien", "El sensor no lee vien", "El sensorr no lee bien", "El sensor no lee vien", "El sensoor no lee bien"],
+                "en": ["Sensor doesnt read properly", "Sensr doesn't read properly", "Sensor doesn't read properlly", "Sensor doesn't read proprly", "Sensor doesn't raed properly"]
+              }
+            },
+            {
+              "es": "El mouse se arrastra lento",
+              "en": "Mouse drags slowly",
+              "typos": {
+                "es": ["El mouse se arrastra lento", "El maus se arrastra lento", "El mouse se arrasta lento", "El mouse se arrastra lento", "El mosue se arrastra lentto"],
+                "en": ["Mous drags slowly", "Mouse drags slowli", "Mouse drags slowely", "Mouse drags sloly", "Mouse drags slowy"]
+              }
+            },
+            {
+              "es": "Va con mucho retraso",
+              "en": "It lags a lot",
+              "typos": {
+                "es": ["Ba con mucho retraso", "Va con muxo retraso", "Va con mucho retrazo", "Va con mucho rettraso", "Va con muho retraso"],
+                "en": ["It lags alot", "It lags a lot", "It lags a lott", "It lags alott", "It laggs a lot"]
+              }
+            },
+            {
+              "es": "No puedo hacer click derecho",
+              "en": "Can't right-click",
+              "typos": {
+                "es": ["No puedo aser clik derecho", "No puedo hacer clic derecho", "No puedo acer click derecho", "No puedo hacer clik dercho", "No puedo hacer click dereho"],
+                "en": ["Can't right-clik", "Cant right-click", "Can't right-click", "Can't right-clck", "Can't right-clikc"]
+              }
+            },
+            {
+              "es": "El scroll sube solo",
+              "en": "Scroll goes up by itself",
+              "typos": {
+                "es": ["El scrol sube solo", "El scrool sube solo", "El scrol sube zolo", "El scrool ssube solo", "El escroll sube solo"],
+                "en": ["Scroll goes up by itslef", "Scrol goes up by itself", "Scroll goes up by it self", "Scroll gos up by itself", "Scroll goes upp by itself"]
+              }
+            },
+            {
+              "es": "No se mueve en algunas superficies",
+              "en": "Doesn't move on some surfaces",
+              "typos": {
+                "es": ["No se mueve en alguna superfices", "No se muebe en algunas superficies", "No se mueve en algnas superfices", "No se mueve en algunas superfisies", "No se mueve en algunas superficez"],
+                "en": ["Doesn't move on sum surfaces", "Doesnt move on some surfaces", "Doesn't move on some surfases", "Doesn't move on some surfacess", "Doesn't moove on some surfaces"]
+              }
+            },
+            {
+              "es": "El cable está flojo",
+              "en": "Cable is loose",
+              "typos": {
+                "es": ["El cable esta flojo", "El cable esta floxo", "El kable está flojo", "El cable está flojjo", "El cable esta floj"],
+                "en": ["Cable is lose", "Cable is loos", "Cable is losse", "Cabel is loose", "Cable is looze"]
+              }
+            },
+            {
+              "es": "Aparece un cartel de 'dispositivo USB no reconocido'",
+              "en": "Shows 'USB device not recognized' message",
+              "typos": {
+                "es": ["Aparece un cartél de 'dispositivo usb no reconocido'", "Aparece un cartel de 'dispositivo USB no reconozido'", "Aparese un cartel de 'dispositivo USB no reconocido'", "Aparece un cartel de 'dispotivo USB no reconocido'", "Aparce un cartel de 'dispositivo USB no reconosido'"],
+                "en": ["Shows 'USB device not reconized' message", "Shows 'USB device not recognized' mesage", "Shows 'USB device not recognzed' message", "Shows 'USB device not recogniced' message", "Shows 'USB devic not recognized' message"]
+              }
+            },
+            {
+              "es": "El mouse no responde para nada",
+              "en": "Mouse doesn't respond at all",
+              "typos": {
+                "es": ["El mouse no responde para nadaa", "El maus no responde para nada", "El mouse no resonde para nada", "El mouse no responde para nadda", "El mosue no responde para nada"],
+                "en": ["Mouse doesnt respond at all", "Mous doesn't respond at all", "Mouse doesn't respnd at all", "Mouse doesn't respond at al", "Mouse doesn't respond att all"]
+              }
+            },
+            {
+              "es": "El DPI cambia solo",
+              "en": "DPI changes by itself",
+              "typos": {
+                "es": ["El dpi cambia solo", "El DPi cambia solo", "El DPP cambia solo", "El DPI canbia solo", "El DPI cambia zolo"],
+                "en": ["DPI changes by itslef", "DPI changes by it self", "DPI changs by itself", "DPI changes by itsself", "DPI cahnges by itself"]
+              }
+            },
+            {
+              "es": "La batería dura poquísimo",
+              "en": "Battery lasts very little",
+              "typos": {
+                "es": ["La bateria dura poquisimo", "La vateria dura poquisimo", "La batería dura poquisimoo", "La bateria dura pokisimo", "La bateria dura poquisim"],
+                "en": ["Battery lasts veri little", "Battery lasts very litle", "Battery lasts very litttle", "Battery lasts very litle", "Battery last very little"]
+              }
+            },
+            {
+              "es": "No puedo calibrarlo",
+              "en": "Can't calibrate it",
+              "typos": {
+                "es": ["No puedo calibralo", "No puedo calibrarllo", "No puedo calibrrlo", "No puedo calibraralo", "No puedo calibrarolo"],
+                "en": ["Can't calibrate it", "Cant calibrate it", "Can't calibrat it", "Can't calibrate it", "Can't calibrete it"]
+              }
+            }
           ]
         },
         {
@@ -69,12 +349,54 @@
           "commonIssues": ["no responde al tacto", "cursor errático", "gestos no funcionan"],
           "keywords": ["touchpad", "panel táctil"],
           "realUserProblems": [
-            {"es": "El touchpad no responde al tacto", "en": "Touchpad doesn't respond to touch"},
-            {"es": "El cursor se mueve raro", "en": "Cursor moves weird"},
-            {"es": "No funcionan los gestos de dos dedos", "en": "Two-finger gestures don't work"},
-            {"es": "No hace click", "en": "Doesn't click"},
-            {"es": "Hace click solo", "en": "Clicks by itself"},
-            {"es": "Está muy lento", "en": "It's very slow"},
+            {
+              "es": "El touchpad no responde al tacto",
+              "en": "Touchpad doesn't respond to touch",
+              "typos": {
+                "es": ["El touchpad no responde al tactto", "El tochpad no responde al tacto", "El touchpad no resonde al tacto", "El touchpad no responde al takto", "El touchpab no responde al tacto"],
+                "en": ["Touchpad doesnt respond to touch", "Tochpad doesn't respond to touch", "Touchpad doesn't respond to tuch", "Touchpad doesn't respnd to touch", "Touchpad doesn't respond to touh"]
+              }
+            },
+            {
+              "es": "El cursor se mueve raro",
+              "en": "Cursor moves weird",
+              "typos": {
+                "es": ["El cursor se muebe raro", "El curzor se mueve raro", "El cursor se mueve rro", "El cursor se mueve rado", "El cursoor se mueve raro"],
+                "en": ["Cursor moves wierd", "Cursr moves weird", "Cursor moves werd", "Cursor movs weird", "Cursor moves weid"]
+              }
+            },
+            {
+              "es": "No funcionan los gestos de dos dedos",
+              "en": "Two-finger gestures don't work",
+              "typos": {
+                "es": ["No funsionan los gestos de dos dedos", "No funcionan los gestos de 2 dedos", "No fucionan los gestos de dos dedos", "No funcionan los gestos de dos deddos", "No funcionan los gestos de dos dedoz"],
+                "en": ["Two-finger gestures dont work", "Two-finger gestures don't wrk", "Two-finger gesturez don't work", "Two-finger gestures don't wrok", "Two-finger getsures don't work"]
+              }
+            },
+            {
+              "es": "No hace click",
+              "en": "Doesn't click",
+              "typos": {
+                "es": ["No ase click", "No hace clik", "No hace clic", "No ase clik", "No ase clic"],
+                "en": ["Doesn't clik", "Doesnt click", "Doesn't clck", "Doesn't clickk", "Doesn't clikc"]
+              }
+            },
+            {
+              "es": "Hace click solo",
+              "en": "Clicks by itself",
+              "typos": {
+                "es": ["Ase clik solo", "Hace clic solo", "Ase click solo", "Hace clik solo", "Hace click zolo"],
+                "en": ["Clicks by itslef", "Cliks by itself", "Clicks by it self", "Clicks by itsself", "Clickz by itself"]
+              }
+            },
+            {
+              "es": "Está muy lento",
+              "en": "It's very slow",
+              "typos": {
+                "es": ["Esta muy lento", "Estaa muy lento", "Está mui lento", "Está muy lnto", "Está muy lento"],
+                "en": ["It's veri slow", "Its very slow", "It's very slo", "It's very slw", "It's very sloww"]
+              }
+            },
             {"es": "El touchpad está desactivado", "en": "Touchpad is disabled"},
             {"es": "Desapareció el icono del touchpad", "en": "Touchpad icon disappeared"},
             {"es": "El cursor se va para los costados", "en": "Cursor goes to the sides"},
