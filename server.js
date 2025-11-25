@@ -3483,14 +3483,17 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           session.userLocale = 'es-AR';
           session.stage = STATES.ASK_NAME;
           
-          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Cómo te llamás? (o escribí "Prefiero no decirlo")`;
+          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Cómo te llamás?`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
           
           return res.json({
             ok: true,
             reply,
-            stage: session.stage
+            stage: session.stage,
+            buttons: [
+              { text: '🙈 Prefiero no decirlo', value: 'prefiero_no_decirlo' }
+            ]
           });
         }
         
@@ -3498,14 +3501,17 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           session.userLocale = 'en-US';
           session.stage = STATES.ASK_NAME;
           
-          const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name? (or type "I prefer not to say")`;
+          const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
           
           return res.json({
             ok: true,
             reply,
-            stage: session.stage
+            stage: session.stage,
+            buttons: [
+              { text: '🙈 I prefer not to say', value: 'prefer_not_to_say' }
+            ]
           });
         }
       }
@@ -3601,6 +3607,29 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       console.log('[ASK_NAME] DEBUG - buttonToken:', buttonToken, 'text:', t);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
+
+      // 🔘 Detectar botón "Prefiero no decirlo"
+      if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(t)) {
+        session.userName = null;
+        session.stage = STATES.ASK_NEED;
+        
+        const reply = isEn
+          ? `✅ No problem! Let's continue.\n\n**How can I help you?**`
+          : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte?**`;
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply,
+          stage: session.stage,
+          buttons: [
+            { text: isEn ? '🛠️ Technical help' : '🛠️ Ayuda técnica', value: 'BTN_HELP' },
+            { text: isEn ? '🤝 Assistance' : '🤝 Asistencia', value: 'BTN_TASK' }
+          ]
+        });
+      }
 
       // 🔍 Detección temprana: el usuario ya contó el problema en vez de el nombre
       // COMENTADO: basicITHeuristic no está definido - causa ReferenceError
