@@ -5640,3 +5640,5 @@
 2025-11-24T19:16:22.568Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-11-24T19:16:22.569Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-24T22:07:30.977Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":null,"stage":"CONVERSATIONAL","transcriptLength":1}
+2025-11-24T22:15:39.586Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

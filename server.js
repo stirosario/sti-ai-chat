@@ -261,28 +261,28 @@ const withOptions = obj => ({ options: [], ...obj });
 
 const DEVICE_DISAMBIGUATION = {
   // Computadoras - términos genéricos
-  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b': {
+  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b|notebook|laptop|portatil|portátil': {
     candidates: [
       { 
         id: 'PC_DESKTOP', 
         icon: '💻', 
         label: 'PC de Escritorio',
         description: 'Torre con monitor separado',
-        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre']
+        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre', 'desktop']
       },
       { 
         id: 'NOTEBOOK', 
         icon: '💼', 
         label: 'Notebook / Laptop',
         description: 'Computadora portátil con batería',
-        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir']
+        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir', 'notebook', 'laptop']
       },
       { 
         id: 'ALL_IN_ONE', 
         icon: '🖥️', 
         label: 'All-in-One',
         description: 'Pantalla y procesador integrados',
-        keywords: ['pantalla tactil', 'táctil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo']
+        keywords: ['pantalla tactil', 'táctil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo', 'all in one', 'aio']
       }
     ]
   },
@@ -295,48 +295,48 @@ const DEVICE_DISAMBIGUATION = {
         icon: '🖥️', 
         label: 'Monitor Externo',
         description: 'Pantalla conectada a PC',
-        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal']
+        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal', 'señal', 'senal']
       },
       { 
         id: 'NOTEBOOK_SCREEN', 
         icon: '💼', 
         label: 'Pantalla de Notebook',
         description: 'Pantalla integrada de laptop',
-        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla']
+        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla', 'portatil', 'portátil']
       },
       { 
         id: 'ALL_IN_ONE_SCREEN', 
         icon: '🖥️', 
         label: 'Pantalla All-in-One',
         description: 'Computadora todo en uno',
-        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre']
+        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre', 'all in one']
       },
       { 
         id: 'TV', 
         icon: '📺', 
         label: 'TV / Smart TV',
         description: 'Televisor',
-        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv']
+        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv', 'tv']
       }
     ]
   },
   
   // Mouse / Ratón
-  'raton|ratón|mouse|bicho': {
+  'raton|ratón|mouse|bicho|touchpad': {
     candidates: [
       { 
         id: 'MOUSE_WIRELESS', 
         icon: '🖱️', 
         label: 'Mouse Inalámbrico',
         description: 'Mouse sin cable (Bluetooth/RF)',
-        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle']
+        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle', 'wireless']
       },
       { 
         id: 'MOUSE_USB', 
         icon: '🖱️', 
         label: 'Mouse USB',
         description: 'Mouse con cable USB',
-        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico']
+        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico', 'con cable']
       },
       { 
         id: 'TOUCHPAD', 
@@ -4298,8 +4298,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           const isEn = String(locale).toLowerCase().startsWith('en');
           const confidence = ambiguousResult.confidence;
           
-          // CASO 1: Alta confianza (>0.66) - Confirmar con 1 botón
-          if (confidence > 0.66 && ambiguousResult.bestMatch) {
+          // CASO 1: Alta confianza (>=0.33 = 1+ keywords) - Confirmar con 1 botón
+          if (confidence >= 0.33 && ambiguousResult.bestMatch) {
             const device = ambiguousResult.bestMatch;
             session.stage = 'CONFIRM_DEVICE';
             session.pendingDevice = device;
@@ -4339,7 +4339,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
             });
           }
           
-          // CASO 2: Baja confianza (<0.66) - Mostrar todos los botones
+          // CASO 2: Baja confianza (<0.33) - Mostrar todos los botones
           session.stage = 'CHOOSE_DEVICE';
           session.ambiguousTerm = ambiguousResult.term;
           
