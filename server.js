@@ -345,11 +345,8 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
       { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
-      { token: 'BTN_PROBLEMA', label: '🛠️ Solucionar un problema', text: 'tengo un problema' },
-      { token: 'BTN_ASISTENCIA', label: '⛑️ Asistencia paso a paso', text: 'necesito asistencia' },
-      { token: 'BTN_CONFIGURACION', label: '📦 Configurar dispositivo nuevo', text: 'configurar dispositivo' },
-      { token: 'BTN_GUIAS', label: '📚 Guías y manuales', text: 'necesito una guía' },
-      { token: 'BTN_CONSULTA', label: '🌐 Consulta informática', text: 'tengo una consulta' },
+      { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
+      { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
       { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
       { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
@@ -3701,16 +3698,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       
       let needType = null;
       
-      // Detectar por botones nuevos (5 opciones)
-      if (buttonToken === 'BTN_PROBLEMA' || buttonToken === '🛠️ Solucionar un problema') {
+      // Detectar por botones (2 opciones principales)
+      if (buttonToken === 'BTN_PROBLEMA' || buttonToken === '🔧 Solucionar / Diagnosticar Problema') {
         needType = 'problema';
-      } else if (buttonToken === 'BTN_ASISTENCIA' || buttonToken === '⛑️ Asistencia paso a paso') {
-        needType = 'asistencia_guiada';
-      } else if (buttonToken === 'BTN_CONFIGURACION' || buttonToken === '📦 Configurar dispositivo nuevo') {
-        needType = 'configuracion_nuevo';
-      } else if (buttonToken === 'BTN_GUIAS' || buttonToken === '📚 Guías y manuales') {
-        needType = 'guias';
-      } else if (buttonToken === 'BTN_CONSULTA' || buttonToken === '🌐 Consulta informática') {
+      } else if (buttonToken === 'BTN_CONSULTA' || buttonToken === '💡 Consulta / Asistencia Informática') {
         needType = 'consulta_general';
       }
       // Detectar por palabras clave según CSV: problema, no prende, no enciende, no funciona, no anda, no carga, error, falla, roto, dañado
@@ -3781,7 +3772,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
               : "Por favor, seleccioná una de las opciones usando los botones.");
         session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_ASISTENCIA', 'BTN_CONFIGURACION', 'BTN_GUIAS', 'BTN_CONSULTA']) }));
+        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
       }
     }
 
@@ -3850,11 +3841,18 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           reply,
           stage: session.stage,
           buttons: [
-            { text: isEn ? '🛠️ Solve a problem' : '🛠️ Solucionar un problema', value: 'BTN_PROBLEMA' },
-            { text: isEn ? '⛑️ Step-by-step help' : '⛑️ Asistencia paso a paso', value: 'BTN_ASISTENCIA' },
-            { text: isEn ? '📦 Setup new device' : '📦 Configurar dispositivo nuevo', value: 'BTN_CONFIGURACION' },
-            { text: isEn ? '📚 Guides & manuals' : '📚 Guías y manuales', value: 'BTN_GUIAS' },
-            { text: isEn ? '🌐 General inquiry' : '🌐 Consulta informática', value: 'BTN_CONSULTA' }
+            { 
+              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema', 
+              value: 'BTN_PROBLEMA',
+              description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
+              example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
+            },
+            { 
+              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática', 
+              value: 'BTN_CONSULTA',
+              description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
+              example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
+            }
           ]
         });
       }
@@ -3883,7 +3881,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_ASISTENCIA', 'BTN_CONFIGURACION', 'BTN_GUIAS', 'BTN_CONSULTA']) }));
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
       } else {
         // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
         if ((session.nameAttempts || 0) >= 5) {
@@ -3898,7 +3896,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_ASISTENCIA', 'BTN_CONFIGURACION', 'BTN_GUIAS', 'BTN_CONSULTA']) }));
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
         }
 
         // Prefiero no decirlo (texto o botón)
@@ -3918,7 +3916,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
             ok: true,
             reply,
             stage: session.stage,
-            options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_ASISTENCIA', 'BTN_CONFIGURACION', 'BTN_GUIAS', 'BTN_CONSULTA'])
+            options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA'])
           }));
         }
 
@@ -3999,11 +3997,18 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           reply,
           stage: session.stage,
           buttons: [
-            { text: isEn ? '🛠️ Solve a problem' : '🛠️ Solucionar un problema', value: 'BTN_PROBLEMA' },
-            { text: isEn ? '⛑️ Step-by-step help' : '⛑️ Asistencia paso a paso', value: 'BTN_ASISTENCIA' },
-            { text: isEn ? '📦 Setup new device' : '📦 Configurar dispositivo nuevo', value: 'BTN_CONFIGURACION' },
-            { text: isEn ? '📚 Guides & manuals' : '📚 Guías y manuales', value: 'BTN_GUIAS' },
-            { text: isEn ? '🌐 General inquiry' : '🌐 Consulta informática', value: 'BTN_CONSULTA' }
+            { 
+              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema', 
+              value: 'BTN_PROBLEMA',
+              description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
+              example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
+            },
+            { 
+              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática', 
+              value: 'BTN_CONSULTA',
+              description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
+              example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
+            }
           ]
         });
       }
@@ -4026,7 +4031,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
                 : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
           session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_ASISTENCIA', 'BTN_CONFIGURACION', 'BTN_GUIAS', 'BTN_CONSULTA']) }));
+          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
         }
       }
     }
