@@ -338,6 +338,35 @@ const EMBEDDED_CHAT = {
   //   3. buildUiButtonsFromTokens (5 ubicaciones)
   // Modificar sin actualizar todas las referencias causará botones rotos.
   // ============================================
+  // ========================================================
+  // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #7
+  // ========================================================
+  // ⚠️  ADVERTENCIA: Esta configuración está funcionando en producción
+  // 📅 Última validación: 25/11/2025
+  // ✅ Estado: FUNCIONAL Y OPTIMIZADO
+  //
+  // 🚨 ANTES DE MODIFICAR:
+  //    1. ESTE ES EL SISTEMA DE 2 BOTONES SIMPLIFICADO
+  //    2. NO agregar más botones sin actualizar lógica de detección (línea ~3700)
+  //    3. NO cambiar tokens sin actualizar handlers (línea ~3720)
+  //    4. Las propiedades description/example se renderizan en frontend
+  //
+  // 📋 Funcionalidad protegida:
+  //    - BTN_PROBLEMA: Diagnóstico y solución de problemas técnicos
+  //    - BTN_CONSULTA: Instalaciones, configuraciones, guías, ayuda
+  //    - Sistema consolidado de 5 → 2 categorías principales
+  //
+  // 🔗 Dependencias:
+  //    - Frontend: renderButtons() en index.php usa description/example
+  //    - Backend: Lógica de detección en ASK_NEED (línea ~3700)
+  //    - Greetings: Arrays de botones en líneas ~3850 y ~4000
+  //
+  // 💡 UX Mejorado:
+  //    - Usuarios ven solo 2 opciones claras
+  //    - Cada botón muestra descripción y ejemplos de uso
+  //    - Reducción de confusión (antes 5 botones similares)
+  //
+  // ========================================================
   ui: {
     buttons: [
       // Botones del flujo según Flujo.csv
@@ -345,8 +374,14 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
       { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+      
+      // ========================================================
+      // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
+      // ========================================================
       { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
       { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
+      // ========================================================
+      
       { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
       { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
@@ -3677,6 +3712,34 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     }
     
     // ============================================
+    // ========================================================
+    // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #8
+    // ========================================================
+    // ⚠️  ADVERTENCIA: Esta lógica está funcionando en producción
+    // 📅 Última validación: 25/11/2025
+    // ✅ Estado: FUNCIONAL Y OPTIMIZADO (Sistema de 2 intents)
+    //
+    // 🚨 ANTES DE MODIFICAR:
+    //    1. Sistema simplificado de 5 → 2 categorías principales
+    //    2. Detección automática por palabras clave funcionando
+    //    3. NO agregar nuevos needType sin crear handlers
+    //    4. Sincronizar con CONFIG.ui.buttons (línea ~348)
+    //
+    // 📋 Funcionalidad protegida:
+    //    - Detección por botones: BTN_PROBLEMA, BTN_CONSULTA
+    //    - Detección por texto: palabras clave regex
+    //    - Mapeo a 2 intents: problema, consulta_general
+    //
+    // 🔗 Dependencias:
+    //    - CONFIG.ui.buttons debe tener BTN_PROBLEMA y BTN_CONSULTA
+    //    - Handlers de respuesta en líneas ~3720-3745
+    //    - Frontend muestra description/example de cada botón
+    //
+    // 💡 Lógica de Detección:
+    //    - "problema|no funciona|error|falla" → problema
+    //    - "instalar|configurar|cómo hago|guía" → consulta_general
+    //
+    // ========================================================
     // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
     // ============================================
     // BLOQUE: Detección de intent por botones y palabras clave
@@ -3805,15 +3868,39 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         await saveSession(sid, session);
         
         // ============================================
+        // ========================================================
+        // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #9
+        // ========================================================
+        // ⚠️  ADVERTENCIA: Botones funcionando en producción
+        // 📅 Última validación: 25/11/2025
+        // ✅ Estado: FUNCIONAL - Sistema de 2 botones con descripciones
+        //
+        // 🚨 ANTES DE MODIFICAR:
+        //    1. Este bloque debe ser IDÉNTICO al de línea ~4020
+        //    2. Mantener sincronizado con CONFIG.ui.buttons (línea ~348)
+        //    3. Las propiedades description/example son requeridas por frontend
+        //    4. Valores BTN_* deben coincidir con detección (línea ~3730)
+        //
+        // 📋 Funcionalidad protegida:
+        //    - Renderizado de 2 botones cuando usuario omite nombre
+        //    - Soporte bilingüe (español/inglés)
+        //    - Incluye description y example para cada botón
+        //
+        // 🔗 Dependencias:
+        //    - Frontend: renderButtons() en index.php (línea ~787)
+        //    - Backend: Detección de botones en ASK_NEED (línea ~3730)
+        //    - Bloque gemelo en línea ~4020 (MANTENER SINCRONIZADO)
+        //
+        // ========================================================
         // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
         // ============================================
         // BLOQUE: Renderizado de botones sin nombre de usuario
-        // Propósito: Mostrar 5 opciones cuando usuario omite su nombre
+        // Propósito: Mostrar 2 opciones cuando usuario omite su nombre
         // Funcionalidad: Mismo set de botones que flujo normal, soporte bilingüe
         // Autor: Sistema STI - GitHub Copilot + Lucas
         // Última modificación: 25/11/2025
         // 
-        // ADVERTENCIA: Este bloque debe ser idéntico al de línea ~3920.
+        // ADVERTENCIA: Este bloque debe ser idéntico al de línea ~4020.
         // Los valores (BTN_*) deben coincidir con:
         //   - CONFIG.ui.buttons (línea ~333)
         //   - Detección de intent (línea ~3675)
