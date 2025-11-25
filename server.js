@@ -254,6 +254,190 @@ const withOptions = obj => ({ options: [], ...obj });
 
 // maskPII ya está importado desde flowLogger.js (línea 52)
 
+// ========================================================
+// 🎯 SISTEMA DE DESAMBIGUACIÓN DE DISPOSITIVOS
+// ========================================================
+// Detecta términos ambiguos (compu, equipo, pantalla) y sugiere dispositivos específicos
+
+const DEVICE_DISAMBIGUATION = {
+  // Computadoras - términos genéricos
+  'compu|computadora|equipo|maquina|máquina|torre|aparato|ordenador|pc\\b': {
+    candidates: [
+      { 
+        id: 'PC_DESKTOP', 
+        icon: '💻', 
+        label: 'PC de Escritorio',
+        description: 'Torre con monitor separado',
+        keywords: ['torre', 'gabinete', 'debajo escritorio', 'cables', 'cpu', 'fuente', 'placa madre']
+      },
+      { 
+        id: 'NOTEBOOK', 
+        icon: '💼', 
+        label: 'Notebook / Laptop',
+        description: 'Computadora portátil con batería',
+        keywords: ['bateria', 'batería', 'touchpad', 'tapa', 'portatil', 'portátil', 'llevar', 'cerrar', 'abrir']
+      },
+      { 
+        id: 'ALL_IN_ONE', 
+        icon: '🖥️', 
+        label: 'All-in-One',
+        description: 'Pantalla y procesador integrados',
+        keywords: ['pantalla tactil', 'táctil', 'todo junto', 'sin torre', 'integrado', 'un solo equipo']
+      }
+    ]
+  },
+  
+  // Pantallas - puede ser monitor o parte de dispositivo
+  'pantalla|monitor|display|screen': {
+    candidates: [
+      { 
+        id: 'MONITOR', 
+        icon: '🖥️', 
+        label: 'Monitor Externo',
+        description: 'Pantalla conectada a PC',
+        keywords: ['hdmi', 'vga', 'displayport', 'entrada', 'segundo monitor', 'externo', 'cable', 'input', 'signal']
+      },
+      { 
+        id: 'NOTEBOOK_SCREEN', 
+        icon: '💼', 
+        label: 'Pantalla de Notebook',
+        description: 'Pantalla integrada de laptop',
+        keywords: ['integrada', 'bisagras', 'tapa', 'notebook', 'laptop', 'cerrar pantalla']
+      },
+      { 
+        id: 'ALL_IN_ONE_SCREEN', 
+        icon: '🖥️', 
+        label: 'Pantalla All-in-One',
+        description: 'Computadora todo en uno',
+        keywords: ['tactil', 'táctil', 'todo junto', 'integrado', 'sin torre']
+      },
+      { 
+        id: 'TV', 
+        icon: '📺', 
+        label: 'TV / Smart TV',
+        description: 'Televisor',
+        keywords: ['control remoto', 'canales', 'smart tv', 'televisor', 'hdmi tv', 'chromecast', 'fire tv']
+      }
+    ]
+  },
+  
+  // Mouse / Ratón
+  'raton|ratón|mouse|bicho': {
+    candidates: [
+      { 
+        id: 'MOUSE_WIRELESS', 
+        icon: '🖱️', 
+        label: 'Mouse Inalámbrico',
+        description: 'Mouse sin cable (Bluetooth/RF)',
+        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico', 'dongle']
+      },
+      { 
+        id: 'MOUSE_USB', 
+        icon: '🖱️', 
+        label: 'Mouse USB',
+        description: 'Mouse con cable USB',
+        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico']
+      },
+      { 
+        id: 'TOUCHPAD', 
+        icon: '👆', 
+        label: 'Touchpad',
+        description: 'Mouse táctil de notebook',
+        keywords: ['integrado', 'notebook', 'laptop', 'tactil', 'táctil', 'panel', 'touchpad']
+      }
+    ]
+  },
+  
+  // Teclado
+  'teclado|keyboard': {
+    candidates: [
+      { 
+        id: 'KEYBOARD_WIRELESS', 
+        icon: '⌨️', 
+        label: 'Teclado Inalámbrico',
+        description: 'Teclado sin cable',
+        keywords: ['pilas', 'bateria', 'batería', 'bluetooth', 'sin cable', 'inalambrico', 'inalámbrico']
+      },
+      { 
+        id: 'KEYBOARD_USB', 
+        icon: '⌨️', 
+        label: 'Teclado USB',
+        description: 'Teclado con cable USB',
+        keywords: ['cable', 'conectado', 'puerto', 'usb', 'alambrico', 'alámbrico']
+      },
+      { 
+        id: 'KEYBOARD_NOTEBOOK', 
+        icon: '💼', 
+        label: 'Teclado de Notebook',
+        description: 'Teclado integrado de laptop',
+        keywords: ['integrado', 'notebook', 'laptop', 'incorporado']
+      }
+    ]
+  }
+};
+
+/**
+ * Detecta si el texto del usuario contiene términos ambiguos y calcula confidence score
+ * @param {string} text - Texto del usuario
+ * @returns {Object|null} - { term, candidates, confidence, bestMatch } o null
+ */
+function detectAmbiguousDevice(text) {
+  const normalized = normalizeText(text.toLowerCase());
+  
+  for (const [pattern, config] of Object.entries(DEVICE_DISAMBIGUATION)) {
+    const regex = new RegExp(`\\b(${pattern})`, 'i');
+    const match = normalized.match(regex);
+    
+    if (match) {
+      // Buscar keywords específicos en cada candidato
+      let maxScore = 0;
+      let bestDevice = null;
+      
+      for (const candidate of config.candidates) {
+        let score = 0;
+        for (const keyword of candidate.keywords) {
+          if (normalized.includes(keyword.toLowerCase())) {
+            score++;
+          }
+        }
+        
+        if (score > maxScore) {
+          maxScore = score;
+          bestDevice = candidate;
+        }
+      }
+      
+      // Calcular confidence: 0 = ambiguo total, 1 = muy claro
+      const confidence = maxScore / 3; // Normalizar a 0-1 (asumiendo max 3 keywords)
+      
+      return {
+        term: match[1],
+        candidates: config.candidates,
+        confidence: Math.min(confidence, 1),
+        bestMatch: bestDevice,
+        matchedKeywords: maxScore
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Genera botones de desambiguación para que el usuario elija dispositivo
+ * @param {Array} candidates - Array de candidatos de DEVICE_DISAMBIGUATION
+ * @returns {Array} - Array de botones formateados
+ */
+function generateDeviceButtons(candidates) {
+  return candidates.map(device => ({
+    token: `DEVICE_${device.id}`,
+    icon: device.icon,
+    label: device.label,
+    description: device.description,
+    text: device.label
+  }));
+}
+
 function formatLog(level, ...parts) {
   const rawText = parts.map(p => {
     if (typeof p === 'string') return p;
@@ -4103,6 +4287,84 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     if (session.stage === STATES.ASK_PROBLEM){
       session.problem = t || session.problem;
 
+      // ========================================================
+      // 🎯 DETECCIÓN INTELIGENTE DE DISPOSITIVOS AMBIGUOS
+      // ========================================================
+      if (!session.device && session.problem) {
+        const ambiguousResult = detectAmbiguousDevice(session.problem);
+        
+        if (ambiguousResult) {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const confidence = ambiguousResult.confidence;
+          
+          // CASO 1: Alta confianza (>0.66) - Confirmar con 1 botón
+          if (confidence > 0.66 && ambiguousResult.bestMatch) {
+            const device = ambiguousResult.bestMatch;
+            session.stage = 'CONFIRM_DEVICE';
+            session.pendingDevice = device;
+            
+            const replyText = isEn
+              ? `Do you mean your **${device.label}**?`
+              : (locale === 'es-419'
+                  ? `¿Te referís a tu **${device.label}**?`
+                  : `¿Te referís a tu **${device.label}**?`);
+            
+            const confirmButtons = [
+              { 
+                token: 'DEVICE_CONFIRM_YES', 
+                icon: '✅', 
+                label: isEn ? 'Yes' : 'Sí',
+                description: device.description,
+                text: isEn ? 'Yes' : 'Sí'
+              },
+              { 
+                token: 'DEVICE_CONFIRM_NO', 
+                icon: '🔄', 
+                label: isEn ? 'No, it\'s another device' : 'No, es otro dispositivo',
+                description: isEn ? 'Show me all options' : 'Mostrar todas las opciones',
+                text: isEn ? 'No, other device' : 'No, otro dispositivo'
+              }
+            ];
+            
+            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+            await saveSession(sid, session);
+            
+            return res.json({
+              ok: true,
+              reply: replyText,
+              stage: session.stage,
+              options: confirmButtons,
+              buttons: confirmButtons
+            });
+          }
+          
+          // CASO 2: Baja confianza (<0.66) - Mostrar todos los botones
+          session.stage = 'CHOOSE_DEVICE';
+          session.ambiguousTerm = ambiguousResult.term;
+          
+          const replyText = isEn
+            ? `To help you better, what type of device is your **${ambiguousResult.term}**?`
+            : (locale === 'es-419'
+                ? `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`
+                : `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`);
+          
+          const deviceButtons = generateDeviceButtons(ambiguousResult.candidates);
+          
+          session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+          await saveSession(sid, session);
+          
+          return res.json({
+            ok: true,
+            reply: replyText,
+            stage: session.stage,
+            options: deviceButtons,
+            buttons: deviceButtons,
+            disambiguation: true
+          });
+        }
+      }
+
 // Device disambiguation: when user mentions "pc / compu / computadora" but device is still unknown
 if (!session.device) {
   const locale = session.userLocale || 'es-AR';
@@ -4411,6 +4673,118 @@ La guía debe ser:
       await saveSession(sid, session);
       const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
       return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
+    
+    // ========================================================
+    // 🎯 HANDLER: CONFIRM_DEVICE (Alta confianza - Confirmar dispositivo)
+    // ========================================================
+    } else if (session.stage === 'CONFIRM_DEVICE') {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // Usuario confirmó el dispositivo
+      if (buttonToken === 'DEVICE_CONFIRM_YES') {
+        const device = session.pendingDevice;
+        session.device = device.id;
+        session.deviceLabel = device.label;
+        delete session.pendingDevice;
+        
+        const replyText = isEn
+          ? `Perfect! I'll help you with your **${device.label}**.`
+          : (locale === 'es-419'
+              ? `¡Perfecto! Te ayudaré con tu **${device.label}**.`
+              : `¡Perfecto! Te ayudo con tu **${device.label}**.`);
+        
+        session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+        session.stage = STATES.ASK_PROBLEM;
+        await saveSession(sid, session);
+        
+        // Continuar con generación de pasos
+        return await generateAndShowSteps(session, sid, res);
+      }
+      
+      // Usuario dijo NO - mostrar todas las opciones
+      if (buttonToken === 'DEVICE_CONFIRM_NO') {
+        session.stage = 'CHOOSE_DEVICE';
+        const ambiguousResult = detectAmbiguousDevice(session.problem);
+        
+        const replyText = isEn
+          ? `No problem. Please choose the correct device:`
+          : (locale === 'es-419'
+              ? `No hay problema. Por favor, elegí el dispositivo correcto:`
+              : `No hay problema. Por favor, elegí el dispositivo correcto:`);
+        
+        const deviceButtons = ambiguousResult 
+          ? generateDeviceButtons(ambiguousResult.candidates)
+          : [];
+        
+        session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply: replyText,
+          stage: session.stage,
+          options: deviceButtons,
+          buttons: deviceButtons
+        });
+      }
+      
+      // Fallback
+      const fallbackMsg = isEn
+        ? 'Please choose one of the options.'
+        : (locale === 'es-419'
+            ? 'Por favor, elegí una de las opciones.'
+            : 'Por favor, elegí una de las opciones.');
+      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
+    
+    // ========================================================
+    // 🎯 HANDLER: CHOOSE_DEVICE (Baja confianza - Elegir dispositivo)
+    // ========================================================
+    } else if (session.stage === 'CHOOSE_DEVICE') {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // Usuario eligió un dispositivo
+      if (buttonToken && buttonToken.startsWith('DEVICE_')) {
+        const deviceId = buttonToken.replace('DEVICE_', '');
+        const ambiguousResult = detectAmbiguousDevice(session.problem);
+        
+        if (ambiguousResult) {
+          const selectedDevice = ambiguousResult.candidates.find(d => d.id === deviceId);
+          
+          if (selectedDevice) {
+            session.device = selectedDevice.id;
+            session.deviceLabel = selectedDevice.label;
+            delete session.ambiguousTerm;
+            
+            const replyText = isEn
+              ? `Perfect! I'll help you with your **${selectedDevice.label}**.`
+              : (locale === 'es-419'
+                  ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
+                  : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
+            
+            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+            session.stage = STATES.ASK_PROBLEM;
+            await saveSession(sid, session);
+            
+            // Continuar con generación de pasos
+            return await generateAndShowSteps(session, sid, res);
+          }
+        }
+      }
+      
+      // Fallback
+      const fallbackMsg = isEn
+        ? 'Please choose one of the device options.'
+        : (locale === 'es-419'
+            ? 'Por favor, elegí una de las opciones de dispositivo.'
+            : 'Por favor, elegí una de las opciones de dispositivo.');
+      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
+    
     } else if (session.stage === STATES.BASIC_TESTS) {
       const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
       if (rxDontKnow.test(t)) {
