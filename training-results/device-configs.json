@@ -1,0 +1,163 @@
+{
+  "disco_rigido": {
+    "id": "DISCO_RIGIDO",
+    "icon": "💿",
+    "label": "Disco Rígido / HDD",
+    "description": "Disco duro interno (mecánico)",
+    "keywords": [
+      "disco",
+      "rigido",
+      "pasa",
+      "estoy",
+      "casi",
+      "mismo",
+      "uso",
+      "conecté",
+      "equipo",
+      "actualicé",
+      "windows",
+      "ayer",
+      "media",
+      "hora",
+      "conecto"
+    ]
+  },
+  "ssd": {
+    "id": "SSD",
+    "icon": "⚡",
+    "label": "SSD",
+    "description": "Disco sólido (más rápido)",
+    "keywords": [
+      "ssd",
+      "estoy",
+      "uso",
+      "media",
+      "hora",
+      "pasa",
+      "jugando",
+      "trabajando",
+      "actualicé",
+      "windows",
+      "empieza",
+      "fallar",
+      "después",
+      "rato",
+      "computadora"
+    ]
+  },
+  "disco_externo": {
+    "id": "DISCO_EXTERNO",
+    "icon": "🔌",
+    "label": "Disco Externo",
+    "description": "Disco duro externo por USB",
+    "keywords": [
+      "disco",
+      "externo",
+      "pasa",
+      "estoy",
+      "algunas",
+      "casi",
+      "mismo",
+      "cada",
+      "reinicio",
+      "jugando",
+      "uso",
+      "actualicé",
+      "windows",
+      "tira",
+      "error"
+    ]
+  },
+  "pendrive": {
+    "id": "PENDRIVE",
+    "icon": "📀",
+    "label": "Pendrive / USB",
+    "description": "Memoria USB flash drive",
+    "keywords": [
+      "pendrive",
+      "pasa",
+      "uso",
+      "estoy",
+      "empieza",
+      "fallar",
+      "después",
+      "rato",
+      "media",
+      "hora",
+      "casi",
+      "mismo",
+      "actualicé",
+      "windows",
+      "trabajando"
+    ]
+  },
+  "memoria_sd": {
+    "id": "MEMORIA_SD",
+    "icon": "💾",
+    "label": "Memoria Sd",
+    "description": "Dispositivo de almacenamiento Memoria Sd",
+    "keywords": [
+      "memoria",
+      "pasa",
+      "uso",
+      "algunas",
+      "estoy",
+      "trabajando",
+      "casi",
+      "mismo",
+      "dejó",
+      "funcionar",
+      "golpe",
+      "media",
+      "hora",
+      "desconecta",
+      "actualicé"
+    ]
+  },
+  "nas": {
+    "id": "NAS",
+    "icon": "💾",
+    "label": "Nas",
+    "description": "Dispositivo de almacenamiento Nas",
+    "keywords": [
+      "nas",
+      "pasa",
+      "estoy",
+      "uso",
+      "algunas",
+      "cada",
+      "reinicio",
+      "jugando",
+      "ayer",
+      "actualicé",
+      "windows",
+      "conecté",
+      "equipo",
+      "casi",
+      "mismo"
+    ]
+  },
+  "gabinete_externo": {
+    "id": "GABINETE_EXTERNO",
+    "icon": "💾",
+    "label": "Gabinete Externo",
+    "description": "Dispositivo de almacenamiento Gabinete Externo",
+    "keywords": [
+      "gabinete",
+      "externo",
+      "estoy",
+      "pasa",
+      "uso",
+      "conecté",
+      "equipo",
+      "jugando",
+      "actualicé",
+      "windows",
+      "algunas",
+      "responde",
+      "casi",
+      "mismo",
+      "trabajando"
+    ]
+  }
+}

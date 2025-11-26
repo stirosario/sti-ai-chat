@@ -1,0 +1,32 @@
+{
+  "impresora_laser": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  },
+  "impresora_inkjet": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  },
+  "impresora_multifuncion": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  },
+  "impresora_termica": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  },
+  "plotter": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  },
+  "escaner": {
+    "base": 50,
+    "variants": 1000,
+    "total": 1050
+  }
+}

@@ -53,6 +53,7 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
+// FORCE REBUILD 2025-11-25 16:45 - Debugging deviceDetection import
 console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbiguousDevice);
 console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
 

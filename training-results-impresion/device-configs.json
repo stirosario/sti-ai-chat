@@ -1,0 +1,140 @@
+{
+  "impresora_laser": {
+    "id": "IMPRESORA_LASER",
+    "icon": "🖨️",
+    "label": "Impresora Láser",
+    "description": "Dispositivo de impresión/digitalización Impresora Láser",
+    "keywords": [
+      "impresora",
+      "laser",
+      "estoy",
+      "actualic",
+      "windows",
+      "pasa",
+      "funciona",
+      "casi",
+      "siempre",
+      "mismo",
+      "reinicio",
+      "dej",
+      "funcionar",
+      "golpe",
+      "nada"
+    ]
+  },
+  "impresora_inkjet": {
+    "id": "IMPRESORA_INKJET",
+    "icon": "🖨️",
+    "label": "impresora_inkjet",
+    "description": "Dispositivo de impresión/digitalización impresora_inkjet",
+    "keywords": [
+      "impresora",
+      "inkjet",
+      "estoy",
+      "pasa",
+      "uso",
+      "funciona",
+      "jugando",
+      "tira",
+      "error",
+      "raro",
+      "trabajando",
+      "nada",
+      "conecto",
+      "casi",
+      "siempre"
+    ]
+  },
+  "impresora_multifuncion": {
+    "id": "IMPRESORA_MULTIFUNCION",
+    "icon": "🖨️",
+    "label": "impresora_multifuncion",
+    "description": "Dispositivo de impresión/digitalización impresora_multifuncion",
+    "keywords": [
+      "impresora",
+      "multifuncion",
+      "estoy",
+      "pasa",
+      "solo",
+      "funciona",
+      "uso",
+      "actualic",
+      "windows",
+      "jugando",
+      "algunas",
+      "trabajando",
+      "reconoce",
+      "sistema",
+      "media"
+    ]
+  },
+  "impresora_termica": {
+    "id": "IMPRESORA_TERMICA",
+    "icon": "🖨️",
+    "label": "impresora_termica",
+    "description": "Dispositivo de impresión/digitalización impresora_termica",
+    "keywords": [
+      "impresora",
+      "termica",
+      "estoy",
+      "funciona",
+      "trabajando",
+      "solo",
+      "jugando",
+      "actualic",
+      "windows",
+      "pasa",
+      "reinicio",
+      "conect",
+      "este",
+      "equipo",
+      "uso"
+    ]
+  },
+  "plotter": {
+    "id": "PLOTTER",
+    "icon": "🖨️📐",
+    "label": "Plotter",
+    "description": "Dispositivo de impresión/digitalización Plotter",
+    "keywords": [
+      "plotter",
+      "pasa",
+      "funciona",
+      "solo",
+      "algunas",
+      "reinicio",
+      "actualic",
+      "windows",
+      "estoy",
+      "casi",
+      "siempre",
+      "mismo",
+      "uso",
+      "conect",
+      "este"
+    ]
+  },
+  "escaner": {
+    "id": "ESCANER",
+    "icon": "📠",
+    "label": "Escáner",
+    "description": "Dispositivo de impresión/digitalización Escáner",
+    "keywords": [
+      "escaner",
+      "pasa",
+      "solo",
+      "reinicio",
+      "funciona",
+      "casi",
+      "siempre",
+      "mismo",
+      "conect",
+      "este",
+      "equipo",
+      "algunas",
+      "empieza",
+      "fallar",
+      "despu"
+    ]
+  }
+}

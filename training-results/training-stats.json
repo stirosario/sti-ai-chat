@@ -1,0 +1,42 @@
+{
+  "category": "almacenamiento",
+  "devices": {
+    "disco_rigido": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "ssd": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "disco_externo": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "pendrive": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "memoria_sd": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "nas": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    },
+    "gabinete_externo": {
+      "baseCount": 50,
+      "variantCount": 1000,
+      "totalCases": 1050
+    }
+  },
+  "totalPhrases": 350,
+  "totalVariants": 7000
+}
