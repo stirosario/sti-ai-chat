@@ -3021,7 +3021,7 @@ async function generateAndShowSteps(session, sid, res) {
     session.currentTestIndex = 0;
 
     const who = session.userName ? capitalizeToken(session.userName) : null;
-    const deviceLabel = device || (isEn ? 'equipo' : 'equipo');
+    const deviceLabel = device || (isEn ? 'device' : 'equipo');
     const pSummary = (session.problem || '').trim().slice(0, 200);
 
     let intro;
