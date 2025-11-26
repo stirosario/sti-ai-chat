@@ -53,6 +53,9 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
+console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbiguousDevice);
+console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
+
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
 // ========================================================
