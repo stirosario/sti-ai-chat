@@ -4079,7 +4079,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           ]
         });
       }
-    }
 
     // Inline fallback extraction (if we are not in ASK_NAME)
     {
