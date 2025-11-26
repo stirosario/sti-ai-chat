@@ -957,8 +957,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
         { role: 'user', content: prompt }
       ],
       temperature: 0.2,
-      max_tokens: 400,
-      signal: controller.signal
+      max_tokens: 400
     });
     clearTimeout(timeoutId);
 
@@ -3825,7 +3824,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         if (needType === 'problema') {
           reply = isEn
             ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto ${whoName}. Contame: ¿qué problema estás teniendo?`;
+            : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
           session.isProblem = true;
           session.isHowTo = false;
         } else if (needType === 'consulta_general') {
@@ -4540,7 +4539,8 @@ La guía debe ser:
       const isEn = String(locale).toLowerCase().startsWith('en');
 
       // Usuario confirmó el dispositivo
-      if (buttonToken === 'DEVICE_CONFIRM_YES') {
+      // Aceptar token específico O variaciones de "Sí"
+      if (buttonToken === 'DEVICE_CONFIRM_YES' || /^(si|sí|yes|s|y)$/i.test(buttonToken)) {
         const device = session.pendingDevice;
         session.device = device.id;
         session.deviceLabel = device.label;
@@ -4561,7 +4561,7 @@ La guía debe ser:
       }
 
       // Usuario dijo NO - mostrar todas las opciones
-      if (buttonToken === 'DEVICE_CONFIRM_NO') {
+      if (buttonToken === 'DEVICE_CONFIRM_NO' || /^(no|n|nop|not)$/i.test(buttonToken) || /otro/i.test(buttonToken)) {
         session.stage = 'CHOOSE_DEVICE';
         const ambiguousResult = detectAmbiguousDevice(session.problem);
 
