@@ -3681,7 +3681,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           session.userLocale = 'es-AR';
           session.stage = STATES.ASK_NAME;
           
-          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Cómo te llamás?`;
+          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
           
