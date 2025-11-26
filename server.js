@@ -869,8 +869,7 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
         { role: 'user', content: prompt }
       ],
       temperature: 0,
-      max_tokens: 300,
-      signal: controller.signal
+      max_tokens: 300
     });
     clearTimeout(timeoutId);
 
@@ -906,7 +905,6 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const trimmed = String(problemText || '').trim();
   if (!openai || !trimmed) {
-    // Fallback local sencillo, reutilizando idioma
     const isEn = profile.code === 'en';
     if (isEn) {
       return [
@@ -925,7 +923,6 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   }
 
   const userText = trimmed.slice(0, 800);
-
   const systemMsg = profile.system;
   const deviceLabel = device || 'dispositivo';
 
@@ -970,14 +967,13 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
         .replace(/```$/i, '');
       parsed = JSON.parse(cleaned);
     } catch (e) {
-      // Si no se pudo parsear como JSON, devolvemos un fallback simple.
       const isEn = profile.code === 'en';
       if (isEn) {
         return [
           'Restart the device and check if the problem persists.',
           'Verify cables and connections and check for visible damage.',
           'If possible, test the device on another TV, monitor or power outlet.',
-          'If the problem persists, contact a technician with these details.'
+          'If the problem persists, contact a technician with details.'
         ];
       }
       return [
@@ -1010,7 +1006,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   }
 }
 
-async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
+async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const isEn = profile.code === 'en';
   if (!openai) {
@@ -1060,15 +1056,14 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
         { role: 'user', content: prompt }
       ],
       temperature: 0.4,
-      max_tokens: 400,
-      signal: controller.signal
+      max_tokens: 400
     });
     clearTimeout(timeoutId);
 
     const raw = r?.choices?.[0]?.message?.content || '';
     return raw.trim();
   } catch (err) {
-    console.error('[getHelpForStep] error:', err?.message || err);
+    console.error('[explainStepWithAI] error:', err?.message || err);
     if (isEn) {
       return `Step ${stepIndex}: ${stepText}\n\nTry to follow it calmly. If you get stuck, tell me exactly at which part you got blocked and I will guide you.`;
     }
@@ -1076,8 +1071,6 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
   }
 }
 
-// ========================================================
-// Express app, endpoints, and core chat flow
 // ========================================================
 // Express app, endpoints, and core chat flow
 // ========================================================
@@ -3072,12 +3065,32 @@ async function generateAndShowSteps(session, sid, res) {
 
     const reply = `${intro}\n\n${stepsText}${footer}`;
 
-    const options = [
-      BUTTONS.SOLVED,
-      BUTTONS.PERSIST,
-      BUTTONS.MORE_TESTS,
-      BUTTONS.CONNECT_TECH
-    ];
+    // Generar botones dinámicos
+    const options = [];
+
+    // 1. Botón Solucionado
+    options.push({
+      text: isEn ? '✔️ I solved it' : '✔️ Lo pude solucionar',
+      value: 'BTN_SOLVED',
+      description: isEn ? 'The problem is gone' : 'El problema desapareció'
+    });
+
+    // 2. Botón Persiste
+    options.push({
+      text: isEn ? '❌ The problem persists' : '❌ El problema persiste',
+      value: 'BTN_PERSIST',
+      description: isEn ? 'I still have the issue' : 'Sigo con el inconveniente'
+    });
+
+    // 3. Botones de Ayuda por cada paso
+    steps.forEach((step, idx) => {
+      const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
+      options.push({
+        text: isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
+        value: `BTN_HELP_STEP_${idx}`,
+        description: isEn ? `Explain step ${idx + 1} in detail` : `Explicar paso ${idx + 1} en detalle`
+      });
+    });
 
     const payload = withOptions({ ok: true, reply }, options);
     await saveSession(sid, session);
@@ -4665,30 +4678,62 @@ La guía debe ser:
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
 
     } else if (session.stage === STATES.BASIC_TESTS) {
+      // 1. Manejo de "Volver a los pasos"
+      if (buttonToken === 'BTN_BACK_TO_STEPS') {
+        return await generateAndShowSteps(session, sid, res);
+      }
+
+      // 2. Manejo de Ayuda por Paso (BTN_HELP_STEP_X)
+      if (buttonToken && buttonToken.startsWith('BTN_HELP_STEP_')) {
+        const stepIdx = parseInt(buttonToken.replace('BTN_HELP_STEP_', ''), 10);
+        const stepText = session.basicTests[stepIdx];
+
+        if (stepText) {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+
+          // Generar explicación con IA
+          let explanation = '';
+          try {
+            explanation = await explainStepWithAI(stepText, stepIdx + 1, session.deviceLabel, session.problem, locale);
+          } catch (err) {
+            console.error('[BASIC_TESTS] Error generating help:', err);
+            explanation = isEn
+              ? "I couldn't generate a detailed explanation, but try to follow the step as best as you can."
+              : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.";
+          }
+
+          const reply = isEn
+            ? `**Help for Step ${stepIdx + 1}:**\n\n${explanation}`
+            : `**Ayuda para el Paso ${stepIdx + 1}:**\n\n${explanation}`;
+
+          const backButton = {
+            text: isEn ? '⏪ Back to steps' : '⏪ Volver a los pasos anteriores',
+            value: 'BTN_BACK_TO_STEPS'
+          };
+
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply, stage: session.stage }, [backButton]));
+        }
+      }
+
       const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
       if (rxDontKnow.test(t)) {
         const result = await handleDontUnderstand(session, sid, t);
         return res.json(withOptions(result));
       }
 
-      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
-      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
+      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
+      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌|BTN_PERSIST)\b/i;
+      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico|BTN_CONNECT_TECH)\b/i;
+      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
 
       if (rxShowSteps.test(t)) {
-        const result = handleShowSteps(session, 'basic');
-        if (result.error) {
-          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
-        }
-        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
+        return await generateAndShowSteps(session, sid, res);
       }
 
-      if (rxYes.test(t)) {
+      if (rxYes.test(t) || buttonToken === 'BTN_SOLVED') {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
@@ -4702,7 +4747,7 @@ La guía debe ser:
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
-      } else if (rxNo.test(t)) {
+      } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const empatia = addEmpatheticResponse('ESCALATE', locale);
@@ -4717,11 +4762,12 @@ La guía debe ser:
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         reply = isEn
-          ? `I didn't understand. You can say "I solved it" or "The problem persists", or choose an option.`
+          ? `I didn't understand. Please choose an option from the buttons.`
           : (locale === 'es-419'
-            ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`
-            : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`);
-        options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST']);
+            ? `No te entendí. Por favor elegí una opción de los botones.`
+            : `No te entendí. Por favor elegí una opción de los botones.`);
+        // Re-enviar botones originales si no entiende
+        return await generateAndShowSteps(session, sid, res);
       }
     } else if (session.stage === STATES.ESCALATE) {
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;

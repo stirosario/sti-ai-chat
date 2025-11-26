@@ -5702,3 +5702,13 @@
     at Function.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
     at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
     at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+2025-11-26T23:34:10.680Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-11-26T23:34:10.724Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-26T23:34:10.724Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-11-26T23:34:10.725Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-26T23:34:10.725Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-26T23:36:52.718Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-11-26T23:36:52.771Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-26T23:36:52.771Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-11-26T23:36:52.771Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-26T23:36:52.771Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
