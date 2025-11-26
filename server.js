@@ -3000,17 +3000,15 @@ async function generateAndShowSteps(session, sid, res) {
       else {
         if (isEn) {
           steps = [
-            'Restart the device completely (turn it off, unplug it for 30 seconds and plug it back in).',
-            'Check that all cables and connections are firmly plugged in (power, HDMI, network).',
-            'If possible, test the device on another TV, monitor or power outlet.',
-            'If the issue persists, contact a technician and share these steps you already tried.'
+            'Complete shutdown\n\nUnplug the device from the wall, wait 30 seconds and plug it back in.',
+            'Check connections\n\nPower cable firmly connected.\n\nMonitor connected (HDMI / VGA / DP).\n\nTry turning it on again.',
+            'If nothing changes\n\nDon\'t worry, we\'ve covered the basics.\nWith this you can contact a technician indicating everything you tried.'
           ];
         } else {
           steps = [
-            'Reiniciá el equipo por completo (apagalo, desenchufalo 30 segundos y volvé a enchufarlo).',
-            'Revisá que todos los cables y conexiones estén firmes (corriente, HDMI, red).',
-            'Si podés, probá el equipo en otro televisor, monitor o enchufe.',
-            'Si el problema sigue, contactá a un técnico y comentale estos pasos que ya probaste.'
+            'Apagado completo\n\nDesenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
+            'Revisá las conexiones\n\nCable de corriente bien firme.\n\nMonitor conectado (HDMI / VGA / DP).\n\nProbá encender nuevamente.',
+            'Si nada cambia\n\nTranquil@, ya hicimos lo básico.\nCon esto ya podés contactar a un técnico indicando todo lo que probaste.'
           ];
         }
       }
@@ -3021,41 +3019,56 @@ async function generateAndShowSteps(session, sid, res) {
     session.currentTestIndex = 0;
 
     const who = session.userName ? capitalizeToken(session.userName) : null;
-    const deviceLabel = device || (isEn ? 'device' : 'equipo');
+    // Usar deviceLabel (label legible) en lugar de device (ID)
+    const deviceLabel = session.deviceLabel || device || (isEn ? 'device' : 'equipo');
     const pSummary = (session.problem || '').trim().slice(0, 200);
+
+    // Emojis numerados para los pasos
+    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 
     let intro;
     if (isEn) {
       intro = who
-        ? `Perfect, ${who}: so with your ${deviceLabel} this is happening: "${pSummary}".\n\nLet us try a few simple steps together:`
-        : `Perfect: so with your ${deviceLabel} this is happening: "${pSummary}".\n\nLet us try a few simple steps together:`;
+        ? `Perfect, ${who}.\nSo, with your ${deviceLabel}, the problem we see is:\n"${pSummary}".\n\nLet's try a few quick steps together 🔧⚡:`
+        : `Perfect.\nSo, with your ${deviceLabel}, the problem we see is:\n"${pSummary}".\n\nLet's try a few quick steps together 🔧⚡:`;
     } else if (isEsLatam) {
       intro = who
-        ? `Perfecto, ${who}: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`
-        : `Perfecto: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`;
+        ? `Perfecto, ${who}.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`
+        : `Perfecto.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`;
     } else {
       intro = who
-        ? `Perfecto, ${who}: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`
-        : `Perfecto: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`;
+        ? `Perfecto, ${who}.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`
+        : `Perfecto.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`;
     }
 
-    function enumerateSteps(list) {
-      return list.map((s, idx) => `${idx + 1}. ${s}`).join('\n');
+    // Formatear pasos con emojis y saltos de línea visuales
+    function enumerateStepsWithEmojis(list) {
+      return list.map((s, idx) => {
+        const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
+        // Agregar saltos de línea adicionales entre pasos para mejor legibilidad
+        return `${emoji} ${s}\n`;
+      }).join('\n');
     }
 
-    const stepsText = enumerateSteps(steps);
+    const stepsText = enumerateStepsWithEmojis(steps);
 
     let footer;
     if (isEn) {
-      footer = '\n\nWhen you complete the steps, let me know:\n' +
-        '- If the problem was solved, choose "Lo pude solucionar ✔️".\n' +
-        '- If it persists, choose "El problema persiste ❌".\n' +
-        'You can also tell me "I did not understand step X" and I will explain it in more detail.';
+      footer = '\nIf nothing changes…\n\n' +
+        'Don\'t worry, we\'ve done the basics.\n' +
+        'With this you can contact a technician indicating everything you tried.\n\n' +
+        'When you\'re done, let me know:\n\n' +
+        '✔️ "I solved it"\n' +
+        '❌ "The problem persists"\n' +
+        '❓ "I didn\'t understand step #" (and I\'ll explain it better)';
     } else {
-      footer = '\n\nCuando completes los pasos, contame:\n' +
-        '- Si se solucionó, elegí "Lo pude solucionar ✔️".\n' +
-        '- Si sigue igual, elegí "El problema persiste ❌".\n' +
-        'También podés decirme "No entendí el paso X" y te lo explico con más detalle.';
+      footer = '\nSi nada cambia…\n\n' +
+        'Tranquil@, ya hicimos lo básico.\n' +
+        'Con esto ya podés contactar a un técnico indicando todo lo que probaste.\n\n' +
+        'Cuando termines, avisame:\n\n' +
+        '✔️ "Lo pude solucionar"\n' +
+        '❌ "El problema persiste"\n' +
+        '❓ "No entendí el paso Nº" (y te lo explico mejor)';
     }
 
     const reply = `${intro}\n\n${stepsText}${footer}`;
