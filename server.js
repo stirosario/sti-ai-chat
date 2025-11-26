@@ -4922,6 +4922,20 @@ app.get('/api/health', async (_req, res) => {
     // Check OpenAI connectivity (optional)
     let openaiStatus = openai ? 'configured' : 'not_configured';
     
+    // Check deviceDetection module
+    let deviceDetectionStatus = 'unknown';
+    try {
+      if (typeof detectAmbiguousDevice === 'function' && 
+          typeof DEVICE_DISAMBIGUATION === 'object' &&
+          Object.keys(DEVICE_DISAMBIGUATION).length > 0) {
+        deviceDetectionStatus = 'loaded';
+      } else {
+        deviceDetectionStatus = 'not_loaded';
+      }
+    } catch (e) {
+      deviceDetectionStatus = `error: ${e.message}`;
+    }
+    
     const uptime = process.uptime();
     const memory = process.memoryUsage();
     
@@ -4935,7 +4949,8 @@ app.get('/api/health', async (_req, res) => {
       services: {
         redis: redisStatus,
         filesystem: fsStatus,
-        openai: openaiStatus
+        openai: openaiStatus,
+        deviceDetection: deviceDetectionStatus
       },
       
       stats: {
