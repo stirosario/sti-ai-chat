@@ -144,12 +144,12 @@ const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPE
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
 
 // Paths / persistence
-const DATA_BASE       = process.env.DATA_BASE       || '/data';
+const DATA_BASE = process.env.DATA_BASE || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
-const TICKETS_DIR     = process.env.TICKETS_DIR     || path.join(DATA_BASE, 'tickets');
-const LOGS_DIR        = process.env.LOGS_DIR        || path.join(DATA_BASE, 'logs');
-const UPLOADS_DIR     = process.env.UPLOADS_DIR     || path.join(DATA_BASE, 'uploads');
-const LOG_FILE        = path.join(LOGS_DIR, 'server.log');
+const TICKETS_DIR = process.env.TICKETS_DIR || path.join(DATA_BASE, 'tickets');
+const LOGS_DIR = process.env.LOGS_DIR || path.join(DATA_BASE, 'logs');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
+const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
@@ -190,7 +190,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Permitir requests sin origin (como Postman, curl, apps móviles)
     if (!origin) return callback(null, true);
-    
+
     if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -295,7 +295,7 @@ function appendToLogFile(entry) {
     if (logStream && logStream.writable) {
       logStream.write(entry + '\n');
     } else {
-      fs.appendFile(LOG_FILE, entry + '\n', 'utf8', ()=>{});
+      fs.appendFile(LOG_FILE, entry + '\n', 'utf8', () => { });
     }
   } catch (e) { /* noop */ }
 }
@@ -311,7 +311,7 @@ function broadcastLog(entry) {
     try {
       sseSend(res, entry);
     } catch (e) {
-      try { res.end(); } catch(_) {}
+      try { res.end(); } catch (_) { }
       sseClients.delete(res);
     }
   }
@@ -321,7 +321,7 @@ function broadcastLog(entry) {
 const _origLog = console.log.bind(console);
 const _origErr = console.error.bind(console);
 console.log = (...args) => {
-  try { _origLog(...args); } catch (_) {}
+  try { _origLog(...args); } catch (_) { }
   try {
     const entry = formatLog('INFO', ...args);
     appendToLogFile(entry);
@@ -329,7 +329,7 @@ console.log = (...args) => {
   } catch (e) { /* noop */ }
 };
 console.error = (...args) => {
-  try { _origErr(...args); } catch (_) {}
+  try { _origErr(...args); } catch (_) { }
   try {
     const entry = formatLog('ERROR', ...args);
     appendToLogFile(entry);
@@ -400,14 +400,14 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
       { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
-      
+
       // ========================================================
       // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
       // ========================================================
       { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
       { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
       // ========================================================
-      
+
       { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
       { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
@@ -466,8 +466,8 @@ const EMBEDDED_CHAT = {
 let CHAT = EMBEDDED_CHAT || {};
 
 // Helpers: button definitions
-function getButtonDefinition(token){
-  if(!token || !CHAT?.ui?.buttons) return null;
+function getButtonDefinition(token) {
+  if (!token || !CHAT?.ui?.buttons) return null;
   return CHAT.ui.buttons.find(b => String(b.token) === String(token)) || null;
 }
 
@@ -482,22 +482,22 @@ function getDeviceButtonLabel(token, locale = 'es-AR') {
   return deviceLabels[token] || null;
 }
 
-function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR'){
-  if(!Array.isArray(tokens)) return [];
+function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
+  if (!Array.isArray(tokens)) return [];
   return tokens.map(t => {
-    if(!t) return null;
+    if (!t) return null;
     const def = getButtonDefinition(t);
     // Si es un botón de dispositivo, usar etiqueta según idioma
     const deviceLabel = getDeviceButtonLabel(String(t), locale);
     const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
-    const text  = def?.text  || label;
+    const text = def?.text || label;
     return { token: String(t), label, text };
   }).filter(Boolean);
 }
 function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
-  if(!Array.isArray(tokens)) return [];
+  if (!Array.isArray(tokens)) return [];
   return tokens.map(t => {
-    if(!t) return null;
+    if (!t) return null;
     const def = getButtonDefinition(t);
     const label = def?.label || def?.text || String(t);
     const url = urlMap[String(t)] || null;
@@ -508,9 +508,9 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
 // ========================================================
 // NLP & Name utilities
 // ========================================================
-const NUM_EMOJIS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-function emojiForIndex(i){ const n = i+1; return NUM_EMOJIS[n] || `${n}.`; }
-function enumerateSteps(arr){ if(!Array.isArray(arr)) return []; return arr.map((s,i)=>`${emojiForIndex(i)} ${s}`); }
+const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+function emojiForIndex(i) { const n = i + 1; return NUM_EMOJIS[n] || `${n}.`; }
+function enumerateSteps(arr) { if (!Array.isArray(arr)) return []; return arr.map((s, i) => `${emojiForIndex(i)} ${s}`); }
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
 
 const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi[-\s]*fi|wifi|impresora|printer|tv\s*stick|stick\s*tv|amazon\s*stick|fire\s*stick|magistv|magis\s*tv|windows|android|correo|email|outlook|office|word|excel)\b/i;
@@ -521,25 +521,25 @@ const FRUSTRATION_RX = /(esto no sirve|no sirve para nada|qué porquería|que po
 const NO_NAME_RX = /(prefiero no|no quiero|no te lo|no dar|no digo|no decir|sin nombre|anonimo|anónimo|skip|saltar|omitir)/i;
 
 const NAME_STOPWORDS = new Set([
-  'hola','buenas','buenos','gracias','gracias!','gracias.','gracias,','help','ayuda','porfa','por favor','hola!','buenas tardes','buenas noches','buen dia','buen dí­a','si','no'
+  'hola', 'buenas', 'buenos', 'gracias', 'gracias!', 'gracias.', 'gracias,', 'help', 'ayuda', 'porfa', 'por favor', 'hola!', 'buenas tardes', 'buenas noches', 'buen dia', 'buen dí­a', 'si', 'no'
 ]);
 
 const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u;
 const MAX_NAME_TOKENS = 3;
 const MIN_NAME_TOKENS = 1;
 
-function capitalizeToken(tok){
-  if(!tok) return tok;
+function capitalizeToken(tok) {
+  if (!tok) return tok;
   return tok.split(/[-'’\u2019]/).map(part => {
     if (!part) return part;
     return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
   }).join('-');
 }
 
-function isValidName(text){
-  if(!text || typeof text !== 'string') return false;
+function isValidName(text) {
+  if (!text || typeof text !== 'string') return false;
   const s = String(text).trim();
-  if(!s) return false;
+  if (!s) return false;
 
   // reject digits or special symbols
   if (/[0-9@#\$%\^&\*\(\)_=\+\[\]\{\}\\\/<>]/.test(s)) return false;
@@ -560,12 +560,12 @@ function isValidName(text){
 
   // blacklist (trolls, apodos, palabras comunes)
   const blacklist = [
-    'pepelito','papelito','pepito','probando','aaaa','jjjj','zzzz','asdasd','qwerty','basurita','basura','tuerquita','chuchuki',
-    'corcho','coco','pepe','toto','nene','nena','pibe','piba','guacho','wacho','bobo','boludo','pelotudo',
-    'chicle','goma','lapiz','papel','mesa','silla','puerta','ventana','techo','piso','pared',
-    'amigo','amiga','hermano','hermana','primo','prima','tio','tia','abuelo','abuela',
-    'test','testing','prueba','ejemplo','admin','usuario','user','cliente','persona',
-    'hola','chau','gracias','perdon','disculpa','sorry','hello','bye'
+    'pepelito', 'papelito', 'pepito', 'probando', 'aaaa', 'jjjj', 'zzzz', 'asdasd', 'qwerty', 'basurita', 'basura', 'tuerquita', 'chuchuki',
+    'corcho', 'coco', 'pepe', 'toto', 'nene', 'nena', 'pibe', 'piba', 'guacho', 'wacho', 'bobo', 'boludo', 'pelotudo',
+    'chicle', 'goma', 'lapiz', 'papel', 'mesa', 'silla', 'puerta', 'ventana', 'techo', 'piso', 'pared',
+    'amigo', 'amiga', 'hermano', 'hermana', 'primo', 'prima', 'tio', 'tia', 'abuelo', 'abuela',
+    'test', 'testing', 'prueba', 'ejemplo', 'admin', 'usuario', 'user', 'cliente', 'persona',
+    'hola', 'chau', 'gracias', 'perdon', 'disculpa', 'sorry', 'hello', 'bye'
   ];
   if (blacklist.includes(s.toLowerCase())) return false;
 
@@ -573,7 +573,7 @@ function isValidName(text){
     // each token must match token regex
     if (!NAME_TOKEN_RX.test(tok)) return false;
     // token stripped of punctuation should be at least 2 chars
-    if (tok.replace(/['’\-]/g,'').length < 2) return false;
+    if (tok.replace(/['’\-]/g, '').length < 2) return false;
   }
 
   // passed validations
@@ -582,11 +582,11 @@ function isValidName(text){
 
 const isValidHumanName = isValidName;
 
-function extractName(text){
-  if(!text || typeof text !== 'string') return null;
+function extractName(text) {
+  if (!text || typeof text !== 'string') return null;
   const sRaw = String(text).trim();
-  if(!sRaw) return null;
-  const s = sRaw.replace(/[.,!?]+$/,'').trim();
+  if (!sRaw) return null;
+  const s = sRaw.replace(/[.,!?]+$/, '').trim();
 
   // patterns: "me llamo X", "soy X", "mi nombre es X"
   const patterns = [
@@ -594,10 +594,10 @@ function extractName(text){
     /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})\s*$/i
   ];
 
-  for (const rx of patterns){
+  for (const rx of patterns) {
     const m = s.match(rx);
-    if (m && m[1]){
-      let candidate = m[1].trim().replace(/\s+/g,' ');
+    if (m && m[1]) {
+      let candidate = m[1].trim().replace(/\s+/g, ' ');
       // limit tokens to MAX_NAME_TOKENS
       const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
       const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
@@ -615,13 +615,13 @@ function extractName(text){
   return null;
 }
 
-function looksClearlyNotName(text){
-  if(!text || typeof text !== 'string') return true;
+function looksClearlyNotName(text) {
+  if (!text || typeof text !== 'string') return true;
   const s = text.trim().toLowerCase();
-  if(!s) return true;
+  if (!s) return true;
 
   // clear short greetings
-  if (s.length <= 6 && ['hola','hola!','buenas','buenos','buen día','buen dia'].includes(s)) return true;
+  if (s.length <= 6 && ['hola', 'hola!', 'buenas', 'buenos', 'buen día', 'buen dia'].includes(s)) return true;
 
   if (NAME_STOPWORDS.has(s)) return true;
 
@@ -630,15 +630,15 @@ function looksClearlyNotName(text){
   const words = s.split(/\s+/).filter(Boolean);
   if (words.length > 6) return true;
 
-  const indicators = ['mi','no','enciende','tengo','problema','problemas','se','me','con','esta','está','tiene'];
-  for (const w of words){ if (indicators.includes(w)) return true; }
+  const indicators = ['mi', 'no', 'enciende', 'tengo', 'problema', 'problemas', 'se', 'me', 'con', 'esta', 'está', 'tiene'];
+  for (const w of words) { if (indicators.includes(w)) return true; }
 
   return false;
 }
 
 // OpenAI name analyzer - RELAXED validation
 async function analyzeNameWithOA(nameText = '') {
-  if(!openai) return { isValid: true, confidence: 0.8, reason: 'fallback_accepted' };
+  if (!openai) return { isValid: true, confidence: 0.8, reason: 'fallback_accepted' };
   const prompt = [
     "Sos un validador de nombres humanos en español (Argentina).",
     "",
@@ -657,7 +657,7 @@ async function analyzeNameWithOA(nameText = '') {
     "Ante la duda, ACEPTÁ el nombre.",
     "",
     "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'explicación clara'}.",
-    `Texto a validar: "${String(nameText).replace(/"/g,'\\"')}"`
+    `Texto a validar: "${String(nameText).replace(/"/g, '\\"')}"`
   ].join('\n');
   try {
     const controller = new AbortController();
@@ -669,7 +669,7 @@ async function analyzeNameWithOA(nameText = '') {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g,'');
+    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g, '');
     try {
       const parsed = JSON.parse(raw);
       return {
@@ -800,14 +800,14 @@ const DEVICE_PLAYBOOKS = {
   }
 };
 
-async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
-  if(!openai) {
+async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
+  if (!openai) {
     return { isIT: false, device: null, issueKey: null, confidence: 0 };
   }
 
   const profile = getLocaleProfile(locale);
   const trimmed = String(problemText || '').trim();
-  if(!trimmed){
+  if (!trimmed) {
     return { isIT: false, device: null, issueKey: null, confidence: 0 };
   }
 
@@ -859,7 +859,7 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
     userText
   ].join('\n');
 
-  try{
+  try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
     const r = await openai.chat.completions.create({
@@ -876,13 +876,13 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
 
     const raw = r?.choices?.[0]?.message?.content || '';
     let parsed;
-    try{
+    try {
       const cleaned = raw.trim()
         .replace(/^```json/i, '')
         .replace(/^```/i, '')
         .replace(/```$/i, '');
       parsed = JSON.parse(cleaned);
-    }catch(e){
+    } catch (e) {
       return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
     }
 
@@ -892,20 +892,20 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR'){
     const device = typeof parsed.device === 'string' ? parsed.device : null;
     const issueKey = typeof parsed.issueKey === 'string' ? parsed.issueKey : null;
     let confidence = Number(parsed.confidence || 0);
-    if(!Number.isFinite(confidence) || confidence < 0) confidence = 0;
-    if(confidence > 1) confidence = 1;
+    if (!Number.isFinite(confidence) || confidence < 0) confidence = 0;
+    if (confidence > 1) confidence = 1;
 
     return { isIT, isProblem, isHowTo, device, issueKey, confidence };
-  }catch(err){
+  } catch (err) {
     console.error('[analyzeProblemWithOA] error:', err?.message || err);
     return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
   }
 }
 
-async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
+async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const trimmed = String(problemText || '').trim();
-  if(!openai || !trimmed){
+  if (!openai || !trimmed) {
     // Fallback local sencillo, reutilizando idioma
     const isEn = profile.code === 'en';
     if (isEn) {
@@ -947,7 +947,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
     userText
   ].join('\n');
 
-  try{
+  try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
     const r = await openai.chat.completions.create({
@@ -964,13 +964,13 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
 
     const raw = r?.choices?.[0]?.message?.content || '';
     let parsed;
-    try{
+    try {
       const cleaned = raw.trim()
         .replace(/^```json/i, '')
         .replace(/^```/i, '')
         .replace(/```$/i, '');
       parsed = JSON.parse(cleaned);
-    }catch(e){
+    } catch (e) {
       // Si no se pudo parsear como JSON, devolvemos un fallback simple.
       const isEn = profile.code === 'en';
       if (isEn) {
@@ -989,11 +989,11 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
       ];
     }
 
-    if(!Array.isArray(parsed) || !parsed.length){
+    if (!Array.isArray(parsed) || !parsed.length) {
       return [];
     }
     return parsed.map(s => String(s)).slice(0, 6);
-  }catch(err){
+  } catch (err) {
     console.error('[aiQuickTests] error:', err?.message || err);
     const isEn = getLocaleProfile(locale).code === 'en';
     if (isEn) {
@@ -1011,10 +1011,10 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR'){
   }
 }
 
-async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR'){
+async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const isEn = profile.code === 'en';
-  if(!openai){
+  if (!openai) {
     if (isEn) {
       return `Step ${stepIndex}: ${stepText}\n\nTry to perform it calmly. If something is not clear, tell me which part you did not understand and I will re-explain it in another way.`;
     }
@@ -1051,7 +1051,7 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
       : `Paso ${stepIndex} a explicar: ${stepText}`
   ].join('\n');
 
-  try{
+  try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
     const r = await openai.chat.completions.create({
@@ -1068,7 +1068,7 @@ async function getHelpForStep(stepText = '', stepIndex = 1, device = '', problem
 
     const raw = r?.choices?.[0]?.message?.content || '';
     return raw.trim();
-  }catch(err){
+  } catch (err) {
     console.error('[getHelpForStep] error:', err?.message || err);
     if (isEn) {
       return `Step ${stepIndex}: ${stepText}\n\nTry to follow it calmly. If you get stuck, tell me exactly at which part you got blocked and I will guide you.`;
@@ -1118,17 +1118,17 @@ function validateCSRF(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     return next();
   }
-  
+
   const sessionId = req.sessionId;
   const csrfToken = req.headers['x-csrf-token'] || req.body?.csrfToken;
-  
+
   // Si no hay sesión aún, permitir (será creada en /api/greeting)
   if (!sessionId) {
     return next();
   }
-  
+
   const stored = csrfTokenStore.get(sessionId);
-  
+
   // Token inválido o no existe
   if (!stored || stored.token !== csrfToken) {
     console.warn(`[CSRF] REJECTED - Invalid or missing token:`);
@@ -1137,22 +1137,22 @@ function validateCSRF(req, res, next) {
     console.warn(`  Method: ${req.method}`);
     console.warn(`  Path: ${req.path}`);
     console.warn(`  Provided Token: ${csrfToken ? csrfToken.substring(0, 10) + '...' : 'NONE'}`);
-    return res.status(403).json({ 
-      ok: false, 
-      error: 'CSRF token inválido o expirado. Por favor recargá la página.' 
+    return res.status(403).json({
+      ok: false,
+      error: 'CSRF token inválido o expirado. Por favor recargá la página.'
     });
   }
-  
+
   // Token expirado (1 hora de vida)
   if (Date.now() - stored.createdAt > 60 * 60 * 1000) {
     csrfTokenStore.delete(sessionId);
     console.warn(`[CSRF] REJECTED - Expired token: session=${sessionId}, age=${Math.floor((Date.now() - stored.createdAt) / 1000)}s`);
-    return res.status(403).json({ 
-      ok: false, 
-      error: 'CSRF token expirado. Por favor recargá la página.' 
+    return res.status(403).json({
+      ok: false,
+      error: 'CSRF token expirado. Por favor recargá la página.'
     });
   }
-  
+
   // Token válido
   next();
 }
@@ -1223,34 +1223,34 @@ app.use((req, res, next) => {
 // ========================================================
 // 🔒 CORS: WHITELIST ESTRICTA (Producción Ready)
 // ========================================================
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : ['https://stia.com.ar', 'https://www.stia.com.ar'];
 
 // Solo en desarrollo agregar localhost
 if (process.env.NODE_ENV !== 'production') {
   allowedOrigins.push(
-    'http://localhost:3000', 
-    'http://localhost:5173', 
+    'http://localhost:3000',
+    'http://localhost:5173',
     'http://127.0.0.1:3000'
   );
   console.log('[CORS] Development mode: localhost origins enabled');
 }
 
-app.use(cors({ 
+app.use(cors({
   origin: (origin, callback) => {
     // SECURITY: Rechazar explícitamente origin null (puede ser ataque CSRF)
     if (origin === 'null' || origin === null) {
       console.warn(`[SECURITY] ⚠️  CORS blocked null origin (potential CSRF attack)`);
       return callback(new Error('CORS: null origin not allowed'), false);
     }
-    
+
     // Permitir requests sin origin (para health checks, curl, Postman)
     // Estos requests NO tendrán credentials, así que son seguros
     if (!origin) {
       return callback(null, true);
     }
-    
+
     // Validar contra whitelist
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -1277,7 +1277,7 @@ app.use(compression({
   level: 6 // Balance entre velocidad y compresión
 }));
 
-app.use(express.json({ 
+app.use(express.json({
   limit: '2mb',
   strict: true,
   verify: (req, res, buf) => {
@@ -1289,7 +1289,7 @@ app.use(express.json({
     }
   }
 }));
-app.use(express.urlencoded({ 
+app.use(express.urlencoded({
   extended: false,
   limit: '2mb',
   parameterLimit: 100
@@ -1316,7 +1316,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   const contentLength = parseInt(req.headers['content-length'] || '0', 10);
   const maxSize = 10 * 1024 * 1024; // 10MB máximo
-  
+
   if (contentLength > maxSize) {
     console.warn(`[${req.requestId}] Content-Length excede límite: ${contentLength} bytes`);
     return res.status(413).json({ ok: false, error: 'Payload too large' });
@@ -1325,11 +1325,11 @@ app.use((req, res, next) => {
 });
 
 // Security headers + cache control
-app.use((req,res,next)=>{ 
-  res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
-  next(); 
+  next();
 });
 
 // Content Security Policy para PWA (Strict)
@@ -1337,7 +1337,7 @@ app.use((req, res, next) => {
   // CSP más estricto con nonces para inline scripts
   const nonce = crypto.randomBytes(16).toString('base64');
   res.locals.nonce = nonce;
-  
+
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; " +
@@ -1360,7 +1360,7 @@ app.use((req, res, next) => {
     "require-trusted-types-for 'script'; " +
     "trusted-types default;"
   );
-  
+
   // Security headers completos (mejores prácticas 2024)
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -1373,7 +1373,7 @@ app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  
+
   // CORS más restrictivo
   const allowedOrigin = req.headers.origin;
   if (allowedOrigins.includes(allowedOrigin) || process.env.NODE_ENV === 'development') {
@@ -1383,7 +1383,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
     res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
   }
-  
+
   next();
 });
 
@@ -1437,10 +1437,10 @@ const sessionMessageCounts = new Map(); // Map<sessionId, {count, resetAt}>
 
 function checkSessionRateLimit(sessionId) {
   if (!sessionId) return { allowed: true };
-  
+
   const now = Date.now();
   const data = sessionMessageCounts.get(sessionId);
-  
+
   if (!data || data.resetAt < now) {
     // Nueva ventana
     sessionMessageCounts.set(sessionId, {
@@ -1449,11 +1449,11 @@ function checkSessionRateLimit(sessionId) {
     });
     return { allowed: true, remaining: 19 };
   }
-  
+
   if (data.count >= 20) {
     return { allowed: false, remaining: 0, retryAfter: Math.ceil((data.resetAt - now) / 1000) };
   }
-  
+
   data.count++;
   return { allowed: true, remaining: 20 - data.count };
 }
@@ -1483,8 +1483,8 @@ const chatLimiter = rateLimit({
     console.warn(`  Session: ${req.sessionId}`);
     console.warn(`  Path: ${req.path}`);
     updateMetric('errors', 'count', 1);
-    res.status(429).json({ 
-      ok: false, 
+    res.status(429).json({
+      ok: false,
       reply: '😅 Estás escribiendo muy rápido desde esta conexión. Esperá un momento.',
       error: 'Demasiados mensajes desde esta IP. Esperá un momento.',
       retryAfter: 60
@@ -1514,7 +1514,7 @@ const storage = multer.diskStorage({
     if (!fs.existsSync(UPLOADS_DIR)) {
       fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
     }
-    
+
     // Verificar permisos de escritura
     try {
       fs.accessSync(UPLOADS_DIR, fs.constants.W_OK);
@@ -1529,23 +1529,23 @@ const storage = multer.diskStorage({
       // Sanitizar nombre de archivo con mayor seguridad
       const ext = path.extname(file.originalname).toLowerCase();
       const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-      
+
       if (!allowedExts.includes(ext)) {
         return cb(new Error('Tipo de archivo no permitido'));
       }
-      
+
       // Generar nombre único con timestamp y random
       const timestamp = Date.now();
       const random = crypto.randomBytes(8).toString('hex');
       const sessionId = validateSessionId(req.sessionId) ? req.sessionId.substring(0, 20) : 'anon';
       const safeName = `${sessionId}_${timestamp}_${random}${ext}`;
-      
+
       // Verificar que el path final es seguro
       const fullPath = path.join(UPLOADS_DIR, safeName);
       if (!isPathSafe(fullPath, UPLOADS_DIR)) {
         return cb(new Error('Ruta de archivo no válida'));
       }
-      
+
       cb(null, safeName);
     } catch (err) {
       console.error('[MULTER] Error generando nombre de archivo:', err);
@@ -1570,30 +1570,30 @@ const upload = multer({
     if (!contentType.includes('multipart/form-data')) {
       return cb(new Error('Content-Type debe ser multipart/form-data'));
     }
-    
+
     // Validar MIME type del archivo (doble validación)
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Solo se permiten imágenes (JPEG, PNG, GIF, WebP)'));
     }
-    
+
     // Validar extensión del archivo
     const ext = path.extname(file.originalname).toLowerCase();
     const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
     if (!allowedExts.includes(ext)) {
       return cb(new Error('Extensión de archivo no permitida'));
     }
-    
+
     // Validar nombre de archivo
     if (!file.originalname || file.originalname.length > 255) {
       return cb(new Error('Nombre de archivo inválido'));
     }
-    
+
     // Prevenir path traversal en nombre
     if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
       return cb(new Error('Nombre de archivo contiene caracteres no permitidos'));
     }
-    
+
     cb(null, true);
   }
 });
@@ -1614,7 +1614,7 @@ async function validateImageFile(filePath) {
     const buffer = Buffer.alloc(12);
     fs.readSync(fd, buffer, 0, 12, 0);
     fs.closeSync(fd);
-    
+
     // Check magic numbers
     const magicNumbers = {
       jpeg: [0xFF, 0xD8, 0xFF],
@@ -1622,7 +1622,7 @@ async function validateImageFile(filePath) {
       gif: [0x47, 0x49, 0x46, 0x38],
       webp: [0x52, 0x49, 0x46, 0x46] // "RIFF"
     };
-    
+
     let isValid = false;
     for (const [type, magic] of Object.entries(magicNumbers)) {
       let matches = true;
@@ -1637,23 +1637,23 @@ async function validateImageFile(filePath) {
         break;
       }
     }
-    
+
     if (!isValid) {
       return { valid: false, error: 'Archivo no es una imagen válida' };
     }
-    
+
     // Additional validation with sharp
     const metadata = await sharp(filePath).metadata();
-    
+
     // Verificar dimensiones razonables
     if (metadata.width > 10000 || metadata.height > 10000) {
       return { valid: false, error: 'Dimensiones de imagen demasiado grandes' };
     }
-    
+
     if (metadata.width < 10 || metadata.height < 10) {
       return { valid: false, error: 'Dimensiones de imagen demasiado pequeñas' };
     }
-    
+
     return { valid: true, metadata };
   } catch (err) {
     return { valid: false, error: 'Error validando imagen: ' + err.message };
@@ -1673,17 +1673,17 @@ async function compressImage(inputPath, outputPath) {
       })
       .jpeg({ quality: 85 }) // Comprimir a 85% calidad
       .toFile(outputPath);
-    
+
     const compressionTime = Date.now() - startTime;
-    
+
     // Get file sizes
     const originalSize = fs.statSync(inputPath).size;
     const compressedSize = fs.statSync(outputPath).size;
     const savedBytes = originalSize - compressedSize;
     const savedPercent = ((savedBytes / originalSize) * 100).toFixed(1);
-    
-    logMsg(`[COMPRESS] ${path.basename(inputPath)}: ${(originalSize/1024).toFixed(1)}KB → ${(compressedSize/1024).toFixed(1)}KB (saved ${savedPercent}%) in ${compressionTime}ms`);
-    
+
+    logMsg(`[COMPRESS] ${path.basename(inputPath)}: ${(originalSize / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB (saved ${savedPercent}%) in ${compressionTime}ms`);
+
     return { success: true, originalSize, compressedSize, savedBytes, compressionTime };
   } catch (err) {
     console.error('[COMPRESS] Error:', err);
@@ -1696,25 +1696,25 @@ async function compressImage(inputPath, outputPath) {
 // ========================================================
 cron.schedule('0 3 * * *', async () => {
   logMsg('[CLEANUP] Iniciando limpieza automática de archivos antiguos...');
-  
+
   try {
     const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     const files = fs.readdirSync(UPLOADS_DIR);
     let deletedCount = 0;
     let freedBytes = 0;
-    
+
     for (const file of files) {
       const filePath = path.join(UPLOADS_DIR, file);
       const stats = fs.statSync(filePath);
-      
+
       if (stats.mtimeMs < sevenDaysAgo) {
         freedBytes += stats.size;
         fs.unlinkSync(filePath);
         deletedCount++;
       }
     }
-    
-    logMsg(`[CLEANUP] Completado: ${deletedCount} archivos eliminados, ${(freedBytes/1024/1024).toFixed(2)}MB liberados`);
+
+    logMsg(`[CLEANUP] Completado: ${deletedCount} archivos eliminados, ${(freedBytes / 1024 / 1024).toFixed(2)}MB liberados`);
   } catch (err) {
     console.error('[CLEANUP] Error:', err);
   }
@@ -1726,30 +1726,30 @@ app.post('/api/cleanup', async (req, res) => {
   if (token !== LOG_TOKEN) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
-  
+
   try {
     const daysOld = parseInt(req.body.daysOld || 7);
     const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
     const files = fs.readdirSync(UPLOADS_DIR);
     let deletedCount = 0;
     let freedBytes = 0;
-    
+
     for (const file of files) {
       const filePath = path.join(UPLOADS_DIR, file);
       const stats = fs.statSync(filePath);
-      
+
       if (stats.mtimeMs < cutoffTime) {
         freedBytes += stats.size;
         fs.unlinkSync(filePath);
         deletedCount++;
       }
     }
-    
-    res.json({ 
-      ok: true, 
-      deleted: deletedCount, 
-      freedMB: (freedBytes/1024/1024).toFixed(2),
-      daysOld 
+
+    res.json({
+      ok: true,
+      deleted: deletedCount,
+      freedMB: (freedBytes / 1024 / 1024).toFixed(2),
+      daysOld
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -1794,17 +1794,17 @@ function sanitizeInput(input, maxLength = 1000) {
 
 function sanitizeFilePath(fileName) {
   if (!fileName || typeof fileName !== 'string') return null;
-  
+
   // Remover path traversal patterns
   const sanitized = fileName
     .replace(/\.\./g, '')
     .replace(/[\/\\]/g, '')
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .slice(0, 255);
-  
+
   // Validar que no esté vacío después de sanitizar
   if (!sanitized || sanitized.length === 0) return null;
-  
+
   return sanitized;
 }
 
@@ -1818,12 +1818,12 @@ function validateSessionId(sid) {
   if (!sid || typeof sid !== 'string') {
     return false;
   }
-  
+
   // Permitir tanto sesiones del servidor (srv-) como del cliente web (web-)
   if (!sid.startsWith('srv-') && !sid.startsWith('web-')) {
     return false;
   }
-  
+
   // Para sesiones del servidor: formato srv-TIMESTAMP-HASH64
   if (sid.startsWith('srv-')) {
     if (sid.length !== 82) { // 4 + 1 + 13 + 1 + 64 = 83, pero verificar
@@ -1832,7 +1832,7 @@ function validateSessionId(sid) {
     const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
     return sessionIdRegex.test(sid);
   }
-  
+
   // Para sesiones del cliente web: formato flexible
   // Ejemplos: web-heber-123456, web-lo123abc-xy9z0m, web-1234567890
   if (sid.startsWith('web-')) {
@@ -1844,21 +1844,21 @@ function validateSessionId(sid) {
     const webSessionRegex = /^web-[a-zA-Z0-9_-]+$/;
     return webSessionRegex.test(sid);
   }
-  
+
   return false;
 }
 
-function getSessionId(req){
+function getSessionId(req) {
   const h = sanitizeInput(req.headers['x-session-id'] || '', 128);
   const b = sanitizeInput(req.body?.sessionId || req.body?.sid || '', 128);
   const q = sanitizeInput(req.query?.sessionId || req.query?.sid || '', 128);
-  
+
   const sid = h || b || q;
-  
+
   if (sid && validateSessionId(sid)) {
     return sid;
   }
-  
+
   // Generate new session ID
   return generateSessionId();
 }
@@ -1867,36 +1867,37 @@ function getSessionId(req){
 app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
   const report = req.body?.['csp-report'] || req.body;
   console.warn('[CSP_VIOLATION]', JSON.stringify(report, null, 2));
-  
+
   // Log a archivo para análisis posterior
   const entry = `[${nowIso()}] CSP_VIOLATION: ${JSON.stringify(report)}\n`;
   try {
-    fs.appendFile(path.join(LOGS_DIR, 'csp-violations.log'), entry, () => {});
+    fs.appendFile(path.join(LOGS_DIR, 'csp-violations.log'), entry, () => { });
   } catch (e) { /* noop */ }
-  
+
   res.status(204).end();
 });
 
 // Transcript retrieval (REQUIERE AUTENTICACIÓN)
-app.get('/api/transcript/:sid', async (req,res)=>{  const sid = String(req.params.sid||'').replace(/[^a-zA-Z0-9._-]/g,'');
-  
+app.get('/api/transcript/:sid', async (req, res) => {
+  const sid = String(req.params.sid || '').replace(/[^a-zA-Z0-9._-]/g, '');
+
   // SECURITY: Validar que el usuario tenga permiso para ver este transcript
   const requestSessionId = req.sessionId || req.headers['x-session-id'];
   const adminToken = req.headers.authorization || req.query.token;
-  
+
   // Permitir solo si:
   // 1. El session ID del request coincide con el transcript solicitado
   // 2. O tiene un admin token válido
   if (sid !== requestSessionId && adminToken !== LOG_TOKEN) {
     console.warn(`[SECURITY] Unauthorized transcript access attempt: requested=${sid}, session=${requestSessionId}, IP=${req.ip}`);
-    return res.status(403).json({ ok:false, error:'No autorizado para ver este transcript' });
+    return res.status(403).json({ ok: false, error: 'No autorizado para ver este transcript' });
   }
-  
+
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  if(!fs.existsSync(file)) return res.status(404).json({ ok:false, error:'not_found' });
-  res.set('Content-Type','text/plain; charset=utf-8');
+  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.set('Content-Type', 'text/plain; charset=utf-8');
   try {
-    const raw = fs.readFileSync(file,'utf8');
+    const raw = fs.readFileSync(file, 'utf8');
     const masked = maskPII(raw);
     res.send(masked);
   } catch (e) {
@@ -1927,7 +1928,7 @@ app.get('/api/logs/stream', async (req, res) => {
     // Límite de clientes SSE para prevenir memory leak
     if (sseClients.size >= MAX_SSE_CLIENTS) {
       res.write('data: ERROR: Maximum SSE clients reached\n\n');
-      try { res.end(); } catch(_) {}
+      try { res.end(); } catch (_) { }
       return;
     }
 
@@ -1953,26 +1954,26 @@ app.get('/api/logs/stream', async (req, res) => {
     req.on('close', () => {
       clearInterval(hbInterval);
       sseClients.delete(res);
-      try { res.end(); } catch (_) {}
+      try { res.end(); } catch (_) { }
       console.log('[logs] SSE cliente desconectado. total=', sseClients.size);
     });
   } catch (e) {
     console.error('[logs/stream] Error', e && e.message);
-    try { res.status(500).end(); } catch(_) {}
+    try { res.status(500).end(); } catch (_) { }
   }
 });
 
 app.get('/api/logs', (req, res) => {
   if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
-    return res.status(401).json({ ok:false, error: 'unauthorized' });
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   try {
     const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
-    res.set('Content-Type','text/plain; charset=utf-8');
+    res.set('Content-Type', 'text/plain; charset=utf-8');
     res.send(txt);
   } catch (e) {
     console.error('[api/logs] Error', e.message);
-    res.status(500).json({ ok:false, error: e.message });
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -2011,69 +2012,69 @@ setInterval(() => {
 // ========================================================
 // POST /api/whatsapp-ticket — Ticket creation (CSRF Protected)
 // ========================================================
-app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
-  try{
+app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
+  try {
     const { name, device, sessionId, history = [] } = req.body || {};
     const sid = sessionId || req.sessionId;
-    
+
     // Rate limit check (ventana deslizante de 1 hora)
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
     const timestamps = sessionTicketCounts.get(sid) || [];
     const recentTickets = timestamps.filter(ts => ts > oneHourAgo);
-    
+
     if (recentTickets.length >= 3) {
-      return res.status(429).json({ 
-        ok: false, 
-        error: 'rate_limit', 
-        message: 'Has creado demasiados tickets en poco tiempo. Esperá unos minutos.' 
+      return res.status(429).json({
+        ok: false,
+        error: 'rate_limit',
+        message: 'Has creado demasiados tickets en poco tiempo. Esperá unos minutos.'
       });
     }
-    
+
     let transcript = history;
-    if((!transcript || transcript.length===0) && sid){
+    if ((!transcript || transcript.length === 0) && sid) {
       const s = await getSession(sid);
-      if(s?.transcript) transcript = s.transcript;
+      if (s?.transcript) transcript = s.transcript;
     }
 
-    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
     const nowDate = new Date();
-    const dateFormatter = new Intl.DateTimeFormat('es-AR',{
+    const dateFormatter = new Intl.DateTimeFormat('es-AR', {
       timeZone: 'America/Argentina/Buenos_Aires',
-      day:'2-digit', month:'2-digit', year:'numeric'
+      day: '2-digit', month: '2-digit', year: 'numeric'
     });
-    const timeFormatter = new Intl.DateTimeFormat('es-AR',{
+    const timeFormatter = new Intl.DateTimeFormat('es-AR', {
       timeZone: 'America/Argentina/Buenos_Aires',
-      hour:'2-digit', minute:'2-digit', hour12:false
+      hour: '2-digit', minute: '2-digit', hour12: false
     });
-    const datePart = dateFormatter.format(nowDate).replace(/\//g,'-');
+    const datePart = dateFormatter.format(nowDate).replace(/\//g, '-');
     const timePart = timeFormatter.format(nowDate);
     const generatedLabel = `${datePart} ${timePart} (ART)`;
     let safeName = '';
-    if(name){ 
+    if (name) {
       safeName = String(name)
-        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g,'')
-        .replace(/\s+/g,' ')
+        .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ0-9 _-]/g, '')
+        .replace(/\s+/g, ' ')
         .trim()
-        .toUpperCase(); 
+        .toUpperCase();
     }
     const titleLine = safeName ? `STI • Ticket ${ticketId}-${safeName}` : `STI • Ticket ${ticketId}`;
     const lines = [];
     lines.push(titleLine);
     lines.push(`Generado: ${generatedLabel}`);
-    if(name) lines.push(`Cliente: ${name}`);
-    if(device) lines.push(`Equipo: ${device}`);
-    if(sid) lines.push(`Sesión: ${sid}`);
+    if (name) lines.push(`Cliente: ${name}`);
+    if (device) lines.push(`Equipo: ${device}`);
+    if (sid) lines.push(`Sesión: ${sid}`);
     lines.push('');
     lines.push('=== HISTORIAL DE CONVERSACIÓN ===');
 
     const transcriptData = [];
-    for(const m of transcript || []){
+    for (const m of transcript || []) {
       const rawText = (m.text || '').toString();
       const safeText = maskPII(rawText);
-      lines.push(`[${m.ts||now.toISOString()}] ${m.who||'user'}: ${safeText}`);
+      lines.push(`[${m.ts || now.toISOString()}] ${m.who || 'user'}: ${safeText}`);
       transcriptData.push({
         ts: m.ts || now.toISOString(),
         who: m.who || 'user',
@@ -2081,7 +2082,7 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
       });
     }
 
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch(e){ /* noop */ }
+    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
     const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
     fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
 
@@ -2107,14 +2108,14 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
       ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
       : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
     let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
-    if(name) waText += `Cliente: ${name}\n`;
-    if(device) waText += `Equipo: ${device}\n`;
+    if (name) waText += `Cliente: ${name}\n`;
+    if (device) waText += `Equipo: ${device}\n`;
     waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
     waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
-    const waNumber = waNumberRaw.replace(/\D+/g,'');
+    const waNumber = waNumberRaw.replace(/\D+/g, '');
     const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     const waAppUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
     const waIntentUrl = `intent://send?phone=${waNumber}&text=${encodeURIComponent(waText)}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
@@ -2132,21 +2133,21 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
     recentTickets.push(now);
     sessionTicketCounts.set(sid, recentTickets);
 
-    res.json({ 
-      ok:true, 
-      ticketId, 
-      publicUrl, 
-      apiPublicUrl, 
-      waUrl, 
-      waWebUrl, 
-      waAppUrl, 
+    res.json({
+      ok: true,
+      ticketId,
+      publicUrl,
+      apiPublicUrl,
+      waUrl,
+      waWebUrl,
+      waAppUrl,
       waIntentUrl,
-      ui: { buttons: uiButtons, externalButtons }, 
-      allowWhatsapp: true 
+      ui: { buttons: uiButtons, externalButtons },
+      allowWhatsapp: true
     });
-  } catch(e){ 
-    console.error('[whatsapp-ticket]', e); 
-    res.status(500).json({ ok:false, error: e.message }); 
+  } catch (e) {
+    console.error('[whatsapp-ticket]', e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -2156,39 +2157,39 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req,res)=>{
 app.post('/api/ticket/create', validateCSRF, async (req, res) => {
   try {
     const { sessionId } = req.body;
-    
+
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'Session ID required' });
     }
-    
+
     // Obtener sesión
     const session = await getSession(sessionId);
-    
+
     if (!session) {
       return res.status(404).json({ ok: false, error: 'Session not found' });
     }
-    
+
     // 🔐 PASO 1: Verificar que usuario haya dado consentimiento para compartir datos
     if (!session.gdprConsentWhatsApp) {
-      return res.status(403).json({ 
-        ok: false, 
+      return res.status(403).json({
+        ok: false,
         error: 'consent_required',
         message: 'Necesitamos tu consentimiento antes de enviar datos a WhatsApp'
       });
     }
-    
+
     // PASO 2: Crear ticket
     const ticket = await createTicket(session);
-    
+
     // PASO 3: Generar URLs
     const publicUrl = getTicketPublicUrl(ticket.id);
     const waUrl = generateWhatsAppLink(ticket);
-    
+
     // PASO 4: Actualizar métricas
     updateMetric('chat', 'sessions', 1);
-    
+
     console.log(`[TICKET] ✅ Ticket creado y URLs generadas: ${ticket.id}`);
-    
+
     res.json({
       ok: true,
       ticket: {
@@ -2214,15 +2215,15 @@ app.get('/api/tickets', async (req, res) => {
     // Verificar token de administrador
     const adminToken = req.headers.authorization || req.query.token;
     const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
-    
+
     if (!isValidAdmin) {
       return res.status(401).json({ ok: false, error: 'unauthorized' });
     }
-    
+
     // Leer todos los archivos JSON del directorio de tickets
     const files = fs.readdirSync(TICKETS_DIR).filter(f => f.endsWith('.json'));
     const tickets = [];
-    
+
     for (const file of files) {
       try {
         const filePath = path.join(TICKETS_DIR, file);
@@ -2233,20 +2234,20 @@ app.get('/api/tickets', async (req, res) => {
         console.error(`[Tickets] Error reading ${file}:`, err.message);
       }
     }
-    
+
     // Ordenar por fecha de creación (más recientes primero)
     tickets.sort((a, b) => {
       const dateA = new Date(a.createdAt || 0);
       const dateB = new Date(b.createdAt || 0);
       return dateB - dateA;
     });
-    
+
     res.json({
       ok: true,
       tickets,
       total: tickets.length
     });
-    
+
   } catch (error) {
     console.error('[Tickets] Error listing tickets:', error);
     res.status(500).json({ ok: false, error: 'Error al listar tickets' });
@@ -2254,29 +2255,29 @@ app.get('/api/tickets', async (req, res) => {
 });
 
 app.get('/api/ticket/:tid', async (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
-  
+  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
+
   // Verificar autenticación
   const adminToken = req.headers.authorization || req.query.token;
   const requestSessionId = req.sessionId || req.headers['x-session-id'];
-  
+
   const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
   const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
-  
+
   if (!fs.existsSync(txtFile) && !fs.existsSync(jsonFile)) {
-    return res.status(404).json({ ok:false, error: 'not_found' });
+    return res.status(404).json({ ok: false, error: 'not_found' });
   }
-  
+
   // SECURITY: Validar ownership - Admin con token válido tiene acceso completo
   const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
-  
+
   if (!isValidAdmin) {
     // No es admin: validar ownership obligatorio
     if (fs.existsSync(jsonFile)) {
       try {
         const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
         const ticketOwnerSid = ticketData.sid || '';
-        
+
         if (ticketOwnerSid !== requestSessionId) {
           console.warn(`[SECURITY] DENIED - Unauthorized ticket access attempt:`);
           console.warn(`  Ticket: ${tid}`);
@@ -2284,22 +2285,22 @@ app.get('/api/ticket/:tid', async (req, res) => {
           console.warn(`  Requester Session: ${requestSessionId}`);
           console.warn(`  IP: ${req.ip}`);
           console.warn(`  Headers: ${JSON.stringify(req.headers)}`);
-          return res.status(403).json({ ok:false, error: 'No autorizado para ver este ticket' });
+          return res.status(403).json({ ok: false, error: 'No autorizado para ver este ticket' });
         }
       } catch (parseErr) {
         console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
-        return res.status(500).json({ ok:false, error: 'Error al validar ticket' });
+        return res.status(500).json({ ok: false, error: 'Error al validar ticket' });
       }
     } else {
       // Sin JSON, denegar por defecto (security by default)
       console.warn(`[SECURITY] Ticket JSON missing, denying access: ticket=${tid}, IP=${req.ip}`);
-      return res.status(403).json({ ok:false, error: 'Ticket no disponible' });
+      return res.status(403).json({ ok: false, error: 'Ticket no disponible' });
     }
   } else {
     console.log(`[TICKET] Admin access granted with valid token: ticket=${tid}`);
   }
 
-  const raw = fs.readFileSync(txtFile,'utf8');
+  const raw = fs.readFileSync(txtFile, 'utf8');
   const maskedRaw = maskPII(raw);
 
   // parse lines into messages
@@ -2315,16 +2316,16 @@ app.get('/api/ticket/:tid', async (req, res) => {
     }
   }
 
-  res.json({ ok:true, ticketId: tid, content: maskedRaw, messages });
+  res.json({ ok: true, ticketId: tid, content: maskedRaw, messages });
 });
 
 // Pretty ticket view
 app.get('/ticket/:tid', (req, res) => {
-  const tid = String(req.params.tid||'').replace(/[^A-Za-z0-9._-]/g,'');
+  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
   if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
 
-  const raw = fs.readFileSync(file,'utf8');
+  const raw = fs.readFileSync(file, 'utf8');
   const safeRaw = escapeHtml(raw);
 
   const lines = raw.split(/\r?\n/);
@@ -2411,27 +2412,27 @@ app.get('/ticket/:tid', (req, res) => {
     </body>
   </html>`;
 
-  res.set('Content-Type','text/html; charset=utf-8');
+  res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
 
 // Reset session
-app.post('/api/reset', async (req,res)=>{
+app.post('/api/reset', async (req, res) => {
   const sid = req.sessionId;
   const empty = {
     id: sid,
     userName: null,
     stage: STATES.ASK_LANGUAGE,
-    device:null,
-    problem:null,
-    issueKey:null,
-    tests:{ basic:[], ai:[], advanced:[] },
-    stepsDone:[],
-    fallbackCount:0,
-    waEligible:false,
-    transcript:[],
-    pendingUtterance:null,
-    lastHelpStep:null,
+    device: null,
+    problem: null,
+    issueKey: null,
+    tests: { basic: [], ai: [], advanced: [] },
+    stepsDone: [],
+    fallbackCount: 0,
+    waEligible: false,
+    transcript: [],
+    pendingUtterance: null,
+    lastHelpStep: null,
     startedAt: nowIso(),
     nameAttempts: 0,
     stepProgress: {},
@@ -2441,7 +2442,7 @@ app.post('/api/reset', async (req,res)=>{
     isProblem: false
   };
   await saveSession(sid, empty);
-  res.json({ ok:true });
+  res.json({ ok: true });
 });
 
 // Constantes de botones
@@ -2464,34 +2465,34 @@ const BUTTONS = {
 app.post('/api/session/validate', async (req, res) => {
   try {
     const { sessionId } = req.body;
-    
+
     if (!sessionId || typeof sessionId !== 'string') {
       return res.json({ valid: false, error: 'SessionId inválido' });
     }
-    
+
     // Verificar que la sesión existe y está activa
     const session = await getSession(sessionId);
-    
+
     if (!session) {
       console.log(`[SESSION] Validación fallida: sesión no encontrada ${sessionId}`);
       return res.json({ valid: false, error: 'Sesión no encontrada' });
     }
-    
+
     // Verificar que no haya expirado (48 horas)
     const MAX_AGE = 48 * 60 * 60 * 1000;
     const sessionAge = Date.now() - (session.createdAt || 0);
-    
+
     if (sessionAge > MAX_AGE) {
-      console.log(`[SESSION] Validación fallida: sesión expirada ${sessionId}, age=${Math.floor(sessionAge/1000/60)}min`);
+      console.log(`[SESSION] Validación fallida: sesión expirada ${sessionId}, age=${Math.floor(sessionAge / 1000 / 60)}min`);
       await deleteSession(sessionId);
       return res.json({ valid: false, error: 'Sesión expirada' });
     }
-    
+
     console.log(`[SESSION] Validación exitosa: ${sessionId}, stage=${session.stage}`);
-    
+
     // Devolver datos de sesión (sin info sensible)
-    return res.json({ 
-      valid: true, 
+    return res.json({
+      valid: true,
       session: {
         stage: session.stage,
         userLocale: session.userLocale,
@@ -2506,15 +2507,15 @@ app.post('/api/session/validate', async (req, res) => {
 });
 
 // Greeting endpoint (con CSRF token generation)
-app.all('/api/greeting', greetingLimiter, async (req,res)=>{
-  try{
+app.all('/api/greeting', greetingLimiter, async (req, res) => {
+  try {
     // Si no hay sessionId, generar uno nuevo
     let sid = req.sessionId;
     if (!sid) {
       sid = generateSessionId();
       req.sessionId = sid;
     }
-    
+
     // Validar longitud de inputs si vienen en body
     if (req.body) {
       for (const [key, value] of Object.entries(req.body)) {
@@ -2535,7 +2536,7 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
     } else if (accept.startsWith('es')) {
       locale = accept.includes('ar') ? 'es-AR' : 'es-419';
     }
-    
+
     // Generar CSRF token para esta sesión
     const csrfToken = generateCSRFToken();
     csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
@@ -2572,9 +2573,9 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       }
     };
     const fullGreeting = buildLanguageSelectionGreeting();
-    fresh.transcript.push({ who:'bot', text: fullGreeting.text, ts: nowIso() });
+    fresh.transcript.push({ who: 'bot', text: fullGreeting.text, ts: nowIso() });
     await saveSession(sid, fresh);
-    
+
     // CON botones para GDPR
     // Incluir CSRF token en respuesta
     return res.json({
@@ -2586,9 +2587,9 @@ app.all('/api/greeting', greetingLimiter, async (req,res)=>{
       csrfToken: csrfToken,
       buttons: fullGreeting.buttons || []
     });
-  } catch(e){
+  } catch (e) {
     console.error(e);
-    return res.status(500).json({ ok:false, error:'greeting_failed' });
+    return res.status(500).json({ ok: false, error: 'greeting_failed' });
   }
 });
 
@@ -2661,11 +2662,11 @@ function addEmpatheticResponse(stage, locale = 'es-AR') {
 function buildLanguagePrompt(locale = 'es-AR') {
   const norm = (locale || '').toLowerCase();
   const isEn = norm.startsWith('en');
-  
+
   if (isEn) {
     return '🌐 You can change the language at any time using the buttons below:';
   }
-  
+
   return '🌐 Podés cambiar el idioma en cualquier momento usando los botones:';
 }
 
@@ -2726,7 +2727,7 @@ async function createTicketAndRespond(session, sid, res) {
     }
   }
   ticketCreationLocks.set(sid, Date.now());
-  
+
   const ts = nowIso();
   try {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -2905,22 +2906,22 @@ async function handleDontUnderstand(session, sid, t) {
   const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
   const prefix = whoLabel ? `Tranquilo, ${whoLabel}` : 'Tranquilo';
   const stepsKey = session.stage === STATES.ADVANCED_TESTS ? 'advanced' : 'basic';
-  
+
   if (session.lastHelpStep && session.tests && Array.isArray(session.tests[stepsKey]) && session.tests[stepsKey][session.lastHelpStep - 1]) {
     const idx = session.lastHelpStep;
     const stepText = session.tests[stepsKey][idx - 1];
     const helpDetail = await getHelpForStep(stepText, idx, session.device || '', session.problem || '', session.userLocale || 'es-AR');
     const replyTxt = `${prefix} 😊.\n\nVeamos ese paso más despacio:\n\n${helpDetail}\n\nCuando termines, contame si te ayudó o si preferís que te conecte con un técnico.`;
     const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyTxt, ts });
+    session.transcript.push({ who: 'bot', text: replyTxt, ts });
     await saveSession(sid, session);
-    return { ok:true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️','El problema persiste ❌'] };
+    return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   } else {
     const replyTxt = `${prefix} 😊.\n\nDecime sobre qué paso querés ayuda (1, 2, 3, ...) o tocá el botón del número y te lo explico con más calma.`;
     const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyTxt, ts });
+    session.transcript.push({ who: 'bot', text: replyTxt, ts });
     await saveSession(sid, session);
-    return { ok:true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️','El problema persiste ❌'] };
+    return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   }
 }
 
@@ -2928,30 +2929,30 @@ async function handleDontUnderstand(session, sid, t) {
 function handleShowSteps(session, stepsKey) {
   const stepsAr = Array.isArray(session.tests?.[stepsKey]) ? session.tests[stepsKey] : [];
   if (!stepsAr || stepsAr.length === 0) {
-    const msg = stepsKey === 'advanced' 
+    const msg = stepsKey === 'advanced'
       ? 'No tengo pasos avanzados guardados para mostrar. Primero pedí "Más pruebas".'
       : 'No tengo pasos guardados para mostrar. Primero describí el problema para que te ofrezca pasos.';
     return { error: true, msg };
   }
-  
+
   const numbered = enumerateSteps(stepsAr);
   const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
-  const intro = stepsKey === 'advanced' 
+  const intro = stepsKey === 'advanced'
     ? `Volvemos a las pruebas avanzadas, ${whoLabel}:`
     : `Volvemos a los pasos sugeridos:`;
   const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
   const fullMsg = intro + '\n\n' + numbered + footer;
-  
-  const helpOptions = stepsAr.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+
+  const helpOptions = stepsAr.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
   const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
-  
+
   return { error: false, msg: fullMsg, options: optionsResp, steps: stepsAr };
 }
 
 // ========================================================
 // Generate and present diagnostic steps (used in ASK_PROBLEM and after selecting device)
 // ========================================================
-async function generateAndShowSteps(session, sid, res){
+async function generateAndShowSteps(session, sid, res) {
   try {
     const issueKey = session.issueKey;
     const device = session.device || null;
@@ -2960,7 +2961,7 @@ async function generateAndShowSteps(session, sid, res){
     const isEn = profile.code === 'en';
     const isEsLatam = profile.code === 'es-419';
 
-    const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length>0);
+    const hasConfiguredSteps = !!(issueKey && CHAT?.nlp?.advanced_steps?.[issueKey] && CHAT.nlp.advanced_steps[issueKey].length > 0);
 
     // Build context with image analysis if available
     let imageContext = '';
@@ -2983,19 +2984,19 @@ async function generateAndShowSteps(session, sid, res){
     // Playbook local para dispositivos de streaming / SmartTV (prioridad en español)
     let steps;
     const playbookForDevice = device && issueKey && DEVICE_PLAYBOOKS?.[device]?.[issueKey];
-    if (!isEn && playbookForDevice && Array.isArray(playbookForDevice.es) && playbookForDevice.es.length>0) {
-      steps = playbookForDevice.es.slice(0,4);
+    if (!isEn && playbookForDevice && Array.isArray(playbookForDevice.es) && playbookForDevice.es.length > 0) {
+      steps = playbookForDevice.es.slice(0, 4);
     } else if (hasConfiguredSteps) {
-      steps = CHAT.nlp.advanced_steps[issueKey].slice(0,4);
+      steps = CHAT.nlp.advanced_steps[issueKey].slice(0, 4);
     } else {
       let aiSteps = [];
       try {
         const problemWithContext = (session.problem || '') + imageContext;
         aiSteps = await aiQuickTests(problemWithContext, device || '', locale);
-      } catch(e){
+      } catch (e) {
         aiSteps = [];
       }
-      if(Array.isArray(aiSteps) && aiSteps.length>0) steps = aiSteps.slice(0,4);
+      if (Array.isArray(aiSteps) && aiSteps.length > 0) steps = aiSteps.slice(0, 4);
       else {
         if (isEn) {
           steps = [
@@ -3021,7 +3022,7 @@ async function generateAndShowSteps(session, sid, res){
 
     const who = session.userName ? capitalizeToken(session.userName) : null;
     const deviceLabel = device || (isEn ? 'equipo' : 'equipo');
-    const pSummary = (session.problem || '').trim().slice(0,200);
+    const pSummary = (session.problem || '').trim().slice(0, 200);
 
     let intro;
     if (isEn) {
@@ -3038,8 +3039,8 @@ async function generateAndShowSteps(session, sid, res){
         : `Perfecto: entonces con tu ${deviceLabel} pasa esto: "${pSummary}".\n\nVamos a probar unos pasos sencillos juntos:`;
     }
 
-    function enumerateSteps(list){
-      return list.map((s,idx) => `${idx+1}. ${s}`).join('\n');
+    function enumerateSteps(list) {
+      return list.map((s, idx) => `${idx + 1}. ${s}`).join('\n');
     }
 
     const stepsText = enumerateSteps(steps);
@@ -3066,13 +3067,13 @@ async function generateAndShowSteps(session, sid, res){
       BUTTONS.CONNECT_TECH
     ];
 
-    const payload = withOptions({ ok:true, reply }, options);
+    const payload = withOptions({ ok: true, reply }, options);
     await saveSession(sid, session);
     return res.status(200).json(payload);
-  } catch(err){
+  } catch (err) {
     console.error('[generateAndShowSteps] error:', err?.message || err);
     return res.status(200).json(withOptions({
-      ok:true,
+      ok: true,
       reply: '😅 Tuve un problema al preparar los pasos. Probá de nuevo o contame si querés que conecte con un técnico.'
     }));
   }
@@ -3084,7 +3085,7 @@ async function generateAndShowSteps(session, sid, res){
 app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req, res) => {
   const uploadStartTime = Date.now();
   let uploadedFilePath = null;
-  
+
   try {
     // Validación básica
     if (!req.file) {
@@ -3093,7 +3094,7 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
     }
 
     uploadedFilePath = req.file.path;
-    
+
     // Validar session ID
     const sid = req.sessionId;
     if (!validateSessionId(sid)) {
@@ -3103,9 +3104,9 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
       }
       return res.status(400).json({ ok: false, error: 'Session ID inválido' });
     }
-    
+
     const session = await getSession(sid);
-    
+
     if (!session) {
       updateMetric('uploads', 'failed', 1);
       if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
@@ -3113,7 +3114,7 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
       }
       return res.status(400).json({ ok: false, error: 'Sesión no encontrada' });
     }
-    
+
     // Limitar uploads por sesión
     if (!session.images) session.images = [];
     if (session.images.length >= 10) {
@@ -3138,16 +3139,16 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
     const originalPath = uploadedFilePath;
     const compressedPath = originalPath.replace(/(\.[^.]+)$/, '-compressed$1');
     const compressionResult = await compressImage(originalPath, compressedPath);
-    
+
     let finalPath = originalPath;
     let finalSize = req.file.size;
-    
+
     if (compressionResult.success && compressionResult.compressedSize < req.file.size) {
       // Use compressed version
       fs.unlinkSync(originalPath);
       fs.renameSync(compressedPath, originalPath);
       finalSize = compressionResult.compressedSize;
-      logMsg(`[UPLOAD] Compression saved ${(compressionResult.savedBytes/1024).toFixed(1)}KB`);
+      logMsg(`[UPLOAD] Compression saved ${(compressionResult.savedBytes / 1024).toFixed(1)}KB`);
     } else if (compressionResult.success) {
       // Original was smaller, delete compressed
       fs.unlinkSync(compressedPath);
@@ -3156,11 +3157,11 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
     // Build image URL (sanitized)
     const safeFilename = path.basename(req.file.filename);
     const imageUrl = `${PUBLIC_BASE_URL}/uploads/${safeFilename}`;
-    
+
     // Analyze image with OpenAI Vision if available
     let imageAnalysis = null;
     const analysisStartTime = Date.now();
-    
+
     if (openai) {
       try {
         const analysisPrompt = sanitizeInput(`Analizá esta imagen que subió un usuario de soporte técnico. 
@@ -3186,12 +3187,12 @@ Respondé en formato JSON:
               role: 'user',
               content: [
                 { type: 'text', text: analysisPrompt },
-                { 
-                  type: 'image_url', 
-                  image_url: { 
+                {
+                  type: 'image_url',
+                  image_url: {
                     url: imageUrl,
                     detail: 'high'
-                  } 
+                  }
                 }
               ]
             }
@@ -3201,7 +3202,7 @@ Respondé en formato JSON:
         });
 
         const analysisTime = Date.now() - analysisStartTime;
-        
+
         // Update average analysis time
         const currentAvg = metrics.uploads.avgAnalysisTime;
         const totalUploads = metrics.uploads.success + 1;
@@ -3232,9 +3233,9 @@ Respondé en formato JSON:
       uploadedAt: new Date().toISOString(),
       analysis: imageAnalysis
     };
-    
+
     session.images.push(imageData);
-    
+
     // Add to transcript
     session.transcript.push({
       who: 'user',
@@ -3247,14 +3248,14 @@ Respondé en formato JSON:
 
     // Build response
     let replyText = '✅ Imagen recibida correctamente.';
-    
+
     if (imageAnalysis && imageAnalysis.problemDetected) {
       replyText += `\n\n🔍 **Análisis de la imagen:**\n${imageAnalysis.problemDetected}`;
-      
+
       if (imageAnalysis.errorMessages && imageAnalysis.errorMessages.length > 0) {
         replyText += `\n\n**Errores detectados:**\n${imageAnalysis.errorMessages.map(e => `• ${e}`).join('\n')}`;
       }
-      
+
       if (imageAnalysis.recommendations) {
         replyText += `\n\n**Recomendación:**\n${imageAnalysis.recommendations}`;
       }
@@ -3272,9 +3273,9 @@ Respondé en formato JSON:
     updateMetric('uploads', 'total', 1);
     updateMetric('uploads', 'success', 1);
     updateMetric('uploads', 'totalBytes', finalSize);
-    
+
     const totalUploadTime = Date.now() - uploadStartTime;
-    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize/1024).toFixed(1)}KB)`);
+    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize / 1024).toFixed(1)}KB)`);
 
     res.json({
       ok: true,
@@ -3289,9 +3290,9 @@ Respondé en formato JSON:
     updateMetric('uploads', 'failed', 1);
     updateMetric('errors', 'count', 1);
     updateMetric('errors', 'lastError', { type: 'upload', message: err.message, timestamp: new Date().toISOString() });
-    res.status(500).json({ 
-      ok: false, 
-      error: err.message || 'Error al subir la imagen' 
+    res.status(500).json({
+      ok: false,
+      error: err.message || 'Error al subir la imagen'
     });
   }
 });
@@ -3302,7 +3303,7 @@ Respondé en formato JSON:
 // ========================================================
 // POST /api/chat — Main conversational endpoint (CSRF + Rate-Limit Protected)
 // ========================================================
-app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
+app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   const startTime = Date.now(); // Para medir duración
   let flowLogData = {
     sessionId: null,
@@ -3314,7 +3315,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     serverAction: null,
     duration: 0
   };
-  
+
   // Helper para retornar y loggear automáticamente
   const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent') => {
     flowLogData.currentStage = stage;
@@ -3323,28 +3324,28 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     flowLogData.botResponse = response.reply;
     flowLogData.serverAction = action;
     flowLogData.duration = Date.now() - startTime;
-    
+
     // Log la interacción
     logFlowInteraction(flowLogData);
-    
+
     // Detectar loops
     const loopDetection = detectLoops(flowLogData.sessionId);
     if (loopDetection && loopDetection.detected) {
       console.warn(loopDetection.message);
     }
-    
+
     return res.json(response);
   };
-  
+
   try {
     // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     const sessionId = req.body.sessionId || req.sessionId;
     console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
     console.log('[DEBUG /api/chat] Body completo:', JSON.stringify(req.body));
     console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
-    
+
     const sessionRateCheck = checkSessionRateLimit(sessionId);
-    
+
     if (!sessionRateCheck.allowed) {
       console.warn(`[RATE_LIMIT] SESSION BLOCKED - Session ${sessionId} exceeded 20 msgs/min`);
       updateMetric('errors', 'count', 1);
@@ -3355,9 +3356,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         retryAfter: sessionRateCheck.retryAfter
       });
     }
-    
+
     updateMetric('chat', 'totalMessages', 1);
-    
+
     const body = req.body || {};
     const tokenMap = {};
     if (Array.isArray(CHAT?.ui?.buttons)) {
@@ -3387,13 +3388,13 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
-    
+
     console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
-    
+
     // Inicializar datos de log
     flowLogData.sessionId = sid;
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
-    
+
     let session = await getSession(sid);
     console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
     if (!session) {
@@ -3423,7 +3424,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       };
       console.log('[api/chat] nueva session', sid);
     }
-    
+
 
     // Confirm / cancel pending ticket actions
     if (buttonToken === BUTTONS.CONFIRM_TICKET && session.pendingAction && session.pendingAction.type === 'create_ticket') {
@@ -3434,7 +3435,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       } catch (errCT) {
         console.error('[CONFIRM_TICKET]', errCT && errCT.message);
         const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
-        return res.json(withOptions({ ok:false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
+        return res.json(withOptions({ ok: false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
       }
     }
     if (buttonToken === BUTTONS.CANCEL && session.pendingAction) {
@@ -3489,11 +3490,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         options: optsFr
       }));
     }
-    
+
     // Guardar mensaje del usuario en el transcript (UNA VEZ, al inicio)
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
-    session.transcript.push({ who:'user', text: userMsg, ts: userTs });
+    session.transcript.push({ who: 'user', text: userMsg, ts: userTs });
 
     // Cerrar chat de forma prolija (movido fuera del bloque de creación)
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
@@ -3502,13 +3503,13 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       const tsClose = nowIso();
       session.stage = STATES.ENDED;
       session.waEligible = false;
-      session.transcript.push({ who:'bot', text: replyClose, ts: tsClose });
+      session.transcript.push({ who: 'bot', text: replyClose, ts: tsClose });
       await saveSession(sid, session);
-      return res.json(withOptions({ ok:true, reply: replyClose, stage: session.stage, options: [] }));
+      return res.json(withOptions({ ok: true, reply: replyClose, stage: session.stage, options: [] }));
     }
 
     // Quick escalate via button or text (confirmation step)
-    if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t) ) {
+    if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t)) {
       session.pendingAction = { type: 'create_ticket' };
       await saveSession(sid, session);
       const loc = session.userLocale || 'es-AR';
@@ -3549,16 +3550,16 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
 
         if (!steps || steps.length === 0) {
           const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.';
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+          return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
         }
 
         if (idx < 1 || idx > steps.length) {
           const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`;
-          session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+          return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
         }
 
         session.helpAttempts[idx] = (session.helpAttempts[idx] || 0) + 1;
@@ -3579,25 +3580,25 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         const reply = `🛠️ Ayuda — Paso ${idx}\n\n${helpDetail}${extraLine}\n\nDespués de probar esto, ¿cómo te fue?`;
 
         // NO duplicar el mensaje del usuario, ya se guardó al inicio
-        session.transcript.push({ who:'bot', text: reply, ts });
+        session.transcript.push({ who: 'bot', text: reply, ts });
         await saveSession(sid, session);
 
         try {
           const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
           const userLine = `[${ts}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : `ayuda paso ${idx}`}\n`;
-          const botLine  = `[${ts}] ASSISTANT: ${reply}\n`;
-          fs.appendFile(tf, userLine, ()=>{});
-          fs.appendFile(tf, botLine, ()=>{});
-        } catch(e){ /* noop */ }
+          const botLine = `[${ts}] ASSISTANT: ${reply}\n`;
+          fs.appendFile(tf, userLine, () => { });
+          fs.appendFile(tf, botLine, () => { });
+        } catch (e) { /* noop */ }
 
         const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪'];
-        return res.json(withOptions({ ok:true, help:{ stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
+        return res.json(withOptions({ ok: true, help: { stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
       } catch (err) {
         console.error('[help_step] Error generando ayuda:', err && err.message);
         const msg = 'No pude preparar la ayuda ahora. Probá de nuevo en unos segundos.';
-        session.transcript.push({ who:'bot', text: msg, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:false, reply: msg, stage: session.stage, options: [] }));
+        return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
       }
     }
 
@@ -3635,22 +3636,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     // ========================================================
     // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
     console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
-    
+
     if (session.stage === STATES.ASK_LANGUAGE) {
       const lowerMsg = t.toLowerCase().trim();
       console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken, 'GDPR consent:', session.gdprConsent);
-      
+
       // Detectar aceptación de GDPR
       if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
         session.gdprConsent = true;
         session.gdprConsentDate = nowIso();
         console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
-        
+
         // Mostrar selección de idioma
         const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        
+
         return res.json({
           ok: true,
           reply,
@@ -3661,30 +3662,30 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           ]
         });
       }
-      
+
       // Detectar rechazo de GDPR
       if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
         const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: soporte@stia.com.ar`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        
+
         return res.json({
           ok: true,
           reply,
           stage: session.stage
         });
       }
-      
+
       // Detectar selección de idioma (después de aceptar GDPR)
       if (session.gdprConsent) {
         if (/español|spanish|es-|arg|latino/i.test(lowerMsg)) {
           session.userLocale = 'es-AR';
           session.stage = STATES.ASK_NAME;
-          
+
           const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          
+
           return res.json({
             ok: true,
             reply,
@@ -3694,15 +3695,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
             ]
           });
         }
-        
+
         if (/english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
           session.userLocale = 'en-US';
           session.stage = STATES.ASK_NAME;
-          
+
           const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          
+
           return res.json({
             ok: true,
             reply,
@@ -3713,28 +3714,28 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           });
         }
       }
-      
+
       // Si no se reconoce la respuesta, re-mostrar opciones
       const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
       session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
       await saveSession(sid, session);
-      
+
       return res.json({
         ok: true,
         reply: retry,
         stage: session.stage,
-        buttons: session.gdprConsent 
+        buttons: session.gdprConsent
           ? [
-              { text: '🇦🇷 Español', value: 'español' },
-              { text: '🇺🇸 English', value: 'english' }
-            ]
+            { text: '🇦🇷 Español', value: 'español' },
+            { text: '🇺🇸 English', value: 'english' }
+          ]
           : [
-              { text: 'Sí', value: 'si' },
-              { text: 'No', value: 'no' }
-            ]
+            { text: 'Sí', value: 'si' },
+            { text: 'No', value: 'no' }
+          ]
       });
     }
-    
+
     // ============================================
     // ========================================================
     // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #8
@@ -3782,9 +3783,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       const tLower = t.toLowerCase();
-      
+
       let needType = null;
-      
+
       // Detectar por botones (2 opciones principales)
       if (buttonToken === 'BTN_PROBLEMA' || buttonToken === '🔧 Solucionar / Diagnosticar Problema') {
         needType = 'problema';
@@ -3794,19 +3795,19 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       // Detectar por palabras clave según CSV: problema, no prende, no enciende, no funciona, no anda, no carga, error, falla, roto, dañado
       else if (/problema|no\s+prende|no\s+enciende|no\s+carga|no\s+funciona|no\s+anda|roto|da[ñn]ado|error|falla|fallo|se\s+rompi[oó]/i.test(tLower)) {
         needType = 'problema';
-      } 
+      }
       // Detectar consultas: instalar, configurar, cómo hago para, conectar, poner, setup, ayuda, guía
       else if (/instalar|configurar|c[oó]mo\s+(hago|hacer|puedo)|conectar|setup|how\s+to|poner|agregar|a[ñn]adir|gu[ií]a|ayuda|consulta/i.test(tLower)) {
         needType = 'consulta_general';
       }
-      
+
       if (needType) {
         session.needType = needType;
         session.stage = STATES.ASK_PROBLEM;
-        
+
         let reply = '';
         const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-        
+
         // Respuestas personalizadas según el tipo de necesidad
         if (needType === 'problema') {
           reply = isEn
@@ -3828,7 +3829,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           session.isHowTo = false;
           session.isProblem = false;
         }
-        
+
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage }));
@@ -3837,8 +3838,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         const retry = isEn
           ? "Please select one of the options using the buttons."
           : (locale === 'es-419'
-              ? "Por favor, selecciona una de las opciones usando los botones."
-              : "Por favor, seleccioná una de las opciones usando los botones.");
+            ? "Por favor, selecciona una de las opciones usando los botones."
+            : "Por favor, seleccioná una de las opciones usando los botones.");
         session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
         await saveSession(sid, session);
         return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
@@ -3873,7 +3874,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     //
     // ========================================================
     // ASK_NAME consolidated: validate locally and with OpenAI if available
-    
+
     if (session.stage === STATES.ASK_NAME) {
       console.log('[ASK_NAME] DEBUG - buttonToken:', buttonToken, 'text:', t);
       const locale = session.userLocale || 'es-AR';
@@ -3883,14 +3884,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(t)) {
         session.userName = isEn ? 'User' : 'Usuari@';
         session.stage = STATES.ASK_NEED;
-        
+
         const reply = isEn
           ? `✅ No problem! Let's continue.\n\n**How can I help you, User?**`
           : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte, Usuari@?**`;
-        
+
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        
+
         // ============================================
         // ========================================================
         // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #9
@@ -3934,14 +3935,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           reply,
           stage: session.stage,
           buttons: [
-            { 
-              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema', 
+            {
+              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
               value: 'BTN_PROBLEMA',
               description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
               example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
             },
-            { 
-              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática', 
+            {
+              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
               value: 'BTN_CONSULTA',
               description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
               example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
@@ -3951,141 +3952,141 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       }
 
       // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
-        if ((session.nameAttempts || 0) >= 5) {
-          session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_NEED;
-
-          const reply = isEn
-            ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-            : (locale === 'es-419'
-                ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-                : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
-        }
-
-        // Prefiero no decirlo (texto o botón)
-        if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
-          session.userName = isEn ? 'User' : 'Usuario';
-          session.stage = STATES.ASK_NEED;
-
-          const reply = isEn
-            ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-            : (locale === 'es-419'
-                ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-                : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA'])
-          }));
-        }
-
-        // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
-        if (looksClearlyNotName(t)) {
-          session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-          const reply = isEn
-            ? "I didn't detect a name. Could you tell me just your name? For example: “Ana” or “John Paul”."
-            : (locale === 'es-419'
-                ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”."
-                : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: [
-              { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-            ]
-          }));
-        }
-
-        const candidate = extractName(t);
-        if (!candidate || !isValidName(candidate)) {
-          session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-          const reply = isEn
-            ? "I didn't detect a valid name. Please tell me only your name, for example: “Ana” or “John Paul”."
-            : (locale === 'es-419'
-                ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”."
-                : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          return res.json(withOptions({
-            ok: true,
-            reply,
-            stage: session.stage,
-            options: [
-              { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-            ]
-          }));
-        }
-
-        // Nombre aceptado - transición a ASK_NEED según Flujo.csv
-        session.userName = candidate;
+      if ((session.nameAttempts || 0) >= 5) {
+        session.userName = isEn ? 'User' : 'Usuario';
         session.stage = STATES.ASK_NEED;
-        session.nameAttempts = 0;
 
-        const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
         const reply = isEn
-          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today?`
+          ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
           : (locale === 'es-419'
-              ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy?`
-              : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
+            ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
+            : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        // ============================================
-        // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
-        // ============================================
-        // BLOQUE: Renderizado de botones después de capturar nombre
-        // Propósito: Mostrar 5 opciones de servicio al usuario
-        // Funcionalidad: Botones bilingües (ES/EN) con valores de token
-        // Autor: Sistema STI - GitHub Copilot + Lucas
-        // Última modificación: 25/11/2025
-        // 
-        // ADVERTENCIA: Los valores (BTN_*) deben coincidir con:
-        //   - CONFIG.ui.buttons (línea ~333)
-        //   - Detección de intent (línea ~3675)
-        // Las etiquetas (text) deben mantenerse sincronizadas con traducciones.
-        // ============================================
-        return res.json({
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+      }
+
+      // Prefiero no decirlo (texto o botón)
+      if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
+        session.userName = isEn ? 'User' : 'Usuario';
+        session.stage = STATES.ASK_NEED;
+
+        const reply = isEn
+          ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
+          : (locale === 'es-419'
+            ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
+            : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({
           ok: true,
           reply,
           stage: session.stage,
-          buttons: [
-            { 
-              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema', 
-              value: 'BTN_PROBLEMA',
-              description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
-              example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
-            },
-            { 
-              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática', 
-              value: 'BTN_CONSULTA',
-              description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
-              example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
-            }
-          ]
-        });
+          options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA'])
+        }));
       }
+
+      // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
+      if (looksClearlyNotName(t)) {
+        session.nameAttempts = (session.nameAttempts || 0) + 1;
+
+        const reply = isEn
+          ? "I didn't detect a name. Could you tell me just your name? For example: “Ana” or “John Paul”."
+          : (locale === 'es-419'
+            ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”."
+            : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [
+            { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
+          ]
+        }));
+      }
+
+      const candidate = extractName(t);
+      if (!candidate || !isValidName(candidate)) {
+        session.nameAttempts = (session.nameAttempts || 0) + 1;
+
+        const reply = isEn
+          ? "I didn't detect a valid name. Please tell me only your name, for example: “Ana” or “John Paul”."
+          : (locale === 'es-419'
+            ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”."
+            : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [
+            { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
+          ]
+        }));
+      }
+
+      // Nombre aceptado - transición a ASK_NEED según Flujo.csv
+      session.userName = candidate;
+      session.stage = STATES.ASK_NEED;
+      session.nameAttempts = 0;
+
+      const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
+      const reply = isEn
+        ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today?`
+        : (locale === 'es-419'
+          ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy?`
+          : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
+
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSession(sid, session);
+      // ============================================
+      // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
+      // ============================================
+      // BLOQUE: Renderizado de botones después de capturar nombre
+      // Propósito: Mostrar 5 opciones de servicio al usuario
+      // Funcionalidad: Botones bilingües (ES/EN) con valores de token
+      // Autor: Sistema STI - GitHub Copilot + Lucas
+      // Última modificación: 25/11/2025
+      // 
+      // ADVERTENCIA: Los valores (BTN_*) deben coincidir con:
+      //   - CONFIG.ui.buttons (línea ~333)
+      //   - Detección de intent (línea ~3675)
+      // Las etiquetas (text) deben mantenerse sincronizadas con traducciones.
+      // ============================================
+      return res.json({
+        ok: true,
+        reply,
+        stage: session.stage,
+        buttons: [
+          {
+            text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
+            value: 'BTN_PROBLEMA',
+            description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
+            example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
+          },
+          {
+            text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
+            value: 'BTN_CONSULTA',
+            description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
+            example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
+          }
+        ]
+      });
+    }
 
     // Inline fallback extraction (if we are not in ASK_NAME)
     {
       const nmInline2 = extractName(t);
-      if(nmInline2 && !session.userName && isValidHumanName(nmInline2)){
+      if (nmInline2 && !session.userName && isValidHumanName(nmInline2)) {
         session.userName = nmInline2;
-        if(session.stage === STATES.ASK_NAME){
+        if (session.stage === STATES.ASK_NAME) {
           session.stage = STATES.ASK_NEED;
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4093,11 +4094,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
           const reply = isEn
             ? `${empatia} Great, ${session.userName}! 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
             : (locale === 'es-419'
-                ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-                : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+              ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
+              : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
         }
       }
     }
@@ -4110,14 +4111,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
       const reply = isEn
         ? `Let's try again, ${whoName}! 👍\n\nTell me: what problem are you having or what do you need help with?`
         : (locale === 'es-419'
-            ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
-            : `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
+          ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
+          : `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
       session.stage = STATES.ASK_PROBLEM;
       session.problem = null;
       session.issueKey = null;
       session.tests = { basic: [], ai: [], advanced: [] };
       session.lastHelpStep = null;
-      session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
       return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
@@ -4126,7 +4127,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
     let reply = '';
     let options = [];
 
-    if (session.stage === STATES.ASK_PROBLEM){
+    if (session.stage === STATES.ASK_PROBLEM) {
       session.problem = t || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
 
@@ -4137,44 +4138,44 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         console.log('[detectAmbiguousDevice] Llamando con:', session.problem);
         const ambiguousResult = detectAmbiguousDevice(session.problem);
         console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
-        
+
         if (ambiguousResult) {
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           const confidence = ambiguousResult.confidence;
-          
+
           // CASO 1: Alta confianza (>=0.33 = 1+ keywords) - Confirmar con 1 botón
           if (confidence >= 0.33 && ambiguousResult.bestMatch) {
             const device = ambiguousResult.bestMatch;
             session.stage = 'CONFIRM_DEVICE';
             session.pendingDevice = device;
-            
+
             const replyText = isEn
               ? `Do you mean your **${device.label}**?`
               : (locale === 'es-419'
-                  ? `¿Te referís a tu **${device.label}**?`
-                  : `¿Te referís a tu **${device.label}**?`);
-            
+                ? `¿Te referís a tu **${device.label}**?`
+                : `¿Te referís a tu **${device.label}**?`);
+
             const confirmButtons = [
-              { 
-                token: 'DEVICE_CONFIRM_YES', 
-                icon: '✅', 
+              {
+                token: 'DEVICE_CONFIRM_YES',
+                icon: '✅',
                 label: isEn ? 'Yes' : 'Sí',
                 description: device.description,
                 text: isEn ? 'Yes' : 'Sí'
               },
-              { 
-                token: 'DEVICE_CONFIRM_NO', 
-                icon: '🔄', 
+              {
+                token: 'DEVICE_CONFIRM_NO',
+                icon: '🔄',
                 label: isEn ? 'No, it\'s another device' : 'No, es otro dispositivo',
                 description: isEn ? 'Show me all options' : 'Mostrar todas las opciones',
                 text: isEn ? 'No, other device' : 'No, otro dispositivo'
               }
             ];
-            
-            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+
+            session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
             await saveSession(sid, session);
-            
+
             return res.json({
               ok: true,
               reply: replyText,
@@ -4183,22 +4184,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
               buttons: confirmButtons
             });
           }
-          
+
           // CASO 2: Baja confianza (<0.33) - Mostrar todos los botones
           session.stage = 'CHOOSE_DEVICE';
           session.ambiguousTerm = ambiguousResult.term;
-          
+
           const replyText = isEn
             ? `To help you better, what type of device is your **${ambiguousResult.term}**?`
             : (locale === 'es-419'
-                ? `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`
-                : `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`);
-          
+              ? `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`
+              : `Para ayudarte mejor, ¿qué tipo de dispositivo es tu **${ambiguousResult.term}**?`);
+
           const deviceButtons = generateDeviceButtons(ambiguousResult.candidates);
-          
-          session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+
+          session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
           await saveSession(sid, session);
-          
+
           return res.json({
             ok: true,
             reply: replyText,
@@ -4210,100 +4211,100 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req,res)=>{
         }
       }
 
-// Device disambiguation: when user mentions "pc / compu / computadora" but device is still unknown
-if (!session.device) {
-  const locale = session.userLocale || 'es-AR';
-  const isEn = String(locale).toLowerCase().startsWith('en');
-  const mWord = (session.problem || '').match(/\b(compu|computadora|ordenador|pc|computer)\b/i);
-  if (mWord) {
-    const rawWord = mWord[1];
-    let shownWord;
-    if (/^pc$/i.test(rawWord)) shownWord = 'PC';
-    else if (/^compu$/i.test(rawWord)) shownWord = isEn ? 'computer' : 'la compu';
-    else shownWord = rawWord.toLowerCase();
-    session.stage = STATES.ASK_DEVICE;
-    session.pendingDeviceGroup = 'compu';
-    const replyText = isEn
-      ? `Perfect. When you say "${shownWord}", which of these devices do you mean?`
-      : (locale === 'es-419'
-          ? `Perfecto. Cuando dices "${shownWord}", ¿a cuál de estos dispositivos te refieres?`
-          : `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`);
-    const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-    const uiButtons = buildUiButtonsFromTokens(optionTokens, locale);
-    const ts = nowIso();
-    session.transcript.push({ who:'bot', text: replyText, ts });
-    await saveSession(sid, session);
-    
-    const response = {
-      ok: true,
-      reply: replyText,
-      stage: session.stage,
-      options: uiButtons, // Enviar objetos completos en options
-      buttons: uiButtons, // Agregar también en nivel raíz
-      ui: { 
-        buttons: uiButtons 
+      // Device disambiguation: when user mentions "pc / compu / computadora" but device is still unknown
+      if (!session.device) {
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const mWord = (session.problem || '').match(/\b(compu|computadora|ordenador|pc|computer)\b/i);
+        if (mWord) {
+          const rawWord = mWord[1];
+          let shownWord;
+          if (/^pc$/i.test(rawWord)) shownWord = 'PC';
+          else if (/^compu$/i.test(rawWord)) shownWord = isEn ? 'computer' : 'la compu';
+          else shownWord = rawWord.toLowerCase();
+          session.stage = STATES.ASK_DEVICE;
+          session.pendingDeviceGroup = 'compu';
+          const replyText = isEn
+            ? `Perfect. When you say "${shownWord}", which of these devices do you mean?`
+            : (locale === 'es-419'
+              ? `Perfecto. Cuando dices "${shownWord}", ¿a cuál de estos dispositivos te refieres?`
+              : `Perfecto. Cuando decís "${shownWord}", ¿a cuál de estos dispositivos te referís?`);
+          const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
+          const uiButtons = buildUiButtonsFromTokens(optionTokens, locale);
+          const ts = nowIso();
+          session.transcript.push({ who: 'bot', text: replyText, ts });
+          await saveSession(sid, session);
+
+          const response = {
+            ok: true,
+            reply: replyText,
+            stage: session.stage,
+            options: uiButtons, // Enviar objetos completos en options
+            buttons: uiButtons, // Agregar también en nivel raíz
+            ui: {
+              buttons: uiButtons
+            }
+          };
+
+          console.log('[ASK_DEVICE] Response:', JSON.stringify(response, null, 2));
+
+          return res.json(response);
+        }
       }
-    };
-    
-    console.log('[ASK_DEVICE] Response:', JSON.stringify(response, null, 2));
-    
-    return res.json(response);
-  }
-}
 
       // OA analyze problem (optional)
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       const ai = await analyzeProblemWithOA(session.problem || '', locale);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
-      
-      if(!isIT){
+
+      if (!isIT) {
         const replyNotIT = isEn
           ? 'Sorry, I didn\'t understand your query or it\'s not IT-related. Do you want to rephrase?'
           : (locale === 'es-419'
-              ? 'Disculpa, no entendí tu consulta o no es informática. ¿Quieres reformular?'
-              : 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?');
+            ? 'Disculpa, no entendí tu consulta o no es informática. ¿Quieres reformular?'
+            : 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?');
         const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
-        session.transcript.push({ who:'bot', text: replyNotIT, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: replyNotIT, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
+        return res.json(withOptions({ ok: true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
       }
-      
-      if(ai.device) session.device = session.device || ai.device;
-      if(ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
+
+      if (ai.device) session.device = session.device || ai.device;
+      if (ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
       // Detectar si es solicitud de ayuda (How-To) o problema técnico
-      if(ai.isHowTo && !ai.isProblem){
+      if (ai.isHowTo && !ai.isProblem) {
         // Es una solicitud de guía/instalación/configuración
         session.isHowTo = true;
         session.stage = STATES.ASK_HOWTO_DETAILS;
-        
+
         let replyHowTo = '';
         const deviceName = ai.device || (isEn ? 'device' : 'dispositivo');
-        
-        if(ai.issueKey === 'install_guide'){
+
+        if (ai.issueKey === 'install_guide') {
           replyHowTo = isEn
             ? `Perfect, I'll help you install your ${deviceName}. To give you the exact instructions, I need to know:\n\n1. What operating system do you use? (Windows 10, Windows 11, Mac, Linux)\n2. What's the brand and model of the ${deviceName}?\n\nExample: "Windows 11, HP DeskJet 2720"`
             : (locale === 'es-419'
-                ? `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usas? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`
-                : `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`);
-        } else if(ai.issueKey === 'setup_guide' || ai.issueKey === 'connect_guide'){
+              ? `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usas? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`
+              : `Perfecto, te voy a ayudar a instalar tu ${deviceName}. Para darte las instrucciones exactas, necesito saber:\n\n1. ¿Qué sistema operativo usás? (Windows 10, Windows 11, Mac, Linux)\n2. ¿Cuál es la marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 11, HP DeskJet 2720"`);
+        } else if (ai.issueKey === 'setup_guide' || ai.issueKey === 'connect_guide') {
           replyHowTo = isEn
             ? `Sure, I'll help you set up your ${deviceName}. To give you the right instructions, tell me:\n\n1. What operating system do you have? (Windows 10, Windows 11, Mac, etc.)\n2. Brand and model of the ${deviceName}?\n\nExample: "Windows 10, Logitech C920"`
             : (locale === 'es-419'
-                ? `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, cuéntame:\n\n1. ¿Qué sistema operativo tienes? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`
-                : `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`);
+              ? `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, cuéntame:\n\n1. ¿Qué sistema operativo tienes? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`
+              : `Dale, te ayudo a configurar tu ${deviceName}. Para darte las instrucciones correctas, contame:\n\n1. ¿Qué sistema operativo tenés? (Windows 10, Windows 11, Mac, etc.)\n2. ¿Marca y modelo del ${deviceName}?\n\nEjemplo: "Windows 10, Logitech C920"`);
         } else {
           replyHowTo = isEn
             ? `Sure, I'll help you with your ${deviceName}. To give you specific instructions:\n\n1. What operating system do you use?\n2. Brand and model of the device?\n\nSo I can guide you step by step.`
             : (locale === 'es-419'
-                ? `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usas?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`
-                : `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`);
+              ? `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usas?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`
+              : `Claro, te ayudo con tu ${deviceName}. Para darte las instrucciones específicas:\n\n1. ¿Qué sistema operativo usás?\n2. ¿Marca y modelo del dispositivo?\n\nAsí puedo guiarte paso a paso.`);
         }
-        
-        session.transcript.push({ who:'bot', text: replyHowTo, ts: nowIso() });
+
+        session.transcript.push({ who: 'bot', text: replyHowTo, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json({ ok:true, reply: replyHowTo, stage: session.stage });
+        return res.json({ ok: true, reply: replyHowTo, stage: session.stage });
       }
 
       // Si llegó acá, es un PROBLEMA técnico → generar pasos de diagnóstico
@@ -4316,34 +4317,33 @@ if (!session.device) {
     } else if (session.stage === STATES.ASK_HOWTO_DETAILS) {
       // User is responding with OS + device model for how-to guide
       const userResponse = t.toLowerCase();
-      
+
       // Parse OS
       let detectedOS = null;
       if (/windows\s*11/i.test(userResponse)) detectedOS = 'Windows 11';
       else if (/windows\s*10/i.test(userResponse)) detectedOS = 'Windows 10';
       else if (/mac|macos|osx/i.test(userResponse)) detectedOS = 'macOS';
       else if (/linux|ubuntu|debian/i.test(userResponse)) detectedOS = 'Linux';
-      
+
       // Parse device model (any remaining text after OS)
       let deviceModel = userResponse.trim();
       if (detectedOS) {
         deviceModel = userResponse.replace(/windows\s*(11|10)?|mac(os)?|osx|linux|ubuntu|debian/gi, '').trim();
       }
-      
+
       // Store in session
       session.userOS = detectedOS || 'No especificado';
       session.deviceModel = deviceModel || 'Modelo no especificado';
-      
+
       // Generate how-to guide using AI
       const deviceName = session.device || 'dispositivo';
       const issueKey = session.issueKey || 'install_guide';
-      
+
       try {
-        const howToPrompt = `Genera una guía paso a paso para ayudar a un usuario a ${
-          issueKey === 'install_guide' ? 'instalar' :
+        const howToPrompt = `Genera una guía paso a paso para ayudar a un usuario a ${issueKey === 'install_guide' ? 'instalar' :
           issueKey === 'setup_guide' ? 'configurar' :
-          issueKey === 'connect_guide' ? 'conectar' : 'trabajar con'
-        } su ${deviceName}.
+            issueKey === 'connect_guide' ? 'conectar' : 'trabajar con'
+          } su ${deviceName}.
 
 Sistema Operativo: ${session.userOS}
 Marca/Modelo: ${session.deviceModel}
@@ -4377,7 +4377,7 @@ La guía debe ser:
 
         const aiResponse = completion.choices[0]?.message?.content || '{}';
         let guideData = { steps: [], additionalInfo: '' };
-        
+
         try {
           guideData = JSON.parse(aiResponse);
         } catch (parseErr) {
@@ -4396,44 +4396,44 @@ La guía debe ser:
         session.tests.howto = guideData.steps || [];
         session.currentStepIndex = 0;
         session.stage = STATES.BASIC_TESTS; // Reuse BASIC_TESTS flow for showing steps
-        
+
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
         let replyText = isEn
           ? `Perfect, ${whoLabel}! Here's the guide for ${deviceName} on ${session.userOS}:\n\n`
           : (locale === 'es-419'
-              ? `Perfecto, ${whoLabel}! Acá tienes la guía para ${deviceName} en ${session.userOS}:\n\n`
-              : `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`);
-        
+            ? `Perfecto, ${whoLabel}! Acá tienes la guía para ${deviceName} en ${session.userOS}:\n\n`
+            : `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`);
+
         if (guideData.steps && guideData.steps.length > 0) {
           replyText += guideData.steps.join('\n\n');
         } else {
           replyText += isEn
             ? 'I could not generate the specific steps, but I recommend visiting the manufacturer official website to download drivers and instructions.'
             : (locale === 'es-419'
-                ? 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.'
-                : 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.');
+              ? 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.'
+              : 'No pude generar los pasos específicos, pero te recomiendo visitar el sitio oficial del fabricante para descargar drivers e instrucciones.');
         }
-        
+
         if (guideData.additionalInfo) {
           replyText += `\n\n📌 ${guideData.additionalInfo}`;
         }
-        
+
         replyText += isEn
           ? '\n\nDid it work? Reply "yes" or "no".'
           : '\n\n¿Te funcionó? Respondé "sí" o "no".';
-        
+
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
-        
-        return res.json(withOptions({ 
-          ok: true, 
-          reply: replyText, 
+
+        return res.json(withOptions({
+          ok: true,
+          reply: replyText,
           stage: session.stage,
           options: buildUiButtonsFromTokens(['BTN_YES', 'BTN_NO'])
         }));
-        
+
       } catch (aiError) {
         console.error('[ASK_HOWTO_DETAILS] AI generation error:', aiError);
         const locale = session.userLocale || 'es-AR';
@@ -4441,8 +4441,8 @@ La guía debe ser:
         const errorMsg = isEn
           ? 'I could not generate the guide right now. Can you rephrase your query or try again later?'
           : (locale === 'es-419'
-              ? 'No pude generar la guía en este momento. ¿Puedes reformular tu consulta o intentar más tarde?'
-              : 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?');
+            ? 'No pude generar la guía en este momento. ¿Puedes reformular tu consulta o intentar más tarde?'
+            : 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?');
         session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
         await saveSession(sid, session);
         return res.json({ ok: true, reply: errorMsg, stage: session.stage });
@@ -4456,11 +4456,11 @@ La guía debe ser:
         const replyText = isEn
           ? 'Please choose one of the options using the buttons I showed you.'
           : (locale === 'es-419'
-              ? 'Por favor, elige una de las opciones con los botones que te mostré.'
-              : 'Por favor, elegí una de las opciones con los botones que te mostré.');
+            ? 'Por favor, elige una de las opciones con los botones que te mostré.'
+            : 'Por favor, elegí una de las opciones con los botones que te mostré.');
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
-        const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
+        const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
         return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
       }
 
@@ -4480,17 +4480,17 @@ La guía debe ser:
           // IMPORTANT: do not re-ask the problem; proceed to generate steps using existing session.problem
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
-          if (!session.problem || String(session.problem||'').trim()==='') {
+          if (!session.problem || String(session.problem || '').trim() === '') {
             session.stage = STATES.ASK_PROBLEM;
             const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
             const replyText = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
               : (locale === 'es-419'
-                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
-                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
-            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+                ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
+                : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
+            session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
             await saveSession(sid, session);
-            return res.json(withOptions({ ok:true, reply: replyText, stage: session.stage, options: [] }));
+            return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: [] }));
           } else {
             // Provide short confirmation then show steps
             session.stage = STATES.ASK_PROBLEM;
@@ -4498,10 +4498,10 @@ La guía debe ser:
             const replyIntro = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
               : (locale === 'es-419'
-                  ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
-                  : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
+                ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
+                : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
             const ts = nowIso();
-            session.transcript.push({ who:'bot', text: replyIntro, ts });
+            session.transcript.push({ who: 'bot', text: replyIntro, ts });
             await saveSession(sid, session);
             // proceed to generate steps
             return await generateAndShowSteps(session, sid, res);
@@ -4512,59 +4512,59 @@ La guía debe ser:
       const fallbackMsg = isEn
         ? 'I don\'t recognize that option. Please choose using the buttons.'
         : (locale === 'es-419'
-            ? 'No reconozco esa opción. Elige por favor usando los botones.'
-            : 'No reconozco esa opción. Elegí por favor usando los botones.');
-      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+          ? 'No reconozco esa opción. Elige por favor usando los botones.'
+          : 'No reconozco esa opción. Elegí por favor usando los botones.');
+      session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
-      const optionTokens = ['BTN_DEV_PC_DESKTOP','BTN_DEV_PC_ALLINONE','BTN_DEV_NOTEBOOK'];
-      return res.json(withOptions({ ok:true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
-    
-    // ========================================================
-    // 🎯 HANDLER: CONFIRM_DEVICE (Alta confianza - Confirmar dispositivo)
-    // ========================================================
+      const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
+      return res.json(withOptions({ ok: true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
+
+      // ========================================================
+      // 🎯 HANDLER: CONFIRM_DEVICE (Alta confianza - Confirmar dispositivo)
+      // ========================================================
     } else if (session.stage === 'CONFIRM_DEVICE') {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      
+
       // Usuario confirmó el dispositivo
       if (buttonToken === 'DEVICE_CONFIRM_YES') {
         const device = session.pendingDevice;
         session.device = device.id;
         session.deviceLabel = device.label;
         delete session.pendingDevice;
-        
+
         const replyText = isEn
           ? `Perfect! I'll help you with your **${device.label}**.`
           : (locale === 'es-419'
-              ? `¡Perfecto! Te ayudaré con tu **${device.label}**.`
-              : `¡Perfecto! Te ayudo con tu **${device.label}**.`);
-        
-        session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+            ? `¡Perfecto! Te ayudaré con tu **${device.label}**.`
+            : `¡Perfecto! Te ayudo con tu **${device.label}**.`);
+
+        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         session.stage = STATES.ASK_PROBLEM;
         await saveSession(sid, session);
-        
+
         // Continuar con generación de pasos
         return await generateAndShowSteps(session, sid, res);
       }
-      
+
       // Usuario dijo NO - mostrar todas las opciones
       if (buttonToken === 'DEVICE_CONFIRM_NO') {
         session.stage = 'CHOOSE_DEVICE';
         const ambiguousResult = detectAmbiguousDevice(session.problem);
-        
+
         const replyText = isEn
           ? `No problem. Please choose the correct device:`
           : (locale === 'es-419'
-              ? `No hay problema. Por favor, elegí el dispositivo correcto:`
-              : `No hay problema. Por favor, elegí el dispositivo correcto:`);
-        
-        const deviceButtons = ambiguousResult 
+            ? `No hay problema. Por favor, elegí el dispositivo correcto:`
+            : `No hay problema. Por favor, elegí el dispositivo correcto:`);
+
+        const deviceButtons = ambiguousResult
           ? generateDeviceButtons(ambiguousResult.candidates)
           : [];
-        
-        session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+
+        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         await saveSession(sid, session);
-        
+
         return res.json({
           ok: true,
           reply: replyText,
@@ -4573,63 +4573,84 @@ La guía debe ser:
           buttons: deviceButtons
         });
       }
-      
+
       // Fallback
       const fallbackMsg = isEn
         ? 'Please choose one of the options.'
         : (locale === 'es-419'
-            ? 'Por favor, elegí una de las opciones.'
-            : 'Por favor, elegí una de las opciones.');
-      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+          ? 'Por favor, elegí una de las opciones.'
+          : 'Por favor, elegí una de las opciones.');
+      session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
-    
-    // ========================================================
-    // 🎯 HANDLER: CHOOSE_DEVICE (Baja confianza - Elegir dispositivo)
-    // ========================================================
+
+      // ========================================================
+      // 🎯 HANDLER: CHOOSE_DEVICE (Baja confianza - Elegir dispositivo)
+      // ========================================================
     } else if (session.stage === 'CHOOSE_DEVICE') {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      
+
       // Usuario eligió un dispositivo
-      if (buttonToken && buttonToken.startsWith('DEVICE_')) {
-        const deviceId = buttonToken.replace('DEVICE_', '');
+      // Aceptar tanto token (DEVICE_*) como label directo del frontend
+      if (buttonToken) {
         const ambiguousResult = detectAmbiguousDevice(session.problem);
-        
+        let selectedDevice = null;
+
         if (ambiguousResult) {
-          const selectedDevice = ambiguousResult.candidates.find(d => d.id === deviceId);
-          
+          // Intento 1: Buscar por token (formato: DEVICE_PC_DESKTOP)
+          if (buttonToken.startsWith('DEVICE_')) {
+            const deviceId = buttonToken.replace('DEVICE_', '');
+            selectedDevice = ambiguousResult.candidates.find(d => d.id === deviceId);
+          }
+
+          // Intento 2: Buscar por label exacto (formato: "PC de Escritorio")
+          if (!selectedDevice) {
+            selectedDevice = ambiguousResult.candidates.find(d => d.label === buttonToken);
+          }
+
+          // Intento 3: Buscar por label case-insensitive
+          if (!selectedDevice) {
+            const lowerToken = buttonToken.toLowerCase();
+            selectedDevice = ambiguousResult.candidates.find(d => d.label.toLowerCase() === lowerToken);
+          }
+
           if (selectedDevice) {
             session.device = selectedDevice.id;
             session.deviceLabel = selectedDevice.label;
             delete session.ambiguousTerm;
-            
+
             const replyText = isEn
               ? `Perfect! I'll help you with your **${selectedDevice.label}**.`
               : (locale === 'es-419'
-                  ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
-                  : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
-            
-            session.transcript.push({ who:'bot', text: replyText, ts: nowIso() });
+                ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
+                : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
+
+            session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
             session.stage = STATES.ASK_PROBLEM;
             await saveSession(sid, session);
-            
+
+            console.log('[CHOOSE_DEVICE] ✅ Dispositivo seleccionado:', selectedDevice.label, '(', selectedDevice.id, ')');
+
             // Continuar con generación de pasos
             return await generateAndShowSteps(session, sid, res);
           }
         }
       }
-      
+
       // Fallback
       const fallbackMsg = isEn
         ? 'Please choose one of the device options.'
         : (locale === 'es-419'
-            ? 'Por favor, elegí una de las opciones de dispositivo.'
-            : 'Por favor, elegí una de las opciones de dispositivo.');
-      session.transcript.push({ who:'bot', text: fallbackMsg, ts: nowIso() });
+          ? 'Por favor, elegí una de las opciones de dispositivo.'
+          : 'Por favor, elegí una de las opciones de dispositivo.');
+      session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
+
+      console.log('[CHOOSE_DEVICE] ⚠️ No se reconoció el dispositivo. buttonToken:', buttonToken);
+
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
-    
+
     } else if (session.stage === STATES.BASIC_TESTS) {
       const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
       if (rxDontKnow.test(t)) {
@@ -4638,23 +4659,23 @@ La guía debe ser:
       }
 
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
       const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
 
       if (rxShowSteps.test(t)) {
         const result = handleShowSteps(session, 'basic');
         if (result.error) {
-          session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: result.msg, stage: session.stage, options: [] }));
+          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
         }
-        session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
+        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
       }
 
-      if (rxYes.test(t)){
+      if (rxYes.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
@@ -4662,20 +4683,20 @@ La guía debe ser:
         const firstLine = whoLabel
           ? (isEn ? `I'm glad you were able to solve it, ${whoLabel}! 🙌` : `¡Me alegro que lo hayas podido resolver, ${whoLabel}! 🙌`)
           : (isEn ? `I'm glad you were able to solve it! 🙌` : `¡Me alegro que lo hayas podido resolver! 🙌`);
-        reply = isEn 
+        reply = isEn
           ? `${firstLine}\n\n${empatia}\n\nIf it fails again at some point, you can reopen Tecnos chat and we'll continue from where we left off.\n\nYou can follow us on Instagram for tips and news: https://instagram.com/sti.rosario\nAnd visit our STI website — Servicio Técnico Inteligente for services and support: https://stia.com.ar 🚀\n\nThanks for using Tecnos from STI — Servicio Técnico Inteligente. 😉`
           : `${firstLine}\n\n${empatia}\n\nSi en algún momento vuelve a fallar, podés abrir de nuevo el chat de Tecnos y seguimos desde donde lo dejamos.\n\nPodés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario\nY visitar nuestra web de STI — Servicio Técnico Inteligente para servicios y soporte: https://stia.com.ar 🚀\n\nGracias por usar Tecnos de STI — Servicio Técnico Inteligente. 😉`;
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
-      } else if (rxNo.test(t)){
+      } else if (rxNo.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const empatia = addEmpatheticResponse('ESCALATE', locale);
         reply = isEn
           ? `💡 I understand. ${empatia} Do you want to try some extra solutions or connect you with a technician?`
           : `💡 Entiendo. ${empatia} ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
-        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS','BTN_CONNECT_TECH']);
+        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_CONNECT_TECH']);
         session.stage = STATES.ESCALATE;
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
@@ -4685,29 +4706,29 @@ La guía debe ser:
         reply = isEn
           ? `I didn't understand. You can say "I solved it" or "The problem persists", or choose an option.`
           : (locale === 'es-419'
-              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`
-              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`);
-        options = buildUiButtonsFromTokens(['BTN_SOLVED','BTN_PERSIST']);
+            ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`
+            : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o elegir 1/2.`);
+        options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST']);
       }
     } else if (session.stage === STATES.ESCALATE) {
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
       const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
       const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS';
       const isOpt2 = opt2.test(t) || buttonToken === 'BTN_CONNECT_TECH';
-      
-      if (isOpt1){
+
+      if (isOpt1) {
         try {
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           const device = session.device || '';
           let aiSteps = [];
-          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch(e){ aiSteps = []; }
-          const limited = Array.isArray(aiSteps) ? aiSteps.slice(0,4) : [];
+          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch (e) { aiSteps = []; }
+          const limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 4) : [];
           session.tests = session.tests || {};
           session.tests.advanced = limited;
           if (!limited || limited.length === 0) return await createTicketAndRespond(session, sid, res);
           session.stepProgress = session.stepProgress || {};
-          limited.forEach((_,i)=> session.stepProgress[`adv_${i+1}`] = 'pending');
+          limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
           const numbered = enumerateSteps(limited);
           const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
           const empatia = addEmpatheticResponse('ADVANCED_TESTS', locale);
@@ -4723,13 +4744,13 @@ La guía debe ser:
           session.waEligible = false;
           session.lastHelpStep = null;
           session.stage = STATES.ADVANCED_TESTS;
-          session.transcript.push({ who:'bot', text: fullMsg, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSession(sid, session);
-          const helpOptions = limited.map((_,i)=>`${emojiForIndex(i)} Ayuda paso ${i+1}`);
+          const helpOptions = limited.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
           const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
           const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
           const optionsResp = [...helpOptions, solvedBtn, persistBtn];
-          return res.json(withOptions({ ok:true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
+          return res.json(withOptions({ ok: true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
         } catch (errOpt1) {
           console.error('[ESCALATE][more_tests] Error', errOpt1 && errOpt1.message);
           const locale = session.userLocale || 'es-AR';
@@ -4737,15 +4758,15 @@ La guía debe ser:
           reply = isEn
             ? 'An error occurred generating more tests. Try again or ask me to connect you with a technician.'
             : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
-          session.transcript.push({ who:'bot', text: reply, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
+          return res.json(withOptions({ ok: false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
         }
-      } else if (isOpt2){
+      } else if (isOpt2) {
         return await createTicketAndRespond(session, sid, res);
       } else {
         reply = 'Decime si querés probar más soluciones o conectar con un técnico.';
-        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS','BTN_CONNECT_TECH']);
+        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_CONNECT_TECH']);
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
       const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
@@ -4755,23 +4776,23 @@ La guía debe ser:
       }
 
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo  = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
+      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
       const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
 
       if (rxShowSteps.test(t)) {
         const result = handleShowSteps(session, 'advanced');
         if (result.error) {
-          session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
+          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok:false, reply: result.msg, stage: session.stage, options: [] }));
+          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
         }
-        session.transcript.push({ who:'bot', text: result.msg, ts: nowIso() });
+        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok:true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
+        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
       }
 
-      if (rxYes.test(t)){
+      if (rxYes.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const idx = session.lastHelpStep;
@@ -4791,7 +4812,7 @@ La guía debe ser:
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
-      } else if (rxNo.test(t)){
+      } else if (rxNo.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const empatia = addEmpatheticResponse('ESCALATE', locale);
@@ -4808,9 +4829,9 @@ La guía debe ser:
         reply = isEn
           ? `I didn't understand. You can say "I solved it" or "The problem persists", or ask to connect with a technician.`
           : (locale === 'es-419'
-              ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`
-              : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`);
-        options = buildUiButtonsFromTokens(['BTN_SOLVED','BTN_PERSIST','BTN_CONNECT_TECH']);
+            ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`
+            : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`);
+        options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH']);
       }
     } else {
       const locale = session.userLocale || 'es-AR';
@@ -4818,25 +4839,25 @@ La guía debe ser:
       reply = isEn
         ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
         : (locale === 'es-419'
-            ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
-            : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
+          ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
+          : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
       const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
       options = [reformBtn];
     }
 
     // Save bot reply + persist transcripts to file (single ts pair)
     const pairTs = nowIso();
-    session.transcript.push({ who:'bot', text: reply, ts: pairTs });
+    session.transcript.push({ who: 'bot', text: reply, ts: pairTs });
     await saveSession(sid, session);
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
       const userLine = `[${pairTs}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
-      const botLine  = `[${pairTs}] ASSISTANT: ${reply}\n`;
-      fs.appendFile(tf, userLine, ()=>{});
-      fs.appendFile(tf, botLine, ()=>{});
-    } catch(e){ /* noop */ }
+      const botLine = `[${pairTs}] ASSISTANT: ${reply}\n`;
+      fs.appendFile(tf, userLine, () => { });
+      fs.appendFile(tf, botLine, () => { });
+    } catch (e) { /* noop */ }
 
-    const response = withOptions({ ok:true, reply, sid, stage: session.stage });
+    const response = withOptions({ ok: true, reply, sid, stage: session.stage });
     if (options && options.length) response.options = options;
 
     try {
@@ -4857,7 +4878,7 @@ La guía debe ser:
     if (session.waEligible) response.allowWhatsapp = true;
 
     try {
-      const shortLog = `${sid} => reply len=${String(reply||'').length} options=${(options||[]).length}`;
+      const shortLog = `${sid} => reply len=${String(reply || '').length} options=${(options || []).length}`;
       const entry = formatLog('INFO', shortLog);
       appendToLogFile(entry);
       broadcastLog(entry);
@@ -4865,10 +4886,10 @@ La guía debe ser:
 
     return res.json(response);
 
-  } catch(e){
+  } catch (e) {
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
-    
+
     // Intentar obtener locale de la request o usar default
     let locale = 'es-AR';
     try {
@@ -4880,12 +4901,12 @@ La guía debe ser:
     } catch (errLocale) {
       // Si falla, usar el default
     }
-    
+
     const isEn = String(locale).toLowerCase().startsWith('en');
-    const errorMsg = isEn 
+    const errorMsg = isEn
       ? '😅 I had a momentary problem. Please try again.'
       : '😅 Tuve un problema momentáneo. Probá de nuevo.';
-    return res.status(200).json(withOptions({ ok:true, reply: errorMsg }));
+    return res.status(200).json(withOptions({ ok: true, reply: errorMsg }));
   }
 });
 
@@ -4897,7 +4918,7 @@ app.get('/api/health', async (_req, res) => {
     // Check Redis/sessionStore connectivity
     let redisStatus = 'unknown';
     let activeSessions = 0;
-    
+
     try {
       const sessions = await listActiveSessions();
       activeSessions = sessions ? sessions.length : 0;
@@ -4906,7 +4927,7 @@ app.get('/api/health', async (_req, res) => {
       redisStatus = 'error';
       console.error('[HEALTH] Redis check failed:', err.message);
     }
-    
+
     // Check filesystem writable
     let fsStatus = 'healthy';
     try {
@@ -4917,16 +4938,16 @@ app.get('/api/health', async (_req, res) => {
       fsStatus = 'error';
       console.error('[HEALTH] Filesystem check failed:', err.message);
     }
-    
+
     // Check OpenAI connectivity (optional)
     let openaiStatus = openai ? 'configured' : 'not_configured';
-    
+
     // Check deviceDetection module
     let deviceDetectionStatus = 'unknown';
     try {
-      if (typeof detectAmbiguousDevice === 'function' && 
-          typeof DEVICE_DISAMBIGUATION === 'object' &&
-          Object.keys(DEVICE_DISAMBIGUATION).length > 0) {
+      if (typeof detectAmbiguousDevice === 'function' &&
+        typeof DEVICE_DISAMBIGUATION === 'object' &&
+        Object.keys(DEVICE_DISAMBIGUATION).length > 0) {
         deviceDetectionStatus = 'loaded';
       } else {
         deviceDetectionStatus = 'not_loaded';
@@ -4934,37 +4955,37 @@ app.get('/api/health', async (_req, res) => {
     } catch (e) {
       deviceDetectionStatus = `error: ${e.message}`;
     }
-    
+
     const uptime = process.uptime();
     const memory = process.memoryUsage();
-    
+
     const health = {
       ok: redisStatus === 'healthy' && fsStatus === 'healthy',
       status: (redisStatus === 'healthy' && fsStatus === 'healthy') ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
       uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
       uptimeSeconds: Math.floor(uptime),
-      
+
       services: {
         redis: redisStatus,
         filesystem: fsStatus,
         openai: openaiStatus,
         deviceDetection: deviceDetectionStatus
       },
-      
+
       stats: {
         activeSessions: activeSessions,
         totalMessages: metrics.chat.totalMessages || 0,
         totalErrors: metrics.errors.count || 0
       },
-      
+
       memory: {
         heapUsed: `${(memory.heapUsed / 1024 / 1024).toFixed(2)}MB`,
         heapTotal: `${(memory.heapTotal / 1024 / 1024).toFixed(2)}MB`,
         rss: `${(memory.rss / 1024 / 1024).toFixed(2)}MB`
       }
     };
-    
+
     const statusCode = health.ok ? 200 : 503;
     res.status(statusCode).json(health);
   } catch (error) {
@@ -4989,17 +5010,17 @@ app.get('/api/health', async (_req, res) => {
 app.get('/api/gdpr/my-data/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    
+
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'Session ID required' });
     }
-    
+
     const session = await getSession(sessionId);
-    
+
     if (!session) {
       return res.status(404).json({ ok: false, error: 'Session not found or already deleted' });
     }
-    
+
     // Retornar datos anonimizados/resumidos
     const userData = {
       sessionId: session.id,
@@ -5012,9 +5033,9 @@ app.get('/api/gdpr/my-data/:sessionId', async (req, res) => {
       gdprConsentDate: session.gdprConsentDate || null,
       expiresIn: '48 hours from creation'
     };
-    
+
     console.log(`[GDPR] 📊 Data request for session: ${sessionId}`);
-    
+
     res.json({ ok: true, data: userData });
   } catch (error) {
     console.error('[GDPR] Error retrieving user data:', error);
@@ -5029,13 +5050,13 @@ app.get('/api/gdpr/my-data/:sessionId', async (req, res) => {
 app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    
+
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'Session ID required' });
     }
-    
+
     console.log(`[GDPR] 🗑️  DELETE request for session: ${sessionId}`);
-    
+
     // Eliminar sesión de Redis/store
     const session = await getSession(sessionId);
     if (session) {
@@ -5049,7 +5070,7 @@ app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
       } catch (err) {
         console.error(`[GDPR] ⚠️  Error deleting transcript:`, err.message);
       }
-      
+
       // Eliminar tickets asociados (buscar por sessionId)
       try {
         const ticketFiles = fs.readdirSync(TICKETS_DIR);
@@ -5066,14 +5087,14 @@ app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
       } catch (err) {
         console.error(`[GDPR] ⚠️  Error deleting tickets:`, err.message);
       }
-      
+
       // Eliminar sesión
       await saveSession(sessionId, null); // O usar deleteSession si existe
       console.log(`[GDPR] ✅ Session deleted: ${sessionId}`);
     }
-    
-    res.json({ 
-      ok: true, 
+
+    res.json({
+      ok: true,
       message: 'Tus datos han sido eliminados permanentemente de nuestros sistemas',
       deletedItems: ['session', 'transcript', 'tickets']
     });
@@ -5084,10 +5105,10 @@ app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
 });
 
 // Sessions listing
-app.get('/api/sessions', async (_req,res)=>{
+app.get('/api/sessions', async (_req, res) => {
   const sessions = await listActiveSessions();
   updateMetric('chat', 'sessions', sessions.length);
-  res.json({ ok:true, count: sessions.length, sessions });
+  res.json({ ok: true, count: sessions.length, sessions });
 });
 
 // ========================================================
@@ -5135,22 +5156,22 @@ app.get('/api/flow-audit/export', (req, res) => {
 // ========================================================
 app.get('/api/metrics', async (req, res) => {
   const token = req.headers.authorization || req.query.token;
-  
+
   // Optional authentication
   if (LOG_TOKEN && token !== LOG_TOKEN) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
-  
+
   try {
     const sessions = await listActiveSessions();
-    
+
     // Count tickets
     let ticketsCount = 0;
     try {
       const ticketFiles = fs.readdirSync(TICKETS_DIR);
       ticketsCount = ticketFiles.filter(f => f.endsWith('.json')).length;
     } catch (e) { /* noop */ }
-    
+
     // Upload stats
     let uploadStats = { count: 0, totalBytes: 0 };
     try {
@@ -5164,41 +5185,41 @@ app.get('/api/metrics', async (req, res) => {
         };
       }, { count: 0, totalBytes: 0 });
     } catch (e) { /* noop */ }
-    
+
     // Prepare response
     const metricsData = {
       ok: true,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      
+
       // Core metrics
       chat: {
         totalMessages: metrics.chat.totalMessages || 0,
         activeSessions: sessions.length
       },
-      
+
       tickets: {
         total: ticketsCount,
         generated: metrics.chat.sessions || 0
       },
-      
+
       uploads: metrics.uploads,
-      
+
       errors: {
         count: metrics.errors.count || 0,
         lastError: metrics.errors.lastError || null
       },
-      
+
       storage: {
         uploads: {
           files: uploadStats.count,
           totalMB: (uploadStats.totalBytes / 1024 / 1024).toFixed(2)
         }
       },
-      
+
       memory: process.memoryUsage()
     };
-    
+
     res.json(metricsData);
   } catch (error) {
     console.error('[METRICS] Error:', error);
@@ -5214,11 +5235,11 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
 
 // Start server
 const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, ()=> {
+const server = app.listen(PORT, () => {
   console.log(`STI Chat (v7) started on ${PORT}`);
   console.log('[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)');
   console.log('[Performance] Compression enabled (gzip/brotli)');
@@ -5232,28 +5253,28 @@ server.headersTimeout = 66000; // Ligeramente mayor que keepAlive
 // Graceful shutdown
 function gracefulShutdown(signal) {
   console.log(`\n[${signal}] Iniciando apagado graceful...`);
-  
+
   // Cerrar SSE clients
   console.log(`[shutdown] Cerrando ${sseClients.size} clientes SSE...`);
   for (const client of Array.from(sseClients)) {
     try {
       client.write('data: SERVER_SHUTDOWN\n\n');
       client.end();
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
   sseClients.clear();
-  
+
   // Cerrar log stream
   if (logStream && logStream.writable) {
-    try { logStream.end(); } catch(e) { /* ignore */ }
+    try { logStream.end(); } catch (e) { /* ignore */ }
   }
-  
+
   // Cerrar servidor HTTP
   server.close(() => {
     console.log('[shutdown] Servidor HTTP cerrado');
     process.exit(0);
   });
-  
+
   // Force exit después de 10 segundos
   setTimeout(() => {
     console.error('[shutdown] Forzando salida después de 10s');
