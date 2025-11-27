@@ -4752,10 +4752,15 @@ La guía debe ser:
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const empatia = addEmpatheticResponse('ESCALATE', locale);
+        // Custom message
         reply = isEn
-          ? `💡 I understand. ${empatia} Do you want to try some extra solutions or connect you with a technician?`
-          : `💡 Entiendo. ${empatia} ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
-        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_CONNECT_TECH']);
+          ? `💡 I understand. ${empatia} Would you like me to connect you with a technician for a deeper look?`
+          : `💡 Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
+        // Custom buttons
+        options = [
+          { text: isEn ? 'Yes, I want to escalate to a Technician' : 'SI, quiero escalar a un Técnico.', value: 'BTN_CONNECT_TECH' },
+          { text: isEn ? 'No, thanks. Close Chat' : 'No, gracias. Cerrar Chat.', value: 'BTN_CLOSE_CHAT' }
+        ];
         session.stage = STATES.ESCALATE;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
