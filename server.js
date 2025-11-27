@@ -3049,18 +3049,12 @@ async function generateAndShowSteps(session, sid, res) {
       footer = '\nIf nothing changes…\n\n' +
         'Don\'t worry, we\'ve done the basics.\n' +
         'With this you can contact a technician indicating everything you tried.\n\n' +
-        'When you\'re done, let me know:\n\n' +
-        '✔️ "I solved it"\n' +
-        '❌ "The problem persists"\n' +
-        '❓ "I didn\'t understand step #" (and I\'ll explain it better)';
+        'When you\'re done, let me know by clicking an option below:';
     } else {
       footer = '\nSi nada cambia…\n\n' +
         'Tranquil@, ya hicimos lo básico.\n' +
         'Con esto ya podés contactar a un técnico indicando todo lo que probaste.\n\n' +
-        'Cuando termines, avisame:\n\n' +
-        '✔️ "Lo pude solucionar"\n' +
-        '❌ "El problema persiste"\n' +
-        '❓ "No entendí el paso Nº" (y te lo explico mejor)';
+        'Cuando termines, avisame seleccionando una opción abajo:';
     }
 
     const reply = `${intro}\n\n${stepsText}${footer}`;
@@ -3092,7 +3086,7 @@ async function generateAndShowSteps(session, sid, res) {
       });
     });
 
-    const payload = withOptions({ ok: true, reply }, options);
+    const payload = withOptions({ ok: true, reply, options });
     await saveSession(sid, session);
     return res.status(200).json(payload);
   } catch (err) {
