@@ -1014,6 +1014,52 @@ document.addEventListener('DOMContentLoaded', function () {
         return; // No mostrar más botones
       }
 
+      // 🔍 DETECTAR SOLUCIÓN EXITOSA
+      // Si el usuario dice que lo solucionó, cambiar botón a "Cerrar"
+      if (String(value).toLowerCase() === 'lo pude solucionar' || String(label).includes('Ya lo solucioné')) {
+         console.log('✅ Usuario solucionó el problema - Cambiar UI a modo Cerrar');
+         if (send) {
+           // Clonar el botón para eliminar listeners anteriores
+           const newSend = send.cloneNode(true);
+           send.parentNode.replaceChild(newSend, send);
+           
+           // Actualizar referencia global si es necesario, aunque 'send' es const/let en scope superior?
+           // 'send' fue definido con const send = document.getElementById('sti-send');
+           // No puedo reasignar 'send' si es const.
+           // Pero puedo modificar sus propiedades.
+           // El problema de los listeners: addEventListener se acumula.
+           // La mejor forma sin reemplazar nodo (si 'send' es const) es ocultarlo y mostrar otro, o usar flags.
+           // O simplemente cambiar el onclick y asumir que el listener original chequea algo?
+           // El listener original: send.addEventListener('click', ()=> sendMsg(input && input.value), {passive:true});
+           // Si cambio el texto a "Cerrar", el usuario no escribirá nada en el input (probablemente).
+           // Si el input está vacío, sendMsg no hace nada: if (!t) return;
+           // Entonces, si cambio el onclick para que cierre el chat, y el usuario hace click:
+           // Se ejecuta sendMsg -> input vacío -> return.
+           // Se ejecuta stiHideChat -> cierra.
+           // PERFECTO. No necesito clonar.
+           
+           /* 
+              NOTA: send es const en el scope de init. 
+              Pero send.onclick es una propiedad.
+              El addEventListener se mantiene.
+              sendMsg tiene: const t = (txt || '').trim(); if (!t) return;
+              Si el usuario no escribe nada, sendMsg no hace nada.
+              Así que es seguro solo agregar el onclick handler.
+           */
+           
+           // send = document.getElementById('sti-send'); // Es const arriba.
+           // Usamos la referencia 'send' del closure.
+           
+           send.textContent = 'Cerrar';
+           send.style.backgroundColor = '#dc3545'; // Rojo
+           send.onclick = (e) => {
+             e.preventDefault();
+             e.stopPropagation(); // Intentar detener otros handlers si es posible (no funciona para listeners pasivos ya agregados)
+             stiHideChat();
+           };
+         }
+      }
+
       // mostrar botones si vienen en la respuesta
       const btns = normalizeButtons(data.ui || data.options || data?.buttons || data?.options);
       if (btns.length) renderButtons(node, btns);
