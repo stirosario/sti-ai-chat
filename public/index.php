@@ -772,24 +772,6 @@
           if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || `HTTP ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          if (data.ok) {
-            uploadedImagesCount++;
-            if (data.reply) {
-              addMessage('bot', data.reply);
-            }
-            if (data.imageUrl) {
-              addMessage('user', '[Imagen subida]', data.imageUrl);
-            }
-          } else {
-            addMessage('bot', data.error || 'Error al subir la imagen');
-          }
-        } catch (error) {
-          console.error('Error uploading image:', error);
-          addMessage('bot', error.message || 'Error al subir la imagen. Por favor, intentá de nuevo.');
         }
       }
 

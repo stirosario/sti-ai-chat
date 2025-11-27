@@ -4733,14 +4733,18 @@ La guía debe ser:
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
         const empatia = addEmpatheticResponse('ENDED', locale);
         const firstLine = whoLabel
-          ? (isEn ? `I'm glad you were able to solve it, ${whoLabel}! 🙌` : `¡Me alegro que lo hayas podido resolver, ${whoLabel}! 🙌`)
-          : (isEn ? `I'm glad you were able to solve it! 🙌` : `¡Me alegro que lo hayas podido resolver! 🙌`);
+          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
+          : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
+
         reply = isEn
-          ? `${firstLine}\n\n${empatia}\n\nIf it fails again at some point, you can reopen Tecnos chat and we'll continue from where we left off.\n\nYou can follow us on Instagram for tips and news: https://instagram.com/sti.rosario\nAnd visit our STI website — Servicio Técnico Inteligente for services and support: https://stia.com.ar 🚀\n\nThanks for using Tecnos from STI — Servicio Técnico Inteligente. 😉`
-          : `${firstLine}\n\n${empatia}\n\nSi en algún momento vuelve a fallar, podés abrir de nuevo el chat de Tecnos y seguimos desde donde lo dejamos.\n\nPodés seguirnos en Instagram para tips y novedades: https://instagram.com/sti.rosario\nY visitar nuestra web de STI — Servicio Técnico Inteligente para servicios y soporte: https://stia.com.ar 🚀\n\nGracias por usar Tecnos de STI — Servicio Técnico Inteligente. 😉`;
+          ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+          : `${firstLine}\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
+        // Flag to indicate conversation ended -> Frontend should show "Cerrar" button
+        var endConversation = true;
       } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4911,6 +4915,9 @@ La guía debe ser:
     } catch (e) { /* noop */ }
 
     const response = withOptions({ ok: true, reply, sid, stage: session.stage });
+    if (typeof endConversation !== 'undefined' && endConversation) {
+      response.endConversation = true;
+    }
     if (options && options.length) response.options = options;
 
     try {
