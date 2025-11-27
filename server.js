@@ -4743,8 +4743,11 @@ La guía debe ser:
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
-        // Flag to indicate conversation ended -> Frontend should show "Cerrar" button
-        var endConversation = true;
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+
       } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4754,6 +4757,10 @@ La guía debe ser:
           : `💡 Entiendo. ${empatia} ¿Querés probar algunas soluciones extra o que te conecte con un técnico?`;
         options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_CONNECT_TECH']);
         session.stage = STATES.ESCALATE;
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {
