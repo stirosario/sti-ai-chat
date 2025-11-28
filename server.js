@@ -2850,14 +2850,14 @@ async function createTicketAndRespond(session, sid, res) {
     const replyLines = [];
 
     if (isEn) {
-      replyLines.push('Perfect, I will generate a summary ticket with what we tried so far.');
-      replyLines.push('You can send it by WhatsApp to a human technician so they can continue helping you.');
-      replyLines.push('When you are ready, tap the green WhatsApp button and send the message without changing its text.');
+      replyLines.push('Great, I will create a ticket with a summary of this chat and all the steps we already tried together. 🧾');
+      replyLines.push('Then you can send it by WhatsApp to a human STI technician so they can keep helping you step by step. 👨‍💻');
+      replyLines.push('When you are ready, tap the green WhatsApp button and send the message exactly as it appears, without changing the text. ✅');
     } else {
-      replyLines.push('Listo, voy a generar un ticket con el resumen de esta conversación y los pasos que ya probamos.');
-      replyLines.push('Vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote.');
-      replyLines.push('Cuando estés listo, tocá el botón verde de WhatsApp y enviá el mensaje sin modificar el texto.');
-      replyLines.push('Aviso: no compartas contraseñas ni datos bancarios. Yo ya enmascaré información sensible si la hubieras escrito.');
+      replyLines.push('Genial, voy a armar un ticket con el resumen de esta charla y todos los pasos que ya probamos junt@s. 🧾');
+      replyLines.push('Después vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote paso a paso. 👨‍💻');
+      replyLines.push('Cuando estés list@, tocá el botón verde de WhatsApp y enviá el mensaje tal como aparece, sin cambiar el texto. ✅');
+      replyLines.push('🛡️ Aviso importante: no compartas contraseñas ni datos bancarios. Si escribiste algo sensible, ya lo enmascaré en el ticket.');
     }
 
     const resp = withOptions({
@@ -2884,7 +2884,7 @@ async function createTicketAndRespond(session, sid, res) {
     await saveSession(sid, session);
     return res.json(withOptions({
       ok: false,
-      reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
+      reply: '❗ No pude terminar de generar el ticket ahora mismo. Si querés, probá de nuevo en unos minutos o escribí directamente a STI por WhatsApp con un resumen del problema.',
       stage: session.stage,
       options: [BUTTONS.CLOSE]
     }));
@@ -3000,7 +3000,7 @@ async function generateAndShowSteps(session, sid, res) {
           steps = [
             'Apagado completo\n\nDesenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
             'Revisá las conexiones\n\nCable de corriente bien firme.\n\nMonitor conectado (HDMI / VGA / DP).\n\nProbá encender nuevamente.',
-            'Si nada cambia\n\nTranquil@, ya hicimos lo básico.\nCon esto ya podés contactar a un técnico indicando todo lo que probaste.'
+            'Si nada cambia\n\nTranquil@, ya cubrimos lo básico junt@s.\nCon esto ya podés contactar a un técnico de STI contando todo lo que probaste hasta ahora. 🙌'
           ];
         }
       }
@@ -3453,7 +3453,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         return await createTicketAndRespond(session, sid, res);
       } catch (errCT) {
         console.error('[CONFIRM_TICKET]', errCT && errCT.message);
-        const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
+        const failReply = '❗ No pude terminar de generar el ticket en este momento. Podés intentar de nuevo en unos minutos o escribir directo a STI por WhatsApp para que te ayuden con el caso.';
         return res.json(withOptions({ ok: false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
       }
     }
