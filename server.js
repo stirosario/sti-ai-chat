@@ -1006,6 +1006,8 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   }
 }
 
+
+
 async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const isEn = profile.code === 'en';
@@ -1070,6 +1072,8 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
     return `Paso ${stepIndex}: ${stepText}\n\nIntentá seguirlo con calma. Si te trabás en alguna parte, decime exactamente en cuál y te voy guiando.`;
   }
 }
+
+
 
 // ========================================================
 // Express app, endpoints, and core chat flow
@@ -4881,6 +4885,11 @@ La guía debe ser:
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+
       } else if (rxNo.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4888,8 +4897,13 @@ La guía debe ser:
         reply = isEn
           ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
           : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
+
         options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
         session.stage = STATES.ESCALATE;
+
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSession(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {
