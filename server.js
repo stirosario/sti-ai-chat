@@ -1006,8 +1006,6 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
   }
 }
 
-
-
 async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
   const profile = getLocaleProfile(locale);
   const isEn = profile.code === 'en';
@@ -1072,8 +1070,6 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
     return `Paso ${stepIndex}: ${stepText}\n\nIntentá seguirlo con calma. Si te trabás en alguna parte, decime exactamente en cuál y te voy guiando.`;
   }
 }
-
-
 
 // ========================================================
 // Express app, endpoints, and core chat flow
@@ -2854,14 +2850,14 @@ async function createTicketAndRespond(session, sid, res) {
     const replyLines = [];
 
     if (isEn) {
-      replyLines.push('Great, I will create a ticket with a summary of this chat and all the steps we already tried together. 🧾');
-      replyLines.push('Then you can send it by WhatsApp to a human STI technician so they can keep helping you step by step. 👨‍💻');
-      replyLines.push('When you are ready, tap the green WhatsApp button and send the message exactly as it appears, without changing the text. ✅');
+      replyLines.push('Perfect, I will generate a summary ticket with what we tried so far.');
+      replyLines.push('You can send it by WhatsApp to a human technician so they can continue helping you.');
+      replyLines.push('When you are ready, tap the green WhatsApp button and send the message without changing its text.');
     } else {
-      replyLines.push('Genial, voy a armar un ticket con el resumen de esta charla y todos los pasos que ya probamos junt@s. 🧾');
-      replyLines.push('Después vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote paso a paso. 👨‍💻');
-      replyLines.push('Cuando estés list@, tocá el botón verde de WhatsApp y enviá el mensaje tal como aparece, sin cambiar el texto. ✅');
-      replyLines.push('🛡️ Aviso importante: no compartas contraseñas ni datos bancarios. Si escribiste algo sensible, ya lo enmascaré en el ticket.');
+      replyLines.push('Listo, voy a generar un ticket con el resumen de esta conversación y los pasos que ya probamos.');
+      replyLines.push('Vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote.');
+      replyLines.push('Cuando estés listo, tocá el botón verde de WhatsApp y enviá el mensaje sin modificar el texto.');
+      replyLines.push('Aviso: no compartas contraseñas ni datos bancarios. Yo ya enmascaré información sensible si la hubieras escrito.');
     }
 
     const resp = withOptions({
@@ -2888,7 +2884,7 @@ async function createTicketAndRespond(session, sid, res) {
     await saveSession(sid, session);
     return res.json(withOptions({
       ok: false,
-      reply: '❗ No pude terminar de generar el ticket ahora mismo. Si querés, probá de nuevo en unos minutos o escribí directamente a STI por WhatsApp con un resumen del problema.',
+      reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
       stage: session.stage,
       options: [BUTTONS.CLOSE]
     }));
@@ -3004,7 +3000,7 @@ async function generateAndShowSteps(session, sid, res) {
           steps = [
             'Apagado completo\n\nDesenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
             'Revisá las conexiones\n\nCable de corriente bien firme.\n\nMonitor conectado (HDMI / VGA / DP).\n\nProbá encender nuevamente.',
-            'Si nada cambia\n\nTranquil@, ya cubrimos lo básico junt@s.\nCon esto ya podés contactar a un técnico de STI contando todo lo que probaste hasta ahora. 🙌'
+            'Si nada cambia\n\nTranquil@, ya hicimos lo básico.\nCon esto ya podés contactar a un técnico indicando todo lo que probaste.'
           ];
         }
       }
@@ -3457,7 +3453,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         return await createTicketAndRespond(session, sid, res);
       } catch (errCT) {
         console.error('[CONFIRM_TICKET]', errCT && errCT.message);
-        const failReply = '❗ No pude terminar de generar el ticket en este momento. Podés intentar de nuevo en unos minutos o escribir directo a STI por WhatsApp para que te ayuden con el caso.';
+        const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
         return res.json(withOptions({ ok: false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
       }
     }
@@ -4885,11 +4881,6 @@ La guía debe ser:
         session.stage = STATES.ENDED;
         session.waEligible = false;
         options = [];
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-
       } else if (rxNo.test(t)) {
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4897,13 +4888,8 @@ La guía debe ser:
         reply = isEn
           ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
           : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-
         options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
         session.stage = STATES.ESCALATE;
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {
