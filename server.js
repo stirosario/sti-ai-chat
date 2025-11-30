@@ -1243,6 +1243,26 @@ if (process.env.NODE_ENV !== 'production') {
   console.log('[CORS] Development mode: localhost origins enabled');
 }
 
+// Lightweight bypass for logs endpoints: if the request targets /api/logs
+// or /api/logs/stream and provides the correct token, allow CORS for that
+// request. This keeps the strict whitelist for the rest of the app while
+// allowing the admin UI (which may run on a different origin) to connect.
+app.use((req, res, next) => {
+  try {
+    const isLogsPath = String(req.path || '').startsWith('/api/logs');
+    const token = String(req.query?.token || '');
+    if (isLogsPath && LOG_TOKEN && token && token === String(LOG_TOKEN)) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+      if (req.method === 'OPTIONS') return res.sendStatus(204);
+      return next();
+    }
+  } catch (e) { /* ignore and proceed to normal CORS */ }
+  next();
+});
+
 app.use(cors({
   origin: (origin, callback) => {
     // SECURITY: Rechazar explícitamente origin null (puede ser ataque CSRF)
