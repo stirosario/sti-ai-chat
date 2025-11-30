@@ -5660,3 +5660,19 @@
 2025-11-29T01:09:14.711Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-11-29T01:09:14.712Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-11-29T06:00:00.047Z [ERROR] [[PHONE_REDACTED]T06:00:00.041Z] [PID: [PHONE_REDACTED]] [32m[NODE-CRON][32m [31m[ERROR][0m logMsg is not defined {}
+2025-11-30T22:01:32.589Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-30T22:01:36.051Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-11-30T22:01:36.095Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-30T22:01:36.096Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-11-30T22:01:36.097Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-30T22:01:36.097Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-30T22:07:34.719Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-11-30T22:07:37.129Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-11-30T22:07:37.177Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-11-30T22:07:37.177Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-11-30T22:07:37.179Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-11-30T22:07:37.180Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-30T22:18:31.590Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

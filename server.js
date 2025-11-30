@@ -154,7 +154,8 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
 // SECURITY: Generar token seguro si no está configurado
-const LOG_TOKEN = process.env.LOG_TOKEN || crypto.randomBytes(32).toString('hex');
+// Permitir fallback desde `SSE_TOKEN` en .env para despliegues donde se use ese nombre
+const LOG_TOKEN = process.env.LOG_TOKEN || process.env.SSE_TOKEN || crypto.randomBytes(32).toString('hex');
 if (!process.env.LOG_TOKEN) {
   console.error('\n'.repeat(3) + '='.repeat(80));
   console.error('[SECURITY CRITICAL] ⚠️  LOG_TOKEN NOT CONFIGURED!');
@@ -179,6 +180,20 @@ try {
   console.log('[SECURITY] Wrote log token to', tokenPath);
 } catch (e) {
   console.error('[SECURITY] Failed to write log token file:', e && e.message);
+}
+
+// Additionally attempt to write a copy into the repo's public_html/logs
+// (common deployment where PHP admin UI reads that path). This is best-effort
+// and won't override existing permissions if the folder isn't writable.
+try {
+  const altPath = path.join(process.cwd(), '..', 'public_html', 'logs', 'log_token.txt');
+  try { fs.mkdirSync(path.dirname(altPath), { recursive: true }); } catch (e) { /* ignore */ }
+  try { fs.writeFileSync(altPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) {
+    try { fs.writeFileSync(altPath, LOG_TOKEN); } catch (err) { throw err; }
+  }
+  console.log('[SECURITY] Wrote public copy of log token to', altPath);
+} catch (e) {
+  console.warn('[SECURITY] Could not write public copy of log token:', e && e.message);
 }
 
 // ========================================================
