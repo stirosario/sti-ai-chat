@@ -172,6 +172,15 @@ for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
+// Escribir token de logs a archivo seguro para interfaces administrativas locales
+try {
+  const tokenPath = path.join(LOGS_DIR, 'log_token.txt');
+  try { fs.writeFileSync(tokenPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) { fs.writeFileSync(tokenPath, LOG_TOKEN); }
+  console.log('[SECURITY] Wrote log token to', tokenPath);
+} catch (e) {
+  console.error('[SECURITY] Failed to write log token file:', e && e.message);
+}
+
 // ========================================================
 // 🔒 CORS CONFIGURATION (Production-ready)
 // ========================================================
@@ -2989,6 +2998,12 @@ async function generateAndShowSteps(session, sid, res) {
       let aiSteps = [];
       try {
         const problemWithContext = (session.problem || '') + imageContext;
+        // DEBUG: mostrar pasos básicos antes de pedir pruebas avanzadas a OpenAI
+        try {
+          console.log('[DEBUG aiQuickTests] session.tests.basic before call (generateAndShowSteps):', JSON.stringify(Array.isArray(session.tests?.basic) ? session.tests.basic : []));
+        } catch (e) {
+          console.log('[DEBUG aiQuickTests] error serializing session.tests.basic', e && e.message);
+        }
         aiSteps = await aiQuickTests(problemWithContext, device || '', locale, Array.isArray(session.tests?.basic) ? session.tests.basic : []);
       } catch (e) {
         aiSteps = [];
@@ -3019,6 +3034,9 @@ async function generateAndShowSteps(session, sid, res) {
 
     session.stage = STATES.BASIC_TESTS;
     session.basicTests = steps;
+    // Mantener compatibilidad con estructuras que usan session.tests
+    session.tests = session.tests || {};
+    session.tests.basic = Array.isArray(steps) ? steps : [];
     session.currentTestIndex = 0;
 
     const who = session.userName ? capitalizeToken(session.userName) : null;
@@ -4799,7 +4817,15 @@ La guía debe ser:
           const isEn = String(locale).toLowerCase().startsWith('en');
           const device = session.device || '';
           let aiSteps = [];
-          try { aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []); } catch (e) { aiSteps = []; }
+          try {
+            // DEBUG: mostrar pasos básicos antes de pedir pruebas avanzadas a OpenAI (ESCALATE)
+            try {
+              console.log('[DEBUG aiQuickTests] session.tests.basic before call (ESCALATE):', JSON.stringify(Array.isArray(session.tests?.basic) ? session.tests.basic : []));
+            } catch (e) {
+              console.log('[DEBUG aiQuickTests] error serializing session.tests.basic', e && e.message);
+            }
+            aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []);
+          } catch (e) { aiSteps = []; }
           let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
 
           // filtrar resultados avanzados que ya estén en pasos básicos (comparación normalizada)
