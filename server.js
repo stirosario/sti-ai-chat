@@ -413,6 +413,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
       { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
+      { token: 'BTN_ADVANCED_TESTS', label: '⚡ Pruebas Avanzadas', text: 'pruebas avanzadas' },
       { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
       { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
@@ -3501,11 +3502,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       let replyFr;
       let optsFr;
       if (isEnFr) {
-        replyFr = "Sorry if I wasn’t clear. We can try one more quick thing or I can create a ticket so a human technician can help you. What do you prefer?";
-        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+        replyFr = "Sorry if I wasn’t clear. We can try one more quick thing, some advanced tests, or I can create a ticket so a human technician can help you. What do you prefer?";
+        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
       } else {
-        replyFr = "Perdón si no fui claro. Podemos probar una cosa rápida más o genero un ticket para que te ayude un técnico humano. ¿Qué preferís?";
-        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+        replyFr = "Perdón si no fui claro. Podemos probar una cosa rápida más, realizar pruebas avanzadas, o genero un ticket para que te ayude un técnico humano. ¿Qué preferís?";
+        optsFr = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
       }
       return res.json(withOptions({
         ok: true,
