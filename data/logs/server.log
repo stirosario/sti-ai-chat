@@ -5659,3 +5659,4 @@
 2025-11-29T01:09:14.711Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
 2025-11-29T01:09:14.711Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-11-29T01:09:14.712Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-11-29T06:00:00.047Z [ERROR] [[PHONE_REDACTED]T06:00:00.041Z] [PID: [PHONE_REDACTED]] [32m[NODE-CRON][32m [31m[ERROR][0m logMsg is not defined {}

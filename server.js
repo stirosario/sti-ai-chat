@@ -3006,6 +3006,11 @@ async function generateAndShowSteps(session, sid, res) {
       }
     }
 
+    // Filtrar pasos avanzados para que no repitan los básicos
+    if (session.tests && Array.isArray(session.tests.basic) && Array.isArray(steps)) {
+      steps = steps.filter(s => !session.tests.basic.includes(s));
+    }
+
     session.stage = STATES.BASIC_TESTS;
     session.basicTests = steps;
     session.currentTestIndex = 0;
