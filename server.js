@@ -4762,11 +4762,8 @@ La guía debe ser:
         reply = isEn
           ? `💡 I understand. ${empatia} Would you like me to connect you with a technician for a deeper look?`
           : `💡 Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-        // Custom buttons
-        options = [
-          { text: isEn ? 'Yes, I want to escalate to a Technician' : 'SI, quiero escalar a un Técnico.', value: 'BTN_CONNECT_TECH' },
-          { text: isEn ? 'No, thanks. Close Chat' : 'No, gracias. Cerrar Chat.', value: 'BTN_CLOSE_CHAT' }
-        ];
+        // Custom buttons (usar definiciones centrales para consistencia)
+        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
         session.stage = STATES.ESCALATE;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -4786,9 +4783,9 @@ La guía debe ser:
         return await generateAndShowSteps(session, sid, res);
       }
     } else if (session.stage === STATES.ESCALATE) {
-      const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas)/i;
+      const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|pruebas avanzadas)/i;
       const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
-      const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS';
+      const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS';
       const isOpt2 = opt2.test(t) || buttonToken === 'BTN_CONNECT_TECH';
 
       if (isOpt1) {
