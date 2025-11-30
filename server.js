@@ -903,7 +903,7 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
   }
 }
 
-async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
+async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avoidSteps = []) {
   const profile = getLocaleProfile(locale);
   const trimmed = String(problemText || '').trim();
   if (!openai || !trimmed) {
@@ -938,6 +938,9 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR') {
     '- Devolvé la respuesta SOLO como un array JSON de strings (sin explicación extra).',
     '- Cada string debe describir un paso concreto, simple y seguro.',
     '- Evitá cualquier acción peligrosa o avanzada (no tocar BIOS, no usar comandos destructivos).',
+    '',
+    // Si se recibieron pasos a evitar, pedí explícitamente no repetirlos
+    (Array.isArray(avoidSteps) && avoidSteps.length) ? (`- NO repitas los siguientes pasos ya probados por el usuario: ${avoidSteps.map(s => '"' + String(s).replace(/\s+/g,' ').trim().slice(0,80) + '"').join(', ')}`) : '',
     '',
     'Ejemplo de formato de salida:',
     '["Paso 1: ...", "Paso 2: ...", "Paso 3: ..."]',
@@ -2986,7 +2989,7 @@ async function generateAndShowSteps(session, sid, res) {
       let aiSteps = [];
       try {
         const problemWithContext = (session.problem || '') + imageContext;
-        aiSteps = await aiQuickTests(problemWithContext, device || '', locale);
+        aiSteps = await aiQuickTests(problemWithContext, device || '', locale, Array.isArray(session.tests?.basic) ? session.tests.basic : []);
       } catch (e) {
         aiSteps = [];
       }
@@ -4796,7 +4799,7 @@ La guía debe ser:
           const isEn = String(locale).toLowerCase().startsWith('en');
           const device = session.device || '';
           let aiSteps = [];
-          try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch (e) { aiSteps = []; }
+          try { aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []); } catch (e) { aiSteps = []; }
           let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
 
           // filtrar resultados avanzados que ya estén en pasos básicos (comparación normalizada)
