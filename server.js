@@ -512,6 +512,7 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
 const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 function emojiForIndex(i) { const n = i + 1; return NUM_EMOJIS[n] || `${n}.`; }
 function enumerateSteps(arr) { if (!Array.isArray(arr)) return []; return arr.map((s, i) => `${emojiForIndex(i)} ${s}`); }
+function normalizeStepText(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
 
 const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi[-\s]*fi|wifi|impresora|printer|tv\s*stick|stick\s*tv|amazon\s*stick|fire\s*stick|magistv|magis\s*tv|windows|android|correo|email|outlook|office|word|excel)\b/i;
@@ -3007,9 +3008,10 @@ async function generateAndShowSteps(session, sid, res) {
       }
     }
 
-    // Filtrar pasos avanzados para que no repitan los básicos
+    // Filtrar pasos avanzados para que no repitan los básicos (comparación normalizada)
     if (session.tests && Array.isArray(session.tests.basic) && Array.isArray(steps)) {
-      steps = steps.filter(s => !session.tests.basic.includes(s));
+      const basicSet = new Set((session.tests.basic || []).map(normalizeStepText));
+      steps = steps.filter(s => !basicSet.has(normalizeStepText(s)));
     }
 
     session.stage = STATES.BASIC_TESTS;
@@ -4762,8 +4764,8 @@ La guía debe ser:
         reply = isEn
           ? `💡 I understand. ${empatia} Would you like me to connect you with a technician for a deeper look?`
           : `💡 Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-        // Custom buttons (usar definiciones centrales para consistencia)
-        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+        // Custom buttons (usar una sola opción para solicitar pruebas avanzadas)
+        options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
         session.stage = STATES.ESCALATE;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -4795,10 +4797,28 @@ La guía debe ser:
           const device = session.device || '';
           let aiSteps = [];
           try { aiSteps = await aiQuickTests(session.problem || '', device || ''); } catch (e) { aiSteps = []; }
-          const limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 4) : [];
+          let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
+
+          // filtrar resultados avanzados que ya estén en pasos básicos (comparación normalizada)
           session.tests = session.tests || {};
+          const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
+          const basicSet = new Set((basicList || []).map(normalizeStepText));
+          limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
+
+          // limitar a 4 pasos finales
+          limited = limited.slice(0, 4);
+
+          // Si no quedan pruebas avanzadas distintas, avisar al usuario y ofrecer conectar con técnico
+          if (!limited || limited.length === 0) {
+            const noMore = isEn
+              ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
+              : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
+            session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
+            await saveSession(sid, session);
+            return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
+          }
+
           session.tests.advanced = limited;
-          if (!limited || limited.length === 0) return await createTicketAndRespond(session, sid, res);
           session.stepProgress = session.stepProgress || {};
           limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
           const numbered = enumerateSteps(limited);
@@ -4838,7 +4858,7 @@ La guía debe ser:
         return await createTicketAndRespond(session, sid, res);
       } else {
         reply = 'Decime si querés probar más soluciones o conectar con un técnico.';
-        options = buildUiButtonsFromTokens(['BTN_MORE_TESTS', 'BTN_CONNECT_TECH']);
+        options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH']);
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
       const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
