@@ -1,0 +1,337 @@
+/* =================================================================
+   STI Chat Widget - Frontend Styles
+   ================================================================= */
+
+/* Chat Box Container */
+#sti-chat-box {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  height: 520px;
+  max-height: calc(100vh - 100px);
+  background: linear-gradient(180deg, rgba(15, 22, 36, 0.98), rgba(10, 16, 28, 0.98));
+  border: 1px solid rgba(92, 200, 255, 0.3);
+  border-radius: 16px;
+  box-shadow: 
+    0 10px 40px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(92, 200, 255, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  flex-direction: column;
+  z-index: 2147483647;
+  overflow: hidden;
+  font-family: 'Exo', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Chat Header - using CSS custom property for title */
+#sti-chat-box::before {
+  content: var(--sti-title, 'Asistencia 24/7 · STI');
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 50px;
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  color: white;
+  font-weight: 700;
+  font-size: 15px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+/* Close Button */
+#sti-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: white;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#sti-close:hover {
+  background: rgba(220, 53, 69, 0.8);
+  border-color: rgba(220, 53, 69, 0.9);
+  transform: scale(1.05);
+}
+
+/* Messages Area */
+#sti-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(92, 200, 255, 0.3) transparent;
+}
+
+#sti-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+#sti-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#sti-messages::-webkit-scrollbar-thumb {
+  background: rgba(92, 200, 255, 0.3);
+  border-radius: 3px;
+}
+
+/* Message Rows */
+.sti-msg {
+  display: flex;
+  max-width: 85%;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sti-msg.sti-bot {
+  align-self: flex-start;
+}
+
+.sti-msg.sti-user {
+  align-self: flex-end;
+}
+
+/* Message Bubbles */
+.sti-bubble {
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.sti-bot .sti-bubble {
+  background: linear-gradient(135deg, rgba(92, 200, 255, 0.15), rgba(92, 200, 255, 0.08));
+  border: 1px solid rgba(92, 200, 255, 0.25);
+  color: #e8f4fc;
+  border-bottom-left-radius: 4px;
+}
+
+.sti-user .sti-bubble {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+/* Typing Indicator */
+.sti-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: rgba(92, 200, 255, 0.1);
+  border: 1px solid rgba(92, 200, 255, 0.2);
+  border-radius: 16px;
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+  max-width: 70px;
+}
+
+.sti-typing .dot {
+  width: 8px;
+  height: 8px;
+  background: rgba(92, 200, 255, 0.6);
+  border-radius: 50%;
+  animation: typingDot 1.4s infinite ease-in-out both;
+}
+
+.sti-typing .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.sti-typing .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.sti-typing .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingDot {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Input Area */
+.sti-input-area {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(92, 200, 255, 0.15);
+  flex-shrink: 0;
+}
+
+#sti-text {
+  flex: 1;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(92, 200, 255, 0.25);
+  border-radius: 24px;
+  color: white;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+#sti-text::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#sti-text:focus {
+  border-color: rgba(92, 200, 255, 0.5);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(92, 200, 255, 0.1);
+}
+
+#sti-send {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+#sti-send:hover {
+  background: linear-gradient(135deg, #0056b3 0%, #003d82 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+}
+
+#sti-send:active {
+  transform: translateY(0);
+}
+
+/* WhatsApp Button */
+.sti-wa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sti-wa-btn:hover {
+  background: linear-gradient(135deg, #128c7e 0%, #075e54 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+}
+
+/* Body class when chat is open */
+body.chat-open {
+  overflow: hidden;
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+  #sti-chat-box {
+    bottom: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+  
+  #sti-chat-box::before {
+    padding: 16px 50px;
+    font-size: 16px;
+  }
+  
+  #sti-close {
+    top: 10px;
+    right: 14px;
+    width: 36px;
+    height: 36px;
+    font-size: 22px;
+  }
+  
+  .sti-msg {
+    max-width: 90%;
+  }
+  
+  .sti-bubble {
+    font-size: 15px;
+  }
+  
+  #sti-text {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
+
+/* Header Asistencia button styling */
+.btn-asistencia-header {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.btn-asistencia-header:hover {
+  transform: scale(1.05);
+  filter: brightness(1.1);
+}
+
+.btn-asistencia-img {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 768px) {
+  .btn-asistencia-header {
+    display: none;
+  }
+}
