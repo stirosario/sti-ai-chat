@@ -807,7 +807,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function appendWAButton(toNode){
-    if (!toNode || toNode.querySelector?.('.sti-wa-btn')) return;
+    if (!toNode || (toNode.querySelector && toNode.querySelector('.sti-wa-btn'))) return;
     const wrap = document.createElement('div');
     wrap.style.marginTop = '10px';
     const b = document.createElement('button');
