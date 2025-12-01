@@ -7,21 +7,21 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  width: 380px;
+  width: 400px;
   max-width: calc(100vw - 40px);
-  height: 520px;
+  height: 550px;
   max-height: calc(100vh - 100px);
-  background: linear-gradient(180deg, rgba(15, 22, 36, 0.98), rgba(10, 16, 28, 0.98));
-  border: 1px solid rgba(92, 200, 255, 0.3);
-  border-radius: 16px;
+  background: linear-gradient(180deg, #0f1724 0%, #0a1018 100%);
+  border: 2px solid rgba(92, 200, 255, 0.4);
+  border-radius: 20px;
   box-shadow: 
-    0 10px 40px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(92, 200, 255, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 15px 50px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(92, 200, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   flex-direction: column;
   z-index: 2147483647;
   overflow: hidden;
-  font-family: 'Exo', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 /* Chat Header - using CSS custom property for title */
@@ -30,28 +30,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 50px;
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-  color: white;
+  padding: 18px 50px;
+  background: linear-gradient(135deg, #0066cc 0%, #004499 100%);
+  color: #ffffff;
   font-weight: 700;
-  font-size: 15px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  border-bottom: 2px solid rgba(92, 200, 255, 0.3);
   flex-shrink: 0;
 }
 
 /* Close Button */
 #sti-close {
   position: absolute;
-  top: 8px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  top: 12px;
+  right: 14px;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  color: white;
-  font-size: 20px;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: bold;
   line-height: 1;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -62,21 +64,23 @@
 }
 
 #sti-close:hover {
-  background: rgba(220, 53, 69, 0.8);
-  border-color: rgba(220, 53, 69, 0.9);
-  transform: scale(1.05);
+  background: #dc3545;
+  border-color: #dc3545;
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.5);
 }
 
 /* Messages Area */
 #sti-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(92, 200, 255, 0.3) transparent;
+  scrollbar-color: rgba(92, 200, 255, 0.4) transparent;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 #sti-messages::-webkit-scrollbar {
@@ -120,25 +124,27 @@
 
 /* Message Bubbles */
 .sti-bubble {
-  padding: 12px 16px;
-  border-radius: 16px;
-  font-size: 14px;
-  line-height: 1.5;
+  padding: 14px 18px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.6;
   word-wrap: break-word;
 }
 
 .sti-bot .sti-bubble {
-  background: linear-gradient(135deg, rgba(92, 200, 255, 0.15), rgba(92, 200, 255, 0.08));
-  border: 1px solid rgba(92, 200, 255, 0.25);
-  color: #e8f4fc;
-  border-bottom-left-radius: 4px;
+  background: linear-gradient(135deg, rgba(92, 200, 255, 0.2), rgba(92, 200, 255, 0.1));
+  border: 2px solid rgba(92, 200, 255, 0.35);
+  color: #ffffff;
+  border-bottom-left-radius: 6px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .sti-user .sti-bubble {
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: white;
-  border-bottom-right-radius: 4px;
+  background: linear-gradient(135deg, #0066cc 0%, #004499 100%);
+  border: 2px solid rgba(92, 200, 255, 0.3);
+  color: #ffffff;
+  border-bottom-right-radius: 6px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* Typing Indicator */
@@ -189,54 +195,55 @@
 /* Input Area */
 .sti-input-area {
   display: flex;
-  gap: 10px;
-  padding: 12px 16px;
-  background: rgba(0, 0, 0, 0.3);
-  border-top: 1px solid rgba(92, 200, 255, 0.15);
+  gap: 12px;
+  padding: 16px 18px;
+  background: rgba(0, 20, 40, 0.95);
+  border-top: 2px solid rgba(92, 200, 255, 0.25);
   flex-shrink: 0;
 }
 
 #sti-text {
   flex: 1;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(92, 200, 255, 0.25);
-  border-radius: 24px;
-  color: white;
-  font-size: 14px;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(92, 200, 255, 0.35);
+  border-radius: 25px;
+  color: #ffffff;
+  font-size: 15px;
   font-family: inherit;
   outline: none;
   transition: all 0.2s ease;
 }
 
 #sti-text::placeholder {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 #sti-text:focus {
-  border-color: rgba(92, 200, 255, 0.5);
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 0 3px rgba(92, 200, 255, 0.1);
+  border-color: rgba(92, 200, 255, 0.7);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 4px rgba(92, 200, 255, 0.15);
 }
 
 #sti-send {
-  padding: 12px 20px;
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 24px;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #0066cc 0%, #004499 100%);
+  border: 2px solid rgba(92, 200, 255, 0.3);
+  border-radius: 25px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 #sti-send:hover {
-  background: linear-gradient(135deg, #0056b3 0%, #003d82 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+  background: linear-gradient(135deg, #0077ee 0%, #0055bb 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 102, 204, 0.5);
 }
 
 #sti-send:active {
@@ -247,24 +254,25 @@
 .sti-wa-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 10px 16px;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 20px;
   background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 20px;
-  color: white;
-  font-size: 13px;
-  font-weight: 600;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 22px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.2s ease;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .sti-wa-btn:hover {
-  background: linear-gradient(135deg, #128c7e 0%, #075e54 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+  background: linear-gradient(135deg, #2ee370 0%, #15a085 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.5);
 }
 
 /* Body class when chat is open */
@@ -286,16 +294,16 @@ body.chat-open {
   }
   
   #sti-chat-box::before {
-    padding: 16px 50px;
-    font-size: 16px;
+    padding: 20px 50px;
+    font-size: 18px;
   }
   
   #sti-close {
-    top: 10px;
-    right: 14px;
-    width: 36px;
-    height: 36px;
-    font-size: 22px;
+    top: 14px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
   }
   
   .sti-msg {
@@ -303,11 +311,18 @@ body.chat-open {
   }
   
   .sti-bubble {
-    font-size: 15px;
+    font-size: 16px;
+    padding: 16px 20px;
   }
   
   #sti-text {
     font-size: 16px; /* Prevents automatic zoom on iOS Safari when focusing input fields (16px minimum requirement) */
+    padding: 16px 20px;
+  }
+  
+  #sti-send {
+    font-size: 16px;
+    padding: 16px 26px;
   }
 }
 
