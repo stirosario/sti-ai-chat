@@ -23,6 +23,14 @@ echo " 🔄 Guardando y subiendo cambios a Render..."
 echo "-----------------------------------------------"
 
 echo ""
+echo "🔍 Verificando estado del repositorio..."
+if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+    echo "✓ Hay cambios para commitear"
+else
+    echo "⚠️  No hay cambios detectados. ¿Querés continuar de todos modos?"
+fi
+
+echo ""
 echo "📁 Agregando archivos modificados..."
 git add .
 

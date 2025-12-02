@@ -7,23 +7,23 @@ Este proyecto incluye scripts automatizados para facilitar el deployment a Rende
 ### 📁 Scripts disponibles
 
 #### Windows
-- **`update.bat`** - Script principal de deployment con backup automático
+- **`update.bat`** ⭐ - Script principal de deployment con backup automático (existente)
   - Crea backups timestamped del `server.js`
   - Agrega todos los archivos modificados al staging
   - Hace commit automático con timestamp como mensaje
   - Push a GitHub main branch
   - Render detecta el cambio y redeploya automáticamente
 
-- **`update1.bat`** - Script interactivo de deployment
+- **`update1.bat`** - Script interactivo de deployment (existente)
   - Similar a `update.bat` pero pide mensaje de commit personalizado
   - Útil cuando querés un mensaje descriptivo en vez del timestamp
 
-- **`coyserver.bat`** - Solo backups
+- **`coyserver.bat`** - Solo backups (existente)
   - Crea backups locales sin hacer deployment
   - Útil para guardar versiones antes de hacer cambios
 
 #### Linux/macOS
-- **`deploy.sh`** - Script de deployment Unix
+- **`deploy.sh`** ⭐ - Script de deployment Unix (nuevo)
   - Hace commit automático con timestamp
   - Push a GitHub main branch
   - Render detecta el cambio y redeploya automáticamente
