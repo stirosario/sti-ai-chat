@@ -2675,8 +2675,8 @@ Antes de continuar, quiero informarte:
 
 **¿Aceptás estos términos?**`,
     buttons: [
-      { text: 'Sí', value: 'si' },
-      { text: 'No', value: 'no' }
+      { text: 'Sí Acepto ✔️', value: 'si' },
+      { text: 'No Acepto ❌', value: 'no' }
     ]
   };
 }
