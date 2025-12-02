@@ -12,9 +12,6 @@ aaaa=$(date +%Y)
 hh=$(date +%H)
 min=$(date +%M)
 
-# Construir nombre de archivo
-filename="server${dd}${mm}${aaaa}${hh}${min}.js"
-
 # Construir mensaje de commit automático
 commitmsg="${dd}${mm}${aaaa}-${hh}${min}"
 
@@ -35,9 +32,8 @@ git commit -m "$commitmsg"
 
 echo ""
 echo "⬆️  Enviando a GitHub (Render se redeploya solo)..."
-git push origin main
-
-if [ $? -ne 0 ]; then
+if ! git push origin main; then
+    echo ""
     echo "❌ Ocurrió un error al hacer push. Verifica tu conexión o conflictos locales."
     exit 1
 fi
