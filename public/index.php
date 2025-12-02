@@ -869,7 +869,17 @@ document.addEventListener('DOMContentLoaded', function () {
       // legacy: array de strings en payload.options
       if (Array.isArray(payload.options) && payload.options.length) {
         payload.options.forEach(it => {
-          if (typeof it === 'string') out.push({ label: it, value: it });
+          if (typeof it === 'string') {
+            out.push({ label: it, value: it });
+          } else if (it && (it.text || it.label)) {
+            // Soportar objetos con text/label/description/example
+            const label = it.text || it.label;
+            const value = it.value ?? it.token ?? label;
+            const icon = it.icon ?? '';
+            const description = it.description ?? '';
+            const example = it.example ?? '';
+            out.push({ label, value, text: label, icon, description, example });
+          }
         });
       }
     } catch (e) { 
