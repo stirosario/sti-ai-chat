@@ -5726,3 +5726,41 @@
 2025-12-02T20:40:30.634Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-12-02T20:41:56.319Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-12-02T21:00:57.076Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T21:00:57.077Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T21:00:57.077Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T21:00:57.077Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T21:01:11.596Z [INFO] [saveSession] ✅ Saved to memory web-def748aa63cf075bbbeabbf9: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-02T21:01:37.340Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-02T21:01:37.406Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 from req: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 final: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.406Z [INFO] [DEBUG /api/chat] Body completo: {"action":"button","value":"si","label":"Sí Acepto","sessionId":"web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09","csrfToken":"Z6tEzyWBuCvnznZWaF6uJt4kq6Tzn2E-JrziwYM83Qw"}
+2025-12-02T21:01:37.406Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.406Z [INFO] [DEBUG BUTTON] Received button - action: button value: si token: si
+2025-12-02T21:01:37.406Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 buttonToken: si text: si
+2025-12-02T21:01:37.406Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-02T21:01:37.406Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-12-02T21:01:37.407Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_LANGUAGE STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: true
+2025-12-02T21:01:37.407Z [INFO] [ASK_LANGUAGE] DEBUG - Processing: si buttonToken: si GDPR consent: 
+2025-12-02T21:01:37.407Z [INFO] [GDPR] ✅ Consentimiento otorgado: [PHONE_REDACTED]T21:01:37.407Z
+2025-12-02T21:01:37.407Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":3}
+2025-12-02T21:01:37.451Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 from req: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 final: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.451Z [INFO] [DEBUG /api/chat] Body completo: {"action":"button","value":"español","label":"Español","sessionId":"web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09","csrfToken":"Z6tEzyWBuCvnznZWaF6uJt4kq6Tzn2E-JrziwYM83Qw"}
+2025-12-02T21:01:37.451Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.452Z [INFO] [DEBUG BUTTON] Received button - action: button value: español token: español
+2025-12-02T21:01:37.452Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 buttonToken: español text: español
+2025-12-02T21:01:37.452Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-02T21:01:37.452Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-12-02T21:01:37.452Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_LANGUAGE STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: true
+2025-12-02T21:01:37.452Z [INFO] [ASK_LANGUAGE] DEBUG - Processing: español buttonToken: español GDPR consent: true
+2025-12-02T21:01:37.452Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_NAME","transcriptLength":5}
+2025-12-02T21:01:37.494Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 from req: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 final: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.494Z [INFO] [DEBUG /api/chat] Body completo: {"text":"Lucas","sessionId":"web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09","csrfToken":"Z6tEzyWBuCvnznZWaF6uJt4kq6Tzn2E-JrziwYM83Qw"}
+2025-12-02T21:01:37.495Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09
+2025-12-02T21:01:37.495Z [INFO] [DEBUG /api/chat] SessionId: web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09 buttonToken: null text: Lucas
+2025-12-02T21:01:37.495Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":null,"stage":"ASK_NAME"}
+2025-12-02T21:01:37.495Z [INFO] [DEBUG] Session loaded - stage: ASK_NAME userName: null
+2025-12-02T21:01:37.495Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_NAME STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: false
+2025-12-02T21:01:37.495Z [INFO] [ASK_NAME] DEBUG - buttonToken: null text: Lucas
+2025-12-02T21:01:37.496Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]bf9a6a822f7f2a46ca09: {"userName":"Lucas","stage":"ASK_NEED","transcriptLength":7}
+2025-12-02T21:01:45.966Z [INFO] 
+[SIGTERM] Iniciando apagado graceful...
