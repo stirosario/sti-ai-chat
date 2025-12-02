@@ -712,7 +712,7 @@ document.addEventListener('DOMContentLoaded', function () {
   //
   // ========================================================
   const IS_LOCAL  = ['localhost','127.0.0.1'].includes(location.hostname);
-  const API_BASE  = (window.STI_API_BASE) || (IS_LOCAL ? 'http://localhost:3001' : 'https://sti-rosario-ai.onrender.com');
+  const API_BASE  = (window.STI_API_BASE) || (IS_LOCAL ? 'http://localhost:3004' : 'https://sti-rosario-ai.onrender.com');
   const API_CHAT   = API_BASE + '/api/chat';  // ✅ CORRECTO: Endpoint estándar
   const API_GREET  = API_BASE + '/api/greeting';
   const API_TICKET = API_BASE + '/api/whatsapp-ticket';

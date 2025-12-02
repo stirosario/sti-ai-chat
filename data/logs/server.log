@@ -5733,3 +5733,79 @@
 2025-12-02T20:42:05.275Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-12-02T21:03:59.505Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-12-02T22:09:08.048Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-02T22:09:08.071Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T22:09:08.072Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T22:09:08.072Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T22:09:08.072Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T22:10:09.567Z [ERROR] Error: ENOENT: no such file or directory, stat '/home/runner/work/sti-ai-chat/sti-ai-chat/public/index.html'
+2025-12-02T22:11:36.585Z [ERROR] [SECURITY] 🚨 CORS VIOLATION: Unauthorized origin attempted access: http://localhost:[PHONE_REDACTED]
+2025-12-02T22:11:36.587Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:219:13
+    at optionsCallback (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:199:9)
+    at corsMiddleware (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:204:7)
+    at Layer.handle [as handle_request] (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:280:10)
+    at file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+2025-12-02T22:11:36.597Z [ERROR] [SECURITY] 🚨 CORS VIOLATION: Unauthorized origin attempted access: http://localhost:[PHONE_REDACTED]
+2025-12-02T22:11:36.598Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:219:13
+    at optionsCallback (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:199:9)
+    at corsMiddleware (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:204:7)
+    at Layer.handle [as handle_request] (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:280:10)
+    at file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+2025-12-02T22:12:17.167Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-02T22:12:17.190Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T22:12:17.190Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T22:12:17.190Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T22:12:17.190Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T22:12:48.029Z [INFO] [saveSession] ✅ Saved to memory undefined: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":0}
+2025-12-02T22:12:48.043Z [INFO] [saveSession] ✅ Saved to memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-02T22:13:08.135Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-mip4w7plwlo4hm from req: web-mip4w7plwlo4hm final: web-mip4w7plwlo4hm
+2025-12-02T22:13:08.136Z [INFO] [DEBUG /api/chat] Body completo: {"action":"button","value":"si","label":"Sí Acepto ✔️","sessionId":"web-mip4w7plwlo4hm","csrfToken":"QUMe2NMYzyb38eajQdK8wPxcN-ku0nage228Daiv4Cs"}
+2025-12-02T22:13:08.136Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-mip4w7plwlo4hm
+2025-12-02T22:13:08.136Z [INFO] [DEBUG BUTTON] Received button - action: button value: si token: si
+2025-12-02T22:13:08.136Z [INFO] [DEBUG /api/chat] SessionId: web-mip4w7plwlo4hm buttonToken: si text: si
+2025-12-02T22:13:08.136Z [INFO] [getSession] ✅ Loaded from memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-02T22:13:08.137Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-12-02T22:13:08.137Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_LANGUAGE STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: true
+2025-12-02T22:13:08.137Z [INFO] [ASK_LANGUAGE] DEBUG - Processing: si buttonToken: si GDPR consent: 
+2025-12-02T22:13:08.137Z [INFO] [GDPR] ✅ Consentimiento otorgado: [PHONE_REDACTED]T22:13:08.137Z
+2025-12-02T22:13:08.138Z [INFO] [saveSession] ✅ Saved to memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":3}
+2025-12-02T22:13:17.423Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-mip4w7plwlo4hm from req: web-mip4w7plwlo4hm final: web-mip4w7plwlo4hm
+2025-12-02T22:13:17.423Z [INFO] [DEBUG /api/chat] Body completo: {"action":"button","value":"español","label":"(🇦🇷) Español 🌎","sessionId":"web-mip4w7plwlo4hm","csrfToken":"QUMe2NMYzyb38eajQdK8wPxcN-ku0nage228Daiv4Cs"}
+2025-12-02T22:13:17.423Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-mip4w7plwlo4hm
+2025-12-02T22:13:17.423Z [INFO] [DEBUG BUTTON] Received button - action: button value: español token: español
+2025-12-02T22:13:17.423Z [INFO] [DEBUG /api/chat] SessionId: web-mip4w7plwlo4hm buttonToken: español text: español
+2025-12-02T22:13:17.423Z [INFO] [getSession] ✅ Loaded from memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-02T22:13:17.424Z [INFO] [DEBUG] Session loaded - stage: ASK_LANGUAGE userName: null
+2025-12-02T22:13:17.424Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_LANGUAGE STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: true
+2025-12-02T22:13:17.424Z [INFO] [ASK_LANGUAGE] DEBUG - Processing: español buttonToken: español GDPR consent: true
+2025-12-02T22:13:17.424Z [INFO] [saveSession] ✅ Saved to memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_NAME","transcriptLength":5}
+2025-12-02T22:13:27.197Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-mip4w7plwlo4hm from req: web-mip4w7plwlo4hm final: web-mip4w7plwlo4hm
+2025-12-02T22:13:27.197Z [INFO] [DEBUG /api/chat] Body completo: {"text":"Juan","sessionId":"web-mip4w7plwlo4hm","csrfToken":"QUMe2NMYzyb38eajQdK8wPxcN-ku0nage228Daiv4Cs"}
+2025-12-02T22:13:27.197Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-mip4w7plwlo4hm
+2025-12-02T22:13:27.197Z [INFO] [DEBUG /api/chat] SessionId: web-mip4w7plwlo4hm buttonToken: null text: Juan
+2025-12-02T22:13:27.197Z [INFO] [getSession] ✅ Loaded from memory web-mip4w7plwlo4hm: {"userName":null,"stage":"ASK_NAME"}
+2025-12-02T22:13:27.197Z [INFO] [DEBUG] Session loaded - stage: ASK_NAME userName: null
+2025-12-02T22:13:27.197Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_NAME STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: false
+2025-12-02T22:13:27.198Z [INFO] [ASK_NAME] DEBUG - buttonToken: null text: Juan
+2025-12-02T22:13:27.199Z [INFO] [saveSession] ✅ Saved to memory web-mip4w7plwlo4hm: {"userName":"Juan","stage":"ASK_NEED","transcriptLength":7}
+2025-12-02T22:13:37.697Z [INFO] [DEBUG /api/chat] INICIO - sessionId from body: web-mip4w7plwlo4hm from req: web-mip4w7plwlo4hm final: web-mip4w7plwlo4hm
+2025-12-02T22:13:37.697Z [INFO] [DEBUG /api/chat] Body completo: {"action":"button","value":"BTN_PROBLEMA","label":"🔧 Solucionar / Diagnosticar Problema","sessionId":"web-mip4w7plwlo4hm","csrfToken":"QUMe2NMYzyb38eajQdK8wPxcN-ku0nage228Daiv4Cs"}
+2025-12-02T22:13:37.697Z [INFO] [DEBUG /api/chat] Headers x-session-id: web-mip4w7plwlo4hm
+2025-12-02T22:13:37.697Z [INFO] [DEBUG BUTTON] Received button - action: button value: BTN_PROBLEMA token: BTN_PROBLEMA
+2025-12-02T22:13:37.697Z [INFO] [DEBUG /api/chat] SessionId: web-mip4w7plwlo4hm buttonToken: BTN_PROBLEMA text: tengo un problema
+2025-12-02T22:13:37.697Z [INFO] [getSession] ✅ Loaded from memory web-mip4w7plwlo4hm: {"userName":"Juan","stage":"ASK_NEED"}
+2025-12-02T22:13:37.697Z [INFO] [DEBUG] Session loaded - stage: ASK_NEED userName: Juan
+2025-12-02T22:13:37.697Z [INFO] [DEBUG] Checking ASK_LANGUAGE - Current stage: ASK_NEED STATES.ASK_LANGUAGE: ASK_LANGUAGE Match: false
+2025-12-02T22:13:37.697Z [INFO] [saveSession] ✅ Saved to memory web-mip4w7plwlo4hm: {"userName":"Juan","stage":"ASK_PROBLEM","transcriptLength":9}
