@@ -68,7 +68,7 @@ Los scripts generan commits con el formato:
 DDMMYYYY-HHMM
 ```
 
-Ejemplo: `02122025-2058` (2 de diciembre de 2025, 20:58)
+Ejemplo: `02122025-2058` (2 de diciembre de 2025 a las 20:58)
 
 ### 🔍 Monitoreo del deployment
 

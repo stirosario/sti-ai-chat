@@ -23,14 +23,6 @@ echo " 🔄 Guardando y subiendo cambios a Render..."
 echo "-----------------------------------------------"
 
 echo ""
-echo "🔍 Verificando estado del repositorio..."
-if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-    echo "✓ Hay cambios para commitear"
-else
-    echo "ℹ️  No hay cambios sin commitear detectados"
-fi
-
-echo ""
 echo "📁 Agregando archivos modificados..."
 git add .
 
@@ -47,7 +39,9 @@ git commit -m "$commitmsg"
 
 echo ""
 echo "⬆️  Enviando a GitHub (Render se redeploya solo)..."
-if ! git push origin main; then
+# Obtener la rama actual
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+if ! git push origin "$current_branch"; then
     echo ""
     echo "❌ Ocurrió un error al hacer push. Verifica tu conexión o conflictos locales."
     exit 1
