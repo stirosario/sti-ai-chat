@@ -5691,3 +5691,8 @@
 2025-12-01T06:00:00.050Z [ERROR] [[PHONE_REDACTED]T06:00:00.046Z] [PID: [PHONE_REDACTED]] [32m[NODE-CRON][32m [31m[ERROR][0m logMsg is not defined {}
 2025-12-01T16:18:39.457Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-12-01T16:18:45.015Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-01T16:18:45.066Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-01T16:18:45.067Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-01T16:18:45.067Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-01T16:18:45.068Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)

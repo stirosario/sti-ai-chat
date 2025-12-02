@@ -63,6 +63,38 @@ console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUAT
 const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
 const REQUEST_ID_HEADER = 'x-request-id';
 
+const BUTTON_DEFINITIONS = [
+  { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
+  { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
+  { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
+  { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+  { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
+  { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
+  { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
+  { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
+  { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
+  { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
+  { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
+  { token: 'BTN_ADVANCED_TESTS', label: '⚡ Pruebas Avanzadas', text: 'pruebas avanzadas' },
+  { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
+  { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
+  { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
+  { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
+  { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
+  { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
+  { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
+  { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
+  { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
+  { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
+  { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
+  { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
+  { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
+  { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
+  { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
+  { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
+  { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' }
+];
+
 // PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
 const sessionCache = new Map(); // Map<sessionId, {data, lastAccess}>
 const MAX_CACHED_SESSIONS = 1000;
@@ -341,6 +373,78 @@ function broadcastLog(entry) {
   }
 }
 
+async function sendLastLogBytes(res, bytes = 32 * 1024) {
+  try {
+    const stat = await fs.promises.stat(LOG_FILE);
+    const start = Math.max(0, stat.size - bytes);
+    const stream = createReadStream(LOG_FILE, { start, end: stat.size - 1, encoding: 'utf8' });
+    for await (const chunk of stream) {
+      sseSend(res, chunk);
+    }
+  } catch (err) {
+    // El archivo puede no existir aun o no tener permisos; ignoramos
+  }
+}
+
+function validateLogToken(req, res) {
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    res.status(401).send('unauthorized');
+    return false;
+  }
+  return true;
+}
+
+app.get('/api/logs/stream', async (req, res) => {
+  try {
+    if (!validateLogToken(req, res)) return;
+    if (String(req.query.mode || '') === 'once') {
+      const txt = fs.existsSync(LOG_FILE) ? await fs.promises.readFile(LOG_FILE, 'utf8') : '';
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(200).send(txt);
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.flushHeaders && res.flushHeaders();
+
+    res.write(': connected\n\n');
+    sendLastLogBytes(res).catch(()=>{});
+
+    sseClients.add(res);
+    console.log('[logs] cliente SSE conectado. total=', sseClients.size);
+
+    const hb = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (e) { }
+    }, 20_000);
+
+    req.on('close', () => {
+      clearInterval(hb);
+      sseClients.delete(res);
+      try { res.end(); } catch (_) { }
+      console.log('[logs] cliente SSE desconectado. total=', sseClients.size);
+    });
+
+  } catch (err) {
+    console.error('[logs/stream] Error', err && err.message);
+    try { res.status(500).end(); } catch (_) { }
+  }
+});
+
+app.get('/api/logs', (req, res) => {
+  if (!validateLogToken(req, res)) return;
+  try {
+    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(txt);
+  } catch (err) {
+    console.error('[api/logs] Error', err && err.message);
+    res.status(500).json({ ok:false, error: err && err.message });
+  }
+});
+
 // Wrap console
 const _origLog = console.log.bind(console);
 const _origErr = console.error.bind(console);
@@ -418,45 +522,7 @@ const EMBEDDED_CHAT = {
   //
   // ========================================================
   ui: {
-    buttons: [
-      // Botones del flujo según Flujo.csv
-      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
-      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
-      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
-
-      // ========================================================
-      // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
-      // ========================================================
-      { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
-      { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
-      // ========================================================
-
-      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
-      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
-      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
-      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_ADVANCED_TESTS', label: '⚡ Pruebas Avanzadas', text: 'pruebas avanzadas' },
-      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
-      { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
-      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
-      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
-      { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
-      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
-      { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
-      { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
-      { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
-      { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
-      // device tokens
-      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
-      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' }
-    ],
+    buttons: BUTTON_DEFINITIONS,
     states: {}
   },
   nlp: {
