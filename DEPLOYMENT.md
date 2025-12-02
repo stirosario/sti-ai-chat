@@ -11,7 +11,7 @@ Este proyecto incluye scripts automatizados para facilitar el deployment a Rende
   - Crea backups timestamped del `server.js`
   - Agrega todos los archivos modificados al staging
   - Hace commit automático con timestamp como mensaje
-  - Push a GitHub main branch
+  - Push a GitHub en la rama **main** (hardcoded)
   - Render detecta el cambio y redeploya automáticamente
 
 - **`update1.bat`** - Script interactivo de deployment (existente)
@@ -25,9 +25,11 @@ Este proyecto incluye scripts automatizados para facilitar el deployment a Rende
 #### Linux/macOS
 - **`deploy.sh`** ⭐ - Script de deployment Unix (nuevo)
   - Hace commit automático con timestamp
-  - Push a GitHub en la rama actual
+  - Push a GitHub en la **rama actual** (detección dinámica)
   - Render detecta el cambio y redeploya automáticamente
   - **Nota:** No incluye backups locales (las rutas son específicas de Windows)
+
+**Diferencia importante:** El script de Windows (`update.bat`) siempre hace push a la rama `main`, mientras que el script Unix (`deploy.sh`) detecta y usa la rama actual automáticamente para mayor flexibilidad.
 
 ### 🚀 Uso
 
