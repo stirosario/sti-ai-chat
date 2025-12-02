@@ -23,15 +23,17 @@ echo " 🔄 Guardando y subiendo cambios a Render..."
 echo "-----------------------------------------------"
 
 echo ""
-echo "📁 Agregando archivos modificados..."
-git add .
-
-# Verificar si hay algo para commitear después del git add
-if git diff-index --quiet HEAD -- 2>/dev/null; then
+echo "🔍 Verificando estado del repositorio..."
+# Verificar si hay cambios antes de hacer git add
+if git diff-index --quiet HEAD -- 2>/dev/null && [ -z "$(git ls-files --others --exclude-standard)" ]; then
     echo ""
     echo "ℹ️  No hay cambios para commitear. El repositorio está actualizado."
     exit 0
 fi
+
+echo ""
+echo "📁 Agregando archivos modificados..."
+git add .
 
 echo ""
 echo "💬 Creando commit: \"$commitmsg\""

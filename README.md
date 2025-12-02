@@ -38,7 +38,7 @@ Ejecutá el script de deploy:
 ```
 Este script:
 - Hace commit automático con timestamp
-- Push a GitHub (Render detecta el cambio y redeploya automáticamente)
+- Push a GitHub en la rama actual (Render detecta el cambio y redeploya automáticamente)
 
 **Nota:** Los backups locales solo están disponibles en el script de Windows ya que usan rutas específicas del sistema.
 

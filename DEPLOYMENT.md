@@ -25,7 +25,7 @@ Este proyecto incluye scripts automatizados para facilitar el deployment a Rende
 #### Linux/macOS
 - **`deploy.sh`** ⭐ - Script de deployment Unix (nuevo)
   - Hace commit automático con timestamp
-  - Push a GitHub main branch
+  - Push a GitHub en la rama actual
   - Render detecta el cambio y redeploya automáticamente
   - **Nota:** No incluye backups locales (las rutas son específicas de Windows)
 
