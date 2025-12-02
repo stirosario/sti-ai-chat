@@ -414,7 +414,7 @@ if (empty($_SESSION['csrf_token'])) {
   <section id="servicios" class="accent accent-blue">
     <h2 class="section-title">Nuestros Servicios</h2>
     <div class="subtitulo-marcas">
-      <h3>Especialistas Multimarcas</h3>
+      <h3>REPARACIONES DE PC - NOTEBOOK</h3>
       <ul class="logos-marcas">
         <li><img src="img/marcas/lenovo.png" alt="Lenovo" width="120" height="36" loading="lazy" decoding="async"></li>
         <li><img src="img/marcas/msi.png" alt="MSI" width="110" height="36" loading="lazy" decoding="async"></li>
