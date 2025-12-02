@@ -1,4 +1,0 @@
-[2025-11-24T05:50:04.956Z] ASSISTANT: No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".
-[2025-11-24T05:50:04.956Z] USER: Heber
-[2025-11-24T05:50:05.974Z] USER: No puedo configurar el DHCP en mi router MikroTik para la LAN 4
-[2025-11-24T05:50:05.974Z] ASSISTANT: No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".
