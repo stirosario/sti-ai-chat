@@ -3912,6 +3912,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           session.isHowTo = false;
           
           // Mostrar botones de sugerencias de problemas comunes
+          // Note: icon is included for frontend rendering, even though emoji is in label
           const problemButtons = isEn ? [
             { token: 'BTN_PROB_NO_ENCIENDE', label: '🔌 Device won\'t turn on', text: 'device won\'t turn on', icon: '🔌' },
             { token: 'BTN_PROB_INTERNET', label: '📡 Internet connection issues', text: 'internet connection issues', icon: '📡' },
@@ -3936,8 +3937,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             ok: true, 
             reply, 
             stage: session.stage,
-            buttons: problemButtons,
-            options: problemButtons
+            buttons: problemButtons  // Using buttons (frontend checks both buttons and options)
           });
         } else if (needType === 'consulta_general') {
           reply = isEn
@@ -4274,7 +4274,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         
         const problemText = problemMap[buttonToken];
         if (problemText) {
-          session.problem = problemText;
           console.log('[ASK_PROBLEM] Problema seleccionado desde botón:', problemText);
           
           // Si eligió "Otro problema", pedirle que describa
@@ -4286,11 +4285,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             await saveSession(sid, session);
             return res.json({ ok: true, reply, stage: session.stage });
           }
-          // Continuar con el flujo normal de detección de dispositivos
+          // Para otros botones, establecer el problema y continuar con detección de dispositivos
+          session.problem = problemText;
         }
       }
       
-      session.problem = t || session.problem;
+      // Solo sobrescribir session.problem si no vino de un botón
+      if (!buttonToken || !buttonToken.startsWith('BTN_PROB_')) {
+        session.problem = t || session.problem;
+      }
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
 
       // ========================================================
