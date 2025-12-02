@@ -76,6 +76,14 @@ const BUTTON_LABELS = {
   BTN_PROBLEMA: '🔧 Solucionar / Diagnosticar Problema',
   BTN_CONSULTA: '💡 Consulta / Asistencia Informática',
   
+  // Categorías de problemas comunes (se muestran después de BTN_PROBLEMA)
+  BTN_PROB_NO_ENCIENDE: '🔌 El equipo no enciende',
+  BTN_PROB_INTERNET: '📡 Problemas de conexión a Internet',
+  BTN_PROB_LENTITUD: '🐢 Lentitud del sistema operativo o del equipo',
+  BTN_PROB_BLOQUEO: '❄️ Bloqueo o cuelgue de programas',
+  BTN_PROB_PERIFERICOS: '🖨️ Problemas con periféricos externos',
+  BTN_PROB_MALWARE: '🛡️ Infecciones de malware o virus',
+  
   // Tipos de equipo
   BTN_DESKTOP: 'Desktop 💻',
   BTN_ALLINONE: 'All-in-One 🖥️',
@@ -120,6 +128,13 @@ const BUTTON_TEXTS = {
   BTN_NO_NAME: 'Prefiero no decirlo',
   BTN_PROBLEMA: 'tengo un problema',
   BTN_CONSULTA: 'tengo una consulta',
+  // Categorías de problemas comunes
+  BTN_PROB_NO_ENCIENDE: 'el equipo no enciende',
+  BTN_PROB_INTERNET: 'problemas de conexión a internet',
+  BTN_PROB_LENTITUD: 'lentitud del sistema o equipo',
+  BTN_PROB_BLOQUEO: 'bloqueo o cuelgue de programas',
+  BTN_PROB_PERIFERICOS: 'problemas con periféricos externos',
+  BTN_PROB_MALWARE: 'infecciones de malware o virus',
   BTN_DESKTOP: 'desktop',
   BTN_ALLINONE: 'all in one',
   BTN_NOTEBOOK: 'notebook',
@@ -3943,19 +3958,35 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
       if (needType) {
         session.needType = needType;
-        session.stage = STATES.ASK_PROBLEM;
 
         let reply = '';
         const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
 
         // Respuestas personalizadas según el tipo de necesidad
         if (needType === 'problema') {
+          // Mostrar categorías de problemas comunes para facilitar la selección
           reply = isEn
-            ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
+            ? `Perfect ${whoName}. Select the type of problem you're experiencing, or describe it in your own words:`
+            : `Perfecto, ${whoName} 🤖✨.\nSeleccioná el tipo de problema que tenés, o describilo con tus palabras:`;
           session.isProblem = true;
           session.isHowTo = false;
+          session.stage = STATES.ASK_PROBLEM;
+          
+          // Botones de categorías de problemas comunes
+          const problemCategoryButtons = buildUiButtonsFromTokens([
+            'BTN_PROB_NO_ENCIENDE',
+            'BTN_PROB_INTERNET',
+            'BTN_PROB_LENTITUD',
+            'BTN_PROB_BLOQUEO',
+            'BTN_PROB_PERIFERICOS',
+            'BTN_PROB_MALWARE'
+          ], locale);
+          
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: problemCategoryButtons }));
         } else if (needType === 'consulta_general') {
+          session.stage = STATES.ASK_PROBLEM;
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
             : `Dale ${whoName}! ¿Con qué necesitás ayuda?`;
@@ -3963,6 +3994,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           session.isProblem = false;
         } else {
           // Fallback para needType no reconocido
+          session.stage = STATES.ASK_PROBLEM;
           reply = isEn
             ? `Tell me what you need help with.`
             : `Contame en qué necesitás ayuda.`;
@@ -4268,7 +4300,23 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     let options = [];
 
     if (session.stage === STATES.ASK_PROBLEM) {
-      session.problem = t || session.problem;
+      // Detectar si el usuario seleccionó un botón de categoría de problema
+      const problemCategoryMap = {
+        'BTN_PROB_NO_ENCIENDE': 'el equipo no enciende',
+        'BTN_PROB_INTERNET': 'problemas de conexión a internet',
+        'BTN_PROB_LENTITUD': 'lentitud del sistema o equipo',
+        'BTN_PROB_BLOQUEO': 'bloqueo o cuelgue de programas',
+        'BTN_PROB_PERIFERICOS': 'problemas con periféricos externos',
+        'BTN_PROB_MALWARE': 'infecciones de malware o virus'
+      };
+      
+      // Si el usuario hizo clic en un botón de categoría, usar el texto asociado como problema
+      if (buttonToken && problemCategoryMap[buttonToken]) {
+        session.problem = problemCategoryMap[buttonToken];
+        console.log('[ASK_PROBLEM] Categoría de problema seleccionada:', buttonToken, '→', session.problem);
+      } else {
+        session.problem = t || session.problem;
+      }
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
 
       // ========================================================
