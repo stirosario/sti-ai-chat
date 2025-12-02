@@ -683,6 +683,30 @@ if (empty($_SESSION['csrf_token'])) {
 <!-- REEMPLAZAR el bloque <script> del chat por este -->
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  // ====== Sistema de logging de eventos ======
+  function logEvent(type, message, data = null) {
+    console.log(`📊 [Event] ${type}: ${message}`, data || '');
+    
+    // Enviar al servidor para debugging
+    try {
+      const formData = new FormData();
+      formData.append('action', 'log_event');
+      formData.append('type', type);
+      formData.append('message', message);
+      if (data) formData.append('data', typeof data === 'string' ? data : JSON.stringify(data));
+      
+      fetch('/eventos.php', {
+        method: 'POST',
+        body: formData
+      }).catch(() => {}); // Ignorar errores de logging
+    } catch(e) {
+      // Silenciar errores de logging
+    }
+  }
+  
+  // Log inicial
+  logEvent('init', 'DOMContentLoaded ejecutado', { url: location.href, time: new Date().toISOString() });
+  
   // ====== API base ======
   // ========================================================
   // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #6
@@ -807,7 +831,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function appendWAButton(toNode){
-    if (!toNode || toNode.querySelector?.('.sti-wa-btn')) return;
+    if (!toNode || (toNode.querySelector && toNode.querySelector('.sti-wa-btn'))) return;
     const wrap = document.createElement('div');
     wrap.style.marginTop = '10px';
     const b = document.createElement('button');
@@ -1186,10 +1210,21 @@ document.addEventListener('DOMContentLoaded', function () {
   //
   // ========================================================
   async function stiShowChat(){
-    if (!box){ alert('No se encontró #sti-chat-box'); return; }
+    console.log('🚀 [STI Chat] stiShowChat() ejecutándose...');
+    logEvent('show', 'stiShowChat() iniciado');
+    
+    if (!box){ 
+      console.error('❌ [STI Chat] No se encontró #sti-chat-box');
+      logEvent('error', 'No se encontró #sti-chat-box - chat no puede abrirse');
+      alert('No se encontró #sti-chat-box'); 
+      return; 
+    }
+    console.log('📦 [STI Chat] box encontrado, mostrando chat...');
+    logEvent('show', 'Box encontrado, mostrando chat');
     box.style.setProperty('display','flex','important');
     box.style.zIndex = '2147483647';
     document.body.classList.add('chat-open');
+    console.log('✅ [STI Chat] Chat visible');
     setTimeout(()=>{ input && input.focus(); }, 0);
 
     // 👉 nuevo SID y reset backend cada vez que se abre
@@ -1268,12 +1303,60 @@ document.addEventListener('DOMContentLoaded', function () {
       send.style.backgroundColor = '';
       send.onclick = () => sendMsg(input && input.value);
     }
+    logEvent('hide', 'Chat cerrado');
   }
 
   // ====== Listeners ======
-  headerBtn && headerBtn.addEventListener('click', (e)=>{ e.preventDefault(); stiShowChat(); }, {passive:false});
-  heroBtn   && heroBtn  .addEventListener('click', (e)=>{ e.preventDefault(); stiShowChat(); }, {passive:false});
-  closeBtn  && closeBtn .addEventListener('click', (e)=>{ e.preventDefault(); stiHideChat(); }, {passive:false});
+  logEvent('info', 'Configurando listeners', {
+    headerBtn: headerBtn ? 'encontrado' : 'NO encontrado',
+    heroBtn: heroBtn ? 'encontrado' : 'NO encontrado',
+    closeBtn: closeBtn ? 'encontrado' : 'NO encontrado',
+    box: box ? 'encontrado' : 'NO encontrado'
+  });
+  
+  console.log('🔧 [STI Chat] Configurando listeners...');
+  console.log('🔧 [STI Chat] headerBtn:', headerBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] heroBtn:', heroBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] closeBtn:', closeBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] box:', box ? 'encontrado' : 'NO encontrado');
+  
+  if (headerBtn) {
+    headerBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en headerBtn detectado');
+      logEvent('click', 'Click en headerBtn (header)', { button: 'headerBtn' });
+      e.preventDefault(); 
+      e.stopPropagation();
+      stiShowChat(); 
+    }, {passive:false, capture:true});
+    console.log('✅ [STI Chat] Listener agregado a headerBtn');
+  } else {
+    logEvent('warning', 'headerBtn NO encontrado - no se puede agregar listener');
+  }
+  
+  if (heroBtn) {
+    heroBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en heroBtn detectado');
+      logEvent('click', 'Click en heroBtn (hero section)', { button: 'heroBtn' });
+      e.preventDefault(); 
+      e.stopPropagation();
+      stiShowChat(); 
+    }, {passive:false, capture:true});
+    console.log('✅ [STI Chat] Listener agregado a heroBtn');
+  } else {
+    logEvent('warning', 'heroBtn NO encontrado - no se puede agregar listener');
+  }
+  
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en closeBtn detectado');
+      logEvent('click', 'Click en closeBtn (cerrar chat)', { button: 'closeBtn' });
+      e.preventDefault(); 
+      stiHideChat(); 
+    }, {passive:false});
+    console.log('✅ [STI Chat] Listener agregado a closeBtn');
+  } else {
+    logEvent('warning', 'closeBtn NO encontrado');
+  }
 
   send  && send .addEventListener('click', ()=> sendMsg(input && input.value), {passive:true});
   input && input.addEventListener('keydown', (e)=>{

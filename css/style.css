@@ -1,0 +1,548 @@
+/* =================================================================
+   STI Rosario - Main Stylesheet
+   Minimal styles for page elements
+   ================================================================= */
+
+/* Reset básico */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(180deg, #0a1f44 0%, #0d1a2d 50%, #050a14 100%);
+  color: #e0e0e0;
+  font-family: 'Exo', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* Container */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Header */
+#main-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(10, 31, 68, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(92, 200, 255, 0.2);
+  padding: 12px 0;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.logo {
+  height: 60px;
+  width: auto;
+}
+
+.main-nav {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.main-nav a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+
+.main-nav a:hover {
+  color: #5cc8ff;
+}
+
+/* Hero Section */
+#hero {
+  position: relative;
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.hero-overlay {
+  width: 100%;
+  padding: 60px 20px;
+}
+
+.hero-frame {
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.hero-art {
+  max-width: 100%;
+  height: auto;
+  margin-bottom: 30px;
+  border-radius: 12px;
+}
+
+#hero h1 {
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  font-weight: 800;
+  color: #5cc8ff;
+  text-shadow: 0 0 30px rgba(92, 200, 255, 0.5);
+  margin-bottom: 16px;
+}
+
+#hero p {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 30px;
+}
+
+/* Hero button */
+.btn-hero-m {
+  font-size: 1.1rem;
+  padding: 16px 40px;
+}
+
+/* Franja Metal */
+#franja-metal {
+  background: linear-gradient(90deg, rgba(92, 200, 255, 0.1), rgba(92, 200, 255, 0.05));
+  border-top: 1px solid rgba(92, 200, 255, 0.3);
+  border-bottom: 1px solid rgba(92, 200, 255, 0.3);
+  padding: 30px 20px;
+  text-align: center;
+}
+
+.franja-metal-text {
+  font-family: 'Orbitron', monospace;
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-weight: 800;
+  color: #5cc8ff;
+  text-shadow: 0 0 20px rgba(92, 200, 255, 0.6);
+  letter-spacing: 4px;
+}
+
+.franja-subtexto {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1rem;
+  margin-top: 8px;
+}
+
+/* Secciones */
+section {
+  padding: 60px 20px;
+  max-width: 1200px;
+  margin: 40px auto;
+}
+
+/* Grid de servicios */
+.servicios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 30px;
+}
+
+.servicio {
+  display: block;
+  padding: 24px;
+  background: rgba(15, 22, 36, 0.8);
+  border: 1px solid rgba(92, 200, 255, 0.2);
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.3s ease;
+}
+
+.servicio:hover {
+  border-color: rgba(92, 200, 255, 0.5);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(92, 200, 255, 0.15);
+}
+
+.servicio h3 {
+  color: #5cc8ff;
+  margin: 0 0 12px 0;
+  font-size: 1.1rem;
+}
+
+.servicio p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
+}
+
+/* Subtítulo de marcas */
+.subtitulo-marcas {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.subtitulo-marcas h3 {
+  color: #5cc8ff;
+  font-size: 1.3rem;
+  margin-bottom: 20px;
+}
+
+.logos-marcas {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 30px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.logos-marcas img {
+  height: 36px;
+  width: auto;
+  opacity: 0.7;
+  filter: grayscale(50%);
+  transition: all 0.3s;
+}
+
+.logos-marcas img:hover {
+  opacity: 1;
+  filter: grayscale(0%);
+}
+
+/* Imagen principal en secciones */
+.image.fit.main img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 20px 0;
+}
+
+/* Por qué elegir */
+.pqe-card {
+  padding: 30px;
+}
+
+.pqe-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 20px;
+}
+
+.pqe-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.pqe-ico {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid rgba(0, 255, 157, 0.3);
+  border-radius: 50%;
+}
+
+.pqe-ico svg {
+  width: 20px;
+  height: 20px;
+  fill: #00ff9d;
+}
+
+.pqe-txt {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pqe-cta {
+  margin-top: 30px;
+  text-align: center;
+}
+
+/* FAQ */
+.faq-sti {
+  max-width: 900px;
+}
+
+.faq-sti h2 {
+  text-align: center;
+  color: #5cc8ff;
+  margin-bottom: 30px;
+}
+
+.faq-item {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: rgba(15, 22, 36, 0.6);
+  border: 1px solid rgba(92, 200, 255, 0.15);
+  border-radius: 12px;
+}
+
+.faq-item h3 {
+  color: #5cc8ff;
+  margin: 0 0 12px 0;
+  font-size: 1.1rem;
+}
+
+.faq-item p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.sti-text {
+  color: #5cc8ff;
+  font-weight: 600;
+}
+
+/* Clientes Grid */
+.clientes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 30px;
+}
+
+.cliente-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px;
+  background: rgba(15, 22, 36, 0.7);
+  border: 1px solid rgba(92, 200, 255, 0.2);
+  border-radius: 8px;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.cliente-item:hover {
+  background: rgba(92, 200, 255, 0.1);
+  border-color: rgba(92, 200, 255, 0.4);
+  color: #5cc8ff;
+}
+
+/* Formulario de contacto */
+.form-sti {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 600px;
+  margin: 30px auto 0;
+}
+
+.form-sti input,
+.form-sti textarea {
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(92, 200, 255, 0.25);
+  border-radius: 8px;
+  color: white;
+  font-size: 15px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.form-sti input::placeholder,
+.form-sti textarea::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.form-sti input:focus,
+.form-sti textarea:focus {
+  outline: none;
+  border-color: rgba(92, 200, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(92, 200, 255, 0.1);
+}
+
+.form-sti textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.form-sti button[type="submit"] {
+  align-self: flex-start;
+}
+
+/* Sección Horarios */
+#horarios {
+  text-align: center;
+}
+
+#horarios p {
+  margin: 8px 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.boton-anydesk {
+  margin: 24px 0;
+}
+
+.boton-anydesk a {
+  display: inline-block;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #dc3545, #c82333);
+  border-radius: 8px;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.boton-anydesk a:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+}
+
+/* Social Icons */
+.cta-social {
+  margin-top: 30px;
+}
+
+.cta-social .icons {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.cta-social .icons img {
+  width: 40px;
+  height: 40px;
+  opacity: 0.8;
+  transition: all 0.2s;
+}
+
+.cta-social .icons img:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* Footer */
+#main-footer {
+  background: rgba(5, 10, 20, 0.95);
+  border-top: 1px solid rgba(92, 200, 255, 0.2);
+  padding: 30px 20px;
+  text-align: center;
+}
+
+.footer-bottom p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  line-height: 1.8;
+}
+
+.footer-link {
+  color: #5cc8ff;
+  text-decoration: none;
+}
+
+.footer-link:hover {
+  text-decoration: underline;
+}
+
+/* Botón flotante WhatsApp */
+.whatsapp-float {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(37, 211, 102, 0.4);
+  z-index: 9998;
+  transition: all 0.3s;
+}
+
+.whatsapp-float::before {
+  content: '💬';
+  font-size: 28px;
+}
+
+.whatsapp-float:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 30px rgba(37, 211, 102, 0.5);
+}
+
+/* Botón flotante Presupuesto */
+.btn-flotante-presupuesto {
+  position: fixed;
+  bottom: 90px;
+  left: 20px;
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #ffc107, #e0a800);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(255, 193, 7, 0.4);
+  z-index: 9998;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.btn-flotante-presupuesto .simbolo {
+  color: #1a1a1a;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.btn-flotante-presupuesto:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 24px rgba(255, 193, 7, 0.5);
+}
+
+/* Responsive ocultar en móvil */
+@media (max-width: 768px) {
+  .ocultar-movil {
+    display: none !important;
+  }
+  
+  .header-content {
+    justify-content: center;
+  }
+  
+  .logo {
+    height: 50px;
+  }
+  
+  #hero h1 {
+    font-size: 1.6rem;
+  }
+  
+  .servicios-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .clientes-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .whatsapp-float,
+  .btn-flotante-presupuesto {
+    bottom: auto;
+    top: auto;
+  }
+}
