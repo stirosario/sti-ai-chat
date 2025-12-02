@@ -3898,6 +3898,105 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
           session.isProblem = true;
           session.isHowTo = false;
+          
+          // Generar botones con sugerencias de problemas comunes
+          const problemButtons = isEn ? [
+            {
+              text: '🔌 Device Won\'t Turn On',
+              value: 'The device won\'t turn on',
+              icon: '🔌',
+              description: 'The computer, laptop, or device doesn\'t start or respond',
+              example: 'Example: "My laptop won\'t turn on", "The PC doesn\'t start"'
+            },
+            {
+              text: '📡 Internet Connection Problems',
+              value: 'Internet connection problems',
+              icon: '📡',
+              description: 'Wi-Fi doesn\'t work, no internet connection, or network issues',
+              example: 'Example: "No Wi-Fi connection", "Internet is very slow"'
+            },
+            {
+              text: '🐢 Slow System or Computer',
+              value: 'System is very slow',
+              icon: '🐢',
+              description: 'The computer or operating system is running very slowly',
+              example: 'Example: "My PC is very slow", "Windows takes forever to start"'
+            },
+            {
+              text: '❄️ Program Freezing or Hanging',
+              value: 'Programs freeze or hang',
+              icon: '❄️',
+              description: 'Applications or the system freeze, hang, or stop responding',
+              example: 'Example: "Word freezes", "The computer hangs"'
+            },
+            {
+              text: '🖨️ External Device Problems',
+              value: 'Problems with external devices',
+              icon: '🖨️',
+              description: 'Issues with printers, scanners, USB devices, or peripherals',
+              example: 'Example: "Printer not working", "Mouse doesn\'t work"'
+            },
+            {
+              text: '🛡️ Malware or Virus Infections',
+              value: 'Malware or virus infections',
+              icon: '🛡️',
+              description: 'Suspicious behavior, pop-ups, or suspected virus infection',
+              example: 'Example: "My computer has a virus", "Strange pop-ups appear"'
+            }
+          ] : [
+            {
+              text: '🔌 El equipo no enciende',
+              value: 'El equipo no enciende',
+              icon: '🔌',
+              description: 'La computadora, notebook o dispositivo no arranca o no responde',
+              example: 'Ejemplo: "Mi notebook no enciende", "La PC no arranca"'
+            },
+            {
+              text: '📡 Problemas de conexión a Internet',
+              value: 'Problemas de conexión a Internet',
+              icon: '📡',
+              description: 'El Wi-Fi no funciona, no hay conexión a internet o problemas de red',
+              example: 'Ejemplo: "No me conecta el Wi-Fi", "Internet muy lento"'
+            },
+            {
+              text: '🐢 Lentitud del sistema operativo o del equipo',
+              value: 'El sistema está muy lento',
+              icon: '🐢',
+              description: 'La computadora o el sistema operativo funciona con mucha lentitud',
+              example: 'Ejemplo: "Mi PC está muy lenta", "Windows tarda mucho en iniciar"'
+            },
+            {
+              text: '❄️ Bloqueo o cuelgue de programas',
+              value: 'Los programas se bloquean o cuelgan',
+              icon: '❄️',
+              description: 'Las aplicaciones o el sistema se congelan, cuelgan o dejan de responder',
+              example: 'Ejemplo: "Word se congela", "La computadora se cuelga"'
+            },
+            {
+              text: '🖨️ Problemas con periféricos externos',
+              value: 'Problemas con periféricos externos',
+              icon: '🖨️',
+              description: 'Problemas con impresoras, escáneres, dispositivos USB o periféricos',
+              example: 'Ejemplo: "La impresora no funciona", "El mouse no anda"'
+            },
+            {
+              text: '🛡️ Infecciones de malware o virus',
+              value: 'Infecciones de malware o virus',
+              icon: '🛡️',
+              description: 'Comportamientos sospechosos, ventanas emergentes o posible infección de virus',
+              example: 'Ejemplo: "Mi computadora tiene un virus", "Aparecen ventanas raras"'
+            }
+          ];
+
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json({
+            ok: true,
+            reply,
+            stage: session.stage,
+            buttons: problemButtons,
+            options: problemButtons
+          });
         } else if (needType === 'consulta_general') {
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
