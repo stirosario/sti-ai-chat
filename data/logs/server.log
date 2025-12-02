@@ -5705,3 +5705,8 @@
 2025-12-02T17:08:08.371Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
 2025-12-02T18:16:59.179Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-12-02T18:30:35.856Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-02T18:30:35.908Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T18:30:35.908Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T18:30:35.909Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T18:30:35.909Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
