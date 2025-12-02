@@ -434,7 +434,7 @@ if (empty($_SESSION['csrf_token'])) {
     </span>
 
     <div class="servicios-grid">
-      <a class="servicio" href="/pcynotebook.html"><h3><span class="icono emoji">🖥</span> PC y Notebook</h3><p>Reparación, actualización y reemplazo de hardware.</p></a>
+      <a class="servicio" href="/pcynotebook.html"><h3><span class="icono emoji">🖥</span> PC y Notebook</h3><p>REPARACIONES DE PC - NOTEBOOK</p></a>
       <a class="servicio" href="/mantenimientopreventivo.html"><h3><span class="icono emoji">⚙️</span> Mantenimiento Preventivo</h3><p>Limpieza interna, control térmico y optimización general de equipos.</p></a>
       <a class="servicio" href="/asistenciaremota.html"><h3><span class="icono emoji">🌐</span> Asistencia Remota</h3><p>Soluciones inmediatas sin moverte de tu casa o empresa.</p></a>
       <a class="servicio" href="/seguridadyrespaldo.html"><h3><span class="icono emoji">🔒</span> Seguridad y Respaldo</h3><p>Protección contra virus, copias de seguridad y recuperación de datos.</p></a>
