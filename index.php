@@ -1186,10 +1186,17 @@ document.addEventListener('DOMContentLoaded', function () {
   //
   // ========================================================
   async function stiShowChat(){
-    if (!box){ alert('No se encontró #sti-chat-box'); return; }
+    console.log('🚀 [STI Chat] stiShowChat() ejecutándose...');
+    if (!box){ 
+      console.error('❌ [STI Chat] No se encontró #sti-chat-box');
+      alert('No se encontró #sti-chat-box'); 
+      return; 
+    }
+    console.log('📦 [STI Chat] box encontrado, mostrando chat...');
     box.style.setProperty('display','flex','important');
     box.style.zIndex = '2147483647';
     document.body.classList.add('chat-open');
+    console.log('✅ [STI Chat] Chat visible');
     setTimeout(()=>{ input && input.focus(); }, 0);
 
     // 👉 nuevo SID y reset backend cada vez que se abre
@@ -1271,9 +1278,40 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // ====== Listeners ======
-  headerBtn && headerBtn.addEventListener('click', (e)=>{ e.preventDefault(); stiShowChat(); }, {passive:false});
-  heroBtn   && heroBtn  .addEventListener('click', (e)=>{ e.preventDefault(); stiShowChat(); }, {passive:false});
-  closeBtn  && closeBtn .addEventListener('click', (e)=>{ e.preventDefault(); stiHideChat(); }, {passive:false});
+  console.log('🔧 [STI Chat] Configurando listeners...');
+  console.log('🔧 [STI Chat] headerBtn:', headerBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] heroBtn:', heroBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] closeBtn:', closeBtn ? 'encontrado' : 'NO encontrado');
+  console.log('🔧 [STI Chat] box:', box ? 'encontrado' : 'NO encontrado');
+  
+  if (headerBtn) {
+    headerBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en headerBtn detectado');
+      e.preventDefault(); 
+      e.stopPropagation();
+      stiShowChat(); 
+    }, {passive:false, capture:true});
+    console.log('✅ [STI Chat] Listener agregado a headerBtn');
+  }
+  
+  if (heroBtn) {
+    heroBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en heroBtn detectado');
+      e.preventDefault(); 
+      e.stopPropagation();
+      stiShowChat(); 
+    }, {passive:false, capture:true});
+    console.log('✅ [STI Chat] Listener agregado a heroBtn');
+  }
+  
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e)=>{ 
+      console.log('🖱️ [STI Chat] Click en closeBtn detectado');
+      e.preventDefault(); 
+      stiHideChat(); 
+    }, {passive:false});
+    console.log('✅ [STI Chat] Listener agregado a closeBtn');
+  }
 
   send  && send .addEventListener('click', ()=> sendMsg(input && input.value), {passive:true});
   input && input.addEventListener('keydown', (e)=>{
