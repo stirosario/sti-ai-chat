@@ -1016,7 +1016,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       // mostrar botones si vienen en la respuesta
       // Priorizar data.buttons (tiene description/example) antes que data.options
-      const btns = normalizeButtons(data.buttons || data.ui || data.options);
+      const btns = normalizeButtons(data?.buttons || data?.ui || data?.options);
       if (btns.length) renderButtons(node, btns);
 
       // WA button si corresponde
@@ -1077,7 +1077,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       // renderizar botones si vienen en la respuesta
       // Priorizar data.buttons (tiene description/example) antes que data.options
-      const btns = normalizeButtons(data.buttons || data.ui || data.options);
+      const btns = normalizeButtons(data?.buttons || data?.ui || data?.options);
       if (btns.length) renderButtons(node, btns);
 
       if (data && (data.allowWhatsapp || (data.reply && /https?:\/\/wa\.me\//.test(data.reply)))) {
@@ -1184,7 +1184,7 @@ document.addEventListener('DOMContentLoaded', function () {
         console.log('🔍 DEBUG: Buttons field:', d.buttons);
         const node = addMsg(d?.greeting || d?.reply || '👋 ¡Hola! Soy Tecnos de STI. ¿Cómo te llamás?', 'bot');
         // si el backend envía opciones con greeting, muéstralas
-        const btns = normalizeButtons(d.buttons || d.ui || d.options);
+        const btns = normalizeButtons(d?.buttons || d?.ui || d?.options);
         console.log('🔍 DEBUG: Normalized buttons:', btns);
         if (btns.length) {
           console.log('✅ Rendering', btns.length, 'buttons');
