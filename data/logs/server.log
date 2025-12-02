@@ -5731,3 +5731,30 @@
 2025-12-02T20:42:05.274Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
 2025-12-02T20:42:05.274Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-12-02T20:42:05.275Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T21:03:20.169Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-02T21:03:20.193Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T21:03:20.193Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T21:03:20.193Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T21:03:20.193Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T21:03:51.621Z [INFO] 
+[SIGTERM] Iniciando apagado graceful...
+2025-12-02T21:03:53.916Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-02T21:03:53.939Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-02T21:03:53.939Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-02T21:03:53.939Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-02T21:03:53.939Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-02T21:04:17.425Z [INFO] [saveSession] ✅ Saved to memory web-44e[PHONE_REDACTED]c28c[PHONE_REDACTED]e658a387: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-02T21:05:34.165Z [ERROR] [SECURITY] 🚨 CORS VIOLATION: Unauthorized origin attempted access: http://localhost:[PHONE_REDACTED]
+2025-12-02T21:05:34.168Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:219:13
+    at optionsCallback (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:199:9)
+    at corsMiddleware (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/cors/lib/index.js:204:7)
+    at Layer.handle [as handle_request] (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/work/sti-ai-chat/sti-ai-chat/node_modules/express/lib/router/index.js:280:10)
+    at file:///home/runner/work/sti-ai-chat/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+2025-12-02T21:05:52.921Z [INFO] 
+[SIGTERM] Iniciando apagado graceful...
