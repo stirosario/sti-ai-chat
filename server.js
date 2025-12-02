@@ -3994,8 +3994,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             ok: true,
             reply,
             stage: session.stage,
-            buttons: problemButtons,
-            options: problemButtons
+            buttons: problemButtons
           });
         } else if (needType === 'consulta_general') {
           reply = isEn
