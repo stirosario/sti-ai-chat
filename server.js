@@ -452,6 +452,13 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
       { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
+      // Botones de problemas frecuentes
+      { token: 'BTN_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende' },
+      { token: 'BTN_NO_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet' },
+      { token: 'BTN_LENTITUD', label: '🐢 Lentitud del sistema operativo o del equipo', text: 'lentitud del sistema' },
+      { token: 'BTN_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas' },
+      { token: 'BTN_PERIFERICOS', label: '🖨️ Problemas con periféricos externos', text: 'problemas con periféricos' },
+      { token: 'BTN_VIRUS', label: '🛡️ Infecciones de malware o virus', text: 'infecciones de virus' },
       // device tokens
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
@@ -3889,6 +3896,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         session.stage = STATES.ASK_PROBLEM;
 
         let reply = '';
+        let options = [];
         const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
 
         // Respuestas personalizadas según el tipo de necesidad
@@ -3898,6 +3906,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
           session.isProblem = true;
           session.isHowTo = false;
+          // Agregar botones de problemas frecuentes
+          options = buildUiButtonsFromTokens([
+            'BTN_NO_ENCIENDE',
+            'BTN_NO_INTERNET',
+            'BTN_LENTITUD',
+            'BTN_BLOQUEO',
+            'BTN_PERIFERICOS',
+            'BTN_VIRUS'
+          ], locale);
         } else if (needType === 'consulta_general') {
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
@@ -3915,7 +3932,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage }));
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else {
         // No entendió la necesidad, pedir de nuevo
         const retry = isEn
