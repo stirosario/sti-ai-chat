@@ -3740,8 +3740,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           reply,
           stage: session.stage,
           buttons: [
-            { text: '🇦🇷 Español', value: 'español' },
-            { text: '🇺🇸 English', value: 'english' }
+            { text: '(🇦🇷) Español 🌎', value: 'español' },
+            { text: '(🇺🇸) English 🌎', value: 'english' }
           ]
         });
       }
@@ -3809,12 +3809,12 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         stage: session.stage,
         buttons: session.gdprConsent
           ? [
-            { text: '🇦🇷 Español', value: 'español' },
-            { text: '🇺🇸 English', value: 'english' }
+            { text: '(🇦🇷) Español 🌎', value: 'español' },
+            { text: '(🇺🇸) English 🌎', value: 'english' }
           ]
           : [
-            { text: 'Sí', value: 'si' },
-            { text: 'No', value: 'no' }
+            { text: 'Sí Acepto', value: 'si' },
+            { text: 'No Acepto', value: 'no' }
           ]
       });
     }

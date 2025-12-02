@@ -12,9 +12,6 @@ set min=%datetime:~10,2%
 :: Construir nombre de archivo
 set filename=server%dd%%mm%%aaaa%%hh%%min%.js
 
-:: Construir mensaje de commit automático
-set commitmsg=%dd%%mm%%aaaa%-%hh%%min%
-
 :: Copiar archivo a BACKUPS
 copy /Y "C:\sti-ai-chat\server.js" "E:\Lucas\Desktop\STI\BACKUPS\server.js"
 
@@ -23,6 +20,10 @@ copy /Y "C:\sti-ai-chat\server.js" "E:\Lucas\Desktop\STI\BACKUPS WEB STI\JServer
 
 :: Forzar fecha de modificación usando PowerShell
 powershell -Command "(Get-Item 'E:\Lucas\Desktop\STI\BACKUPS WEB STI\JServer\%filename%').LastWriteTime = Get-Date"
+
+
+
+
 
 :: ===============================================
 :: 🚀 DEPLOY STI Render desde Windows CMD
@@ -33,13 +34,20 @@ echo -----------------------------------------------
 echo  🔄 Guardando y subiendo cambios a Render...
 echo -----------------------------------------------
 
+:: Preguntar mensaje de commit
+set /p msg="📝 Escribí un mensaje para el commit (o deja vacío para 'update server.js'): "
+
+if "%msg%"=="" (
+    set msg=update server.js
+)
+
 echo.
 echo 📁 Agregando archivos modificados...
 git add .
 
 echo.
-echo 💬 Creando commit: "%commitmsg%"
-git commit -m "%commitmsg%"
+echo 💬 Creando commit: "%msg%"
+git commit -m "%msg%"
 
 echo.
 echo ⬆️  Enviando a GitHub (Render se redeploya solo)...
