@@ -4252,11 +4252,13 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     let options = [];
 
     if (session.stage === STATES.ASK_PROBLEM) {
+      // Get locale once at the beginning
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
       // ========================================================
       // 🆕 DETECCIÓN DE BOTONES DE PROBLEMAS COMUNES
       // ========================================================
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
       
       // Detectar si el usuario seleccionó un botón de problema común
       if (buttonToken && buttonToken.startsWith('BTN_PROB_')) {
@@ -4300,8 +4302,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
 
         if (ambiguousResult) {
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
           const confidence = ambiguousResult.confidence;
 
           // CASO 1: Alta confianza (>=0.33 = 1+ keywords) - Confirmar con 1 botón
@@ -4413,8 +4413,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
 
       // OA analyze problem (optional)
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
       const ai = await analyzeProblemWithOA(session.problem || '', locale);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
 
