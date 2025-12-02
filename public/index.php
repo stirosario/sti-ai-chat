@@ -1015,7 +1015,8 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       // mostrar botones si vienen en la respuesta
-      const btns = normalizeButtons(data.ui || data.options || data?.buttons || data?.options);
+      // Priorizar data.buttons (tiene description/example) antes que data.options
+      const btns = normalizeButtons(data.buttons || data.ui || data.options);
       if (btns.length) renderButtons(node, btns);
 
       // WA button si corresponde
@@ -1075,7 +1076,8 @@ document.addEventListener('DOMContentLoaded', function () {
       const node = addMsg(data?.reply || '🤖', 'bot');
 
       // renderizar botones si vienen en la respuesta
-      const btns = normalizeButtons(data.ui || data.options || data?.buttons || data?.options);
+      // Priorizar data.buttons (tiene description/example) antes que data.options
+      const btns = normalizeButtons(data.buttons || data.ui || data.options);
       if (btns.length) renderButtons(node, btns);
 
       if (data && (data.allowWhatsapp || (data.reply && /https?:\/\/wa\.me\//.test(data.reply)))) {
