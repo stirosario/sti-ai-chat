@@ -437,7 +437,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
       { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_ADVANCED_TESTS', label: '⚡ Pruebas Avanzadas', text: 'pruebas avanzadas' },
+      { token: 'BTN_ADVANCED_TESTS', label: '🔬 Pruebas Avanzadas', text: 'pruebas avanzadas' },
       { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
       { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
@@ -446,9 +446,9 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
       { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
       { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
-      { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
+      { token: 'BTN_CLOSE', label: '🔚 Cerrar Chat', text: 'cerrar chat' },
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
-      { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
+      { token: 'BTN_CONNECT_TECH', label: '👨‍🏭 Conectar con Técnico', text: 'conectar con técnico' },
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
       { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
@@ -4818,8 +4818,8 @@ La guía debe ser:
         const empatia = addEmpatheticResponse('ESCALATE', locale);
         // Custom message
         reply = isEn
-          ? `💡 I understand. ${empatia} Would you like me to connect you with a technician for a deeper look?`
-          : `💡 Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
+          ? `💡 I understand. ${empatia} What would you like to do?`
+          : `💡 Entiendo. ${empatia} ¿Querés que te ayude con algo más?`;
         // Custom buttons (usar una sola opción para solicitar pruebas avanzadas)
         options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
         session.stage = STATES.ESCALATE;
