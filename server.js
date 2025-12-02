@@ -588,7 +588,8 @@ function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
     const deviceLabel = getDeviceButtonLabel(String(t), locale);
     const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
     const text = def?.text || label;
-    return { token: String(t), label, text };
+    // value es el token para que el servidor lo reconozca
+    return { token: String(t), label, text, value: String(t) };
   }).filter(Boolean);
 }
 function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
