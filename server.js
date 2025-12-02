@@ -58,6 +58,95 @@ console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbigu
 console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
 
 // ========================================================
+// 🎨 CONFIGURACIÓN DE ETIQUETAS DE BOTONES (UI)
+// ========================================================
+// MODIFICÁ ESTAS ETIQUETAS PARA CAMBIAR LO QUE VE EL USUARIO EN CADA BOTÓN
+// Todos los botones del chat usan estas etiquetas centralizadas.
+// ========================================================
+const BUTTON_LABELS = {
+  // Idiomas
+  BTN_LANG_ES_AR: '🇦🇷 Español (Argentina)',
+  BTN_LANG_ES_ES: '🌎 Español',
+  BTN_LANG_EN: '🇬🇧 English',
+  
+  // Nombre
+  BTN_NO_NAME: 'Prefiero no decirlo 🙅',
+  
+  // Botones principales (categorías)
+  BTN_PROBLEMA: '🔧 Solucionar / Diagnosticar Problema',
+  BTN_CONSULTA: '💡 Consulta / Asistencia Informática',
+  
+  // Tipos de equipo
+  BTN_DESKTOP: 'Desktop 💻',
+  BTN_ALLINONE: 'All-in-One 🖥️',
+  BTN_NOTEBOOK: 'Notebook 💼',
+  
+  // Resultado de pasos
+  BTN_SOLVED: '👍 Ya lo solucioné',
+  BTN_PERSIST: '❌ Todavía no funciona',
+  
+  // Pruebas y escalado
+  BTN_ADVANCED_TESTS: '⚡ Pruebas Avanzadas',
+  BTN_MORE_TESTS: '🔍 Más pruebas',
+  BTN_MORE: '🔍 Más pruebas',
+  BTN_TECH: '🧑‍💻 Técnico real',
+  
+  // Ayuda por paso
+  BTN_HELP_1: 'Ayuda paso 1',
+  BTN_HELP_2: 'Ayuda paso 2',
+  BTN_HELP_3: 'Ayuda paso 3',
+  BTN_HELP_4: 'Ayuda paso 4',
+  
+  // Acciones generales
+  BTN_REPHRASE: 'Cambiar problema',
+  BTN_CLOSE: 'Cerrar chat 🔒',
+  BTN_WHATSAPP: 'Enviar WhatsApp',
+  BTN_CONNECT_TECH: 'Conectar con Técnico 🧑‍💻',
+  BTN_CONFIRM_TICKET: 'Sí, generar ticket ✅',
+  BTN_CANCEL: 'Cancelar ❌',
+  BTN_MORE_SIMPLE: 'Explicar más simple',
+  
+  // Dispositivos específicos
+  BTN_DEV_PC_DESKTOP: 'PC de escritorio',
+  BTN_DEV_PC_ALLINONE: 'PC All in One',
+  BTN_DEV_NOTEBOOK: 'Notebook'
+};
+
+// Textos enviados al servidor cuando se hace clic (no modificar a menos que sea necesario)
+const BUTTON_TEXTS = {
+  BTN_LANG_ES_AR: 'Español (Argentina)',
+  BTN_LANG_ES_ES: 'Español (Latinoamérica)',
+  BTN_LANG_EN: 'English',
+  BTN_NO_NAME: 'Prefiero no decirlo',
+  BTN_PROBLEMA: 'tengo un problema',
+  BTN_CONSULTA: 'tengo una consulta',
+  BTN_DESKTOP: 'desktop',
+  BTN_ALLINONE: 'all in one',
+  BTN_NOTEBOOK: 'notebook',
+  BTN_SOLVED: 'lo pude solucionar',
+  BTN_PERSIST: 'el problema persiste',
+  BTN_ADVANCED_TESTS: 'pruebas avanzadas',
+  BTN_MORE_TESTS: 'más pruebas',
+  BTN_MORE: 'más pruebas',
+  BTN_TECH: 'hablar con técnico',
+  BTN_HELP_1: 'ayuda paso 1',
+  BTN_HELP_2: 'ayuda paso 2',
+  BTN_HELP_3: 'ayuda paso 3',
+  BTN_HELP_4: 'ayuda paso 4',
+  BTN_REPHRASE: 'cambiar problema',
+  BTN_CLOSE: 'cerrar chat',
+  BTN_WHATSAPP: 'enviar por whatsapp',
+  BTN_CONNECT_TECH: 'conectar con técnico',
+  BTN_CONFIRM_TICKET: 'sí, generar ticket',
+  BTN_CANCEL: 'cancelar',
+  BTN_MORE_SIMPLE: 'explicalo más simple',
+  BTN_DEV_PC_DESKTOP: 'pc de escritorio',
+  BTN_DEV_PC_ALLINONE: 'pc all in one',
+  BTN_DEV_NOTEBOOK: 'notebook'
+};
+// ========================================================
+
+// ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
 // ========================================================
 const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
@@ -418,45 +507,13 @@ const EMBEDDED_CHAT = {
   //
   // ========================================================
   ui: {
-    buttons: [
-      // Botones del flujo según Flujo.csv
-      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
-      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
-      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
-
-      // ========================================================
-      // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
-      // ========================================================
-      { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
-      { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
-      // ========================================================
-
-      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
-      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
-      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
-      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_ADVANCED_TESTS', label: '⚡ Pruebas Avanzadas', text: 'pruebas avanzadas' },
-      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
-      { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
-      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
-      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
-      { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
-      { token: 'BTN_CLOSE', label: 'Cerrar chat 🔒', text: 'cerrar chat' },
-      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
-      { token: 'BTN_CONNECT_TECH', label: 'Conectar con Técnico 🧑‍💻', text: 'conectar con técnico' },
-      { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
-      { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
-      { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
-      // device tokens
-      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
-      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' }
-    ],
+    // Los botones ahora usan las etiquetas centralizadas de BUTTON_LABELS (al principio del archivo)
+    // Para modificar lo que ve el usuario, editá BUTTON_LABELS arriba
+    buttons: Object.keys(BUTTON_LABELS).map(token => ({
+      token,
+      label: BUTTON_LABELS[token],
+      text: BUTTON_TEXTS[token] || BUTTON_LABELS[token]
+    })),
     states: {}
   },
   nlp: {
