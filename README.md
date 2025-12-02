@@ -23,7 +23,7 @@ Backend Express + OpenAI para chat de soporte automatizado de **STI Servicio Té
 
 #### Windows
 Ejecutá el script de deploy:
-```bash
+```cmd
 update.bat
 ```
 Este script:

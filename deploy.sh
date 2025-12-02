@@ -27,9 +27,17 @@ echo "🔍 Verificando estado del repositorio..."
 # Verificar si hay cambios antes de hacer git add
 has_changes=false
 
-# Verificar cambios en archivos rastreados (maneja repositorios vacíos con || true)
-if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-    has_changes=true
+# Verificar cambios en archivos rastreados (maneja repositorios vacíos)
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    # HEAD existe, verificar cambios normalmente
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+        has_changes=true
+    fi
+else
+    # Repositorio vacío sin commits, considerar que hay cambios si hay archivos
+    if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+        has_changes=true
+    fi
 fi
 
 # Verificar archivos sin rastrear

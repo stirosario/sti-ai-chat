@@ -58,10 +58,14 @@ chmod +x deploy.sh
 
 Para que el deployment automático funcione, asegurate de tener configurado en Render:
 
-1. **Auto-Deploy** activado desde la rama `main`
+1. **Auto-Deploy** activado
+   - **Windows (update.bat)**: Configurá Auto-Deploy desde la rama `main`
+   - **Linux/macOS (deploy.sh)**: Configurá Auto-Deploy desde tu rama de trabajo (el script usa la rama actual)
 2. Variables de entorno configuradas:
    - `OPENAI_API_KEY` - Tu API key de OpenAI
    - `PORT` - Puerto del servidor (ej: 3001)
+
+**Nota importante:** Si usás el script Unix (`deploy.sh`) en una rama diferente a `main`, asegurate de configurar Auto-Deploy en Render para esa rama también, o cambiá a la rama `main` antes de ejecutar el script.
 
 ### 📝 Formato de commits automáticos
 
