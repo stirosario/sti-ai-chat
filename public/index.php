@@ -874,10 +874,10 @@ document.addEventListener('DOMContentLoaded', function () {
           } else if (it && (it.text || it.label)) {
             // Soportar objetos con text/label/description/example
             const label = it.text || it.label;
-            const value = it.value || it.token || label;
-            const icon = it.icon || '';
-            const description = it.description || '';
-            const example = it.example || '';
+            const value = it.value ?? it.token ?? label;
+            const icon = it.icon ?? '';
+            const description = it.description ?? '';
+            const example = it.example ?? '';
             out.push({ label, value, text: label, icon, description, example });
           }
         });
