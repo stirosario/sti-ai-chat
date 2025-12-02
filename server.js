@@ -169,8 +169,15 @@ if (!process.env.LOG_TOKEN) {
   console.error('='.repeat(80) + '\n'.repeat(2));
 }
 
+// Create required directories with proper error handling
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
-  try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
+  try { 
+    fs.mkdirSync(d, { recursive: true }); 
+    console.log(`[init] Ensured directory exists: ${d}`);
+  } catch (e) { 
+    console.error(`[init] Failed to ensure directory ${d}:`, e && e.message);
+    // Continue anyway - will attempt to handle later
+  }
 }
 
 // Escribir token de logs a archivo seguro para interfaces administrativas locales
@@ -272,10 +279,26 @@ function getMetrics() {
 const sseClients = new Set();
 const MAX_SSE_CLIENTS = 100;
 let logStream = null;
+
+// Create log stream with error handler
+// Note: LOGS_DIR should already be created in the directory setup above
 try {
   logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+  
+  // Add error handler to prevent unhandled errors from crashing the server
+  logStream.on('error', (err) => {
+    console.error('[logStream] Error de escritura:', err && err.message);
+    // Mark stream as unusable - appendToLogFile will fall back to fs.appendFile
+    if (logStream) {
+      try { logStream.end(); } catch (e) { /* ignore */ }
+      logStream = null;
+    }
+  });
+  
+  console.log('[init] Stream de logs creado exitosamente:', LOG_FILE);
 } catch (e) {
-  console.error('[init] no pude abrir stream de logs', e && e.message);
+  console.error('[init] No se pudo crear el stream de logs:', e && e.message);
+  console.warn('[init] El logging a archivo será deshabilitado - los logs solo aparecerán en consola');
 }
 
 const nowIso = () => new Date().toISOString();

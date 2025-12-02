@@ -407,7 +407,7 @@ if (empty($_SESSION['csrf_token'])) {
   <!-- Franja con texto metálico -->
   <section id="franja-metal">
     <div class="franja-metal-text">SERVICIO TÉCNICO INTELIGENTE</div>
-    <div class="franja-subtexto">REPARACIONES DE PC - NOTEBOOK - ALL IN ONE</div>
+    <div class="franja-subtexto">REPARACIONES DE PC - NOTEBOOK</div>
   </section>
 
   <!-- Servicios -->
