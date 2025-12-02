@@ -1,5 +1,45 @@
 [
     {
+        "timestamp": "2025-12-02 11:55:49",
+        "type": "show",
+        "message": "Box encontrado, mostrando chat",
+        "data": null,
+        "userAgent": "Mozilla\/5.0 (X11; Linux x86_64) AppleWebKit\/537.36 (KHTML, like Gecko) HeadlessChrome\/142.0.0.0 Safari\/537.36",
+        "ip": "::1"
+    },
+    {
+        "timestamp": "2025-12-02 11:55:49",
+        "type": "show",
+        "message": "stiShowChat() iniciado",
+        "data": null,
+        "userAgent": "Mozilla\/5.0 (X11; Linux x86_64) AppleWebKit\/537.36 (KHTML, like Gecko) HeadlessChrome\/142.0.0.0 Safari\/537.36",
+        "ip": "::1"
+    },
+    {
+        "timestamp": "2025-12-02 11:55:49",
+        "type": "click",
+        "message": "Click en heroBtn (hero section)",
+        "data": "{\"button\":\"heroBtn\"}",
+        "userAgent": "Mozilla\/5.0 (X11; Linux x86_64) AppleWebKit\/537.36 (KHTML, like Gecko) HeadlessChrome\/142.0.0.0 Safari\/537.36",
+        "ip": "::1"
+    },
+    {
+        "timestamp": "2025-12-02 11:55:41",
+        "type": "info",
+        "message": "Configurando listeners",
+        "data": "{\"headerBtn\":\"encontrado\",\"heroBtn\":\"encontrado\",\"closeBtn\":\"encontrado\",\"box\":\"encontrado\"}",
+        "userAgent": "Mozilla\/5.0 (X11; Linux x86_64) AppleWebKit\/537.36 (KHTML, like Gecko) HeadlessChrome\/142.0.0.0 Safari\/537.36",
+        "ip": "::1"
+    },
+    {
+        "timestamp": "2025-12-02 11:55:41",
+        "type": "init",
+        "message": "DOMContentLoaded ejecutado",
+        "data": "{\"url\":\"http:\/\/localhost:8087\/index.php\",\"time\":\"2025-12-02T11:55:41.041Z\"}",
+        "userAgent": "Mozilla\/5.0 (X11; Linux x86_64) AppleWebKit\/537.36 (KHTML, like Gecko) HeadlessChrome\/142.0.0.0 Safari\/537.36",
+        "ip": "::1"
+    },
+    {
         "timestamp": "2025-12-02 11:43:09",
         "type": "show",
         "message": "Box encontrado, mostrando chat",
