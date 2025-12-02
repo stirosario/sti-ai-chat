@@ -1,0 +1,546 @@
+/* =======================================================
+   STI Rosario – Chat Tecnos
+   Hoja de estilos específica del widget de chat
+   Estructura actual (index.php):
+     #sti-chat-box
+       #sti-close
+       #sti-messages
+       .sti-input-area
+         #sti-text
+         #sti-send
+   Clases generadas desde JS:
+     .sti-msg.sti-user / .sti-msg.sti-bot
+     .sti-bubble
+     .sti-typing .dot
+     .sti-options .sti-opt-btn
+     .btn-title .btn-description .btn-example .btn-icon
+     .sti-wa-btn
+   ======================================================= */
+
+:root {
+  --sti-chat-bg: #020617;
+  --sti-chat-panel: rgba(15, 23, 42, 0.98);
+  --sti-chat-border: rgba(148, 163, 184, 0.45);
+  --sti-chat-text: #e5e7eb;
+  --sti-chat-text-soft: #9ca3af;
+  --sti-chat-bot: #020617;
+  --sti-chat-user: #0b7cff;
+  --sti-chat-user-2: #38bdf8;
+  --sti-chat-accent: #9b5bff;
+  --sti-chat-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+  --sti-chat-radius: 18px;
+  --sti-chat-radius-pill: 999px;
+  --sti-chat-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ================================
+   CONTENEDOR GENERAL DEL CHAT
+   ================================ */
+
+#sti-chat-box {
+  position: fixed;
+  inset-inline: 12px;
+  bottom: 12px;
+  max-width: 420px;
+  margin-inline: auto;
+  display: none; /* se muestra vía JS */
+  flex-direction: column;
+  background:
+    radial-gradient(circle at top, rgba(155, 91, 255, 0.32), transparent 60%),
+    radial-gradient(circle at bottom, rgba(11, 124, 255, 0.25), transparent 55%),
+    var(--sti-chat-panel);
+  border-radius: 24px;
+  border: 1px solid var(--sti-chat-border);
+  box-shadow: var(--sti-chat-shadow);
+  color: var(--sti-chat-text);
+  font-family: var(--sti-chat-font);
+  overflow: hidden;
+  backdrop-filter: blur(18px);
+  z-index: 2147483647;
+}
+/* Header interno azul dentro del chat */
+#sti-chat-box::before {
+  content: attr(data-title);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  padding: 9px 40px 8px 16px;
+  background: linear-gradient(135deg, #0b7cff, #38bdf8);
+  color: #f9fafb;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+
+@media (min-width: 768px) {
+  #sti-chat-box {
+    inset-inline: auto;
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+    max-height: 640px;
+  }
+}
+
+/* ================================
+   HEADER / BOTÓN CERRAR
+   (el header visual se simula con el fondo superior
+   y el botón de cierre)
+   ================================ */
+
+#sti-chat-box {
+  position: fixed;
+}
+
+#sti-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--sti-chat-radius-pill);
+  border: none;
+  background: rgba(15, 23, 42, 0.55);
+  color: #f9fafb;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.1s ease;
+  z-index: 3;
+}
+
+
+#sti-close:hover {
+  background: rgba(15, 23, 42, 0.85);
+  transform: translateY(-1px);
+}
+
+#sti-close:active {
+  transform: translateY(0);
+}
+
+/* ================================
+   AREA DE MENSAJES
+   ================================ */
+
+#sti-messages {
+  padding: 48px 10px 8px;
+  background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.96), #020617);
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+
+/* Scrollbar sutil */
+#sti-messages::-webkit-scrollbar {
+  width: 6px;
+}
+#sti-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+#sti-messages::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.7);
+  border-radius: var(--sti-chat-radius-pill);
+}
+
+/* Filas de mensajes */
+#sti-chat-box .sti-msg {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+#sti-chat-box .sti-msg.sti-bot {
+  justify-content: flex-start;
+}
+
+#sti-chat-box .sti-msg.sti-user {
+  justify-content: flex-end;
+}
+
+/* Burbujas */
+#sti-chat-box .sti-bubble {
+  max-width: 90%;
+  padding: 8px 11px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.35;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.99), rgba(15, 23, 42, 0.9));
+  color: var(--sti-chat-text);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+#sti-chat-box .sti-msg.sti-bot .sti-bubble {
+  border-radius: 14px 14px 14px 4px;
+}
+
+#sti-chat-box .sti-msg.sti-user .sti-bubble {
+  background: linear-gradient(135deg, var(--sti-chat-user), var(--sti-chat-user-2));
+  color: #ecfeff;
+  border-radius: 14px 14px 4px 14px;
+  border: none;
+}
+
+/* Mensajes de sistema podrían usar solo .sti-msg sin user/bot con estilos neutros si se agregan */
+
+/* ================================
+   INDICADOR "ESCRIBIENDO"
+   ================================ */
+
+#sti-chat-box .sti-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  margin: 4px 0 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+#sti-chat-box .sti-typing .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.9);
+  animation: sti-dot-bounce 1s infinite ease-in-out;
+}
+
+#sti-chat-box .sti-typing .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+#sti-chat-box .sti-typing .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes sti-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ================================
+   BOTONES DE OPCIONES (.sti-options)
+   ================================ */
+
+#sti-chat-box .sti-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+/* Botones con título, descripción, ejemplo */
+#sti-chat-box .sti-opt-btn {
+  background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.3), transparent 55%),
+              linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92));
+  color: var(--sti-chat-text);
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  border-radius: 14px;
+  padding: 12px;
+  font-family: var(--sti-chat-font);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.7);
+  width: 100%;
+}
+
+#sti-chat-box .sti-opt-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.85);
+  border-color: var(--sti-chat-accent);
+}
+
+#sti-chat-box .sti-opt-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.7);
+}
+
+#sti-chat-box .sti-opt-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Estructuras internas del botón */
+#sti-chat-box .btn-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#sti-chat-box .btn-icon {
+  font-size: 18px;
+  display: inline-block;
+}
+
+#sti-chat-box .btn-description {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin-bottom: 6px;
+  color: var(--sti-chat-text-soft);
+}
+
+#sti-chat-box .btn-example {
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.4;
+  opacity: 0.85;
+  color: var(--sti-chat-text-soft);
+  padding-top: 5px;
+  border-top: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+/* ================================
+   BOTÓN WHATSAPP (.sti-wa-btn)
+   ================================ */
+
+#sti-chat-box .sti-wa-btn {
+  margin-top: 10px;
+  width: 100%;
+  border-radius: var(--sti-chat-radius-pill);
+  border: none;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #022c22;
+  box-shadow: 0 10px 24px rgba(22, 163, 74, 0.7);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+#sti-chat-box .sti-wa-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(22, 163, 74, 0.9);
+  filter: brightness(1.03);
+}
+
+#sti-chat-box .sti-wa-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 22px rgba(22, 163, 74, 0.7);
+}
+
+/* ================================
+   FOOTER: INPUT + BOTÓN ENVIAR
+   ================================ */
+
+#sti-chat-box .sti-input-area {
+  padding: 8px 10px 10px;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.97), rgba(15, 23, 42, 0.93));
+  border-top: 1px solid rgba(15, 23, 42, 0.96);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+#sti-text {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: var(--sti-chat-radius-pill);
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--sti-chat-text);
+  font-family: var(--sti-chat-font);
+  outline: none;
+}
+
+#sti-text::placeholder {
+  color: rgba(249, 250, 251, 0.9);
+  font-size: 12px;
+}
+
+
+#sti-text:focus {
+  border-color: var(--sti-chat-user);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.7);
+}
+
+/* Botón enviar */
+#sti-send {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--sti-chat-radius-pill);
+  border: none;
+  background: radial-gradient(circle at 20% 0, #e0f2fe, var(--sti-chat-user));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0b1120;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+  box-shadow: 0 10px 25px rgba(37, 99, 235, 0.7);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+
+#sti-send:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.9);
+}
+
+#sti-send:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.7);
+}
+
+/* ================================
+   AJUSTES RESPONSIVE PEQUEÑOS
+   ================================ */
+
+@media (max-width: 380px) {
+  #sti-chat-box {
+    bottom: 8px;
+    inset-inline: 8px;
+    border-radius: 20px;
+  }
+
+  #sti-chat-box .sti-bubble {
+    max-width: 100%;
+  }
+
+  #sti-chat-box .btn-title {
+    font-size: 13px;
+  }
+
+  #sti-chat-box .btn-description {
+    font-size: 11px;
+  }
+
+  #sti-chat-box .btn-example {
+    font-size: 10px;
+  }
+}
+
+/* Botón de cambio de tema dentro del header */
+#sti-theme-toggle {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(15, 23, 42, 0.35);
+  color: #f9fafb;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+#sti-theme-toggle:hover {
+  background: rgba(15, 23, 42, 0.75);
+  transform: translateY(-1px);
+}
+
+/* Sugerencias rápidas debajo del input */
+#sti-chat-box .sti-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 10px 10px;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.9));
+}
+
+#sti-chat-box .sti-quick-btn {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+#sti-chat-box .sti-quick-btn:hover {
+  background: radial-gradient(circle at top, rgba(56, 189, 248, 0.3), rgba(15, 23, 42, 0.95));
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.9);
+}
+
+/* Animación al abrir el chat */
+#sti-chat-box.sti-open {
+  animation: sti-pop-open 0.25s ease-out;
+}
+
+@keyframes sti-pop-open {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+
+/* Tema claro opcional para el chat */
+#sti-chat-box.sti-theme-light {
+  background: #f9fafb;
+}
+
+#sti-chat-box.sti-theme-light #sti-messages {
+  background: linear-gradient(to bottom, #ffffff, #e5e7eb);
+  color: #0f172a;
+}
+
+#sti-chat-box.sti-theme-light .sti-msg.sti-bot .sti-bubble {
+  background: #e5e7eb;
+  color: #020617;
+  border-color: #cbd5f5;
+}
+
+#sti-chat-box.sti-theme-light .sti-msg.sti-user .sti-bubble {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  color: #f9fafb;
+}
+
+#sti-chat-box.sti-theme-light .sti-input-area {
+  background: #e5e7eb;
+  border-top-color: #cbd5e1;
+}
+
+#sti-chat-box.sti-theme-light #sti-text {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+#sti-chat-box.sti-theme-light .sti-quick-row {
+  background: #e5e7eb;
+}
+
+#sti-chat-box.sti-theme-light .sti-quick-btn {
+  background: #f9fafb;
+  color: #0f172a;
+}

@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="es">
+<header id="main-header">
+  <div class="container header-content">
+    <img src="img/logo-sti1.png" alt="Logo STI" class="logo" width="80" height="80" decoding="async">
+    <nav class="main-nav ocultar-movil"></nav>
+  </div>
+</header>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sugerencia</title>
+  <link href="https://fonts.googleapis.com/css2?family=Exo:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body{
+      margin:0;
+      background:#0b0d12;
+      color:#e0e0e0;
+      font-family:'Exo',sans-serif;
+      text-align:center;
+      padding:60px 20px;
+    }
+    .box{
+      max-width:720px;
+      margin:auto;
+      background:rgba(15,20,30,.6);
+      padding:40px;
+      border:1px solid rgba(92,200,255,.22);
+      border-radius:12px;
+      box-shadow:0 0 18px rgba(92,200,255,.15);
+    }
+    h1{
+      color:#58a6ff;
+      font-size:1.8rem;
+      margin-bottom:12px;
+    }
+    p{
+      color:#aebcd4;
+      font-size:15px;
+      line-height:1.6;
+    }
+
+    /* Botón base */
+    a.btn{
+      display:inline-block;
+      padding:12px 26px;
+      border-radius:32px;
+      color:#fff;
+      text-decoration:none;
+      font-weight:700;
+      transition:all .3s ease;
+      white-space:nowrap;
+    }
+
+    /* Azul (ya existente) */
+    a.btn-blue{
+      background:linear-gradient(180deg,#4fcaff 0%,#0a74c5 45%,#002f5f 100%);
+      box-shadow:
+        inset 0 2px 6px rgba(255,255,255,.25),
+        inset 0 -2px 6px rgba(0,0,0,.30),
+        0 0 0 1px rgba(92,200,255,.38),
+        0 0 18px rgba(92,200,255,.38),
+        0 0 42px rgba(92,200,255,.25);
+    }
+    a.btn-blue:hover{
+      background:linear-gradient(180deg,#62d2ff 0%,#0fa1ff 50%,#003a73 100%);
+      box-shadow:
+        inset 0 2px 6px rgba(255,255,255,.30),
+        inset 0 -2px 8px rgba(0,0,0,.35),
+        0 0 0 1px rgba(92,200,255,.55),
+        0 0 26px rgba(92,200,255,.55),
+        0 0 64px rgba(92,200,255,.35);
+    }
+
+    /* Verde metalizado WhatsApp */
+    a.btn-wa{
+      background:linear-gradient(180deg,#4cf28a 0%, #10b45a 45%, #06522b 100%);
+      box-shadow:
+        inset 0 2px 6px rgba(255,255,255,.22),
+        inset 0 -2px 6px rgba(0,0,0,.35),
+        0 0 0 1px rgba(56,255,161,.40),
+        0 0 18px rgba(56,255,161,.35),
+        0 0 42px rgba(56,255,161,.25);
+      border:0;
+    }
+    a.btn-wa:hover{
+      background:linear-gradient(180deg,#72f7a2 0%, #17ce6c 50%, #0a6b3a 100%);
+      box-shadow:
+        inset 0 2px 7px rgba(255,255,255,.28),
+        inset 0 -2px 8px rgba(0,0,0,.38),
+        0 0 0 1px rgba(56,255,161,.6),
+        0 0 26px rgba(56,255,161,.55),
+        0 0 64px rgba(56,255,161,.35);
+    }
+
+    /* Contenedor de botones: centrados y con espacio */
+    .btn-row{
+      margin-top:22px;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:14px;
+      flex-wrap:wrap;
+    }
+
+    /* Responsive: apilar en móviles */
+    @media (max-width:540px){
+      .btn-row{gap:10px;}
+      a.btn{width:100%; max-width:320px;}
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Sugerencia</h1>
+    <p>// ===== Diagnóstico híbrido (local + OpenAI opcional) =====
+// Pegalo en tu server.js (o en un módulo importado) y usalo antes de armar la respuesta.
+// Uso típico dentro de /api/chat:
+//   const diag = await analyzeProblemHybrid(userText);
+//   const steps = getBasicSteps(diag.issueKey, diag.device);
+//   // Construís la respuesta con steps específicos
+
+// === Helpers de normalización ===
+const CANON_DEVICES = [
+  'pc','notebook','monitor','teclado','mouse','impresora','almacenamiento','red','camara','microfono'
+];
+
+const DEVICE_SYNONYMS = [
+  [/^(pc|computadora|compu|cpu|gabinete|torre)$/i, 'pc'],
+  [/^(notebook|laptop|netbook|ultrabook|macbook)$/i, 'notebook'],
+  [/^(monitor|pantalla|display)$/i, 'monitor'],
+  [/^(teclado|keyboard|keyb|keys?)$/i, 'teclado'],
+  [/^(mouse|rat[oó]n|trackpad)$/i, 'mouse'],
+  [/^(impresora|printer|multifuncion|multifunción)$/i, 'impresora'],
+  [/^(disco|ssd|hdd|pendrive|usb|memoria|almacenamiento)$/i, 'almacenamiento'],
+  [/^(red|internet|wifi|wi-?fi|ethernet|router|modem|m[oó]dem)$/i, 'red'],
+  [/^(c[aá]mara|webcam|cam|camera)$/i, 'camara'],
+  [/^(micr[oó]fono|micro|mic)$/i, 'microfono']
+];
+
+// Mapeo de issues a "issueKey" canónicos
+// (podés extender libremente; mantené el formato)
+const ISSUE_PATTERNS = [
+  // TECLADO
+  { key:'no_funcionan_teclas',            rx: /(no\s*funciona[n]?|algunas|varias)\s+(letras|teclas)/i, deviceHint:'teclado' },
+  { key:'teclas_repetidas_o_fantasma',    rx: /(se\s*repiten|tecleo\s*fantasma|escribe\s*solo)/i, deviceHint:'teclado' },
+  { key:'teclado_no_detectado',           rx: /(teclado).*(no\s*(detecta|reconoce|instala))/i, deviceHint:'teclado' },
+
+  // MOUSE
+  { key:'mouse_no_detectado',             rx: /(mouse).*(no\s*(detecta|reconoce|instala))/i, deviceHint:'mouse' },
+  { key:'mouse_salta_o_corta',            rx: /(mouse).*(salta|se\s*corta|se\s*traba)/i, deviceHint:'mouse' },
+
+  // PANTALLA / VIDEO
+  { key:'no_hay_video',                   rx: /(no\s*(hay|da)\s*(imagen|video)|pantalla\s*negra)/i, deviceHint:'monitor' },
+  { key:'pantalla_parpadea',              rx: /(parpadea|titila|flicker|intermitente)/i, deviceHint:'monitor' },
+  { key:'artefactos_graficos',            rx: /(artefactos|rayas|bloques|líneas\s*raras)/i, deviceHint:'monitor' },
+
+  // ENCENDIDO / POWER
+  { key:'no_enciende',                    rx: /(no\s*(enciende|prende)|no\s*arranca)/i, deviceHint:'pc' },
+  { key:'reinicios_aleatorios',           rx: /(se\s*reinicia|reinicios\s*solo|cuelgues\s*al\s*azar)/i, deviceHint:'pc' },
+
+  // RUIDOS
+  { key:'ruido_ventilador',               rx: /(ruido|zumbido|vibra).*(ventilador|cooler|fan)/i, deviceHint:'pc' },
+  { key:'ruido_disco',                    rx: /(clic|clack|chirrido|raspa).*(disco|hdd)/i, deviceHint:'almacenamiento' },
+
+  // TEMPERATURA / LENTITUD
+  { key:'sobrecalentamiento',             rx: /(caliente|sobrecalienta|temperatura\s*alta)/i, deviceHint:'pc' },
+  { key:'lento_general',                  rx: /(lento|trabado|tarda\s*mucho|se\s*traba)/i, deviceHint:'pc' },
+
+  // RED
+  { key:'sin_internet',                   rx: /(sin\s*internet|no\s*conecta\s*internet)/i, deviceHint:'red' },
+  { key:'wifi_se_corta',                  rx: /(wifi|wi-?fi).*(se\s*corta|inestable|baja\s*señal)/i, deviceHint:'red' },
+
+  // IMPRESORA
+  { key:'impresora_fuera_linea',          rx: /(impresora).*(fuera\s*de\s*l[ií]nea|offline)/i, deviceHint:'impresora' },
+  { key:'atasco_papel',                   rx: /(atasco|papel\s*atascado)/i, deviceHint:'impresora' },
+
+  // ALMACENAMIENTO
+  { key:'disco_lleno',                    rx: /(disco|ssd).*(lleno|sin\s*espacio)/i, deviceHint:'almacenamiento' },
+  { key:'errores_disco',                  rx: /(sectores\s*defectuosos|smart|errores\s*de\s*disco)/i, deviceHint:'almacenamiento' },
+
+  // CAMARA / MICRO
+  { key:'camara_no_detectada',            rx: /(c[aá]mara|webcam).*(no\s*(detecta|reconoce|funciona))/i, deviceHint:'camara' },
+  { key:'microfono_bajo_o_mudo',          rx: /(micro|micr[oó]fono).*(bajo|no\s*se\s*escucha|mudo)/i, deviceHint:'microfono' },
+];
+
+function normalizeText(s='') {
+  if (!s) return '';
+  // tolerante a ```json y respuestas con code blocks
+  s = String(s).replace(/```[\s\S]*?```/g, m => m.replace(/```/g,''));
+  s = s.replace(/[“”«»]/g,'"').replace(/[’‘]/g,"'");
+  // quita html simple
+  s = s.replace(/<[^>]+>/g, ' ');
+  // colapsa espacios
+  s = s.replace(/\s+/g,' ').trim();
+  return s;
+}
+
+function toCanonDevice(raw='') {
+  const t = (raw||'').toLowerCase().trim();
+  for (const [rx,canon] of DEVICE_SYNONYMS) {
+    if (rx.test(t)) return canon;
+  }
+  // si ya vino canónico
+  if (CANON_DEVICES.includes(t)) return t;
+  return null;
+}
+
+function detectDeviceHeuristics(text) {
+  const t = normalizeText(text);
+  for (const [rx,canon] of DEVICE_SYNONYMS) {
+    if (rx.test(t)) return canon;
+  }
+  // pistas por palabras
+  if (/(tecla|letra|espacio|enter|backspace)/i.test(t)) return 'teclado';
+  if (/(cursor|puntero|clic|click|scroll)/i.test(t)) return 'mouse';
+  if (/(pantalla|monitor|flicker|imagen|video)/i.test(t)) return 'monitor';
+  if (/(impresi[oó]n|cartucho|tinta|toner|papel)/i.test(t)) return 'impresora';
+  if (/(wifi|wi-?fi|ethernet|router|internet|modem|m[oó]dem)/i.test(t)) return 'red';
+  if (/(c[aá]mara|webcam)/i.test(t)) return 'camara';
+  if (/(mic|micr[oó]fono)/i.test(t)) return 'microfono';
+  if (/(disco|ssd|hdd|pendrive|usb|almacenamiento)/i.test(t)) return 'almacenamiento';
+  if (/(pc|computadora|notebook|laptop|torre|gabinete|cpu)/i.test(t)) return 'pc';
+  return null;
+}
+
+function detectIssueHeuristics(text) {
+  const t = normalizeText(text);
+  for (const rule of ISSUE_PATTERNS) {
+    if (rule.rx.test(t)) return { issueKey: rule.key, deviceHint: rule.deviceHint || null };
+  }
+  // algunas heurísticas simples
+  if (/tecla|letra/i.test(t) && /(no\s*funciona|algunas|varias)/i.test(t)) {
+    return { issueKey:'no_funcionan_teclas', deviceHint:'teclado' };
+  }
+  if (/ruido|zumbido|vibra/i.test(t)) {
+    if (/ventilador|cooler|fan/i.test(t)) return { issueKey:'ruido_ventilador', deviceHint:'pc' };
+    if (/disco|hdd/i.test(t)         )    return { issueKey:'ruido_disco', deviceHint:'almacenamiento' };
+    return { issueKey:'ruido_ventilador', deviceHint:'pc' }; // default ruido
+  }
+  if (/parpadea|titila|flicker/i.test(t)) return { issueKey:'pantalla_parpadea', deviceHint:'monitor' };
+  if (/no\s*(enciende|prende|arranca)/i.test(t)) return { issueKey:'no_enciende', deviceHint:'pc' };
+  if (/lento|trabado|tarda/i.test(t)) return { issueKey:'lento_general', deviceHint:'pc' };
+  if (/sin\s*internet|no\s*conecta/i.test(t)) return { issueKey:'sin_internet', deviceHint:'red' };
+  return null;
+}
+
+// === OpenAI opcional (tolerante a ausencia de API key) ===
+async function analyzeProblemWithOA(userText) {
+  const hasOA = !!(process.env.OPENAI_API_KEY && typeof openai !== 'undefined');
+  if (!hasOA) return null;
+
+  const prompt = [
+    'Analiza el texto del usuario y devuelve JSON estricto con las claves:',
+    '{ "device": "<pc|notebook|monitor|teclado|mouse|impresora|almacenamiento|red|camara|microfono|null>",',
+    '  "issueKey": "<clave_específica_o_generica>",',
+    '  "confidence": <0..1> }',
+    '',
+    'Reglas:',
+    '- Elegí device canónico (según lista).',
+    '- Si el usuario menciona “teclas/letras”, favorecé teclado.',
+    '- Para ruidos: distinguí ventilador vs disco cuando sea posible.',
+    '- issueKey ejemplos: "no_funcionan_teclas","ruido_ventilador","ruido_disco","pantalla_parpadea","no_enciende","lento_general","sin_internet","impresora_fuera_linea","camara_no_detectada","microfono_bajo_o_mudo".',
+    '- Si quedás genérico, devolvé issueKey contextual: "no_detecta_teclado","ruido_extraño","problema_video","problema_red".',
+    '',
+    `Texto: """${normalizeText(userText)}"""`,
+  ].join('\n');
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role:'system', content:'Sos un asistente de diagnóstico técnico. Respondé SOLO JSON.' },
+        { role:'user', content: prompt }
+      ]
+    });
+    const raw = (res.choices?.[0]?.message?.content || '').trim();
+    const clean = normalizeText(raw).replace(/^```json/i,'').replace(/```$/,'').trim();
+    const parsed = JSON.parse(clean);
+    // saneo de device
+    parsed.device = toCanonDevice(parsed.device) || detectDeviceHeuristics(userText) || null;
+    return parsed;
+  } catch(e) {
+    // en caso de fallo, seguimos con heurística local
+    return null;
+  }
+}
+
+// === Fusión: heurística local + OpenAI ===
+async function analyzeProblemHybrid(userText) {
+  const text = normalizeText(userText);
+
+  // 1) Detección local rápida
+  const localIssue = detectIssueHeuristics(text);
+  let device = detectDeviceHeuristics(text) || (localIssue?.deviceHint || null);
+  let issueKey = localIssue?.issueKey || null;
+  let confidence = issueKey ? 0.7 : (device ? 0.5 : 0.0);
+
+  // 2) OpenAI, si existe, para afinar
+  const oa = await analyzeProblemWithOA(text);
+  if (oa) {
+    // mezcla ponderada (prefiere específico)
+    if (oa.issueKey && oa.issueKey !== 'desconocido') {
+      issueKey = oa.issueKey;
+      confidence = Math.max(confidence, Number(oa.confidence || 0.65));
+    }
+    device = toCanonDevice(oa.device) || device;
+  }
+
+  // 3) Fallbacks contextualizados
+  if (!issueKey) {
+    if (device === 'teclado') issueKey = 'no_detecta_teclado';
+    else if (/ruido|zumbido|vibra/i.test(text)) issueKey = 'ruido_extraño';
+    else if (device === 'monitor') issueKey = 'problema_video';
+    else if (device === 'red') issueKey = 'problema_red';
+    else if (device === 'impresora') issueKey = 'impresora_fuera_linea';
+    else if (device === 'camara') issueKey = 'camara_no_detectada';
+    else if (device === 'microfono') issueKey = 'microfono_bajo_o_mudo';
+    else if (/no\s*(enciende|prende|arranca)/i.test(text)) issueKey = 'no_enciende';
+    else issueKey = 'diagnostico_general';
+    confidence = Math.max(confidence, 0.55);
+  }
+
+  // 4) Si no hay device, inferí por issueKey
+  if (!device) {
+    const byIssue = {
+      no_funcionan_teclas:'teclado', teclas_repetidas_o_fantasma:'teclado', teclado_no_detectado:'teclado',
+      mouse_no_detectado:'mouse', mouse_salta_o_corta:'mouse',
+      no_hay_video:'monitor', pantalla_parpadea:'monitor', artefactos_graficos:'monitor',
+      no_enciende:'pc', reinicios_aleatorios:'pc', sobrecalentamiento:'pc', lento_general:'pc',
+      ruido_ventilador:'pc', ruido_disco:'almacenamiento',
+      sin_internet:'red', wifi_se_corta:'red', problema_red:'red',
+      impresora_fuera_linea:'impresora', atasco_papel:'impresora',
+      disco_lleno:'almacenamiento', errores_disco:'almacenamiento',
+      camara_no_detectada:'camara', microfono_bajo_o_mudo:'microfono',
+      diagnostico_general:'pc', problema_video:'monitor', ruido_extraño:'pc',
+      no_detecta_teclado:'teclado'
+    };
+    device = byIssue[issueKey] || 'pc';
+  }
+
+  // clamp
+  confidence = Math.max(0, Math.min(1, confidence));
+
+  return { device, issueKey, confidence };
+}
+
+// === Pasos básicos por issue/device (extensible) ===
+function getBasicSteps(issueKey, device) {
+  const D = (device||'pc');
+  const STEPS = {
+    // TECLADO
+    no_funcionan_teclas: [
+      'Probá el teclado en otro puerto USB (o en otra PC).',
+      'Si es inalámbrico, cambiá pilas y reconectá el receptor.',
+      'En Windows: Configuración → Hora e idioma → Idioma → Disposición del teclado (verificá idioma).',
+      'Desinstalá el teclado desde el Administrador de dispositivos y reiniciá.',
+    ],
+    teclas_repetidas_o_fantasma: [
+      'Limpieza suave (aire comprimido) y revisá si alguna tecla queda hundida.',
+      'Desactivá “Filtro de Teclas” y “Teclas Adhesivas” (Accesibilidad).',
+      'Probá otro puerto/PC para descartar driver.',
+    ],
+    teclado_no_detectado: [
+      'Cambiá el cable/USB y probá en otro equipo.',
+      'Verificá en “Administrador de dispositivos” si aparece con alerta y reinstalalo.',
+      'Si es notebook, probá con teclado USB externo para continuar trabajando.',
+    ],
+    no_detecta_teclado: [
+      'Probá otro puerto USB o reconectá el dongle (si es inalámbrico).',
+      'Entra al Administrador de dispositivos y reinstalá el driver de teclado.',
+      'Probá el teclado en otra PC para descartar falla del periférico.',
+    ],
+
+    // MOUSE
+    mouse_no_detectado: [
+      'Probá otro puerto USB y otra superficie.',
+      'Si es inalámbrico, cambiá pilas y reemparejá.',
+      'Reinstalá el driver de mouse desde el Administrador de dispositivos.',
+    ],
+    mouse_salta_o_corta: [
+      'Limpieza del sensor y probá sin pad con otra superficie.',
+      'Desactivá ahorros de energía del USB (Panel de control → Opciones de energía).',
+      'Probá con otro mouse para descartar hardware.',
+    ],
+
+    // VIDEO
+    no_hay_video: [
+      'Chequeá cable (HDMI/DP/VGA) y probá otro cable/entrada del monitor.',
+      'Asegurate que la PC encienda (luces/sonidos). Si enciende pero no da imagen, probá con monitor externo.',
+      'Reseteá CMOS si hubo cambios de hardware (quitar batería o jumper).',
+    ],
+    pantalla_parpadea: [
+      'Verificá la frecuencia de actualización recomendada del monitor.',
+      'Probá otro cable y otra entrada del monitor.',
+      'Actualizá o reinstalá el driver gráfico.',
+    ],
+    artefactos_graficos: [
+      'Reinstalá drivers de video (limpieza con DDU si es posible).',
+      'Probá otra salida de la placa y otro cable.',
+      'Testeá temperaturas de GPU; limpiá polvo del gabinete.',
+    ],
+    problema_video: [
+      'Probá con otro cable y otra entrada del monitor.',
+      'Conectá un segundo monitor o TV para aislar si es la PC o el monitor.',
+      'Reinstalá/actualizá drivers de video.',
+    ],
+
+    // POWER
+    no_enciende: [
+      'Verificá energía: enchufe, zapatilla, cable y botón de la fuente en “I”.',
+      'Mantené presionado el botón de encendido 15–30s y probá de nuevo.',
+      'Quitá periféricos y probá con mínimo (placa madre + CPU + 1 RAM + video).',
+    ],
+    reinicios_aleatorios: [
+      'Revisá temperatura (limpieza y pasta térmica si es necesario).',
+      'Chequeá RAM con MemTest y fuente con multímetro si se dispone.',
+      'Mirar Visor de eventos de Windows (Kernel-Power, etc.).',
+    ],
+
+    // RUIDOS
+    ruido_ventilador: [
+      'Limpieza de ventiladores y verificación de obstrucciones.',
+      'Ajustá curvas de ventilador en BIOS/soft si están muy agresivas.',
+      'Reaplicar pasta térmica si la CPU/GPU calientan de más.',
+    ],
+    ruido_disco: [
+      'Hacé backup urgente de datos.',
+      'Chequeá SMART con CrystalDiskInfo/Diagnóstico del fabricante.',
+      'Evaluá reemplazo de HDD por SSD si el ruido persiste.',
+    ],
+    ruido_extraño: [
+      'Abrí el gabinete y localizá si proviene de ventiladores o disco.',
+      'Desconectá periféricos y testeá en mínimo para aislar.',
+      'Si es HDD y hace “clic”, respaldá datos de inmediato.',
+    ],
+
+    // TEMPERATURA / LENTITUD
+    sobrecalentamiento: [
+      'Limpieza interna (polvo) y verificación de flujo de aire.',
+      'Reemplazo de pasta térmica si tiene muchos años.',
+      'Monitoreo con HWInfo/LibreHardwareMonitor para ver picos.',
+    ],
+    lento_general: [
+      'Verificá uso de disco/CPU en el Administrador de tareas.',
+      'Desinstalá programas que inician con Windows y malware scan.',
+      'Si es HDD, considerá migrar a SSD y ampliar RAM.',
+    ],
+
+    // RED
+    sin_internet: [
+      'Reiniciá router/módem y probá por cable (Ethernet).',
+      'Olvidá y reconectá la red Wi-Fi; renová IP (ipconfig /release /renew).',
+      'Probá otra red o celular para descartar proveedor.',
+    ],
+    wifi_se_corta: [
+      'Cambiá banda (2.4/5GHz) y canal del router.',
+      'Actualizá drivers de red y desactivá ahorro de energía del adaptador.',
+      'Probá acercarte al router o usar repetidor.',
+    ],
+    problema_red: [
+      'Probá por cable para descartar Wi-Fi.',
+      'Olvidá y volvé a conectar la red; renová IP.',
+      'Verificá DNS y drivers de red.',
+    ],
+
+    // IMPRESORA
+    impresora_fuera_linea: [
+      'Asegurate de que esté encendida y en la misma red.',
+      'Reinstalá la impresora y ponela como predeterminada.',
+      'Desactivá “Usar impresora sin conexión”.',
+    ],
+    atasco_papel: [
+      'Retirá papel atascado según la tapa de servicio.',
+      'Revisá rodillos y nivel de papel/tamaño correcto.',
+      'Apagá/encendé y probá una hoja de test.',
+    ],
+
+    // ALMACENAMIENTO
+    disco_lleno: [
+      'Liberá espacio (Descargas/Temporales) y vaciá la papelera.',
+      'Ejecutá liberador de espacio/Storage Sense.',
+      'Mové datos a un disco externo o nube.',
+    ],
+    errores_disco: [
+      'Chequeá SMART y ejecutá CHKDSK /F.',
+      'Respaldá los datos críticos de inmediato.',
+      'Considerá reemplazo si SMART alerta.',
+    ],
+
+    // CAMARA / MICRO
+    camara_no_detectada: [
+      'Verificá permisos de Cámara en el sistema y la app.',
+      'Actualizá drivers; probá otra app (Zoom/Meet).',
+      'Si es USB, cambiá de puerto/cable.',
+    ],
+    microfono_bajo_o_mudo: [
+      'Subí el nivel de entrada y desactivá “mejoras” conflictivas.',
+      'Probá en otra app; actualizá drivers.',
+      'Testeá con otro micrófono para aislar.',
+    ],
+
+    // Genérico
+    diagnostico_general: [
+      'Contame si es de hardware (ruidos/temperatura) o de software (errores/lentitud).',
+      '¿Cambió algo antes de que empiece el problema? (golpe, caída, actualización).',
+      'Puedo darte pruebas más avanzadas o coordinar un WhatsApp con técnico.',
+    ],
+  };
+
+  // fallback por device si no hay issueKey en tabla
+  if (!STEPS[issueKey]) {
+    const fallbackByDevice = {
+      teclado: STEPS.no_detecta_teclado,
+      mouse:   STEPS.mouse_no_detectado,
+      monitor: STEPS.problema_video,
+      red:     STEPS.problema_red,
+      impresora: STEPS.impresora_fuera_linea,
+      almacenamiento: STEPS.disco_lleno,
+      camara:  STEPS.camara_no_detectada,
+      microfono: STEPS.microfono_bajo_o_mudo,
+      pc:      STEPS.diagnostico_general,
+      notebook:STEPS.diagnostico_general,
+    };
+    return fallbackByDevice[device] || STEPS.diagnostico_general;
+  }
+  return STEPS[issueKey];
+}
+
+// === Helper human-readable (opcional) ===
+function issueHuman(issueKey) {
+  const MAP = {
+    no_funcionan_teclas:'algunas teclas no funcionan',
+    teclas_repetidas_o_fantasma:'teclas se repiten / tecleo fantasma',
+    teclado_no_detectado:'no detecta el teclado',
+    no_detecta_teclado:'no detecta el teclado',
+    mouse_no_detectado:'no detecta el mouse',
+    mouse_salta_o_corta:'el mouse salta o se corta',
+    no_hay_video:'no hay imagen',
+    pantalla_parpadea:'pantalla parpadea',
+    artefactos_graficos:'artefactos gráficos',
+    no_enciende:'no enciende',
+    reinicios_aleatorios:'reinicios aleatorios',
+    ruido_ventilador:'ruido en ventilador',
+    ruido_disco:'ruido en disco',
+    ruido_extraño:'ruido extraño',
+    sobrecalentamiento:'sobrecalentamiento',
+    lento_general:'funciona lento',
+    sin_internet:'sin internet',
+    wifi_se_corta:'Wi-Fi se corta',
+    problema_red:'problema de red',
+    impresora_fuera_linea:'impresora fuera de línea',
+    atasco_papel:'atasco de papel',
+    disco_lleno:'disco lleno',
+    errores_disco:'errores de disco',
+    camara_no_detectada:'cámara no detectada',
+    microfono_bajo_o_mudo:'micrófono bajo o mudo',
+    diagnostico_general:'diagnóstico general',
+    problema_video:'problema de video',
+  };
+  return MAP[issueKey] || issueKey.replaceAll('_',' ');
+}
+
+</p>
+
+
+
+    
+  </div>
+</body>
+</html>

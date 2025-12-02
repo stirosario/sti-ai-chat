@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chequeo rápido de PC / Notebook | STI Rosario</title>
+  <meta name="description" content="Herramienta gratuita de STI para chequear tu PC o notebook: rendimiento, batería, almacenamiento, red y seguridad básica. Descargá el informe o enviánoslo por WhatsApp." />
+  <link rel="canonical" href="https://stia.com.ar/chequeo.html" />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://stia.com.ar/chequeo.html" />
+  <meta property="og:title" content="Chequeo rápido de PC / Notebook | STI" />
+  <meta property="og:description" content="Test online: rendimiento, batería, almacenamiento, red y seguridad básica. Genera un informe y compartilo a STI por WhatsApp." />
+  <meta property="og:image" content="https://stia.com.ar/img/og-sti-1200x630.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Chequeo rápido de PC / Notebook | STI" />
+  <meta name="twitter:description" content="Test online: rendimiento, batería, almacenamiento, red y seguridad básica. Genera un informe y compartilo a STI por WhatsApp." />
+  <meta name="twitter:image" content="https://stia.com.ar/img/og-sti-1200x630.jpg" />
+
+  <style>
+    :root{
+      --metal-blue:#5cc8ff; --metal-green:#00ff9d; --metal-violet:#c77dff;
+      --bg1:#0b1f44; --bg2:#061426; --txt:#eaf2ff; --muted:#bcd0ff;
+      --card-bg: radial-gradient(1200px 160px at 50% -180px, rgba(255,255,255,.05), transparent 60%), linear-gradient(180deg, rgba(15,22,30,.95), rgba(10,14,20,.95));
+      --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --info:#3b82f6;
+    }
+    html,body{height:100%;}
+    body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji','Segoe UI Emoji'; color:var(--txt); background:
+      radial-gradient(1200px 600px at 50% 20%, rgba(0,90,255,.12), transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg2));}
+    .container{max-width:1100px; margin:0 auto; padding:24px;}
+    header{display:flex; align-items:center; gap:16px; padding:16px 0 8px;}
+    header img{width:60px; height:auto; filter: drop-shadow(0 8px 20px rgba(0,0,0,.35));}
+    h1{margin:0; font-size:clamp(22px,3.4vw,36px);} 
+    p.sub{margin:.5rem 0 0; color:var(--muted);}    
+    .card{background:var(--card-bg); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:18px; box-shadow:0 8px 30px rgba(0,0,0,.35);}
+    .grid{display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));}
+    .btn{display:inline-flex; align-items:center; gap:8px; padding:12px 16px; border-radius:12px; border:1px solid rgba(255,255,255,.18); background:#0f2e66; color:#eaf2ff; text-decoration:none; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.25);} 
+    .btn.primary{background:#1ea855;} .btn:hover{filter:brightness(1.05);} 
+    .actions{display:flex; gap:10px; flex-wrap:wrap;}
+    .muted{color:var(--muted);} 
+    .kpi{display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:12px; background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08);} 
+    .kpi b{font-size:18px;}
+    .status{font-weight:800; padding:4px 10px; border-radius:999px; font-size:12px;}
+    .ok{background:color-mix(in srgb, var(--ok) 20%, transparent); color: #b6ffdd; border:1px solid color-mix(in srgb, var(--ok) 55%, transparent)}
+    .warn{background:color-mix(in srgb, var(--warn) 18%, transparent); color:#ffe5b6; border:1px solid color-mix(in srgb, var(--warn) 55%, transparent)}
+    .bad{background:color-mix(in srgb, var(--bad) 18%, transparent); color:#ffb6b6; border:1px solid color-mix(in srgb, var(--bad) 55%, transparent)}
+    .info{background:color-mix(in srgb, var(--info) 18%, transparent); color:#cfe3ff; border:1px solid color-mix(in srgb, var(--info) 55%, transparent)}
+    .list{margin:0; padding-left:18px;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size:12px;}
+    footer{margin:28px 0 10px; text-align:center; color:var(--muted); font-size:14px;}
+    .small{font-size:12px; opacity:.85}
+    .center{display:flex; align-items:center; justify-content:center;}
+    .progress{height:10px; background:rgba(255,255,255,.08); border-radius:999px; overflow:hidden;}
+    .bar{height:100%; width:0%; background:linear-gradient(90deg, #00ff9d, #5cc8ff); transition:width .35s ease;}
+    table{width:100%; border-collapse:collapse;}
+    td,th{border-bottom:1px dashed rgba(255,255,255,.12); padding:8px 6px; text-align:left;}
+    .pill{display:inline-block; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.08); font-size:12px;}
+    @media print {.actions{display:none;} header img{width:80px} body{background:#fff; color:#111}}
+  </style>
+
+  <!-- Schema: SoftwareApplication para la herramienta -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "STI Quick Check",
+    "operatingSystem": "Web",
+    "applicationCategory": "UtilitiesApplication",
+    "offers": {"@type":"Offer", "price":"0", "priceCurrency":"ARS"},
+    "url": "https://stia.com.ar/chequeo.html",
+    "publisher": {"@type":"Organization","name":"STI - Servicio Técnico Inteligente","url":"https://stia.com.ar"}
+  }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="img/logo-sti1.png" alt="Logo STI" />
+      <div>
+        <h1>Chequeo rápido de PC / Notebook</h1>
+        <p class="sub">Herramienta gratuita de <strong>STI</strong>. Todo sucede en tu navegador: no instalamos nada ni recolectamos datos personales.</p>
+      </div>
+    </header>
+
+    <div class="card" id="panel-acciones">
+      <div class="actions">
+        <button class="btn primary" id="btnStart">▶️ Iniciar chequeo</button>
+        <button class="btn" id="btnReport" disabled>🧾 Descargar informe (PDF)</button>
+        <a class="btn" id="btnWA" href="#" target="_blank" rel="noopener" aria-label="Enviar a WhatsApp">💬 Enviar a WhatsApp</a>
+      </div>
+      <div class="progress" style="margin-top:12px"><div class="bar" id="bar"></div></div>
+      <p class="small muted" id="tip">Listo para analizar: hardware, batería, almacenamiento, red, seguridad de navegador y un micro‑benchmark de CPU.</p>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <section class="card">
+        <h3>Resumen</h3>
+        <div class="kpi"><span>Rendimiento (JS bench)</span><span id="kpiPerf" class="status info">–</span></div>
+        <div class="kpi"><span>Almacenamiento disponible</span><span id="kpiStorage" class="status info">–</span></div>
+        <div class="kpi"><span>Estado de batería</span><span id="kpiBattery" class="status info">–</span></div>
+        <div class="kpi"><span>Conectividad</span><span id="kpiNet" class="status info">–</span></div>
+      </section>
+
+      <section class="card">
+        <h3>Detalles del sistema</h3>
+        <table class="mono" id="tblDetails"><tbody></tbody></table>
+      </section>
+
+      <section class="card">
+        <h3>Recomendaciones</h3>
+        <ul class="list" id="reco"></ul>
+      </section>
+    </div>
+
+    <footer>
+      <p class="small">STI Quick Check • Esto es una evaluación orientativa. Si detectamos problemas, te guiamos por WhatsApp o coordinamos asistencia remota.</p>
+    </footer>
+  </div>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const details = $('#tblDetails tbody');
+  const reco = $('#reco');
+  const bar = $('#bar');
+  const kpi = {
+    perf: $('#kpiPerf'),
+    storage: $('#kpiStorage'),
+    battery: $('#kpiBattery'),
+    net: $('#kpiNet'),
+  };
+
+  function row(k,v){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<th>${k}</th><td>${v ?? '–'}</td>`; details.appendChild(tr);
+  }
+  function setKpi(el, level, text){
+    el.className = `status ${level}`; el.textContent = text;
+  }
+  function progress(p){ bar.style.width = p + '%'; }
+
+  async function measurePerf(){
+    // Micro benchmark: operaciones de coma flotante + bucles
+    const t0 = performance.now();
+    let x=0; for(let i=0;i<5e6;i++){ x += Math.sqrt(i%100) * Math.sin(i); }
+    const t1 = performance.now();
+    const ms = (t1-t0);
+    const score = Math.round(5000 / (ms/1000)); // mayor es mejor (aprox.)
+    return { ms: Math.round(ms), score };
+  }
+
+  async function estimateStorage(){
+    if(navigator.storage && navigator.storage.estimate){
+      const {quota=0, usage=0} = await navigator.storage.estimate();
+      const free = quota-usage; return { quota, usage, free };
+    }
+    return null;
+  }
+
+  function getBattery(){
+    if(navigator.getBattery){ return navigator.getBattery(); }
+    return Promise.resolve(null);
+  }
+
+  function getGL(){
+    let gl, debugInfo, renderer, vendor;
+    try{
+      const canvas = document.createElement('canvas');
+      gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if(gl){
+        debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        if(debugInfo){
+          vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+          renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+        }
+      }
+    }catch(e){}
+    return {vendor, renderer};
+  }
+
+  function bytes(n){ if(!n && n!==0) return '–'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024 && i<u.length-1){n/=1024;i++;} return n.toFixed(1)+' '+u[i]; }
+
+  function addReco(text){ const li=document.createElement('li'); li.textContent=text; reco.appendChild(li);}  
+
+  async function run(){
+    progress(5);
+    // Datos base
+    const ua = navigator.userAgent;
+    row('Sistema', navigator.platform || '—');
+    row('Navegador', ua);
+    row('Cores lógicos', navigator.hardwareConcurrency || '—');
+    row('Memoria del dispositivo', (navigator.deviceMemory? navigator.deviceMemory+' GB':'—'));
+    const gl = getGL();
+    row('GPU (WebGL)', (gl.renderer||'—') + (gl.vendor? ` — ${gl.vendor}`:''));
+
+    // Conectividad
+    const con = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if(con){ row('Conexión', `${con.effectiveType || '—'} — ${con.downlink||'?'} Mb/s`); }
+    progress(20);
+
+    // Benchmark
+    const perf = await measurePerf();
+    const perfLevel = perf.score>120? 'ok' : perf.score>70? 'warn' : 'bad';
+    setKpi(kpi.perf, perfLevel, `${perf.score} pts`);
+    row('Benchmark JS', `${perf.ms} ms • ${perf.score} pts`);
+    if(perfLevel==='bad') addReco('El rendimiento general parece bajo. Recomendamos limpieza de inicio, desinstalar bloatware y revisión térmica.');
+    if(perfLevel==='warn') addReco('Rendimiento medio: podemos optimizar procesos, drivers y estado del disco.');
+    progress(50);
+
+    // Almacenamiento
+    const est = await estimateStorage();
+    if(est){
+      const freeGB = est.free/1024/1024/1024;
+      const level = freeGB>30? 'ok' : freeGB>10? 'warn' : 'bad';
+      setKpi(kpi.storage, level, bytes(est.free)+' libres');
+      row('Almacenamiento', `${bytes(est.usage)} usados de ${bytes(est.quota)} • libres: ${bytes(est.free)}`);
+      if(level==='bad') addReco('Muy poco espacio libre. Liberar al menos 15–20 GB y revisar estado del disco.');
+      if(level==='warn') addReco('Espacio moderado. Sugerimos limpieza de temporales y restaurar puntos de sistema.');
+    }else{
+      setKpi(kpi.storage,'info','No disponible');
+      row('Almacenamiento','No disponible en este navegador');
+    }
+    progress(70);
+
+    // Batería
+    const bat = await getBattery();
+    if(bat){
+      const pct = Math.round(bat.level*100);
+      const level = (bat.charging||pct>60)? 'ok' : pct>20? 'warn' : 'bad';
+      setKpi(kpi.battery, level, `${pct}%${bat.charging?' ⚡':''}`);
+      row('Batería', `${pct}% ${bat.charging?'(cargando)':'(descargando)'} — Salud estimada no disponible`);
+      if(!bat.charging && pct<25) addReco('Batería baja: conectar el equipo o activar modo ahorro mientras se diagnóstica.');
+    }else{
+      setKpi(kpi.battery,'info','No disponible');
+      row('Batería','No disponible en este equipo/navegador');
+    }
+    progress(85);
+
+    // Seguridad básica del navegador
+    const isSecure = location.protocol === 'https:';
+    row('HTTPS', isSecure? 'Sí (conexión segura)':'No');
+    if(!isSecure) addReco('Conexión no segura: abrí esta página con https:// para proteger los datos.');
+
+    // Construir WhatsApp con resumen
+    const sum = [];
+    sum.push(`Perf:${kpi.perf.textContent}`);
+    sum.push(`Espacio:${kpi.storage.textContent}`);
+    sum.push(`Batería:${kpi.battery.textContent}`);
+    sum.push(`Red:${con? (con.effectiveType||'')+' '+(con.downlink?con.downlink+'Mb/s':''): 'N/D'}`);
+    const texto = `STI Quick Check\n${new Date().toLocaleString()}\n`+
+      details.innerText.replaceAll('\t',': ').replaceAll('\n',' | ') + `\n` + sum.join(' | ');
+    const wa = `https://wa.me/5493417422422?text=${encodeURIComponent(texto)}`;
+    $('#btnWA').href = wa;
+
+    // Habilitar PDF (via print)
+    $('#btnReport').disabled=false;
+
+    progress(100);
+    $('#tip').textContent = 'Chequeo finalizado. Podés descargar el informe (Imprimir → Guardar como PDF) o enviarlo por WhatsApp.';
+  }
+
+  // Botones
+  $('#btnStart').addEventListener('click', ()=>{ details.innerHTML=''; reco.innerHTML=''; progress(0); run(); });
+  $('#btnReport').addEventListener('click', ()=>{ window.print(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Chat STI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #chat-container {
+            width: 400px;
+            height: 600px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #chat-header {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 15px;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .msg-row {
+            display: flex;
+            gap: 10px;
+        }
+        .msg-row.user { justify-content: flex-end; }
+        .msg-bubble {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+        .msg-row.bot .msg-bubble {
+            background: #e9ecef;
+            color: #333;
+            border-bottom-left-radius: 4px;
+        }
+        .msg-row.user .msg-bubble {
+            background: #007bff;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        #input-area {
+            padding: 15px;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            gap: 10px;
+        }
+        #user-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ced4da;
+            border-radius: 20px;
+            outline: none;
+            font-size: 14px;
+        }
+        #send-btn {
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #send-btn:hover {
+            background: #218838;
+        }
+        .typing {
+            display: inline-block;
+            padding: 10px 15px;
+            background: #e9ecef;
+            border-radius: 18px;
+        }
+        .typing span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #999;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: typing 1.4s infinite;
+        }
+        .typing span:nth-child(2) { animation-delay: 0.2s; }
+        .typing span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+        #debug-info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: lime;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 11px;
+            max-width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="debug-info">🔍 Debug Console</div>
+    
+    <div id="chat-container">
+        <div id="chat-header">
+            <span>🤖</span>
+            <span>Tecnos STI - Asistencia 24/7</span>
+        </div>
+        <div id="messages"></div>
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="Escribí tu mensaje..." disabled>
+            <button id="send-btn" onclick="sendMessage()" disabled>Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://sti-rosario-ai.onrender.com';
+        let SESSION_ID = null;
+        let CSRF_TOKEN = null;
+        const messagesDiv = document.getElementById('messages');
+        const inputField = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const debugDiv = document.getElementById('debug-info');
+
+        function log(msg) {
+            console.log(msg);
+            debugDiv.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+
+        function addMessage(text, sender, buttons = []) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message msg-row ${sender}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'msg-bubble';
+            bubble.innerHTML = text.replace(/\n/g, '<br>');
+            
+            msgDiv.appendChild(bubble);
+            
+            if (buttons && buttons.length > 0) {
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'buttons';
+                buttons.forEach(btn => {
+                    const button = document.createElement('button');
+                    button.className = 'btn';
+                    button.textContent = btn.text || btn.label;
+                    button.onclick = () => sendButton(btn.value, btn.text || btn.label);
+                    btnContainer.appendChild(button);
+                });
+                bubble.appendChild(btnContainer);
+            }
+            
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addTyping() {
+            const typing = document.createElement('div');
+            typing.id = 'typing-indicator';
+            typing.className = 'message msg-row bot';
+            typing.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+            messagesDiv.appendChild(typing);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function removeTyping() {
+            const typing = document.getElementById('typing-indicator');
+            if (typing) typing.remove();
+        }
+
+        async function init() {
+            log('🚀 Iniciando chat...');
+            try {
+                const response = await fetch(`${API_BASE}/api/greeting`);
+                const data = await response.json();
+                
+                log(`✅ Greeting recibido: ${JSON.stringify(data).substring(0, 100)}...`);
+                
+                SESSION_ID = data.sessionId;
+                CSRF_TOKEN = data.csrfToken;
+                
+                log(`📝 Session ID: ${SESSION_ID?.substring(0, 20)}...`);
+                log(`🔐 CSRF Token: ${CSRF_TOKEN?.substring(0, 20)}...`);
+                
+                addMessage(data.greeting || data.reply, 'bot', data.buttons || []);
+                
+                inputField.disabled = false;
+                sendBtn.disabled = false;
+                inputField.focus();
+                
+                log(`🎯 Botones: ${data.buttons?.length || 0}`);
+                if (data.buttons) {
+                    data.buttons.forEach(btn => {
+                        log(`  - ${btn.text} = ${btn.value}`);
+                    });
+                }
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                addMessage('Error al conectar con el servidor', 'bot');
+            }
+        }
+
+        async function sendButton(value, label) {
+            log(`🔘 Click botón: "${label}" (value: ${value})`);
+            addMessage(label, 'user');
+            addTyping();
+            
+            try {
+                const payload = {
+                    action: 'button',
+                    value: value,
+                    label: label,
+                    sessionId: SESSION_ID,
+                    csrfToken: CSRF_TOKEN
+                };
+                
+                log(`📤 Enviando: ${JSON.stringify(payload)}`);
+                
+                const response = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-session-id': SESSION_ID
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                log(`📥 Respuesta: ${JSON.stringify(data).substring(0, 150)}...`);
+                
+                removeTyping();
+                addMessage(data.reply || '🤖', 'bot', data.buttons || []);
+                
+                if (data.buttons) {
+                    log(`🎯 Nuevos botones: ${data.buttons.length}`);
+                }
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                removeTyping();
+                addMessage('Error de conexión', 'bot');
+            }
+        }
+
+        async function sendMessage() {
+            const text = inputField.value.trim();
+            if (!text) return;
+            
+            log(`💬 Enviando texto: "${text}"`);
+            inputField.value = '';
+            addMessage(text, 'user');
+            addTyping();
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-session-id': SESSION_ID
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        sessionId: SESSION_ID,
+                        csrfToken: CSRF_TOKEN
+                    })
+                });
+                
+                const data = await response.json();
+                log(`📥 Respuesta: ${JSON.stringify(data).substring(0, 150)}...`);
+                
+                removeTyping();
+                addMessage(data.reply || '🤖', 'bot', data.buttons || []);
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                removeTyping();
+                addMessage('Error de conexión', 'bot');
+            }
+        }
+
+        inputField.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Iniciar al cargar
+        init();
+    </script>
+</body>
+</html>
