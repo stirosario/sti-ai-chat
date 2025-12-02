@@ -65,9 +65,9 @@ console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUAT
 // ========================================================
 const BUTTON_LABELS = {
   // Idiomas
-  BTN_LANG_ES_AR: '🇦🇷 Español (Argentina)',
-  BTN_LANG_ES_ES: '🌎 Español',
-  BTN_LANG_EN: '🇬🇧 English',
+  BTN_LANG_ES_AR: '(ar) Español 🇦🇷',
+  BTN_LANG_ES_ES: '(es) Español 🌎',
+  BTN_LANG_EN: '(us) English 🇺🇸',
   
   // Nombre
   BTN_NO_NAME: 'Prefiero no decirlo 🙅',
