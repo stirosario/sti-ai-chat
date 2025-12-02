@@ -27,12 +27,19 @@ echo "🔍 Verificando estado del repositorio..."
 if ! git diff-index --quiet HEAD -- 2>/dev/null; then
     echo "✓ Hay cambios para commitear"
 else
-    echo "⚠️  No hay cambios detectados. ¿Querés continuar de todos modos?"
+    echo "ℹ️  No hay cambios sin commitear detectados"
 fi
 
 echo ""
 echo "📁 Agregando archivos modificados..."
 git add .
+
+# Verificar si hay algo para commitear después del git add
+if git diff-index --quiet HEAD -- 2>/dev/null; then
+    echo ""
+    echo "ℹ️  No hay cambios para commitear. El repositorio está actualizado."
+    exit 0
+fi
 
 echo ""
 echo "💬 Creando commit: \"$commitmsg\""
