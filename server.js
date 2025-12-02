@@ -287,15 +287,18 @@ try {
   
   // Add error handler to prevent unhandled errors from crashing the server
   logStream.on('error', (err) => {
-    console.error('[logStream] Write error:', err && err.message);
-    // Don't crash - just log to console
-    logStream = null; // Disable file logging
+    console.error('[logStream] Error de escritura:', err && err.message);
+    // Mark stream as unusable - appendToLogFile will fall back to fs.appendFile
+    if (logStream) {
+      try { logStream.end(); } catch (e) { /* ignore */ }
+      logStream = null;
+    }
   });
   
-  console.log('[init] Log stream created successfully:', LOG_FILE);
+  console.log('[init] Stream de logs creado exitosamente:', LOG_FILE);
 } catch (e) {
-  console.error('[init] Failed to create log stream:', e && e.message);
-  console.warn('[init] File logging will be disabled - logs will only appear in console');
+  console.error('[init] No se pudo crear el stream de logs:', e && e.message);
+  console.warn('[init] El logging a archivo será deshabilitado - los logs solo aparecerán en consola');
 }
 
 const nowIso = () => new Date().toISOString();
