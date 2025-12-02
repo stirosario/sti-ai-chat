@@ -24,28 +24,31 @@ echo "-----------------------------------------------"
 
 echo ""
 echo "🔍 Verificando estado del repositorio..."
-# Verificar si hay cambios antes de hacer git add
-has_changes=false
 
-# Verificar cambios en archivos rastreados (maneja repositorios vacíos)
-if git rev-parse --verify HEAD >/dev/null 2>&1; then
-    # HEAD existe, verificar cambios normalmente
-    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-        has_changes=true
+# Función para verificar si hay cambios
+has_changes() {
+    # Verificar cambios en archivos rastreados (maneja repositorios vacíos)
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+        # HEAD existe, verificar cambios normalmente
+        if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            return 0  # Hay cambios
+        fi
+    else
+        # Repositorio vacío sin commits, considerar que hay cambios si hay archivos
+        if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            return 0  # Hay cambios
+        fi
     fi
-else
-    # Repositorio vacío sin commits, considerar que hay cambios si hay archivos
+    
+    # Verificar archivos sin rastrear
     if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-        has_changes=true
+        return 0  # Hay cambios
     fi
-fi
+    
+    return 1  # No hay cambios
+}
 
-# Verificar archivos sin rastrear
-if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-    has_changes=true
-fi
-
-if [ "$has_changes" = false ]; then
+if ! has_changes; then
     echo ""
     echo "ℹ️  No hay cambios para commitear. El repositorio está actualizado."
     exit 0
