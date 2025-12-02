@@ -432,6 +432,18 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
       // ========================================================
 
+      // ========================================================
+      // 🆕 BOTONES DE SUGERENCIAS DE PROBLEMAS COMUNES
+      // ========================================================
+      { token: 'BTN_PROB_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende' },
+      { token: 'BTN_PROB_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet' },
+      { token: 'BTN_PROB_LENTITUD', label: '🐢 Lentitud del sistema operativo o del equipo', text: 'lentitud del sistema' },
+      { token: 'BTN_PROB_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas' },
+      { token: 'BTN_PROB_PERIFERICOS', label: '🖨️ Problemas con periféricos externos', text: 'problemas con periféricos' },
+      { token: 'BTN_PROB_MALWARE', label: '🛡️ Infecciones de malware o virus', text: 'malware o virus' },
+      { token: 'BTN_PROB_OTRO', label: '🔍 Otro problema', text: 'otro problema' },
+      // ========================================================
+
       { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
       { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
@@ -3895,9 +3907,38 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         if (needType === 'problema') {
           reply = isEn
             ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
+            : `Perfecto, ${whoName} 🤖✨.\n\n¿Cuál de estos problemas te está pasando?\n\nO contame con tus palabras qué está sucediendo:`;
           session.isProblem = true;
           session.isHowTo = false;
+          
+          // Mostrar botones de sugerencias de problemas comunes
+          const problemButtons = isEn ? [
+            { token: 'BTN_PROB_NO_ENCIENDE', label: '🔌 Device won\'t turn on', text: 'device won\'t turn on', icon: '🔌' },
+            { token: 'BTN_PROB_INTERNET', label: '📡 Internet connection issues', text: 'internet connection issues', icon: '📡' },
+            { token: 'BTN_PROB_LENTITUD', label: '🐢 System or device slowness', text: 'system slowness', icon: '🐢' },
+            { token: 'BTN_PROB_BLOQUEO', label: '❄️ Program freezing or hanging', text: 'program freezing', icon: '❄️' },
+            { token: 'BTN_PROB_PERIFERICOS', label: '🖨️ External peripheral issues', text: 'peripheral issues', icon: '🖨️' },
+            { token: 'BTN_PROB_MALWARE', label: '🛡️ Malware or virus infections', text: 'malware or virus', icon: '🛡️' },
+            { token: 'BTN_PROB_OTRO', label: '🔍 Other problem', text: 'other problem', icon: '🔍' }
+          ] : [
+            { token: 'BTN_PROB_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende', icon: '🔌' },
+            { token: 'BTN_PROB_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet', icon: '📡' },
+            { token: 'BTN_PROB_LENTITUD', label: '🐢 Lentitud del sistema operativo o del equipo', text: 'lentitud del sistema', icon: '🐢' },
+            { token: 'BTN_PROB_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas', icon: '❄️' },
+            { token: 'BTN_PROB_PERIFERICOS', label: '🖨️ Problemas con periféricos externos', text: 'problemas con periféricos', icon: '🖨️' },
+            { token: 'BTN_PROB_MALWARE', label: '🛡️ Infecciones de malware o virus', text: 'malware o virus', icon: '🛡️' },
+            { token: 'BTN_PROB_OTRO', label: '🔍 Otro problema', text: 'otro problema', icon: '🔍' }
+          ];
+          
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json({ 
+            ok: true, 
+            reply, 
+            stage: session.stage,
+            buttons: problemButtons,
+            options: problemButtons
+          });
         } else if (needType === 'consulta_general') {
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
@@ -4211,6 +4252,44 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     let options = [];
 
     if (session.stage === STATES.ASK_PROBLEM) {
+      // Get locale once at the beginning
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // ========================================================
+      // 🆕 DETECCIÓN DE BOTONES DE PROBLEMAS COMUNES
+      // ========================================================
+      
+      // Detectar si el usuario seleccionó un botón de problema común
+      if (buttonToken && buttonToken.startsWith('BTN_PROB_')) {
+        const problemMap = {
+          'BTN_PROB_NO_ENCIENDE': isEn ? 'My device won\'t turn on' : 'El equipo no enciende',
+          'BTN_PROB_INTERNET': isEn ? 'I have internet connection problems' : 'Tengo problemas de conexión a Internet',
+          'BTN_PROB_LENTITUD': isEn ? 'My system or device is very slow' : 'El sistema operativo o el equipo está muy lento',
+          'BTN_PROB_BLOQUEO': isEn ? 'Programs freeze or hang' : 'Los programas se bloquean o cuelgan',
+          'BTN_PROB_PERIFERICOS': isEn ? 'I have problems with external peripherals' : 'Tengo problemas con periféricos externos',
+          'BTN_PROB_MALWARE': isEn ? 'I suspect malware or virus infection' : 'Sospecho de infecciones de malware o virus',
+          'BTN_PROB_OTRO': isEn ? 'I have another problem' : 'Tengo otro problema'
+        };
+        
+        const problemText = problemMap[buttonToken];
+        if (problemText) {
+          session.problem = problemText;
+          console.log('[ASK_PROBLEM] Problema seleccionado desde botón:', problemText);
+          
+          // Si eligió "Otro problema", pedirle que describa
+          if (buttonToken === 'BTN_PROB_OTRO') {
+            const reply = isEn
+              ? 'Tell me in your own words what problem you\'re experiencing:'
+              : 'Contame con tus palabras qué problema estás teniendo:';
+            session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+            await saveSession(sid, session);
+            return res.json({ ok: true, reply, stage: session.stage });
+          }
+          // Continuar con el flujo normal de detección de dispositivos
+        }
+      }
+      
       session.problem = t || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
 
@@ -4223,8 +4302,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
 
         if (ambiguousResult) {
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
           const confidence = ambiguousResult.confidence;
 
           // CASO 1: Alta confianza (>=0.33 = 1+ keywords) - Confirmar con 1 botón
@@ -4336,8 +4413,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
 
       // OA analyze problem (optional)
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
       const ai = await analyzeProblemWithOA(session.problem || '', locale);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
 
