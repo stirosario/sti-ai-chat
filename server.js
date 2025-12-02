@@ -509,6 +509,9 @@ function getDeviceButtonLabel(token, locale = 'es-AR') {
 
 function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
   if (!Array.isArray(tokens)) return [];
+  const norm = (locale || '').toLowerCase();
+  const isEn = norm.startsWith('en');
+  
   return tokens.map(t => {
     if (!t) return null;
     const def = getButtonDefinition(t);
@@ -516,7 +519,29 @@ function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
     const deviceLabel = getDeviceButtonLabel(String(t), locale);
     const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
     const text = def?.text || label;
-    return { token: String(t), label, text };
+    
+    // Agregar description y example para botones principales
+    const btn = { token: String(t), label, text };
+    
+    if (String(t) === 'BTN_PROBLEMA') {
+      btn.description = isEn 
+        ? 'If you have a technical issue with a device or system' 
+        : 'Si tenés un inconveniente técnico con un dispositivo o sistema';
+      btn.example = isEn 
+        ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' 
+        : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"';
+      btn.icon = '🔧';
+    } else if (String(t) === 'BTN_CONSULTA') {
+      btn.description = isEn 
+        ? 'If you need to learn how to configure or get guidance on technology tools' 
+        : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas';
+      btn.example = isEn 
+        ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' 
+        : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"';
+      btn.icon = '💡';
+    }
+    
+    return btn;
   }).filter(Boolean);
 }
 function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
