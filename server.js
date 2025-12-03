@@ -2158,10 +2158,10 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
     const userSess = sid ? await getSession(sid) : null;
     const whoName = (name || userSess?.userName || '').toString().trim();
     const waIntro = whoName
-      ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
-      : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
+      ? `Hola STI, me llamo ${whoName}. Vengo del chat web...`
+      : `Hola STI. Vengo del chat web...`;
     
-    // Construir texto para WhatsApp con formato legible
+    // Construir texto para WhatsApp con formato limpio
     let waText = `*${titleLine}*\n`;
     waText += `${waIntro}\n\n`;
     waText += `📅 *Generado:* ${generatedLabel}\n`;
@@ -2169,12 +2169,13 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
     if (device) waText += `💻 *Equipo:* ${device}\n`;
     waText += `🎫 *Ticket:* ${ticketId}\n`;
     
+    // Separador de conversación
+    waText += `\n━━━━━━━━━━━━━━━━\n`;
+    waText += `💬 *CONVERSACIÓN*\n`;
+    waText += `━━━━━━━━━━━━━━━━\n\n`;
+    
     // Agregar conversación formateada
     if (transcript && transcript.length > 0) {
-      waText += `\n━━━━━━━━━━━━━━━━━━━\n`;
-      waText += `💬 *CONVERSACIÓN*\n`;
-      waText += `━━━━━━━━━━━━━━━━━━━\n\n`;
-      
       for (const m of transcript) {
         const rawText = (m.text || '').toString();
         const safeText = maskPII(rawText);
@@ -2182,11 +2183,10 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
         const label = m.who === 'system' ? 'Bot' : 'Usuario';
         waText += `${icon} *${label}:*\n${safeText}\n\n`;
       }
-      waText += `━━━━━━━━━━━━━━━━━━━\n\n`;
     }
     
-    waText += `🔗 *Detalle completo:* ${apiPublicUrl}\n\n`;
-    waText += `⚠️ _Aviso: Esta conversación se comparte con un técnico de STI. No incluyas contraseñas ni datos bancarios._`;
+    waText += `━━━━━━━━━━━━━━━━\n\n`;
+    waText += `🔗 *Ticket completo:* ${apiPublicUrl}`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
