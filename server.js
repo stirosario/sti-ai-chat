@@ -3502,7 +3502,17 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     const sessionId = req.body.sessionId || req.sessionId;
     console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
-    console.log('[DEBUG /api/chat] Body completo:', JSON.stringify(req.body));
+    
+    // Log body sin imágenes para no saturar
+    const bodyWithoutImages = { ...req.body };
+    if (bodyWithoutImages.images && Array.isArray(bodyWithoutImages.images)) {
+      console.log('[DEBUG /api/chat] Body tiene', bodyWithoutImages.images.length, 'imagen(es)');
+      bodyWithoutImages.images = bodyWithoutImages.images.map(img => ({
+        name: img.name,
+        hasData: img.data ? `${img.data.substring(0, 50)}... (${img.data.length} chars)` : 'no data'
+      }));
+    }
+    console.log('[DEBUG /api/chat] Body:', JSON.stringify(bodyWithoutImages, null, 2));
     console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
 
     const sessionRateCheck = checkSessionRateLimit(sessionId);
@@ -3552,52 +3562,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
 
-    // 🖼️ Procesar imágenes si vienen en el body
-    const images = body.images || [];
-    let imageContext = '';
-    let savedImageUrls = [];
-    
-    if (images.length > 0) {
-      console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
-      
-      // Guardar las imágenes en disco
-      for (const img of images) {
-        try {
-          // Extraer base64 y extensión
-          const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          
-          // Generar nombre único
-          const timestamp = Date.now();
-          const random = crypto.randomBytes(8).toString('hex');
-          const ext = img.name ? path.extname(img.name).toLowerCase() : '.png';
-          const fileName = `${sid.substring(0, 20)}_${timestamp}_${random}${ext}`;
-          const filePath = path.join(UPLOADS_DIR, fileName);
-          
-          // Guardar imagen
-          fs.writeFileSync(filePath, buffer);
-          
-          // URL pública para acceder a la imagen
-          const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
-          savedImageUrls.push(imageUrl);
-          
-          console.log(`[IMAGE] Guardada: ${fileName} -> ${imageUrl}`);
-        } catch (err) {
-          console.error('[IMAGE] Error guardando imagen:', err);
-        }
-      }
-      
-      imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
-      
-      // Guardar referencia de imágenes en la sesión para uso futuro
-      if (!session) session = {};
-      if (!session.images) session.images = [];
-      session.images.push(...savedImageUrls.map(url => ({
-        url: url,
-        timestamp: nowIso()
-      })));
-    }
-
     // Inicializar datos de log
     flowLogData.sessionId = sid;
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
@@ -3631,6 +3595,76 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         pendingAction: null
       };
       console.log('[api/chat] nueva session', sid);
+    }
+
+    // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
+    const images = body.images || [];
+    let imageContext = '';
+    let savedImageUrls = [];
+    
+    if (images.length > 0) {
+      console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
+      
+      // Guardar las imágenes en disco
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        try {
+          console.log(`[IMAGE] Processing image ${i + 1}/${images.length}: ${img.name || 'unnamed'}`);
+          
+          if (!img.data) {
+            console.error('[IMAGE] Image data is missing for:', img.name);
+            continue;
+          }
+          
+          // Extraer base64 y extensión
+          const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          
+          console.log(`[IMAGE] Buffer size: ${buffer.length} bytes`);
+          
+          // Generar nombre único
+          const timestamp = Date.now();
+          const random = crypto.randomBytes(8).toString('hex');
+          const ext = img.name ? path.extname(img.name).toLowerCase() : '.png';
+          const fileName = `${sid.substring(0, 20)}_${timestamp}_${random}${ext}`;
+          const filePath = path.join(UPLOADS_DIR, fileName);
+          
+          console.log(`[IMAGE] Saving to: ${filePath}`);
+          
+          // Guardar imagen
+          fs.writeFileSync(filePath, buffer);
+          
+          // Verificar que se guardó
+          if (fs.existsSync(filePath)) {
+            const stats = fs.statSync(filePath);
+            console.log(`[IMAGE] File saved successfully: ${stats.size} bytes`);
+          }
+          
+          // URL pública para acceder a la imagen
+          const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+          savedImageUrls.push(imageUrl);
+          
+          console.log(`[IMAGE] ✅ Guardada: ${fileName} -> ${imageUrl}`);
+        } catch (err) {
+          console.error(`[IMAGE] ❌ Error guardando imagen ${i + 1}:`, err.message);
+          console.error('[IMAGE] Stack:', err.stack);
+        }
+      }
+      
+      if (savedImageUrls.length > 0) {
+        imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+        
+        // Guardar referencia de imágenes en la sesión
+        if (!session.images) session.images = [];
+        session.images.push(...savedImageUrls.map(url => ({
+          url: url,
+          timestamp: nowIso()
+        })));
+        
+        console.log(`[IMAGE] Total images saved: ${savedImageUrls.length}`);
+      } else {
+        console.warn('[IMAGE] No images were successfully saved');
+      }
     }
 
 
