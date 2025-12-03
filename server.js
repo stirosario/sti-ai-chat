@@ -3481,6 +3481,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
 
+    // 🖼️ Procesar imágenes si vienen en el body
+    const images = body.images || [];
+    let imageContext = '';
+    if (images.length > 0) {
+      console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
+      imageContext = `\n\n[Usuario adjuntó ${images.length} imagen(es) del problema]`;
+      // Guardar referencia de imágenes en la sesión para uso futuro
+      if (!session.images) session.images = [];
+      session.images.push(...images.map(img => ({
+        name: img.name,
+        timestamp: nowIso(),
+        // Guardar solo metadata, no el dataUrl completo para ahorrar espacio
+        hasImage: true
+      })));
+    }
+
     // Inicializar datos de log
     flowLogData.sessionId = sid;
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
@@ -3508,6 +3524,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         stepProgress: {},
         pendingDeviceGroup: null,
         userLocale: 'es-AR',
+        images: [], // Array para guardar referencias de imágenes
         helpAttempts: {},
         frustrationCount: 0,
         pendingAction: null
@@ -3903,7 +3920,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         if (needType === 'problema') {
           reply = isEn
             ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto, ${whoName} 🤖✨.\nContame con tus palabras qué está pasando así vemos cómo ayudarte.`;
+            : `Perfecto, ${whoName} 🤖✨.\nContame qué está ocurriendo así puedo asistirte de la mejor manera. 🛠️`;
           session.isProblem = true;
           session.isHowTo = false;
           // Agregar botones de problemas frecuentes
