@@ -1,4 +1,12 @@
 @echo off
+
+echo Iniciando server.js en puerto 3001...
+start "" /b cmd /c "set PORT=3001 && node server.js"
+set NODE_PID=%!
+
+echo Esperando 3 segundos para que el servidor arranque...
+timeout /t 3 >nul
+
 setlocal
 
 :: Obtener fecha y hora actual
@@ -50,7 +58,10 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b
 )
-
+echo Cerrando server.js...
+taskkill /PID %NODE_PID% /F >nul 2>&1
+timeout /t 3 >nul
+echo Listo.
 echo.
 echo ✅ Listo! Render va a detectar el cambio y hacer el deploy automático.
 echo.

@@ -2091,6 +2091,7 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
+    const accessToken = crypto.randomBytes(16).toString('hex'); // Token único para acceso público
     const nowDate = new Date();
     const dateFormatter = new Intl.DateTimeFormat('es-AR', {
       timeZone: 'America/Argentina/Buenos_Aires',
@@ -2144,6 +2145,7 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
       name: name || null,
       device: device || null,
       sid: sid || null,
+      accessToken: accessToken, // Token para acceso público
       transcript: transcriptData,
       redactPublic: true
     };
@@ -2305,51 +2307,64 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
+// DELETE /api/ticket/:tid — Eliminar un ticket (Solo admin)
+app.delete('/api/ticket/:tid', async (req, res) => {
+  try {
+    const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
+    
+    // Verificar token de administrador
+    const adminToken = req.headers.authorization || req.query.token;
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      return res.status(401).json({ ok: false, error: 'No autorizado' });
+    }
+
+    const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
+    const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
+
+    if (!fs.existsSync(jsonFile) && !fs.existsSync(txtFile)) {
+      return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
+    }
+
+    // Eliminar archivos
+    let deletedFiles = [];
+    if (fs.existsSync(txtFile)) {
+      fs.unlinkSync(txtFile);
+      deletedFiles.push('txt');
+    }
+    if (fs.existsSync(jsonFile)) {
+      fs.unlinkSync(jsonFile);
+      deletedFiles.push('json');
+    }
+
+    console.log(`[TICKET] Deleted by admin: ${tid} (files: ${deletedFiles.join(', ')})`);
+    
+    res.json({ 
+      ok: true, 
+      message: 'Ticket eliminado correctamente',
+      ticketId: tid,
+      deletedFiles
+    });
+
+  } catch (error) {
+    console.error('[Tickets] Error deleting ticket:', error);
+    res.status(500).json({ ok: false, error: 'Error al eliminar ticket' });
+  }
+});
+
 app.get('/api/ticket/:tid', async (req, res) => {
   const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
-
-  // Verificar autenticación
-  const adminToken = req.headers.authorization || req.query.token;
-  const requestSessionId = req.sessionId || req.headers['x-session-id'];
 
   const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
   const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
 
   if (!fs.existsSync(txtFile) && !fs.existsSync(jsonFile)) {
-    return res.status(404).json({ ok: false, error: 'not_found' });
+    return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
   }
 
-  // SECURITY: Validar ownership - Admin con token válido tiene acceso completo
-  const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
-
-  if (!isValidAdmin) {
-    // No es admin: validar ownership obligatorio
-    if (fs.existsSync(jsonFile)) {
-      try {
-        const ticketData = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
-        const ticketOwnerSid = ticketData.sid || '';
-
-        if (ticketOwnerSid !== requestSessionId) {
-          console.warn(`[SECURITY] DENIED - Unauthorized ticket access attempt:`);
-          console.warn(`  Ticket: ${tid}`);
-          console.warn(`  Owner Session: ${ticketOwnerSid}`);
-          console.warn(`  Requester Session: ${requestSessionId}`);
-          console.warn(`  IP: ${req.ip}`);
-          console.warn(`  Headers: ${JSON.stringify(req.headers)}`);
-          return res.status(403).json({ ok: false, error: 'No autorizado para ver este ticket' });
-        }
-      } catch (parseErr) {
-        console.error('[api/ticket] Error parsing ticket JSON:', parseErr);
-        return res.status(500).json({ ok: false, error: 'Error al validar ticket' });
-      }
-    } else {
-      // Sin JSON, denegar por defecto (security by default)
-      console.warn(`[SECURITY] Ticket JSON missing, denying access: ticket=${tid}, IP=${req.ip}`);
-      return res.status(403).json({ ok: false, error: 'Ticket no disponible' });
-    }
-  } else {
-    console.log(`[TICKET] Admin access granted with valid token: ticket=${tid}`);
-  }
+  // Tickets son completamente públicos - cualquiera con el ID puede verlos
+  console.log(`[TICKET] Public access granted: ticket=${tid}`);
 
   const raw = fs.readFileSync(txtFile, 'utf8');
   const maskedRaw = maskPII(raw);
@@ -2784,6 +2799,7 @@ async function createTicketAndRespond(session, sid, res) {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
     const ticketId = `TCK-${ymd}-${rand}`;
+    const accessToken = crypto.randomBytes(16).toString('hex'); // Token único para acceso público
     const now = new Date();
     const dateFormatter = new Intl.DateTimeFormat('es-AR', {
       timeZone: 'America/Argentina/Buenos_Aires',
@@ -2872,6 +2888,7 @@ async function createTicketAndRespond(session, sid, res) {
       problem: session.problem || null,
       locale: session.userLocale || null,
       sid: sid || null,
+      accessToken: accessToken, // Token para acceso público
       stepsDone: session.stepsDone || [],
       transcript: transcriptData,
       redactPublic: true
