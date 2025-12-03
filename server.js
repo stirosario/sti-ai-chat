@@ -2160,11 +2160,33 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
     const waIntro = whoName
       ? `Hola STI, me llamo ${whoName}. Vengo del chat web y dejo mi consulta para que un técnico especializado revise mi caso.`
       : (CHAT?.settings?.whatsapp_ticket?.prefix || 'Hola STI. Vengo del chat web. Dejo mi consulta:');
-    let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
-    if (name) waText += `Cliente: ${name}\n`;
-    if (device) waText += `Equipo: ${device}\n`;
-    waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
-    waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
+    
+    // Construir texto para WhatsApp con formato legible
+    let waText = `*${titleLine}*\n`;
+    waText += `${waIntro}\n\n`;
+    waText += `📅 *Generado:* ${generatedLabel}\n`;
+    if (name) waText += `👤 *Cliente:* ${name}\n`;
+    if (device) waText += `💻 *Equipo:* ${device}\n`;
+    waText += `🎫 *Ticket:* ${ticketId}\n`;
+    
+    // Agregar conversación formateada
+    if (transcript && transcript.length > 0) {
+      waText += `\n━━━━━━━━━━━━━━━━━━━\n`;
+      waText += `💬 *CONVERSACIÓN*\n`;
+      waText += `━━━━━━━━━━━━━━━━━━━\n\n`;
+      
+      for (const m of transcript) {
+        const rawText = (m.text || '').toString();
+        const safeText = maskPII(rawText);
+        const icon = m.who === 'system' ? '🤖' : '👤';
+        const label = m.who === 'system' ? 'Bot' : 'Usuario';
+        waText += `${icon} *${label}:*\n${safeText}\n\n`;
+      }
+      waText += `━━━━━━━━━━━━━━━━━━━\n\n`;
+    }
+    
+    waText += `🔗 *Detalle completo:* ${apiPublicUrl}\n\n`;
+    waText += `⚠️ _Aviso: Esta conversación se comparte con un técnico de STI. No incluyas contraseñas ni datos bancarios._`;
 
     const waNumberRaw = String(process.env.WHATSAPP_NUMBER || WHATSAPP_NUMBER || '5493417422422');
     const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
@@ -3801,7 +3823,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
       // Detectar rechazo de GDPR
       if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
-        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: soporte@stia.com.ar`;
+        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
 
