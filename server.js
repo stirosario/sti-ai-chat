@@ -1358,7 +1358,7 @@ app.use(compression({
 }));
 
 app.use(express.json({
-  limit: '2mb',
+  limit: '10mb', // Aumentado para soportar imágenes en base64
   strict: true,
   verify: (req, res, buf) => {
     // Validate JSON structure
@@ -1371,7 +1371,7 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({
   extended: false,
-  limit: '2mb',
+  limit: '10mb', // Aumentado para soportar imágenes
   parameterLimit: 100
 }));
 
@@ -1398,10 +1398,27 @@ app.use((req, res, next) => {
   const maxSize = 10 * 1024 * 1024; // 10MB máximo
 
   if (contentLength > maxSize) {
-    console.warn(`[${req.requestId}] Content-Length excede límite: ${contentLength} bytes`);
-    return res.status(413).json({ ok: false, error: 'Payload too large' });
+    console.warn(`[${req.requestId}] Content-Length excede límite: ${contentLength} bytes (${(contentLength / 1024 / 1024).toFixed(2)}MB)`);
+    return res.status(413).json({ 
+      ok: false, 
+      error: 'payload_too_large',
+      reply: '❌ Las imágenes son muy grandes. El tamaño total no puede superar 10MB. Intenta con imágenes más pequeñas o menos imágenes.'
+    });
   }
   next();
+});
+
+// Error handler para PayloadTooLargeError
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') {
+    console.error(`[${req.requestId}] PayloadTooLargeError:`, err.message);
+    return res.status(413).json({
+      ok: false,
+      error: 'payload_too_large',
+      reply: '❌ Las imágenes son muy grandes. El tamaño total no puede superar 10MB. Intenta con imágenes más pequeñas.'
+    });
+  }
+  next(err);
 });
 
 // Security headers + cache control
@@ -3506,13 +3523,21 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // Log body sin imágenes para no saturar
     const bodyWithoutImages = { ...req.body };
     if (bodyWithoutImages.images && Array.isArray(bodyWithoutImages.images)) {
-      console.log('[DEBUG /api/chat] Body tiene', bodyWithoutImages.images.length, 'imagen(es)');
+      console.log('[DEBUG /api/chat] 🖼️ Body tiene', bodyWithoutImages.images.length, 'imagen(es)');
+      console.log('[DEBUG /api/chat] 🖼️ Primera imagen:', {
+        name: bodyWithoutImages.images[0]?.name,
+        hasData: !!bodyWithoutImages.images[0]?.data,
+        dataLength: bodyWithoutImages.images[0]?.data?.length,
+        dataPreview: bodyWithoutImages.images[0]?.data?.substring(0, 100)
+      });
       bodyWithoutImages.images = bodyWithoutImages.images.map(img => ({
         name: img.name,
         hasData: img.data ? `${img.data.substring(0, 50)}... (${img.data.length} chars)` : 'no data'
       }));
+    } else {
+      console.log('[DEBUG /api/chat] ⚠️ NO hay imágenes en el body');
     }
-    console.log('[DEBUG /api/chat] Body:', JSON.stringify(bodyWithoutImages, null, 2));
+    console.log('[DEBUG /api/chat] Body keys:', Object.keys(req.body));
     console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
 
     const sessionRateCheck = checkSessionRateLimit(sessionId);
