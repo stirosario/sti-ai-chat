@@ -833,7 +833,7 @@ const DEVICE_PLAYBOOKS = {
   }
 };
 
-async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
+async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrls = []) {
   if (!openai) {
     return { isIT: false, device: null, issueKey: null, confidence: 0 };
   }
@@ -845,6 +845,11 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
   }
 
   const userText = trimmed.slice(0, 800);
+  
+  // Log imágenes si las hay
+  if (imageUrls.length > 0) {
+    console.log(`[analyzeProblemWithOA] Analizando con ${imageUrls.length} imagen(es)`);
+  }
 
   const systemMsg = profile.system;
 
@@ -895,11 +900,35 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR') {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    // Construir mensaje con soporte para imágenes
+    let userMessage;
+    if (imageUrls.length > 0) {
+      // Usar formato Vision API con imágenes
+      const content = [
+        { type: 'text', text: prompt }
+      ];
+      
+      // Agregar cada imagen
+      for (const imageUrl of imageUrls) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: imageUrl }
+        });
+      }
+      
+      userMessage = { role: 'user', content };
+      console.log(`[analyzeProblemWithOA] Usando Vision API con ${imageUrls.length} imagen(es)`);
+    } else {
+      // Mensaje de texto simple
+      userMessage = { role: 'user', content: prompt };
+    }
+    
     const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
+      model: imageUrls.length > 0 ? 'gpt-4o' : OPENAI_MODEL, // Usar gpt-4o si hay imágenes
       messages: [
         { role: 'system', content: systemMsg },
-        { role: 'user', content: prompt }
+        userMessage
       ],
       temperature: 0,
       max_tokens: 300
@@ -3526,16 +3555,46 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // 🖼️ Procesar imágenes si vienen en el body
     const images = body.images || [];
     let imageContext = '';
+    let savedImageUrls = [];
+    
     if (images.length > 0) {
       console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
-      imageContext = `\n\n[Usuario adjuntó ${images.length} imagen(es) del problema]`;
+      
+      // Guardar las imágenes en disco
+      for (const img of images) {
+        try {
+          // Extraer base64 y extensión
+          const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          
+          // Generar nombre único
+          const timestamp = Date.now();
+          const random = crypto.randomBytes(8).toString('hex');
+          const ext = img.name ? path.extname(img.name).toLowerCase() : '.png';
+          const fileName = `${sid.substring(0, 20)}_${timestamp}_${random}${ext}`;
+          const filePath = path.join(UPLOADS_DIR, fileName);
+          
+          // Guardar imagen
+          fs.writeFileSync(filePath, buffer);
+          
+          // URL pública para acceder a la imagen
+          const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+          savedImageUrls.push(imageUrl);
+          
+          console.log(`[IMAGE] Guardada: ${fileName} -> ${imageUrl}`);
+        } catch (err) {
+          console.error('[IMAGE] Error guardando imagen:', err);
+        }
+      }
+      
+      imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+      
       // Guardar referencia de imágenes en la sesión para uso futuro
+      if (!session) session = {};
       if (!session.images) session.images = [];
-      session.images.push(...images.map(img => ({
-        name: img.name,
-        timestamp: nowIso(),
-        // Guardar solo metadata, no el dataUrl completo para ahorrar espacio
-        hasImage: true
+      session.images.push(...savedImageUrls.map(url => ({
+        url: url,
+        timestamp: nowIso()
       })));
     }
 
@@ -4420,10 +4479,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         }
       }
 
-      // OA analyze problem (optional)
+      // OA analyze problem (optional) - incluir imágenes si las hay
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      const ai = await analyzeProblemWithOA(session.problem || '', locale);
+      const ai = await analyzeProblemWithOA(session.problem || '', locale, savedImageUrls);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
 
       if (!isIT) {
