@@ -3701,7 +3701,16 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           fs.appendFile(tf, botLine, () => { });
         } catch (e) { /* noop */ }
 
-        const unifiedOpts = ['Lo pude solucionar ✔️', 'Volver a mostrar los pasos. ⏪'];
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
+        const unifiedOpts = isEn 
+          ? (isAdvanced 
+              ? ['I solved it ✔️', 'Show advanced steps again ⏪', 'Connect with Technician 🧑‍💻']
+              : ['I solved it ✔️', 'Show steps again ⏪', 'Connect with Technician 🧑‍💻'])
+          : (isAdvanced 
+              ? ['Lo pude solucionar ✔️', 'Volver a los pasos avanzados ⏪', 'Conectar con Técnico 🧑‍💻']
+              : ['Lo pude solucionar ✔️', 'Volver a los pasos ⏪', 'Conectar con Técnico 🧑‍💻']);
         return res.json(withOptions({ ok: true, help: { stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
       } catch (err) {
         console.error('[help_step] Error generando ayuda:', err && err.message);
@@ -4822,7 +4831,7 @@ La guía debe ser:
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
       const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌|BTN_PERSIST)\b/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico|BTN_CONNECT_TECH)\b/i;
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
+      const rxShowSteps = /^\s*(volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
 
       if (rxShowSteps.test(t)) {
         return await generateAndShowSteps(session, sid, res);
@@ -4971,7 +4980,7 @@ La guía debe ser:
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
       const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      const rxShowSteps = /^\s*(volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
+      const rxShowSteps = /^\s*(volver a los pasos avanzados|volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
 
       if (rxShowSteps.test(t)) {
         const result = handleShowSteps(session, 'advanced');
