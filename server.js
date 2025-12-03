@@ -1107,6 +1107,9 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
   }
 }
 
+// Alias para compatibilidad
+const getHelpForStep = explainStepWithAI;
+
 // ========================================================
 // Express app, endpoints, and core chat flow
 // ========================================================
