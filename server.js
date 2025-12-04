@@ -853,7 +853,45 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
 
   const systemMsg = profile.system;
 
+  // Si hay imágenes, modificar el prompt para incluir análisis visual
+  let promptIntro = '';
+  if (imageUrls.length > 0) {
+    promptIntro = [
+      '🖼️ ⚠️ ATENCIÓN: El usuario adjuntó imagen(es) del problema.',
+      '',
+      'INSTRUCCIONES ESPECIALES PARA IMÁGENES:',
+      '1. PRIMERO describe en detalle qué ves en la imagen',
+      '2. Identifica mensajes de error, ventanas, iconos, texto visible',
+      '3. LUEGO combina esa información con el texto del usuario',
+      '4. Finalmente clasifica basándote en AMBOS: imagen + texto',
+      '',
+      '⚠️ IMPORTANTE: La imagen tiene PRIORIDAD sobre el texto del usuario.',
+      'Si el usuario dice algo vago como "tengo ese error" pero la imagen muestra',
+      'un error específico (ej: archivo corrupto), usa la información de la IMAGEN.',
+      '',
+      'Ejemplos:',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '📝 Usuario: "tengo ese error al abrir un archivo"',
+      '🖼️ Imagen: Ventana de Windows con mensaje "Se eliminó el elemento..."',
+      '✅ Clasificación: isProblem:true, issueKey:"archivo_corrupto", device:"pc"',
+      '',
+      '📝 Usuario: "problemas con la pantalla"',
+      '🖼️ Imagen: Pantalla azul de Windows (BSOD) con STOP code',
+      '✅ Clasificación: isProblem:true, issueKey:"error_pantalla", device:"pc"',
+      '',
+      '📝 Usuario: "no puedo conectarme"',
+      '🖼️ Imagen: Error de red "Sin acceso a internet" en Windows',
+      '✅ Clasificación: isProblem:true, issueKey:"wifi_connectivity", device:"pc"',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      '🔍 ANÁLISIS DE LA IMAGEN:',
+      '(Describe aquí qué ves en la imagen antes de clasificar)',
+      ''
+    ].join('\n');
+  }
+
   const prompt = [
+    promptIntro,
     'Analizá (o analiza) el siguiente mensaje de un usuario final y clasificalo como:',
     '1. PROBLEMA TÉCNICO: Algo no funciona, falla o tiene error',
     '2. SOLICITUD DE AYUDA: Necesita guía para hacer algo (instalar, configurar, conectar)',
@@ -861,11 +899,12 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
     '',
     'Tu tarea es devolver SOLO JSON (sin explicación adicional), con este formato:',
     '{',
+    '  "imageAnalysis": "Descripción detallada de lo que ves en la imagen (solo si hay imagen)" | null,',
     '  "isIT": boolean,',
     '  "isProblem": boolean,',
     '  "isHowTo": boolean,',
     '  "device": "pc" | "notebook" | "router" | "fire_tv" | "chromecast" | "roku" | "android_tv" | "apple_tv" | "smart_tv_samsung" | "smart_tv_lg" | "smart_tv_sony" | "smart_tv_generic" | "impresora" | "scanner" | "webcam" | "mouse" | "teclado" | "monitor" | null,',
-    '  "issueKey": "no_prende" | "boot_issue" | "wifi_connectivity" | "no_funciona" | "error_config" | "install_guide" | "setup_guide" | "connect_guide" | "generic" | null,',
+    '  "issueKey": "no_prende" | "boot_issue" | "wifi_connectivity" | "no_funciona" | "error_config" | "error_archivo" | "archivo_corrupto" | "error_pantalla" | "install_guide" | "setup_guide" | "connect_guide" | "generic" | null,',
     '  "confidence": number between 0 and 1,',
     `  "language": "${profile.languageTag}"`,
     '}',
@@ -875,6 +914,8 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
     '- "mi impresora no imprime" → isIT:true, isProblem:true, device:"impresora", issueKey:"no_funciona"',
     '- "el mouse no responde" → isIT:true, isProblem:true, device:"mouse", issueKey:"no_funciona"',
     '- "mi smart tv no se conecta al wifi" → isIT:true, isProblem:true, device:"smart_tv_generic", issueKey:"wifi_connectivity"',
+    '- "error al abrir archivo" (imagen muestra archivo corrupto) → isIT:true, isProblem:true, device:"pc", issueKey:"archivo_corrupto"',
+    '- "pantalla azul de Windows" (imagen muestra BSOD) → isIT:true, isProblem:true, device:"pc", issueKey:"error_pantalla"',
     '',
     'Ejemplos de SOLICITUDES DE AYUDA (isProblem:false, isHowTo:true):',
     '- "quiero instalar una impresora" → isIT:true, isProblem:false, isHowTo:true, device:"impresora", issueKey:"install_guide"',
@@ -955,15 +996,21 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
     let confidence = Number(parsed.confidence || 0);
     if (!Number.isFinite(confidence) || confidence < 0) confidence = 0;
     if (confidence > 1) confidence = 1;
+    
+    // Extraer análisis de imagen si está presente
+    const imageAnalysis = typeof parsed.imageAnalysis === 'string' ? parsed.imageAnalysis : null;
+    if (imageAnalysis) {
+      console.log('[analyzeProblemWithOA] 🖼️ Análisis de imagen recibido:', imageAnalysis.substring(0, 200) + '...');
+    }
 
-    return { isIT, isProblem, isHowTo, device, issueKey, confidence };
+    return { isIT, isProblem, isHowTo, device, issueKey, confidence, imageAnalysis };
   } catch (err) {
     console.error('[analyzeProblemWithOA] error:', err?.message || err);
     return { isIT: false, isProblem: false, isHowTo: false, device: null, issueKey: null, confidence: 0 };
   }
 }
 
-async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avoidSteps = []) {
+async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avoidSteps = [], imageAnalysis = null) {
   const profile = getLocaleProfile(locale);
   const trimmed = String(problemText || '').trim();
   if (!openai || !trimmed) {
@@ -987,17 +1034,36 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
   const userText = trimmed.slice(0, 800);
   const systemMsg = profile.system;
   const deviceLabel = device || 'dispositivo';
+  
+  // Agregar contexto de imagen si está disponible
+  let imageContext = '';
+  if (imageAnalysis) {
+    imageContext = [
+      '',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '🖼️ ANÁLISIS DE IMAGEN ADJUNTA:',
+      imageAnalysis,
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+      '⚠️ IMPORTANTE: Los pasos deben ser ESPECÍFICOS para el error mostrado en la imagen.',
+      'NO generes pasos genéricos de reiniciar o revisar cables si la imagen muestra',
+      'un error específico (ej: archivo corrupto, error de permisos, pantalla azul).',
+      ''
+    ].join('\n');
+  }
 
   const prompt = [
     'Generá una lista corta de pasos numerados para ayudar a un usuario final a diagnosticar y resolver un problema técnico.',
     `El usuario habla en el idioma: ${profile.languageTag}.`,
     `Dispositivo (si se conoce): ${deviceLabel}.`,
+    imageContext, // Incluir análisis de imagen aquí
     '',
     'IMPORTANTE:',
     '- Respondé SOLO en el idioma del usuario.',
     '- Devolvé la respuesta SOLO como un array JSON de strings (sin explicación extra).',
     '- Cada string debe describir un paso concreto, simple y seguro.',
     '- Evitá cualquier acción peligrosa o avanzada (no tocar BIOS, no usar comandos destructivos).',
+    imageAnalysis ? '- Los pasos deben ser RELEVANTES al error específico mostrado en la imagen.' : '',
     '',
     // Si se recibieron pasos a evitar, pedí explícitamente no repetirlos
     (Array.isArray(avoidSteps) && avoidSteps.length) ? (`- NO repitas los siguientes pasos ya probados por el usuario: ${avoidSteps.map(s => '"' + String(s).replace(/\s+/g,' ').trim().slice(0,80) + '"').join(', ')}`) : '',
@@ -3128,13 +3194,31 @@ async function generateAndShowSteps(session, sid, res) {
       let aiSteps = [];
       try {
         const problemWithContext = (session.problem || '') + imageContext;
+        
+        // Extraer imageAnalysis si existe
+        let imageAnalysisText = null;
+        if (session.images && session.images.length > 0) {
+          const latestImage = session.images[session.images.length - 1];
+          if (latestImage.analysis && latestImage.analysis.problemDetected) {
+            imageAnalysisText = latestImage.analysis.problemDetected;
+          }
+        }
+        
         // DEBUG: mostrar pasos básicos antes de pedir pruebas avanzadas a OpenAI
         try {
           console.log('[DEBUG aiQuickTests] session.tests.basic before call (generateAndShowSteps):', JSON.stringify(Array.isArray(session.tests?.basic) ? session.tests.basic : []));
         } catch (e) {
           console.log('[DEBUG aiQuickTests] error serializing session.tests.basic', e && e.message);
         }
-        aiSteps = await aiQuickTests(problemWithContext, device || '', locale, Array.isArray(session.tests?.basic) ? session.tests.basic : []);
+        
+        // Pasar imageAnalysis como parámetro adicional
+        aiSteps = await aiQuickTests(
+          problemWithContext, 
+          device || '', 
+          locale, 
+          Array.isArray(session.tests?.basic) ? session.tests.basic : [],
+          imageAnalysisText // <-- AGREGAR ANÁLISIS DE IMAGEN
+        );
       } catch (e) {
         aiSteps = [];
       }
@@ -4543,6 +4627,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       const isEn = String(locale).toLowerCase().startsWith('en');
       const ai = await analyzeProblemWithOA(session.problem || '', locale, savedImageUrls);
       const isIT = !!ai.isIT && (ai.confidence >= OA_MIN_CONF);
+      
+      // Guardar análisis de imagen en la sesión si hay imágenes
+      if (savedImageUrls.length > 0 && ai.imageAnalysis) {
+        console.log('[ASK_PROBLEM] Guardando análisis de imagen:', ai.imageAnalysis);
+        // Actualizar la última imagen con el análisis
+        if (session.images && session.images.length > 0) {
+          const lastImageIndex = session.images.length - 1;
+          session.images[lastImageIndex].analysis = {
+            problemDetected: ai.imageAnalysis,
+            errorMessages: [], // Podríamos extraer esto del análisis
+            technicalDetails: ai.imageAnalysis,
+            issueKey: ai.issueKey || 'generic',
+            device: ai.device || null
+          };
+        }
+      }
 
       if (!isIT) {
         const replyNotIT = isEn
