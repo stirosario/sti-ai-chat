@@ -4,8 +4,8 @@ echo Iniciando server.js en puerto 3001...
 start "" /b cmd /c "set PORT=3001 && node server.js"
 set NODE_PID=%!
 
-echo Esperando 3 segundos para que el servidor arranque...
-timeout /t 3 >nul
+echo Esperando 5 segundos para que el servidor arranque...
+timeout /t 5 >nul
 
 setlocal
 

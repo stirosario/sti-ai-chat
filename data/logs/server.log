@@ -5766,3 +5766,8 @@
 2025-12-03T12:20:30.295Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
 2025-12-03T12:20:30.296Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-12-03T12:20:30.297Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-04T14:03:57.812Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-04T14:03:57.935Z [INFO] STI Chat (v7) started on [PHONE_REDACTED] 
+2025-12-04T14:03:57.936Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-04T14:03:57.937Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-04T14:03:57.938Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
