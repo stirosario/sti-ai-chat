@@ -297,20 +297,35 @@
     width: 36px;
     height: 36px;
     background: transparent;
-    border: 1px solid var(--sti-border);
+    border: 1px solid rgba(239,68,68,0.3);
     border-radius: 8px;
-    color: var(--sti-metal-blue);
+    color: #ef4444;
     font-size: 20px;
-    cursor: pointer;
+    cursor: not-allowed;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: all 0.3s;
+    opacity: 0.5;
 }
 
-#sti-attach-btn:hover {
-    background: rgba(92,200,255,0.1);
-    border-color: var(--sti-metal-blue);
+#sti-attach-btn:not(:disabled) {
+    border-color: rgba(0,255,157,0.3);
+    color: var(--sti-metal-green);
+    cursor: pointer;
+    opacity: 1;
+}
+
+#sti-attach-btn:not(:disabled):hover {
+    background: rgba(0,255,157,0.1);
+    border-color: var(--sti-metal-green);
+    box-shadow: 0 0 15px var(--sti-glow-green);
+    transform: scale(1.05);
+}
+
+#sti-attach-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 #sti-text {
