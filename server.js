@@ -151,6 +151,8 @@ const SMART_MODE_ENABLED = process.env.SMART_MODE !== 'false'; // Activado por d
 /**
  * 🧠 Análisis Inteligente de Mensaje del Usuario
  * Usa OpenAI para comprender intención, extraer dispositivo/problema
+ * 🔍 MODO VISIÓN: Procesa imágenes con GPT-4 Vision cuando están disponibles
+ * ✨ NUEVA MEJORA: Normalización de texto y tolerancia a errores
  */
 async function analyzeUserMessage(text, session, imageUrls = []) {
   if (!openai || !SMART_MODE_ENABLED) {
@@ -159,61 +161,217 @@ async function analyzeUserMessage(text, session, imageUrls = []) {
 
   try {
     console.log('[SMART_MODE] 🧠 Analizando mensaje con IA...');
+    if (imageUrls.length > 0) {
+      console.log('[VISION_MODE] 🔍 Modo visión activado -', imageUrls.length, 'imagen(es) detectada(s)');
+    }
+    
+    // ========================================
+    // 📝 NORMALIZACIÓN DEL TEXTO (tolerancia a errores)
+    // ========================================
+    const originalText = text;
+    const normalizedText = normalizeUserInput(text);
+    if (normalizedText !== text.toLowerCase().trim()) {
+      console.log('[NORMALIZE] Original:', originalText);
+      console.log('[NORMALIZE] Normalizado:', normalizedText);
+    }
+    
+    // ========================================
+    // 🌍 DETECCIÓN DE IDIOMA
+    // ========================================
+    const locale = session.userLocale || 'es-AR';
+    const isEnglish = locale.toLowerCase().startsWith('en');
+    const language = isEnglish ? 'English' : 'Español (Argentina)';
     
     const conversationContext = session.transcript.slice(-6).map(msg => 
       `${msg.who === 'user' ? 'Usuario' : 'Bot'}: ${msg.text}`
     ).join('\n');
     
-    const imageContext = imageUrls.length > 0 
-      ? `\n[El usuario adjuntó ${imageUrls.length} imagen(es)]` 
-      : '';
-    
-    const analysisPrompt = `Sos un asistente técnico experto analizando una conversación de soporte.
+    // ========================================
+    // 🔍 ANÁLISIS CON VISIÓN si hay imágenes
+    // ========================================
+    if (imageUrls.length > 0) {
+      console.log('[VISION_MODE] 🖼️ Procesando imágenes con GPT-4 Vision...');
+      
+      const visionPrompt = `Sos Tecnos, un asistente técnico experto de STI (Argentina). El usuario te envió imagen(es) de su problema técnico.
 
-CONTEXTO PREVIO:
+**IDIOMA DE RESPUESTA:** ${language}
+**TONO:** ${isEnglish ? 'Professional, empathetic, clear' : 'Profesional argentino, empático, claro, voseo (contame, fijate, podés)'}
+
+**CONTEXTO DE LA CONVERSACIÓN:**
 ${conversationContext}
 
-MENSAJE ACTUAL: "${text}"${imageContext}
+**MENSAJE DEL USUARIO:** "${originalText || 'Ver imagen adjunta'}"
+**TEXTO NORMALIZADO:** "${normalizedText}"
 
-Analizá y respondé en JSON:
+**TAREAS OBLIGATORIAS:**
+1. 🔍 Analizá TODAS las imágenes en detalle máximo
+2. 📝 Si hay texto visible → léelo completo y transcribilo
+3. 🖥️ Identificá dispositivo exacto (marca, modelo, tipo)
+4. ⚠️ Detectá problema técnico específico
+5. 🎯 Determiná urgencia real
+6. 💡 Sugerí 2-3 pasos concretos y accionables
+7. 🧠 Inferí causas probables del problema
+
+**IMPORTANTE:** 
+- NUNCA digas "no puedo ver imágenes" - SIEMPRE analizás
+- Si ves código de error → transcribilo exacto
+- Si ves configuración → extraé valores clave
+- Si está borroso → pedí mejor foto pero mencioná lo que SÍ ves
+
+**Respondé en JSON con TODA la información:**
 {
-  "intent": "diagnose_problem|ask_question|express_frustration|confirm|cancel|other",
+  "imagesAnalyzed": true,
+  "language": "${language}",
+  "visualContent": {
+    "description": "descripción técnica detallada de cada imagen",
+    "textDetected": "TODO el texto visible (OCR completo)",
+    "errorMessages": ["cada mensaje de error exacto"],
+    "errorCodes": ["códigos específicos si hay"],
+    "technicalDetails": "specs, config, estado del sistema",
+    "imageQuality": "excellent|good|fair|poor|blurry"
+  },
+  "device": {
+    "detected": true,
+    "type": "notebook|desktop|monitor|smartphone|tablet|printer|router|server|other",
+    "brand": "marca exacta si es visible",
+    "model": "modelo si es visible",
+    "confidence": 0.0-1.0
+  },
+  "problem": {
+    "detected": true,
+    "summary": "descripción específica y técnica del problema",
+    "category": "hardware|software|connectivity|performance|display|storage|security|other",
+    "urgency": "low|medium|high|critical",
+    "possibleCauses": ["causa técnica 1", "causa técnica 2", "causa técnica 3"],
+    "affectedComponents": ["componente 1", "componente 2"]
+  },
+  "intent": "diagnose_problem|ask_question|show_config|report_error|other",
+  "confidence": 0.0-1.0,
+  "sentiment": "neutral|worried|frustrated|angry|calm",
+  "needsHumanHelp": true/false,
+  "nextSteps": [
+    "paso 1 concreto y accionable",
+    "paso 2 concreto y accionable", 
+    "paso 3 concreto y accionable"
+  ],
+  "suggestedResponse": "${isEnglish ? 'empathetic AND technical response based on what you SEE' : 'respuesta empática Y técnica basada en lo que VES, con voseo argentino'}"
+}`;
+
+      // Construir mensaje con imágenes
+      const messageContent = [
+        { type: 'text', text: visionPrompt }
+      ];
+      
+      // Agregar cada imagen
+      for (const imgUrl of imageUrls) {
+        messageContent.push({
+          type: 'image_url',
+          image_url: {
+            url: imgUrl,
+            detail: 'high' // Máxima calidad de análisis
+          }
+        });
+        console.log('[VISION_MODE] 📸 Agregada imagen al análisis:', imgUrl);
+      }
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o', // Usar GPT-4 con visión
+        messages: [{ 
+          role: 'user', 
+          content: messageContent 
+        }],
+        temperature: 0.3, // Baja = más preciso técnicamente
+        max_tokens: 1500,
+        response_format: { type: "json_object" }
+      });
+
+      const analysis = JSON.parse(response.choices[0].message.content);
+      console.log('[VISION_MODE] ✅ Análisis visual completado:', {
+        imagesAnalyzed: analysis.imagesAnalyzed,
+        device: analysis.device?.type,
+        problem: analysis.problem?.summary,
+        textDetected: analysis.visualContent?.textDetected ? 'SÍ' : 'NO',
+        confidence: analysis.confidence
+      });
+
+      return { 
+        analyzed: true, 
+        hasVision: true, 
+        originalText,
+        normalizedText,
+        ...analysis 
+      };
+    }
+    
+    // ========================================
+    // 📝 ANÁLISIS SIN IMÁGENES (modo texto)
+    // ========================================
+    const analysisPrompt = `Sos Tecnos, un asistente técnico experto de STI (Argentina) analizando una conversación de soporte.
+
+**IDIOMA:** ${language}
+**TONO:** ${isEnglish ? 'Professional, empathetic' : 'Profesional argentino con voseo (contame, fijate, podés)'}
+
+**CONTEXTO PREVIO:**
+${conversationContext}
+
+**MENSAJE ORIGINAL:** "${originalText}"
+**TEXTO NORMALIZADO:** "${normalizedText}"
+
+**ANÁLISIS REQUERIDO:**
+Detectá intención, dispositivo probable, problema, sentimiento y urgencia.
+Tolerá errores ortográficos y frases ambiguas.
+Usá el texto normalizado para mejor comprensión.
+
+**Respondé en JSON:**
+{
+  "intent": "diagnose_problem|ask_question|express_frustration|confirm|cancel|greeting|other",
   "confidence": 0.0-1.0,
   "device": {
     "detected": true/false,
     "type": "notebook|desktop|monitor|smartphone|tablet|printer|router|other",
     "confidence": 0.0-1.0,
-    "ambiguous": true/false
+    "ambiguous": true/false,
+    "inferredFrom": "qué palabras usaste para detectarlo"
   },
   "problem": {
     "detected": true/false,
-    "summary": "resumen breve del problema",
-    "category": "hardware|software|connectivity|performance|other",
-    "urgency": "low|medium|high|critical"
+    "summary": "problema específico detectado",
+    "category": "hardware|software|connectivity|performance|display|storage|other",
+    "urgency": "low|medium|high|critical",
+    "keywords": ["palabras clave detectadas"]
   },
-  "sentiment": "positive|neutral|negative|frustrated",
+  "sentiment": "positive|neutral|negative|frustrated|angry",
   "needsHumanHelp": true/false,
-  "suggestedResponse": "respuesta conversacional natural y empática",
-  "useStructuredFlow": true/false
+  "language": "${language}",
+  "suggestedResponse": "${isEnglish ? 'natural empathetic response' : 'respuesta natural y empática con voseo argentino'}",
+  "useStructuredFlow": true/false,
+  "clarificationNeeded": true/false
 }`;
 
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: analysisPrompt }],
       temperature: 0.3,
-      max_tokens: 600,
+      max_tokens: 700,
       response_format: { type: "json_object" }
     });
 
     const analysis = JSON.parse(response.choices[0].message.content);
-    console.log('[SMART_MODE] ✅ Análisis completado:', {
+    console.log('[SMART_MODE] ✅ Análisis de texto completado:', {
       intent: analysis.intent,
       confidence: analysis.confidence,
       device: analysis.device?.type,
+      problem: analysis.problem?.summary,
       needsHuman: analysis.needsHumanHelp
     });
 
-    return { analyzed: true, ...analysis };
+    return { 
+      analyzed: true, 
+      hasVision: false, 
+      originalText,
+      normalizedText,
+      ...analysis 
+    };
     
   } catch (error) {
     console.error('[SMART_MODE] ❌ Error en análisis:', error.message);
@@ -224,6 +382,8 @@ Analizá y respondé en JSON:
 /**
  * 🎯 Generador de Respuesta Inteligente
  * Genera respuestas naturales basadas en contexto
+ * 🔍 MODO VISIÓN: Responde basándose en lo que VIO en las imágenes
+ * 🇦🇷 TONO ARGENTINO: Usa voseo profesional (contame, fijate, podés)
  */
 async function generateSmartResponse(analysis, session, context = {}) {
   if (!openai || !SMART_MODE_ENABLED || !analysis.analyzed) {
@@ -232,51 +392,148 @@ async function generateSmartResponse(analysis, session, context = {}) {
 
   try {
     console.log('[SMART_MODE] 💬 Generando respuesta inteligente...');
+    if (analysis.hasVision) {
+      console.log('[VISION_MODE] 🎨 Generando respuesta basada en análisis visual');
+    }
     
+    // ========================================
+    // 🌍 CONFIGURACIÓN DE IDIOMA Y TONO
+    // ========================================
     const locale = session.userLocale || 'es-AR';
     const isEnglish = locale.toLowerCase().startsWith('en');
     const userName = session.userName || (isEnglish ? 'friend' : 'amigo/a');
     
+    // ========================================
+    // 📚 CONTEXTO CONVERSACIONAL
+    // ========================================
     const conversationHistory = session.transcript.slice(-8).map(msg =>
       `${msg.who === 'user' ? 'Usuario' : 'Tecnos'}: ${msg.text}`
     ).join('\n');
     
-    const systemPrompt = `Sos Tecnos, un asistente técnico inteligente, empático y eficiente de STI (Servicio Técnico Inteligente).
+    // ========================================
+    // 🔍 CONTEXTO VISUAL (si hay análisis de imágenes)
+    // ========================================
+    let visualContext = '';
+    if (analysis.hasVision && analysis.visualContent) {
+      const vc = analysis.visualContent;
+      visualContext = `
 
-PERSONALIDAD:
-- Amigable y profesional
-- Usa emojis moderadamente (1-2 por mensaje)
-- Respuestas claras y concisas
+📸 **INFORMACIÓN VISUAL DETECTADA:**
+Descripción: ${vc.description || 'N/A'}
+Texto visible (OCR): ${vc.textDetected || 'ninguno'}
+Mensajes de error: ${vc.errorMessages?.length > 0 ? vc.errorMessages.join(', ') : 'ninguno'}
+Códigos de error: ${vc.errorCodes?.length > 0 ? vc.errorCodes.join(', ') : 'ninguno'}
+Detalles técnicos: ${vc.technicalDetails || 'N/A'}
+Calidad de imagen: ${vc.imageQuality || 'N/A'}`;
+
+      if (analysis.nextSteps && analysis.nextSteps.length > 0) {
+        visualContext += `\nPróximos pasos sugeridos:\n${analysis.nextSteps.map((step, i) => `  ${i+1}. ${step}`).join('\n')}`;
+      }
+    }
+    
+    // ========================================
+    // 🎯 PROMPT PARA GENERACIÓN DE RESPUESTA
+    // ========================================
+    const systemPrompt = `Sos Tecnos, el asistente técnico inteligente de STI (Servicio Técnico Inteligente) de Rosario, Argentina.
+
+**PERSONALIDAD:**
+- Profesional y confiable
+- Empático y comprensivo
+- Directo y claro (sin rodeos)
+- Usa emojis con moderación (2-3 máximo)
 - Evitá jerga técnica innecesaria
-- Mostrá empatía ante frustración
+- Si el usuario está frustrado → mostrá empatía genuina
 
-CONTEXTO DEL USUARIO:
+**TONO Y LENGUAJE:**
+${isEnglish ? `
+- Idioma: English
+- Tone: Professional, friendly, clear
+- Use "you" naturally
+- Keep technical terms simple
+` : `
+- Idioma: Español (Argentina)
+- Voseo obligatorio: "contame", "fijate", "podés", "tenés", "querés"
+- NUNCA uses "tú" ni "puedes" ni "tienes"
+- Ejemplos correctos: "¿Cómo estás?", "Contame qué pasó", "Fijate si podés probar esto"
+- Natural y cercano pero profesional
+`}
+
+**CONTEXTO DEL USUARIO:**
 - Nombre: ${userName}
-- Idioma: ${isEnglish ? 'English' : 'Español'}
-- Sentimiento: ${analysis.sentiment}
+- Idioma: ${isEnglish ? 'English' : 'Español (Argentina)'}
+- Sentimiento actual: ${analysis.sentiment || 'neutral'}
 - Dispositivo: ${analysis.device?.type || 'no detectado'}
 - Problema: ${analysis.problem?.summary || 'no especificado'}
+- Urgencia: ${analysis.problem?.urgency || 'desconocida'}${visualContext}
 
-CONVERSACIÓN PREVIA:
+**CONVERSACIÓN PREVIA:**
 ${conversationHistory}
 
-ANÁLISIS IA:
+**ANÁLISIS IA COMPLETO:**
 ${JSON.stringify(analysis, null, 2)}
 
-TAREA: Generá una respuesta natural, útil y empática. ${context.includeNextSteps ? 'Incluí próximos pasos si es apropiado.' : ''}`;
+${analysis.hasVision ? `
+⚠️ **CRÍTICO:** Acabás de VER la(s) imagen(es) que el usuario envió.
+- Respondé basándote específicamente en lo que VISTE
+- Mencioná detalles concretos de la imagen (texto, error, configuración)
+- NUNCA digas "no puedo ver imágenes"
+- Si había texto → incluilo en tu respuesta
+- Si había error → explicá qué significa
+` : ''}
+
+**INSTRUCCIONES DE RESPUESTA:**
+1. Sé claro y directo
+2. Da pasos accionables (no vagos)
+3. Si hay error técnico → explicalo en términos simples
+4. Si necesita ayuda humana → preparalo para escalamiento
+5. ${isEnglish ? 'Use natural English' : 'Usá voseo argentino SIEMPRE'}
+6. Máximo 3-4 párrafos cortos
+7. ${context.includeNextSteps ? 'Incluí 2-3 pasos concretos numerados' : ''}
+
+**EJEMPLO DE RESPUESTA CORRECTA (ES-AR):**
+"Veo que tu notebook tiene una pantalla azul con el error DRIVER_IRQL_NOT_LESS_OR_EQUAL 🔍
+
+Este error está relacionado con un driver de red (tcpip.sys) que está causando problemas en Windows.
+
+**Probá estos pasos:**
+1. Reiniciá en Modo Seguro (F8 al iniciar)
+2. Andá a Administrador de Dispositivos
+3. Desinstalá el driver de red y reiniciá
+
+¿Querés que te guíe paso a paso?"
+
+${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", "querés" - NUNCA "puedes", "tienes", "cuéntame"'}`;
+
+    const userPrompt = context.specificPrompt || (isEnglish 
+      ? 'Respond to the user in a helpful and empathetic way.' 
+      : 'Respondé al usuario de forma útil y empática.');
 
     const response = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
+      model: analysis.hasVision ? 'gpt-4o' : OPENAI_MODEL, // Usar GPT-4o si hubo visión
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: context.specificPrompt || 'Respondé al usuario de forma natural y útil.' }
+        { role: 'user', content: userPrompt }
       ],
-      temperature: 0.7,
-      max_tokens: 400
+      temperature: 0.7, // Balance creatividad/precisión
+      max_tokens: 600
     });
 
     const smartReply = response.choices[0].message.content;
     console.log('[SMART_MODE] ✅ Respuesta generada:', smartReply.substring(0, 100) + '...');
+    
+    // ========================================
+    // ✅ VALIDACIÓN DE VOSEO (solo para español)
+    // ========================================
+    if (!isEnglish) {
+      const forbiddenWords = ['puedes', 'tienes', 'cuéntame', 'dime', 'quieres'];
+      const found = forbiddenWords.filter(word => 
+        smartReply.toLowerCase().includes(word)
+      );
+      
+      if (found.length > 0) {
+        console.warn('[VOSEO] ⚠️ Respuesta contiene palabras no argentinas:', found);
+      }
+    }
     
     return smartReply;
     
@@ -288,22 +545,119 @@ TAREA: Generá una respuesta natural, útil y empática. ${context.includeNextSt
 
 /**
  * 🤖 Decisión Inteligente: ¿Usar flujo estructurado o IA?
+ * NUEVA LÓGICA: Fusión híbrida en lugar de elección binaria
  */
 function shouldUseStructuredFlow(analysis, session) {
-  // Siempre usar flujo estructurado para:
+  // ========================================
+  // SIEMPRE FLUJO ESTRUCTURADO (crítico)
+  // ========================================
   if (!analysis.analyzed) return true; // Fallback si no hay análisis
   if (session.stage === 'ASK_LANGUAGE') return true; // Inicio siempre estructurado
   if (session.stage === 'ASK_NAME') return true; // Recolección de nombre
   if (analysis.intent === 'confirm' || analysis.intent === 'cancel') return true; // Confirmaciones
   
-  // Usar IA cuando:
-  if (analysis.sentiment === 'frustrated' && analysis.confidence > 0.7) return false; // Usuario frustrado
-  if (analysis.needsHumanHelp) return false; // Necesita ayuda humana
-  if (analysis.problem?.urgency === 'critical') return false; // Problema crítico
-  if (!analysis.device?.detected && analysis.device?.ambiguous) return false; // Contexto ambiguo
+  // ========================================
+  // PRIORIZAR IA (mejor experiencia)
+  // ========================================
   
-  // Por defecto, usar flujo estructurado (es más confiable)
-  return analysis.useStructuredFlow !== false;
+  // Si analizó imágenes → SIEMPRE usar respuesta IA basada en visión
+  if (analysis.hasVision && analysis.imagesAnalyzed) {
+    console.log('[DECISION] 🎨 Usando IA - Análisis visual disponible');
+    return false;
+  }
+  
+  // Si detectó frustración → IA con empatía
+  if (analysis.sentiment === 'frustrated' || analysis.sentiment === 'negative') {
+    console.log('[DECISION] 😔 Usando IA - Usuario frustrado');
+    return false;
+  }
+  
+  // Si necesita ayuda humana → IA para preparar escalamiento
+  if (analysis.needsHumanHelp) {
+    console.log('[DECISION] 🆘 Usando IA - Necesita ayuda humana');
+    return false;
+  }
+  
+  // Si problema crítico → IA con urgencia
+  if (analysis.problem?.urgency === 'critical' || analysis.problem?.urgency === 'high') {
+    console.log('[DECISION] ⚡ Usando IA - Problema urgente');
+    return false;
+  }
+  
+  // Si contexto ambiguo pero hay confianza media → IA ayuda a clarificar
+  if (analysis.device?.ambiguous && analysis.confidence >= 0.5) {
+    console.log('[DECISION] 🤔 Usando IA - Contexto ambiguo');
+    return false;
+  }
+  
+  // Si el análisis IA es muy confiable → usar IA
+  if (analysis.confidence >= 0.8 && analysis.problem?.detected) {
+    console.log('[DECISION] ✨ Usando IA - Alta confianza:', analysis.confidence);
+    return false;
+  }
+  
+  // ========================================
+  // USAR FLUJO ESTRUCTURADO (default seguro)
+  // ========================================
+  console.log('[DECISION] 📋 Usando flujo estructurado - Confianza:', analysis.confidence || 'N/A');
+  return true;
+}
+
+/**
+ * 🧠 Corrector de Errores Ortográficos y Normalización
+ * Mejora comprensión tolerando errores comunes
+ */
+function normalizeUserInput(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  let normalized = text.toLowerCase().trim();
+  
+  // Correcciones comunes en español argentino
+  const corrections = {
+    // Errores comunes de dispositivos
+    'note': 'notebook',
+    'note book': 'notebook',
+    'notbuk': 'notebook',
+    'lap': 'notebook',
+    'laptop': 'notebook',
+    'compu': 'computadora',
+    'pc de escritorio': 'desktop',
+    'desk': 'desktop',
+    'celu': 'celular',
+    'cel': 'celular',
+    'smartphone': 'celular',
+    'fono': 'celular',
+    'impre': 'impresora',
+    'impresor': 'impresora',
+    
+    // Errores comunes de problemas
+    'no prende': 'no enciende',
+    'no prendia': 'no enciende',
+    'no funciona': 'no funciona',
+    'no funka': 'no funciona',
+    'no anda': 'no funciona',
+    'se tildo': 'se colgó',
+    'se trabo': 'se colgó',
+    'esta lenta': 'está lenta',
+    'va lento': 'va lento',
+    'no tengo internet': 'sin internet',
+    'no hay internet': 'sin internet',
+    'sin wifi': 'sin internet',
+    
+    // Palabras clave
+    'ayuda': 'ayuda',
+    'problema': 'problema',
+    'error': 'error',
+    'falla': 'falla'
+  };
+  
+  // Aplicar correcciones
+  for (const [wrong, correct] of Object.entries(corrections)) {
+    const regex = new RegExp(`\\b${wrong}\\b`, 'gi');
+    normalized = normalized.replace(regex, correct);
+  }
+  
+  return normalized;
 }
 
 console.log('[SMART_MODE] 🧠 Modo Super Inteligente:', SMART_MODE_ENABLED ? '✅ ACTIVADO' : '❌ DESACTIVADO');

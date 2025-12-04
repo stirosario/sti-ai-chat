@@ -1,12 +1,37 @@
-# 🧠 MODO SUPER INTELIGENTE - Tecnos Bot
+# 🧠 MODO SUPER INTELIGENTE + 🔍 MODO VISIÓN - Tecnos Bot
 
 ## ✨ Resumen de Cambios
 
-Se implementó un sistema híbrido de IA que combina **flujos estructurados robustos** con **comprensión inteligente mediante OpenAI**, resultando en un bot más empático, flexible y eficiente.
+Se implementó un sistema híbrido de IA que combina **flujos estructurados robustos** con **comprensión inteligente mediante OpenAI + GPT-4 Vision**, resultando en un bot más empático, flexible y eficiente **con capacidad visual completa**.
 
 ---
 
 ## 🎯 Funcionalidades Implementadas
+
+### 🔍 **MODO VISIÓN INTELIGENTE** (NUEVO)
+
+**⚠️ REGLA ABSOLUTA:** Tecnos NUNCA dirá "no puedo ver imágenes". SIEMPRE procesa imágenes con GPT-4 Vision.
+
+**Capacidades Visuales:**
+- ✅ **Análisis automático** de TODAS las imágenes enviadas
+- ✅ **OCR integrado** - Lee y transcribe texto visible
+- ✅ **Detección de errores** - Identifica mensajes de error en pantallas
+- ✅ **Identificación de dispositivos** - Reconoce marca, modelo, tipo
+- ✅ **Diagnóstico visual** - Infiere problema basándose en lo que ve
+- ✅ **Análisis técnico** - Extrae detalles técnicos específicos
+- ✅ **Respuestas contextuales** - Responde basándose en lo que VIO
+
+**Ejemplos de lo que Tecnos puede VER:**
+- 📱 Pantallas azules de Windows (BSOD) con código de error
+- 🖥️ Mensajes de error de software
+- 🔌 Problemas de hardware visibles
+- 📄 Capturas de configuración
+- ⚠️ Alertas del sistema
+- 🔧 Paneles de control
+- 📊 Reportes de diagnóstico
+
+**Modelo usado:** `gpt-4o` (GPT-4 con capacidad multimodal)
+**Calidad de análisis:** `high` (máxima resolución)
 
 ### 1. **Análisis Inteligente de Mensajes** (`analyzeUserMessage`)
 - ✅ Detecta **intención** del usuario (diagnosticar, preguntar, frustración, confirmar, etc.)
@@ -154,17 +179,68 @@ Bot: "Lamento mucho tu frustración, ${nombre} 😔
 ### Con Imagen Analizada:
 ```
 Usuario: [adjunta imagen de pantalla azul]
-Bot: "Veo que tenés una pantalla azul de Windows (BSOD) 🔍
-     
-     El error indica: DRIVER_IRQL_NOT_LESS_OR_EQUAL
-     Esto suele estar relacionado con un driver incompatible.
-     
-     **Recomendación inmediata:**
-     1. Reiniciá en Modo Seguro
-     2. Desinstalá el último driver que instalaste
-     3. Si no recordás cuál, ejecutá el reparador automático
-     
-     ¿Querés que te guíe paso a paso?"
+
+Tecnos: "Veo que tenés una pantalla azul de Windows (BSOD) 🔍
+
+El error muestra: **DRIVER_IRQL_NOT_LESS_OR_EQUAL**
+
+📋 Lo que leo en la imagen:
+- Código de error: 0x000000D1
+- Driver problemático: tcpip.sys
+- Dirección de memoria: 0xFFFFF80002A3C4E8
+
+⚠️ **Diagnóstico:**
+Este error está relacionado con el driver de red de Windows. Generalmente ocurre por:
+1. Driver de red corrupto o desactualizado
+2. Software de seguridad conflictivo (antivirus/firewall)
+3. Problema con adaptador de red
+
+✅ **Solución inmediata:**
+1. Reiniciá en Modo Seguro con Funciones de Red
+2. Desinstalá/Actualizá el driver de red desde Administrador de Dispositivos
+3. Si usás VPN o antivirus, desactivalos temporalmente
+
+¿Querés que te guíe paso a paso por alguna de estas soluciones?"
+
+[Botones: Sí, Guíame | Tests Avanzados | Conectar con Técnico]
+```
+
+### Con Imagen de Configuración:
+```
+Usuario: [adjunta captura del panel de control]
+
+Tecnos: "Perfecto, veo tu configuración actual 👀
+
+📊 Lo que detecto:
+- Windows 10 Pro (64-bit)
+- 8GB RAM (6.9GB utilizable)
+- Procesador: Intel Core i5-7200U
+- Disco: SSD 256GB (78% usado - 198GB libres)
+
+✅ Tu sistema está bien configurado, pero el disco está bastante lleno.
+
+💡 **Recomendaciones:**
+- Liberá espacio (Temp files, Downloads, etc.)
+- El procesador y RAM son adecuados para uso normal
+- Considerá limpiar archivos temporales (~10-15GB recuperables)
+
+¿Te ayudo a liberar espacio del disco?"
+```
+
+### Con Imagen Ambigua:
+```
+Usuario: [adjunta foto borrosa de un dispositivo]
+
+Tecnos: "Veo que me enviaste una imagen 📸
+
+Puedo distinguir que parece ser una computadora, pero la imagen está un poco borrosa o con poca luz.
+
+🔍 Para ayudarte mejor, podrías:
+1. Tomar otra foto con mejor iluminación
+2. Acercar más al área del problema
+3. Si hay mensajes de error, asegurate que sean legibles
+
+¿O preferís describirme directamente qué está pasando?"
 ```
 
 ---
