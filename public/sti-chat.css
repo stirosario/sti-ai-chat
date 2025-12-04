@@ -204,10 +204,10 @@
     box-shadow: 0 4px 12px var(--sti-glow-blue);
 }
 
-/* ========== Indicador "PENSANDO" ========== */
+/* ══════════ Indicador "PENSANDO" ══════════ */
 .sti-typing {
     display: flex;
-    gap: 2px;
+    gap: 6px;
     padding: 12px 16px;
     font-family: 'Orbitron', monospace;
     font-weight: 700;
