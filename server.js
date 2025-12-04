@@ -143,6 +143,171 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
 
+// ========================================================
+// 🧠 MODO SUPER INTELIGENTE - AI-Powered Analysis
+// ========================================================
+const SMART_MODE_ENABLED = process.env.SMART_MODE !== 'false'; // Activado por defecto
+
+/**
+ * 🧠 Análisis Inteligente de Mensaje del Usuario
+ * Usa OpenAI para comprender intención, extraer dispositivo/problema
+ */
+async function analyzeUserMessage(text, session, imageUrls = []) {
+  if (!openai || !SMART_MODE_ENABLED) {
+    return { analyzed: false, fallback: true };
+  }
+
+  try {
+    console.log('[SMART_MODE] 🧠 Analizando mensaje con IA...');
+    
+    const conversationContext = session.transcript.slice(-6).map(msg => 
+      `${msg.who === 'user' ? 'Usuario' : 'Bot'}: ${msg.text}`
+    ).join('\n');
+    
+    const imageContext = imageUrls.length > 0 
+      ? `\n[El usuario adjuntó ${imageUrls.length} imagen(es)]` 
+      : '';
+    
+    const analysisPrompt = `Sos un asistente técnico experto analizando una conversación de soporte.
+
+CONTEXTO PREVIO:
+${conversationContext}
+
+MENSAJE ACTUAL: "${text}"${imageContext}
+
+Analizá y respondé en JSON:
+{
+  "intent": "diagnose_problem|ask_question|express_frustration|confirm|cancel|other",
+  "confidence": 0.0-1.0,
+  "device": {
+    "detected": true/false,
+    "type": "notebook|desktop|monitor|smartphone|tablet|printer|router|other",
+    "confidence": 0.0-1.0,
+    "ambiguous": true/false
+  },
+  "problem": {
+    "detected": true/false,
+    "summary": "resumen breve del problema",
+    "category": "hardware|software|connectivity|performance|other",
+    "urgency": "low|medium|high|critical"
+  },
+  "sentiment": "positive|neutral|negative|frustrated",
+  "needsHumanHelp": true/false,
+  "suggestedResponse": "respuesta conversacional natural y empática",
+  "useStructuredFlow": true/false
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: 'user', content: analysisPrompt }],
+      temperature: 0.3,
+      max_tokens: 600,
+      response_format: { type: "json_object" }
+    });
+
+    const analysis = JSON.parse(response.choices[0].message.content);
+    console.log('[SMART_MODE] ✅ Análisis completado:', {
+      intent: analysis.intent,
+      confidence: analysis.confidence,
+      device: analysis.device?.type,
+      needsHuman: analysis.needsHumanHelp
+    });
+
+    return { analyzed: true, ...analysis };
+    
+  } catch (error) {
+    console.error('[SMART_MODE] ❌ Error en análisis:', error.message);
+    return { analyzed: false, error: error.message };
+  }
+}
+
+/**
+ * 🎯 Generador de Respuesta Inteligente
+ * Genera respuestas naturales basadas en contexto
+ */
+async function generateSmartResponse(analysis, session, context = {}) {
+  if (!openai || !SMART_MODE_ENABLED || !analysis.analyzed) {
+    return null;
+  }
+
+  try {
+    console.log('[SMART_MODE] 💬 Generando respuesta inteligente...');
+    
+    const locale = session.userLocale || 'es-AR';
+    const isEnglish = locale.toLowerCase().startsWith('en');
+    const userName = session.userName || (isEnglish ? 'friend' : 'amigo/a');
+    
+    const conversationHistory = session.transcript.slice(-8).map(msg =>
+      `${msg.who === 'user' ? 'Usuario' : 'Tecnos'}: ${msg.text}`
+    ).join('\n');
+    
+    const systemPrompt = `Sos Tecnos, un asistente técnico inteligente, empático y eficiente de STI (Servicio Técnico Inteligente).
+
+PERSONALIDAD:
+- Amigable y profesional
+- Usa emojis moderadamente (1-2 por mensaje)
+- Respuestas claras y concisas
+- Evitá jerga técnica innecesaria
+- Mostrá empatía ante frustración
+
+CONTEXTO DEL USUARIO:
+- Nombre: ${userName}
+- Idioma: ${isEnglish ? 'English' : 'Español'}
+- Sentimiento: ${analysis.sentiment}
+- Dispositivo: ${analysis.device?.type || 'no detectado'}
+- Problema: ${analysis.problem?.summary || 'no especificado'}
+
+CONVERSACIÓN PREVIA:
+${conversationHistory}
+
+ANÁLISIS IA:
+${JSON.stringify(analysis, null, 2)}
+
+TAREA: Generá una respuesta natural, útil y empática. ${context.includeNextSteps ? 'Incluí próximos pasos si es apropiado.' : ''}`;
+
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: context.specificPrompt || 'Respondé al usuario de forma natural y útil.' }
+      ],
+      temperature: 0.7,
+      max_tokens: 400
+    });
+
+    const smartReply = response.choices[0].message.content;
+    console.log('[SMART_MODE] ✅ Respuesta generada:', smartReply.substring(0, 100) + '...');
+    
+    return smartReply;
+    
+  } catch (error) {
+    console.error('[SMART_MODE] ❌ Error generando respuesta:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 🤖 Decisión Inteligente: ¿Usar flujo estructurado o IA?
+ */
+function shouldUseStructuredFlow(analysis, session) {
+  // Siempre usar flujo estructurado para:
+  if (!analysis.analyzed) return true; // Fallback si no hay análisis
+  if (session.stage === 'ASK_LANGUAGE') return true; // Inicio siempre estructurado
+  if (session.stage === 'ASK_NAME') return true; // Recolección de nombre
+  if (analysis.intent === 'confirm' || analysis.intent === 'cancel') return true; // Confirmaciones
+  
+  // Usar IA cuando:
+  if (analysis.sentiment === 'frustrated' && analysis.confidence > 0.7) return false; // Usuario frustrado
+  if (analysis.needsHumanHelp) return false; // Necesita ayuda humana
+  if (analysis.problem?.urgency === 'critical') return false; // Problema crítico
+  if (!analysis.device?.detected && analysis.device?.ambiguous) return false; // Contexto ambiguo
+  
+  // Por defecto, usar flujo estructurado (es más confiable)
+  return analysis.useStructuredFlow !== false;
+}
+
+console.log('[SMART_MODE] 🧠 Modo Super Inteligente:', SMART_MODE_ENABLED ? '✅ ACTIVADO' : '❌ DESACTIVADO');
+
 // Paths / persistence
 const DATA_BASE = process.env.DATA_BASE || '/data';
 const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'transcripts');
@@ -3761,7 +3926,63 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
       
       if (savedImageUrls.length > 0) {
-        imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+        console.log(`[IMAGE] Total images saved: ${savedImageUrls.length}`);
+        
+        // 🔍 ANALIZAR IMÁGENES CON VISION API
+        if (openai && savedImageUrls.length > 0) {
+          try {
+            console.log('[VISION] Analyzing image(s) for problem detection...');
+            
+            const visionMessages = [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `Analizá esta imagen que subió un usuario de soporte técnico. 
+Identificá:
+1. ¿Qué tipo de problema o dispositivo se muestra?
+2. ¿Hay mensajes de error visibles? ¿Cuáles?
+3. ¿Qué información técnica relevante podés extraer?
+4. Dame una respuesta conversacional en español para el usuario explicando lo que ves y qué podemos hacer.
+
+Respondé con una explicación clara y útil para el usuario.`
+                  },
+                  ...savedImageUrls.map(url => ({
+                    type: 'image_url',
+                    image_url: {
+                      url: url,
+                      detail: 'high'
+                    }
+                  }))
+                ]
+              }
+            ];
+            
+            const visionResponse = await openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: visionMessages,
+              max_tokens: 800,
+              temperature: 0.4
+            });
+            
+            const analysisText = visionResponse.choices[0]?.message?.content || '';
+            
+            if (analysisText) {
+              console.log('[VISION] ✅ Analysis completed:', analysisText.substring(0, 100) + '...');
+              imageContext = `\n\n🔍 **Análisis de la imagen:**\n${analysisText}`;
+              
+              // Guardar análisis en la sesión
+              session.images[session.images.length - 1].analysis = analysisText;
+            }
+            
+          } catch (visionErr) {
+            console.error('[VISION] ❌ Error analyzing image:', visionErr.message);
+            imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+          }
+        } else {
+          imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+        }
         
         // Guardar referencia de imágenes en la sesión
         if (!session.images) session.images = [];
@@ -3770,7 +3991,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           timestamp: nowIso()
         })));
         
-        console.log(`[IMAGE] Total images saved: ${savedImageUrls.length}`);
       } else {
         console.warn('[IMAGE] No images were successfully saved');
       }
@@ -3846,6 +4066,79 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
     session.transcript.push({ who: 'user', text: userMsg, ts: userTs });
+
+    // ========================================================
+    // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
+    // ========================================================
+    let smartAnalysis = null;
+    const imageUrlsForAnalysis = savedImageUrls || [];
+    
+    // Solo analizar si no es un botón (los botones ya tienen intención clara)
+    if (!buttonToken && SMART_MODE_ENABLED && openai) {
+      smartAnalysis = await analyzeUserMessage(t, session, imageUrlsForAnalysis);
+      
+      // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
+      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
+        console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
+        
+        const smartReply = await generateSmartResponse(smartAnalysis, session, {
+          includeNextSteps: true,
+          specificPrompt: smartAnalysis.problem?.detected 
+            ? `El usuario reporta: ${smartAnalysis.problem.summary}. Respondé de forma útil y empática.`
+            : 'Ayudá al usuario a clarificar su problema.'
+        });
+        
+        if (smartReply) {
+          // Determinar opciones basadas en el contexto
+          let smartOptions = [];
+          
+          if (smartAnalysis.needsHumanHelp || smartAnalysis.sentiment === 'frustrated') {
+            smartOptions = [BUTTONS.CONNECT_TECH, BUTTONS.MORE_TESTS, BUTTONS.CLOSE];
+          } else if (smartAnalysis.problem?.detected) {
+            smartOptions = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+          } else {
+            smartOptions = [BUTTONS.CLOSE];
+          }
+          
+          session.transcript.push({ who: 'bot', text: smartReply, ts: nowIso() });
+          await saveSession(sid, session);
+          
+          return logAndReturn({
+            ok: true,
+            reply: smartReply,
+            stage: session.stage,
+            options: smartOptions,
+            buttons: smartOptions,
+            aiPowered: true
+          }, session.stage, session.stage, 'smart_ai_response', 'ai_replied');
+        }
+      }
+      
+      // Si detectó dispositivo/problema, actualizar sesión
+      if (smartAnalysis.analyzed) {
+        if (smartAnalysis.device?.detected && smartAnalysis.device.confidence > 0.7) {
+          console.log('[SMART_MODE] 📱 Dispositivo detectado por IA:', smartAnalysis.device.type);
+          // Mapear tipos de IA a dispositivos del sistema
+          const deviceMap = {
+            'notebook': 'notebook',
+            'desktop': 'pc-escritorio',
+            'monitor': 'monitor',
+            'smartphone': 'celular',
+            'tablet': 'tablet',
+            'printer': 'impresora',
+            'router': 'router'
+          };
+          if (deviceMap[smartAnalysis.device.type]) {
+            session.device = deviceMap[smartAnalysis.device.type];
+          }
+        }
+        
+        if (smartAnalysis.problem?.detected && !session.problem) {
+          console.log('[SMART_MODE] 🔍 Problema detectado por IA:', smartAnalysis.problem.summary);
+          session.problem = smartAnalysis.problem.summary;
+        }
+      }
+    }
 
     // Cerrar chat de forma prolija (movido fuera del bloque de creación)
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
@@ -4500,16 +4793,70 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (session.stage === STATES.ASK_PROBLEM) {
       session.problem = t || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
+      console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
+
+      // 🖼️ SI HAY ANÁLISIS DE IMAGEN, RESPONDER CON ESE ANÁLISIS PRIMERO
+      if (imageContext && imageContext.includes('🔍 **Análisis de la imagen:**')) {
+        console.log('[ASK_PROBLEM] ✅ Respondiendo con análisis de imagen');
+        
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        
+        const responseText = imageContext + (isEn 
+          ? '\n\n**What would you like to do?**' 
+          : '\n\n**¿Qué te gustaría hacer?**');
+        
+        const nextOptions = [
+          BUTTONS.MORE_TESTS,
+          BUTTONS.ADVANCED_TESTS,
+          BUTTONS.CONNECT_TECH,
+          BUTTONS.CLOSE
+        ];
+        
+        session.transcript.push({ who: 'bot', text: responseText, ts: nowIso() });
+        await saveSession(sid, session);
+        
+        return logAndReturn({
+          ok: true,
+          reply: responseText,
+          stage: session.stage,
+          options: nextOptions,
+          buttons: nextOptions
+        }, session.stage, session.stage, 'image_analysis', 'image_analyzed');
+      }
 
       // ========================================================
       // 🎯 DETECCIÓN INTELIGENTE DE DISPOSITIVOS AMBIGUOS
       // ========================================================
       if (!session.device && session.problem) {
         console.log('[detectAmbiguousDevice] Llamando con:', session.problem);
-        const ambiguousResult = detectAmbiguousDevice(session.problem);
-        console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
+        
+        // 🧠 Priorizar detección por IA si está disponible
+        if (smartAnalysis?.device?.detected && smartAnalysis.device.confidence > 0.6) {
+          console.log('[SMART_MODE] 🎯 Usando detección de dispositivo por IA');
+          const deviceMap = {
+            'notebook': 'notebook',
+            'desktop': 'pc-escritorio',
+            'monitor': 'monitor',
+            'smartphone': 'celular',
+            'tablet': 'tablet',
+            'printer': 'impresora',
+            'router': 'router'
+          };
+          
+          if (deviceMap[smartAnalysis.device.type]) {
+            session.device = deviceMap[smartAnalysis.device.type];
+            console.log('[SMART_MODE] ✅ Dispositivo asignado automáticamente:', session.device);
+            // Continuar al siguiente stage sin preguntar
+          }
+        }
+        
+        // Si la IA no detectó con confianza, usar el sistema de reglas
+        if (!session.device) {
+          const ambiguousResult = detectAmbiguousDevice(session.problem);
+          console.log('[detectAmbiguousDevice] Resultado:', JSON.stringify(ambiguousResult, null, 2));
 
-        if (ambiguousResult) {
+          if (ambiguousResult) {
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           const confidence = ambiguousResult.confidence;
@@ -4578,6 +4925,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             buttons: deviceButtons,
             disambiguation: true
           });
+          }
         }
       }
 
