@@ -101,22 +101,41 @@
       transform: none;
     }
     .typing-indicator {
-      display: inline-block;
+      display: flex;
+      gap: 2px;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 2px;
     }
     .typing-indicator span {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #667eea;
-      margin: 0 2px;
-      animation: typing 1.4s infinite both;
+      color: #667eea;
+      opacity: 0.3;
+      animation: letterGlow 1.6s ease-in-out infinite;
+      text-shadow: 0 0 10px transparent;
+      transition: all 0.3s;
     }
+    .typing-indicator span:nth-child(1) { animation-delay: 0s; }
     .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
     .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes typing {
-      0%, 60%, 100% { transform: translateY(0); opacity: 0.7; }
-      30% { transform: translateY(-10px); opacity: 1; }
+    .typing-indicator span:nth-child(4) { animation-delay: 0.6s; }
+    .typing-indicator span:nth-child(5) { animation-delay: 0.8s; }
+    .typing-indicator span:nth-child(6) { animation-delay: 1s; }
+    .typing-indicator span:nth-child(7) { animation-delay: 1.2s; }
+    .typing-indicator span:nth-child(8) { animation-delay: 1.4s; }
+    @keyframes letterGlow {
+      0%, 100% {
+        opacity: 0.3;
+        color: #667eea;
+        text-shadow: 0 0 5px transparent;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 1;
+        color: #764ba2;
+        text-shadow: 0 0 15px rgba(118, 75, 162, 0.5);
+        transform: scale(1.2);
+      }
     }
     #status {
       position: fixed;
@@ -171,13 +190,13 @@
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
-    // Mostrar indicador de escritura
+    // Mostrar indicador de escritura "PENSANDO"
     function showTyping() {
       const messagesDiv = document.getElementById('messages');
       const typingDiv = document.createElement('div');
       typingDiv.id = 'typingIndicator';
       typingDiv.className = 'message bot-message';
-      typingDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+      typingDiv.innerHTML = '<div class="typing-indicator"><span>P</span><span>E</span><span>N</span><span>S</span><span>A</span><span>N</span><span>D</span><span>O</span></div>';
       messagesDiv.appendChild(typingDiv);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
