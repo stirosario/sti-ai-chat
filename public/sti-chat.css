@@ -113,17 +113,19 @@
 }
 
 #sti-messages::-webkit-scrollbar-track {
-    background: rgba(92,200,255,0.05);
+    background: rgba(181,1,108,0.1);
     border-radius: 3px;
 }
 
 #sti-messages::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, var(--sti-metal-blue) 0%, var(--sti-metal-green) 100%);
+    background: #b5016c;
     border-radius: 3px;
+    box-shadow: 0 0 10px rgba(181,1,108,0.5);
 }
 
 #sti-messages::-webkit-scrollbar-thumb:hover {
-    background: var(--sti-metal-blue);
+    background: #d4018a;
+    box-shadow: 0 0 15px rgba(181,1,108,0.8);
 }
 
 /* ========== Mensajes individuales ========== */
