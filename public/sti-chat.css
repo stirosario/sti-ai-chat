@@ -48,11 +48,8 @@
     font-family: 'Orbitron', sans-serif;
     font-size: 18px;
     font-weight: 700;
-    background: linear-gradient(135deg, var(--sti-metal-blue) 0%, var(--sti-metal-green) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    text-shadow: 0 0 20px var(--sti-glow-blue);
+    background: #202f5d;
+    color: var(--sti-metal-blue);
     border-bottom: 1px solid var(--sti-border);
     position: relative;
     z-index: 1;
@@ -198,7 +195,7 @@
 .sti-msg.user .sti-bubble {
     background: linear-gradient(135deg, var(--sti-metal-blue) 0%, var(--sti-metal-blue-dark) 100%);
     color: #ffffff;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(92,200,255,0.8);
     box-shadow: 0 4px 12px var(--sti-glow-blue);
 }
 
@@ -356,7 +353,7 @@
     width: 40px;
     height: 40px;
     background: linear-gradient(135deg, var(--sti-metal-blue) 0%, var(--sti-metal-blue-dark) 100%);
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(92,200,255,0.8);
     border-radius: 10px;
     cursor: pointer;
     display: flex;
