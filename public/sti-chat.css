@@ -334,7 +334,7 @@
 #sti-text {
     flex: 1;
     padding: 10px 14px;
-    background: rgba(92,200,255,0.05);
+    background: #132333;
     border: 1px solid var(--sti-border);
     border-radius: 10px;
     color: #ffffff !important;
