@@ -549,6 +549,205 @@ async function applySafeImprovements(suggestions, options = {}) {
   }
 }
 
+/**
+ * RUN AUTO-LEARNING CYCLE (Automatic)
+ * 
+ * Ejecuta un ciclo completo de aprendizaje automático:
+ * 1. Analiza conversaciones
+ * 2. Genera sugerencias
+ * 3. Aplica mejoras si hay suficiente confianza
+ * 4. Registra resultados
+ * 
+ * @returns {Object} Resultado del ciclo completo
+ */
+export async function runAutoLearningCycle() {
+  const startTime = Date.now();
+  
+  try {
+    logLearningEvent('CYCLE_START', 'Starting automatic learning cycle', null, 'In progress');
+    
+    // Verificar que esté habilitado
+    const featuresConfig = await loadConfig('app-features.json');
+    if (!featuresConfig?.features?.autoLearning) {
+      const message = 'Auto-learning is disabled in app-features.json';
+      logLearningEvent('CYCLE_SKIPPED', message, null, 'Disabled');
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'disabled',
+        message
+      };
+    }
+    
+    // Verificar variable de entorno
+    const envEnabled = process.env.AUTO_LEARNING_ENABLED === 'true';
+    if (!envEnabled) {
+      const message = 'AUTO_LEARNING_ENABLED is false in .env';
+      logLearningEvent('CYCLE_SKIPPED', message, null, 'Disabled');
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'env_disabled',
+        message
+      };
+    }
+    
+    // PASO 1: Analizar conversaciones
+    console.log('[AUTO-LEARNING] 📊 Analyzing conversations...');
+    const analysisResult = await analyzeAndSuggestImprovements();
+    
+    if (!analysisResult.ok) {
+      logLearningEvent('CYCLE_FAILED', 'Analysis failed', null, analysisResult.error);
+      return {
+        ok: false,
+        error: analysisResult.error,
+        stage: 'analysis'
+      };
+    }
+    
+    // Verificar si hay sugerencias
+    const totalSuggestions = 
+      analysisResult.suggestions.nlpTuning.length +
+      analysisResult.suggestions.deviceDetection.length +
+      analysisResult.suggestions.phraseTraining.length;
+    
+    if (totalSuggestions === 0) {
+      logLearningEvent('CYCLE_COMPLETE', 'No suggestions to apply', analysisResult.stats, 'No changes');
+      return {
+        ok: true,
+        applied: 0,
+        noChanges: true,
+        stats: analysisResult.stats,
+        duration: Date.now() - startTime
+      };
+    }
+    
+    // PASO 2: Aplicar mejoras
+    console.log(`[AUTO-LEARNING] 🔧 Applying ${totalSuggestions} suggestions...`);
+    const applyResult = await applySafeImprovements(analysisResult.suggestions);
+    
+    if (!applyResult.ok) {
+      logLearningEvent('CYCLE_FAILED', 'Application failed', null, applyResult.error);
+      return {
+        ok: false,
+        error: applyResult.error,
+        stage: 'application'
+      };
+    }
+    
+    // PASO 3: Recargar configuraciones en orchestrator (si existe)
+    try {
+      const { reloadConfigurations } = await import('./conversationOrchestrator.js');
+      await reloadConfigurations();
+      console.log('[AUTO-LEARNING] 🔄 Configurations reloaded in orchestrator');
+    } catch (err) {
+      // Orchestrator podría no estar disponible, no es crítico
+      console.log('[AUTO-LEARNING] ℹ️  Orchestrator reload skipped (not critical)');
+    }
+    
+    const duration = Date.now() - startTime;
+    
+    logLearningEvent(
+      'CYCLE_COMPLETE',
+      `Applied ${applyResult.applied} improvements successfully`,
+      {
+        suggestions: totalSuggestions,
+        applied: applyResult.applied,
+        duration: `${duration}ms`
+      },
+      'Success'
+    );
+    
+    console.log(`[AUTO-LEARNING] ✅ Cycle completed in ${duration}ms - ${applyResult.applied} improvements applied`);
+    
+    return {
+      ok: true,
+      applied: applyResult.applied,
+      stats: analysisResult.stats,
+      results: applyResult.results,
+      duration,
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logLearningEvent('CYCLE_ERROR', 'Unexpected error in learning cycle', null, error.message);
+    console.error('[AUTO-LEARNING] ❌ Error:', error);
+    
+    return {
+      ok: false,
+      error: error.message,
+      duration,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * GET AUTO-LEARNING STATUS
+ * 
+ * Devuelve el estado actual del sistema de auto-learning
+ */
+export async function getAutoLearningStatus() {
+  try {
+    const featuresConfig = await loadConfig('app-features.json');
+    const envEnabled = process.env.AUTO_LEARNING_ENABLED === 'true';
+    
+    // Leer último log
+    let lastRun = null;
+    let lastChanges = [];
+    
+    try {
+      const logContent = await fs.readFile(LEARNING_LOG, 'utf8');
+      const lines = logContent.split('\n').filter(l => l.trim());
+      
+      // Buscar última ejecución completa
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].includes('CYCLE_COMPLETE')) {
+          const match = lines[i].match(/\[([^\]]+)\]/);
+          if (match) lastRun = match[1];
+          break;
+        }
+      }
+      
+      // Obtener últimos cambios
+      lastChanges = lines
+        .filter(l => l.includes('PATTERN_ADDED'))
+        .slice(-5)
+        .map(l => {
+          const match = l.match(/PATTERN_ADDED: (.+?) \|/);
+          return match ? match[1] : l;
+        });
+      
+    } catch {
+      // No hay logs todavía
+    }
+    
+    return {
+      ok: true,
+      autoLearningEnabled: envEnabled && featuresConfig?.features?.autoLearning,
+      config: {
+        envVariable: envEnabled,
+        appFeatures: featuresConfig?.features?.autoLearning || false,
+        minConversations: featuresConfig?.learning?.minConversationsForAnalysis || 10,
+        minConfidence: featuresConfig?.learning?.minConfidenceToApply || 0.7,
+        maxSuggestions: featuresConfig?.learning?.maxSuggestionsPerCycle || 10,
+        autoRunOnStartup: featuresConfig?.learning?.autoRunOnStartup || false,
+        intervalHours: featuresConfig?.learning?.autoRunIntervalHours || 24
+      },
+      lastRun,
+      lastChanges,
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+}
+
 // Exports (ESM)
 export {
   analyzeAndSuggestImprovements,

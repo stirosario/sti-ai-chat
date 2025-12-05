@@ -4,17 +4,21 @@
   "description": "Configuración de funcionalidades de la aplicación",
   
   "features": {
-    "autoLearning": false,
+    "autoLearning": true,
     "visionAPI": false,
     "smartMode": false,
-    "useOrchestrator": false,
+    "useOrchestrator": true,
     "useModularArchitecture": false
   },
   
   "learning": {
+    "enabled": true,
     "minConversationsForAnalysis": 10,
-    "minConfidenceToApply": 0.7,
-    "maxSuggestionsPerRun": 20,
+    "minConfidenceToApply": 0.75,
+    "maxSuggestionsPerCycle": 10,
+    "maxSuggestionsPerRun": 10,
+    "autoRunOnStartup": true,
+    "autoRunIntervalHours": 24,
     "backupBeforeApply": true,
     "autoRollbackOnError": true
   },

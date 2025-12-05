@@ -3402,6 +3402,31 @@ app.get('/api/learning/config', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/learning/status
+ * Devuelve estado actual del sistema de auto-learning
+ */
+app.get('/api/learning/status', async (req, res) => {
+  // Verificar autenticación
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    const { getAutoLearningStatus } = await import('./services/learningService.js');
+    const status = await getAutoLearningStatus();
+
+    res.json(status);
+
+  } catch (error) {
+    console.error('[LEARNING] Error obteniendo status:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 // Greeting endpoint (con CSRF token generation)
 app.all('/api/greeting', greetingLimiter, async (req, res) => {
   try {
@@ -6772,11 +6797,67 @@ function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, c
 
 // Start server
 const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`STI Chat (v7) started on ${PORT}`);
   console.log('[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)');
   console.log('[Performance] Compression enabled (gzip/brotli)');
   console.log('[Performance] Session cache enabled (max 1000 sessions)');
+  
+  // ========================================
+  // AUTO-LEARNING: Inicialización y Scheduler
+  // ========================================
+  if (process.env.AUTO_LEARNING_ENABLED === 'true') {
+    try {
+      const { runAutoLearningCycle, getAutoLearningStatus } = await import('./services/learningService.js');
+      
+      console.log('[AUTO-LEARNING] 🧠 Sistema de auto-evolución ACTIVADO');
+      
+      // Ejecutar al iniciar si está configurado
+      const statusCheck = await getAutoLearningStatus();
+      if (statusCheck.config?.autoRunOnStartup) {
+        console.log('[AUTO-LEARNING] 🚀 Ejecutando ciclo inicial...');
+        setTimeout(async () => {
+          try {
+            const result = await runAutoLearningCycle();
+            if (result.ok && result.applied > 0) {
+              console.log(`[AUTO-LEARNING] ✅ Ciclo inicial: ${result.applied} mejoras aplicadas`);
+            } else if (result.noChanges) {
+              console.log('[AUTO-LEARNING] ℹ️  Ciclo inicial: sin cambios para aplicar');
+            }
+          } catch (err) {
+            console.error('[AUTO-LEARNING] ❌ Error en ciclo inicial:', err.message);
+          }
+        }, 30000); // 30 segundos después de iniciar
+      }
+      
+      // Configurar scheduler periódico
+      const intervalHours = parseInt(process.env.AUTO_LEARNING_INTERVAL_HOURS || '24', 10);
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      
+      setInterval(async () => {
+        console.log(`[AUTO-LEARNING] ⏰ Ejecutando ciclo programado (cada ${intervalHours}h)...`);
+        try {
+          const result = await runAutoLearningCycle();
+          if (result.ok && result.applied > 0) {
+            console.log(`[AUTO-LEARNING] ✅ Ciclo programado: ${result.applied} mejoras aplicadas`);
+          } else if (result.noChanges) {
+            console.log('[AUTO-LEARNING] ℹ️  Ciclo programado: sin cambios para aplicar');
+          } else if (result.skipped) {
+            console.log(`[AUTO-LEARNING] ⏭️  Ciclo saltado: ${result.reason}`);
+          }
+        } catch (err) {
+          console.error('[AUTO-LEARNING] ❌ Error en ciclo programado:', err.message);
+        }
+      }, intervalMs);
+      
+      console.log(`[AUTO-LEARNING] ⏰ Scheduler configurado (intervalo: ${intervalHours}h)`);
+      
+    } catch (err) {
+      console.error('[AUTO-LEARNING] ❌ Error al inicializar:', err.message);
+    }
+  } else {
+    console.log('[AUTO-LEARNING] 📦 Sistema de auto-evolución DESACTIVADO');
+  }
 });
 
 // PERFORMANCE: Enable HTTP keep-alive
