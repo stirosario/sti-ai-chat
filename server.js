@@ -53,6 +53,35 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
+// ========================================================
+// MODULAR ARCHITECTURE (Feature Flag)
+// ========================================================
+const USE_MODULAR_ARCHITECTURE = process.env.USE_MODULAR_ARCHITECTURE === 'true';
+const USE_ORCHESTRATOR = process.env.USE_ORCHESTRATOR === 'true';
+let chatAdapter = null;
+let conversationOrchestrator = null;
+
+if (USE_MODULAR_ARCHITECTURE) {
+  const { handleChatMessage } = await import('./src/adapters/chatAdapter.js');
+  chatAdapter = { handleChatMessage };
+  console.log('[MODULAR] 🏗️  Arquitectura modular ACTIVADA');
+  console.log('[MODULAR] ✅ chatAdapter cargado correctamente');
+} else {
+  console.log('[MODULAR] 📦 Usando arquitectura legacy (USE_MODULAR_ARCHITECTURE=false)');
+}
+
+// ========================================================
+// CONVERSATION ORCHESTRATOR (Feature Flag)
+// ========================================================
+if (USE_ORCHESTRATOR) {
+  const { orchestrateTurn } = await import('./services/conversationOrchestrator.js');
+  conversationOrchestrator = { orchestrateTurn };
+  console.log('[ORCHESTRATOR] 🧠 Conversation Orchestrator ACTIVADO');
+  console.log('[ORCHESTRATOR] ✅ orchestrateTurn cargado correctamente');
+} else {
+  console.log('[ORCHESTRATOR] 📦 Orchestrator desactivado (USE_ORCHESTRATOR=false)');
+}
+
 // FORCE REBUILD 2025-11-25 16:45 - Debugging deviceDetection import
 console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbiguousDevice);
 console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
@@ -3225,6 +3254,179 @@ app.post('/api/session/validate', async (req, res) => {
   }
 });
 
+// ========================================================
+// AUTO-LEARNING ENDPOINTS (Protected by LOG_TOKEN)
+// ========================================================
+import {
+  analyzeAndSuggestImprovements,
+  applySafeImprovements,
+  loadConfig as loadLearningConfig,
+  SAFETY_CONFIG
+} from './services/learningService.js';
+
+/**
+ * GET /api/learning/report
+ * Analiza conversaciones y genera reporte de sugerencias (READ-ONLY)
+ */
+app.get('/api/learning/report', async (req, res) => {
+  // Verificar autenticación
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    console.log('[LEARNING] Iniciando análisis de conversaciones...');
+    const result = await analyzeAndSuggestImprovements();
+
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
+
+    console.log(`[LEARNING] Análisis completado: ${result.stats.suggestionsGenerated} sugerencias generadas`);
+
+    // Devolver reporte completo
+    res.json({
+      ok: true,
+      timestamp: result.timestamp,
+      stats: result.stats,
+      suggestions: result.suggestions,
+      config: {
+        minConversations: SAFETY_CONFIG.minConversationsRequired,
+        minConfidence: SAFETY_CONFIG.minConfidenceThreshold,
+        maxSuggestions: SAFETY_CONFIG.maxSuggestionsPerRun
+      }
+    });
+
+  } catch (error) {
+    console.error('[LEARNING] Error en análisis:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+/**
+ * POST /api/learning/apply
+ * Aplica sugerencias de mejora a archivos de configuración JSON
+ * REQUIERE: AUTO_LEARNING_ENABLED=true en config
+ */
+app.post('/api/learning/apply', async (req, res) => {
+  // Verificar autenticación
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    const { suggestions, dryRun = false } = req.body;
+
+    if (!suggestions) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Falta parámetro "suggestions"'
+      });
+    }
+
+    // Verificar que AUTO_LEARNING esté habilitado
+    const featuresConfig = await loadLearningConfig('app-features.json');
+    if (!featuresConfig || !featuresConfig.features.autoLearning) {
+      return res.status(403).json({
+        ok: false,
+        error: 'AUTO_LEARNING está deshabilitado. Activalo en config/app-features.json'
+      });
+    }
+
+    if (dryRun) {
+      console.log('[LEARNING] Dry-run mode: no se aplicarán cambios');
+      return res.json({
+        ok: true,
+        dryRun: true,
+        message: 'Modo dry-run: ningún cambio fue aplicado',
+        suggestions
+      });
+    }
+
+    console.log('[LEARNING] Aplicando mejoras...');
+    const result = await applySafeImprovements(suggestions);
+
+    if (!result.ok) {
+      return res.status(500).json(result);
+    }
+
+    console.log(`[LEARNING] Aplicación completada: ${result.applied} mejoras aplicadas`);
+
+    res.json({
+      ok: true,
+      applied: result.applied,
+      results: result.results,
+      timestamp: result.timestamp,
+      message: `Se aplicaron ${result.applied} mejoras exitosamente`
+    });
+
+  } catch (error) {
+    console.error('[LEARNING] Error aplicando mejoras:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+/**
+ * GET /api/learning/config
+ * Devuelve configuración actual de auto-learning
+ */
+app.get('/api/learning/config', async (req, res) => {
+  // Verificar autenticación
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    const featuresConfig = await loadLearningConfig('app-features.json');
+
+    res.json({
+      ok: true,
+      config: featuresConfig,
+      safetyRules: SAFETY_CONFIG
+    });
+
+  } catch (error) {
+    console.error('[LEARNING] Error cargando config:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/learning/status
+ * Devuelve estado actual del sistema de auto-learning
+ */
+app.get('/api/learning/status', async (req, res) => {
+  // Verificar autenticación
+  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    const { getAutoLearningStatus } = await import('./services/learningService.js');
+    const status = await getAutoLearningStatus();
+
+    res.json(status);
+
+  } catch (error) {
+    console.error('[LEARNING] Error obteniendo status:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 // Greeting endpoint (con CSRF token generation)
 app.all('/api/greeting', greetingLimiter, async (req, res) => {
   try {
@@ -4224,6 +4426,135 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       };
       console.log('[api/chat] nueva session', sid);
     }
+
+    // ========================================================
+    // 🏗️  MODULAR ARCHITECTURE TOGGLE
+    // ========================================================
+    console.log('[DEBUG] USE_MODULAR_ARCHITECTURE:', USE_MODULAR_ARCHITECTURE);
+    console.log('[DEBUG] chatAdapter exists:', !!chatAdapter);
+    console.log('[DEBUG] chatAdapter.handleChatMessage exists:', !!(chatAdapter?.handleChatMessage));
+    
+    if (USE_MODULAR_ARCHITECTURE && chatAdapter) {
+      console.log('[MODULAR] 🔀 Redirigiendo a chatAdapter.handleChatMessage()');
+      
+      try {
+        const modularResponse = await chatAdapter.handleChatMessage(body, sid);
+        
+        // Log flow interaction
+        flowLogData.currentStage = modularResponse.stage || session.stage;
+        flowLogData.nextStage = modularResponse.stage;
+        flowLogData.botResponse = modularResponse.reply;
+        flowLogData.serverAction = 'modular_adapter';
+        flowLogData.duration = Date.now() - startTime;
+        logFlowInteraction(flowLogData);
+        
+        // Métricas
+        updateMetric('chat', 'modular', 1);
+        
+        console.log('[MODULAR] ✅ Respuesta generada por arquitectura modular');
+        return res.json(modularResponse);
+      } catch (modularError) {
+        console.error('[MODULAR] ❌ Error en chatAdapter:', modularError);
+        console.error('[MODULAR] Stack:', modularError.stack);
+        // Fallback a legacy
+        console.log('[MODULAR] 🔄 Fallback a arquitectura legacy');
+        updateMetric('errors', 'modular_fallback', 1);
+        // Continuar con código legacy abajo
+      }
+    } else {
+      console.log('[DEBUG] Usando legacy porque: USE_MODULAR=', USE_MODULAR_ARCHITECTURE, 'chatAdapter=', !!chatAdapter);
+    }
+    
+    // ========================================================
+    // 🧠 CONVERSATION ORCHESTRATOR TOGGLE
+    // ========================================================
+    console.log('[DEBUG] USE_ORCHESTRATOR:', USE_ORCHESTRATOR);
+    console.log('[DEBUG] conversationOrchestrator exists:', !!conversationOrchestrator);
+    console.log('[DEBUG] orchestrateTurn exists:', !!(conversationOrchestrator?.orchestrateTurn));
+    
+    if (USE_ORCHESTRATOR && conversationOrchestrator) {
+      console.log('[ORCHESTRATOR] 🧠 Redirigiendo a orchestrateTurn()');
+      
+      try {
+        // Preparar imágenes (ya procesadas arriba en el código legacy)
+        const images = body.images || [];
+        
+        // Preparar smartAnalysis (si existe)
+        const smartAnalysis = session.smartAnalysis || null;
+        
+        // Llamar al orchestrator
+        const orchestratorResponse = await conversationOrchestrator.orchestrateTurn({
+          session: session,
+          userMessage: t,
+          buttonToken: buttonToken,
+          images: images,
+          smartAnalysis: smartAnalysis
+        });
+        
+        console.log('[ORCHESTRATOR] Response received:', {
+          ok: orchestratorResponse.ok,
+          stage: orchestratorResponse.stage,
+          hasReply: !!orchestratorResponse.reply,
+          hasButtons: orchestratorResponse.ui?.buttons?.length || 0
+        });
+        
+        // Guardar sesión actualizada
+        const updatedSession = orchestratorResponse.updatedSession;
+        if (updatedSession) {
+          console.log('[ORCHESTRATOR] Guardando sesión actualizada - stage:', updatedSession.stage);
+          await saveSession(sid, updatedSession);
+        }
+        
+        // Log flow interaction
+        flowLogData.currentStage = session.stage;
+        flowLogData.nextStage = orchestratorResponse.stage;
+        flowLogData.botResponse = orchestratorResponse.reply;
+        flowLogData.serverAction = 'orchestrator';
+        flowLogData.duration = Date.now() - startTime;
+        logFlowInteraction(flowLogData);
+        
+        // Detectar loops
+        const loopDetection = detectLoops(flowLogData.sessionId);
+        if (loopDetection && loopDetection.detected) {
+          console.warn('[ORCHESTRATOR]', loopDetection.message);
+        }
+        
+        // Métricas
+        updateMetric('chat', 'orchestrator', 1);
+        
+        // Agregar transcript a sesión
+        if (updatedSession) {
+          updatedSession.transcript = updatedSession.transcript || [];
+          updatedSession.transcript.push({
+            who: 'user',
+            text: buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t,
+            ts: nowIso()
+          });
+          updatedSession.transcript.push({
+            who: 'bot',
+            text: orchestratorResponse.reply,
+            ts: nowIso()
+          });
+          await saveSession(sid, updatedSession);
+        }
+        
+        console.log('[ORCHESTRATOR] ✅ Respuesta generada por orchestrator');
+        return res.json(orchestratorResponse);
+      } catch (orchestratorError) {
+        console.error('[ORCHESTRATOR] ❌ Error en orchestrateTurn:', orchestratorError);
+        console.error('[ORCHESTRATOR] Stack:', orchestratorError.stack);
+        // Fallback a legacy
+        console.log('[ORCHESTRATOR] 🔄 Fallback a arquitectura legacy');
+        updateMetric('errors', 'orchestrator_fallback', 1);
+        // Continuar con código legacy abajo
+      }
+    } else {
+      console.log('[DEBUG] Orchestrator desactivado: USE_ORCHESTRATOR=', USE_ORCHESTRATOR, 'conversationOrchestrator=', !!conversationOrchestrator);
+    }
+    
+    // ========================================================
+    // 📦 LEGACY ARCHITECTURE (Código original continúa aquí)
+    // ========================================================
 
     // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
     const images = body.images || [];
@@ -5792,10 +6123,71 @@ La guía debe ser:
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
       const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌|BTN_PERSIST)\b/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico|BTN_CONNECT_TECH)\b/i;
+      const rxAdvanced = /^\s*(pruebas avanzadas|más pruebas|BTN_ADVANCED_TESTS|BTN_MORE_TESTS)\b/i;
       const rxShowSteps = /^\s*(volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
 
       if (rxShowSteps.test(t)) {
         return await generateAndShowSteps(session, sid, res);
+      }
+
+      // FIX: Atajo directo desde BASIC_TESTS a pruebas avanzadas
+      if (rxAdvanced.test(t) || buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
+        try {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const device = session.device || '';
+          let aiSteps = [];
+          try {
+            aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []);
+          } catch (e) { aiSteps = []; }
+          let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
+
+          // Filtrar resultados avanzados que ya estén en pasos básicos
+          session.tests = session.tests || {};
+          const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
+          const basicSet = new Set((basicList || []).map(normalizeStepText));
+          limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
+          limited = limited.slice(0, 4);
+
+          if (!limited || limited.length === 0) {
+            const noMore = isEn
+              ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
+              : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
+            session.stage = STATES.ESCALATE;
+            session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
+            await saveSession(sid, session);
+            return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
+          }
+
+          session.tests.advanced = limited;
+          session.stepProgress = session.stepProgress || {};
+          limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
+
+          const help = isEn
+            ? `💡 Try these more specific tests. If they don't work, I'll connect you with a technician.`
+            : `💡 Probá estas pruebas más específicas. Si no funcionan, te conecto con un técnico.`;
+
+          const formattedSteps = enumerateSteps(limited);
+          const stepBlock = formattedSteps.join('\n\n');
+          reply = `${help}\n\n**🔬 PRUEBAS AVANZADAS:**\n${stepBlock}\n\n`;
+
+          const prompt = isEn
+            ? `Did any of these tests solve the problem?`
+            : `¿Alguna de estas pruebas solucionó el problema?`;
+          reply += prompt;
+
+          session.stage = STATES.ADVANCED_TESTS;
+          options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
+
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+        } catch (err) {
+          console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
+          session.stage = STATES.ESCALATE;
+          await saveSession(sid, session);
+          return await createTicketAndRespond(session, sid, res);
+        }
       }
 
       if (rxYes.test(t) || buttonToken === 'BTN_SOLVED') {
@@ -6405,11 +6797,67 @@ function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, c
 
 // Start server
 const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`STI Chat (v7) started on ${PORT}`);
   console.log('[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)');
   console.log('[Performance] Compression enabled (gzip/brotli)');
   console.log('[Performance] Session cache enabled (max 1000 sessions)');
+  
+  // ========================================
+  // AUTO-LEARNING: Inicialización y Scheduler
+  // ========================================
+  if (process.env.AUTO_LEARNING_ENABLED === 'true') {
+    try {
+      const { runAutoLearningCycle, getAutoLearningStatus } = await import('./services/learningService.js');
+      
+      console.log('[AUTO-LEARNING] 🧠 Sistema de auto-evolución ACTIVADO');
+      
+      // Ejecutar al iniciar si está configurado
+      const statusCheck = await getAutoLearningStatus();
+      if (statusCheck.config?.autoRunOnStartup) {
+        console.log('[AUTO-LEARNING] 🚀 Ejecutando ciclo inicial...');
+        setTimeout(async () => {
+          try {
+            const result = await runAutoLearningCycle();
+            if (result.ok && result.applied > 0) {
+              console.log(`[AUTO-LEARNING] ✅ Ciclo inicial: ${result.applied} mejoras aplicadas`);
+            } else if (result.noChanges) {
+              console.log('[AUTO-LEARNING] ℹ️  Ciclo inicial: sin cambios para aplicar');
+            }
+          } catch (err) {
+            console.error('[AUTO-LEARNING] ❌ Error en ciclo inicial:', err.message);
+          }
+        }, 30000); // 30 segundos después de iniciar
+      }
+      
+      // Configurar scheduler periódico
+      const intervalHours = parseInt(process.env.AUTO_LEARNING_INTERVAL_HOURS || '24', 10);
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      
+      setInterval(async () => {
+        console.log(`[AUTO-LEARNING] ⏰ Ejecutando ciclo programado (cada ${intervalHours}h)...`);
+        try {
+          const result = await runAutoLearningCycle();
+          if (result.ok && result.applied > 0) {
+            console.log(`[AUTO-LEARNING] ✅ Ciclo programado: ${result.applied} mejoras aplicadas`);
+          } else if (result.noChanges) {
+            console.log('[AUTO-LEARNING] ℹ️  Ciclo programado: sin cambios para aplicar');
+          } else if (result.skipped) {
+            console.log(`[AUTO-LEARNING] ⏭️  Ciclo saltado: ${result.reason}`);
+          }
+        } catch (err) {
+          console.error('[AUTO-LEARNING] ❌ Error en ciclo programado:', err.message);
+        }
+      }, intervalMs);
+      
+      console.log(`[AUTO-LEARNING] ⏰ Scheduler configurado (intervalo: ${intervalHours}h)`);
+      
+    } catch (err) {
+      console.error('[AUTO-LEARNING] ❌ Error al inicializar:', err.message);
+    }
+  } else {
+    console.log('[AUTO-LEARNING] 📦 Sistema de auto-evolución DESACTIVADO');
+  }
 });
 
 // PERFORMANCE: Enable HTTP keep-alive

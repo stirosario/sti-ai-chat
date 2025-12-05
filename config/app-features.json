@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-12-05T00:00:00Z",
+  "description": "Configuración de funcionalidades de la aplicación",
+  
+  "features": {
+    "autoLearning": true,
+    "visionAPI": false,
+    "smartMode": false,
+    "useOrchestrator": true,
+    "useModularArchitecture": false
+  },
+  
+  "learning": {
+    "enabled": true,
+    "minConversationsForAnalysis": 10,
+    "minConfidenceToApply": 0.75,
+    "maxSuggestionsPerCycle": 10,
+    "maxSuggestionsPerRun": 10,
+    "autoRunOnStartup": true,
+    "autoRunIntervalHours": 24,
+    "backupBeforeApply": true,
+    "autoRollbackOnError": true
+  },
+  
+  "safety": {
+    "neverModifyCode": true,
+    "onlyAddNewPatterns": true,
+    "preserveExistingKeys": true,
+    "requireMinimumData": true
+  }
+}

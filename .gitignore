@@ -1,2 +1,14 @@
 node_modules/ 
 .env 
+
+# Logs y transcripciones (pueden contener datos sensibles)
+logs/*.log
+transcripts/*.json
+
+# Backups de configuración
+config/*.bak
+
+# Uploads temporales
+uploads/*
+!uploads/.gitkeep
+
