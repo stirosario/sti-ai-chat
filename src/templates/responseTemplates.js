@@ -310,18 +310,7 @@ export function generateContextualMessage(stage, sentiment, userName, locale = '
 }
 
 // ========== EXPORTAR TODO ==========
-export {
-  TEMPLATES,
-  getTemplate,
-  replaceVars,
-  generateWelcome,
-  generateProblemIntro,
-  generateDeviceDisambiguation,
-  generateStepMessage,
-  generateSuccessMessage,
-  generateErrorMessage,
-  generateContextualMessage
-};
+export { TEMPLATES };
 
 export default {
   getTemplate,
