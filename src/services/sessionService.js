@@ -246,8 +246,7 @@ export function getStats() {
 // ========== EXPORTAR FUNCIONES ADICIONALES ==========
 export {
   listActiveSessions,
-  normalizeSession,
-  validateSession
+  normalizeSession
 };
 
 export default {
@@ -259,5 +258,6 @@ export default {
   deleteSession,
   listSessions,
   clearCache,
-  getStats
+  getStats,
+  validateSession
 };
