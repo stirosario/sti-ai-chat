@@ -19,65 +19,119 @@ import nlpService from '../services/nlpService.js';
 import openaiService from '../services/openaiService.js';
 import responseTemplates from '../templates/responseTemplates.js';
 
-// ========== CONFIGURACIÓN DE STAGES ==========
+// ========== CONFIGURACIÓN DE STAGES (100% COMPATIBLE CON server.js) ==========
+// Estos stages son IDÉNTICOS a los STATES del server.js (línea 2442-2458)
+// NO MODIFICAR SIN ACTUALIZAR server.js
 const STAGES = {
-  GREETING: 'greeting',
-  ASK_NAME: 'ask_name',
-  ASK_NEED: 'ask_need',
-  PROBLEM_IDENTIFICATION: 'problem_identification',
-  DEVICE_DISAMBIGUATION: 'device_disambiguation',
-  DIAGNOSTIC_GENERATION: 'diagnostic_generation',
-  STEP_EXECUTION: 'step_execution',
-  ESCALATION: 'escalation',
-  FAREWELL: 'farewell'
+  ASK_LANGUAGE: 'ASK_LANGUAGE',        // ✅ Selección idioma + GDPR
+  ASK_NAME: 'ASK_NAME',                // ✅ Pedir nombre
+  ASK_NEED: 'ASK_NEED',                // ✅ Problema o consulta
+  CLASSIFY_NEED: 'CLASSIFY_NEED',      // ✅ Clasificar tipo
+  ASK_DEVICE: 'ASK_DEVICE',            // ✅ Tipo de dispositivo
+  ASK_PROBLEM: 'ASK_PROBLEM',          // ✅ Describir problema
+  DETECT_DEVICE: 'DETECT_DEVICE',      // ✅ Desambiguar dispositivo
+  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS', // ✅ Detalles de consulta
+  GENERATE_HOWTO: 'GENERATE_HOWTO',    // ✅ Generar guía/diagnóstico
+  BASIC_TESTS: 'BASIC_TESTS',          // ✅ Pruebas básicas
+  ADVANCED_TESTS: 'ADVANCED_TESTS',    // ✅ Pruebas avanzadas
+  ESCALATE: 'ESCALATE',                // ✅ Escalar a humano
+  CREATE_TICKET: 'CREATE_TICKET',      // ✅ Crear ticket
+  TICKET_SENT: 'TICKET_SENT',          // ✅ Ticket enviado
+  ENDED: 'ENDED'                       // ✅ Conversación finalizada
 };
 
-// ========== MÁQUINA DE ESTADOS ==========
+// ========== MÁQUINA DE ESTADOS (FLUJO COMPLETO) ==========
 const STATE_TRANSITIONS = {
-  [STAGES.GREETING]: {
+  [STAGES.ASK_LANGUAGE]: {
     next: STAGES.ASK_NAME,
-    validInputs: ['any']
+    validInputs: ['button'],  // BTN_LANG_ES_AR, BTN_LANG_EN
+    description: 'Selección de idioma y aceptación GDPR'
   },
   [STAGES.ASK_NAME]: {
     next: STAGES.ASK_NEED,
-    validInputs: ['name']
+    validInputs: ['text', 'button'],  // Texto o BTN_NO_NAME
+    description: 'Solicitar nombre del usuario'
   },
   [STAGES.ASK_NEED]: {
     next: {
-      'problema': STAGES.PROBLEM_IDENTIFICATION,
-      'consulta': STAGES.PROBLEM_IDENTIFICATION,
-      'default': STAGES.PROBLEM_IDENTIFICATION
+      'problema': STAGES.ASK_PROBLEM,
+      'consulta': STAGES.ASK_HOWTO_DETAILS,
+      'default': STAGES.ASK_PROBLEM
     },
-    validInputs: ['button', 'text']
+    validInputs: ['button'],  // BTN_PROBLEMA, BTN_CONSULTA
+    description: 'Identificar si es problema o consulta'
   },
-  [STAGES.PROBLEM_IDENTIFICATION]: {
-    next: STAGES.DEVICE_DISAMBIGUATION,
-    validInputs: ['button', 'text', 'image']
+  [STAGES.CLASSIFY_NEED]: {
+    next: STAGES.ASK_PROBLEM,
+    validInputs: ['automatic'],
+    description: 'Clasificación automática del tipo de necesidad'
   },
-  [STAGES.DEVICE_DISAMBIGUATION]: {
-    next: STAGES.DIAGNOSTIC_GENERATION,
-    validInputs: ['button']
+  [STAGES.ASK_PROBLEM]: {
+    next: STAGES.ASK_DEVICE,
+    validInputs: ['text', 'image'],
+    description: 'Describir el problema técnico'
   },
-  [STAGES.DIAGNOSTIC_GENERATION]: {
-    next: STAGES.STEP_EXECUTION,
-    validInputs: ['generated']
+  [STAGES.ASK_DEVICE]: {
+    next: STAGES.DETECT_DEVICE,
+    validInputs: ['button', 'text'],  // BTN_DESKTOP, BTN_NOTEBOOK, etc.
+    description: 'Seleccionar tipo de dispositivo'
   },
-  [STAGES.STEP_EXECUTION]: {
+  [STAGES.DETECT_DEVICE]: {
+    next: STAGES.GENERATE_HOWTO,
+    validInputs: ['automatic'],
+    description: 'Desambiguar dispositivo si es necesario'
+  },
+  [STAGES.ASK_HOWTO_DETAILS]: {
+    next: STAGES.GENERATE_HOWTO,
+    validInputs: ['text'],
+    description: 'Detalles adicionales para consulta/guía'
+  },
+  [STAGES.GENERATE_HOWTO]: {
+    next: STAGES.BASIC_TESTS,
+    validInputs: ['generated'],
+    description: 'Generar pasos de diagnóstico o guía'
+  },
+  [STAGES.BASIC_TESTS]: {
     next: {
-      'success': STAGES.FAREWELL,
-      'failed': STAGES.STEP_EXECUTION,
-      'help': STAGES.ESCALATION,
-      'no_more_steps': STAGES.ESCALATION
+      'solved': STAGES.ENDED,
+      'persist': STAGES.ADVANCED_TESTS,
+      'help': STAGES.BASIC_TESTS,  // Misma stage, dar ayuda
+      'escalate': STAGES.ESCALATE
     },
-    validInputs: ['button', 'text']
+    validInputs: ['button'],  // BTN_SOLVED, BTN_PERSIST, BTN_HELP_N
+    description: 'Ejecutar y validar pruebas básicas'
   },
-  [STAGES.ESCALATION]: {
-    next: STAGES.FAREWELL,
-    validInputs: ['any']
+  [STAGES.ADVANCED_TESTS]: {
+    next: {
+      'solved': STAGES.ENDED,
+      'persist': STAGES.ESCALATE,
+      'help': STAGES.ADVANCED_TESTS,
+      'more_tests': STAGES.ADVANCED_TESTS
+    },
+    validInputs: ['button'],  // BTN_SOLVED, BTN_PERSIST, BTN_TECH
+    description: 'Ejecutar pruebas avanzadas'
   },
-  [STAGES.FAREWELL]: {
+  [STAGES.ESCALATE]: {
+    next: STAGES.CREATE_TICKET,
+    validInputs: ['button'],  // BTN_TECH
+    description: 'Confirmar escalamiento a técnico'
+  },
+  [STAGES.CREATE_TICKET]: {
+    next: STAGES.TICKET_SENT,
+    validInputs: ['automatic'],
+    description: 'Crear ticket y generar link WhatsApp'
+  },
+  [STAGES.TICKET_SENT]: {
+    next: STAGES.ENDED,
+    validInputs: ['any'],
+    description: 'Confirmar envío de ticket'
+  },
+  [STAGES.ENDED]: {
     next: null,
-    validInputs: []
+    validInputs: [],
+    description: 'Conversación finalizada'
+  }
+};
   }
 };
 
@@ -101,7 +155,7 @@ class ConversationOrchestrator {
       let session = await this.services.session.getSession(sessionId);
       if (!session) {
         session = await this.services.session.createSession(sessionId, {
-          stage: STAGES.GREETING
+          stage: STAGES.ASK_LANGUAGE  // ✓ Actualizado
         });
       }
 
@@ -140,7 +194,7 @@ class ConversationOrchestrator {
     const nlpAnalysis = await this.services.nlp.analyzeText(text, {
       detectIntentFlag: true,
       classifyProblemFlag: session.isProblem,
-      detectDeviceFlag: session.stage === STAGES.PROBLEM_IDENTIFICATION,
+      detectDeviceFlag: session.stage === STAGES.ASK_PROBLEM,  // ✓ Actualizado
       analyzeSentimentFlag: true,
       useAI: false // Usar AI solo cuando sea necesario
     });
@@ -251,7 +305,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Identificación de problema
    */
-  async handle_problem_identification(session, userInput, analysis) {
+  async handle_ask_problem(session, userInput, analysis) {
     const text = typeof userInput === 'string' ? userInput : userInput.text || '';
 
     // Guardar el problema
@@ -260,7 +314,7 @@ class ConversationOrchestrator {
 
     // Verificar si hay dispositivo ambiguo
     if (analysis.device?.isAmbiguous) {
-      session.stage = STAGES.DEVICE_DISAMBIGUATION;
+      session.stage = STAGES.DETECT_DEVICE;  // ✓ Actualizado
       session.ambiguousDevice = analysis.device.term;
 
       const disambigMsg = this.services.templates.generateDeviceDisambiguation(
@@ -287,7 +341,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Desambiguación de dispositivo
    */
-  async handle_device_disambiguation(session, userInput, analysis) {
+  async handle_ask_device(session, userInput, analysis) {
     // Guardar dispositivo seleccionado
     session.device = userInput.text || userInput;
     session.stage = STAGES.DIAGNOSTIC_GENERATION;
@@ -298,7 +352,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Generación de diagnóstico
    */
-  async handle_diagnostic_generation(session, userInput, analysis) {
+  async handle_generate_howto(session, userInput, analysis) {
     const generating = this.services.templates.getTemplate(
       'diagnostic_generation',
       'generating',
@@ -308,7 +362,7 @@ class ConversationOrchestrator {
     // Aquí iría la lógica de generación de pasos (delegada a otro servicio)
     session.diagnosticSteps = ['Paso 1 placeholder', 'Paso 2 placeholder', 'Paso 3 placeholder'];
     session.currentStepIndex = 0;
-    session.stage = STAGES.STEP_EXECUTION;
+    session.stage = STAGES.BASIC_TESTS;  // ✅ ACTUALIZADO
 
     const stepMsg = this.services.templates.generateStepMessage(
       0,
@@ -331,7 +385,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Ejecución de pasos
    */
-  async handle_step_execution(session, userInput, analysis) {
+  async handle_basic_tests(session, userInput, analysis) {
     if (analysis.buttonToken === 'BTN_STEP_SUCCESS') {
       // Problema resuelto
       session.stage = STAGES.FAREWELL;
@@ -377,7 +431,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Escalamiento
    */
-  async handle_escalation(session, userInput, analysis) {
+  async handle_escalate(session, userInput, analysis) {
     const intro = this.services.templates.getTemplate(
       'escalation',
       'intro',
@@ -399,7 +453,7 @@ class ConversationOrchestrator {
   /**
    * HANDLER: Despedida
    */
-  async handle_farewell(session, userInput, analysis) {
+  async handle_ended(session, userInput, analysis) {
     return {
       text: this.services.templates.getTemplate(
         'farewell',
