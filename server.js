@@ -4832,11 +4832,8 @@ Respondé con una explicación clara y útil para el usuario.`
             'BTN_PERIFERICOS',
             'BTN_VIRUS'
           ], locale);
-          // Agregar mensaje adicional después de los botones
-          options.push({
-            type: 'text',
-            text: 'O si lo preferís, describime el problema con tus palabras… 💬🔧'
-          });
+          // Agregar mensaje adicional como parte del reply (no como botón)
+          reply += '\n\nO si lo preferís, describime el problema con tus palabras… 💬🔧';
         } else if (needType === 'consulta_general') {
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
