@@ -53,6 +53,21 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
+// ========================================================
+// MODULAR ARCHITECTURE (Feature Flag)
+// ========================================================
+const USE_MODULAR_ARCHITECTURE = process.env.USE_MODULAR_ARCHITECTURE === 'true';
+let chatAdapter = null;
+
+if (USE_MODULAR_ARCHITECTURE) {
+  const { handleChatMessage } = await import('./src/adapters/chatAdapter.js');
+  chatAdapter = { handleChatMessage };
+  console.log('[MODULAR] 🏗️  Arquitectura modular ACTIVADA');
+  console.log('[MODULAR] ✅ chatAdapter cargado correctamente');
+} else {
+  console.log('[MODULAR] 📦 Usando arquitectura legacy (USE_MODULAR_ARCHITECTURE=false)');
+}
+
 // FORCE REBUILD 2025-11-25 16:45 - Debugging deviceDetection import
 console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbiguousDevice);
 console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
@@ -4224,6 +4239,40 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       };
       console.log('[api/chat] nueva session', sid);
     }
+
+    // ========================================================
+    // 🏗️  MODULAR ARCHITECTURE TOGGLE
+    // ========================================================
+    if (USE_MODULAR_ARCHITECTURE && chatAdapter) {
+      console.log('[MODULAR] 🔀 Redirigiendo a chatAdapter.handleChatMessage()');
+      
+      try {
+        const modularResponse = await chatAdapter.handleChatMessage(body, sid);
+        
+        // Log flow interaction
+        flowLogData.currentStage = modularResponse.stage || session.stage;
+        flowLogData.nextStage = modularResponse.stage;
+        flowLogData.botResponse = modularResponse.reply;
+        flowLogData.serverAction = 'modular_adapter';
+        flowLogData.duration = Date.now() - startTime;
+        logFlowInteraction(flowLogData);
+        
+        // Métricas
+        updateMetric('chat', 'modular', 1);
+        
+        console.log('[MODULAR] ✅ Respuesta generada por arquitectura modular');
+        return res.json(modularResponse);
+      } catch (modularError) {
+        console.error('[MODULAR] ❌ Error en chatAdapter:', modularError);
+        // Fallback a legacy
+        console.log('[MODULAR] 🔄 Fallback a arquitectura legacy');
+        updateMetric('errors', 'modular_fallback', 1);
+        // Continuar con código legacy abajo
+      }
+    }
+    // ========================================================
+    // 📦 LEGACY ARCHITECTURE (Código original continúa aquí)
+    // ========================================================
 
     // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
     const images = body.images || [];
