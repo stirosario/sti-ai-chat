@@ -57,7 +57,9 @@ import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.
 // MODULAR ARCHITECTURE (Feature Flag)
 // ========================================================
 const USE_MODULAR_ARCHITECTURE = process.env.USE_MODULAR_ARCHITECTURE === 'true';
+const USE_ORCHESTRATOR = process.env.USE_ORCHESTRATOR === 'true';
 let chatAdapter = null;
+let conversationOrchestrator = null;
 
 if (USE_MODULAR_ARCHITECTURE) {
   const { handleChatMessage } = await import('./src/adapters/chatAdapter.js');
@@ -66,6 +68,18 @@ if (USE_MODULAR_ARCHITECTURE) {
   console.log('[MODULAR] ✅ chatAdapter cargado correctamente');
 } else {
   console.log('[MODULAR] 📦 Usando arquitectura legacy (USE_MODULAR_ARCHITECTURE=false)');
+}
+
+// ========================================================
+// CONVERSATION ORCHESTRATOR (Feature Flag)
+// ========================================================
+if (USE_ORCHESTRATOR) {
+  const { orchestrateTurn } = await import('./services/conversationOrchestrator.js');
+  conversationOrchestrator = { orchestrateTurn };
+  console.log('[ORCHESTRATOR] 🧠 Conversation Orchestrator ACTIVADO');
+  console.log('[ORCHESTRATOR] ✅ orchestrateTurn cargado correctamente');
+} else {
+  console.log('[ORCHESTRATOR] 📦 Orchestrator desactivado (USE_ORCHESTRATOR=false)');
 }
 
 // FORCE REBUILD 2025-11-25 16:45 - Debugging deviceDetection import
@@ -4277,6 +4291,94 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     } else {
       console.log('[DEBUG] Usando legacy porque: USE_MODULAR=', USE_MODULAR_ARCHITECTURE, 'chatAdapter=', !!chatAdapter);
     }
+    
+    // ========================================================
+    // 🧠 CONVERSATION ORCHESTRATOR TOGGLE
+    // ========================================================
+    console.log('[DEBUG] USE_ORCHESTRATOR:', USE_ORCHESTRATOR);
+    console.log('[DEBUG] conversationOrchestrator exists:', !!conversationOrchestrator);
+    console.log('[DEBUG] orchestrateTurn exists:', !!(conversationOrchestrator?.orchestrateTurn));
+    
+    if (USE_ORCHESTRATOR && conversationOrchestrator) {
+      console.log('[ORCHESTRATOR] 🧠 Redirigiendo a orchestrateTurn()');
+      
+      try {
+        // Preparar imágenes (ya procesadas arriba en el código legacy)
+        const images = body.images || [];
+        
+        // Preparar smartAnalysis (si existe)
+        const smartAnalysis = session.smartAnalysis || null;
+        
+        // Llamar al orchestrator
+        const orchestratorResponse = await conversationOrchestrator.orchestrateTurn({
+          session: session,
+          userMessage: t,
+          buttonToken: buttonToken,
+          images: images,
+          smartAnalysis: smartAnalysis
+        });
+        
+        console.log('[ORCHESTRATOR] Response received:', {
+          ok: orchestratorResponse.ok,
+          stage: orchestratorResponse.stage,
+          hasReply: !!orchestratorResponse.reply,
+          hasButtons: orchestratorResponse.ui?.buttons?.length || 0
+        });
+        
+        // Guardar sesión actualizada
+        const updatedSession = orchestratorResponse.updatedSession;
+        if (updatedSession) {
+          console.log('[ORCHESTRATOR] Guardando sesión actualizada - stage:', updatedSession.stage);
+          await saveSession(sid, updatedSession);
+        }
+        
+        // Log flow interaction
+        flowLogData.currentStage = session.stage;
+        flowLogData.nextStage = orchestratorResponse.stage;
+        flowLogData.botResponse = orchestratorResponse.reply;
+        flowLogData.serverAction = 'orchestrator';
+        flowLogData.duration = Date.now() - startTime;
+        logFlowInteraction(flowLogData);
+        
+        // Detectar loops
+        const loopDetection = detectLoops(flowLogData.sessionId);
+        if (loopDetection && loopDetection.detected) {
+          console.warn('[ORCHESTRATOR]', loopDetection.message);
+        }
+        
+        // Métricas
+        updateMetric('chat', 'orchestrator', 1);
+        
+        // Agregar transcript a sesión
+        if (updatedSession) {
+          updatedSession.transcript = updatedSession.transcript || [];
+          updatedSession.transcript.push({
+            who: 'user',
+            text: buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t,
+            ts: nowIso()
+          });
+          updatedSession.transcript.push({
+            who: 'bot',
+            text: orchestratorResponse.reply,
+            ts: nowIso()
+          });
+          await saveSession(sid, updatedSession);
+        }
+        
+        console.log('[ORCHESTRATOR] ✅ Respuesta generada por orchestrator');
+        return res.json(orchestratorResponse);
+      } catch (orchestratorError) {
+        console.error('[ORCHESTRATOR] ❌ Error en orchestrateTurn:', orchestratorError);
+        console.error('[ORCHESTRATOR] Stack:', orchestratorError.stack);
+        // Fallback a legacy
+        console.log('[ORCHESTRATOR] 🔄 Fallback a arquitectura legacy');
+        updateMetric('errors', 'orchestrator_fallback', 1);
+        // Continuar con código legacy abajo
+      }
+    } else {
+      console.log('[DEBUG] Orchestrator desactivado: USE_ORCHESTRATOR=', USE_ORCHESTRATOR, 'conversationOrchestrator=', !!conversationOrchestrator);
+    }
+    
     // ========================================================
     // 📦 LEGACY ARCHITECTURE (Código original continúa aquí)
     // ========================================================
