@@ -14,7 +14,7 @@
  * COMPATIBILIDAD: 100% compatible con sessionStore.js existente
  */
 
-import { getSession as getSessionStore, saveSession as saveSessionStore, listActiveSessions } from '../sessionStore.js';
+import { getSession as getSessionStore, saveSession as saveSessionStore, listActiveSessions } from '../../sessionStore.js';
 
 // ========== ESTRUCTURA DEFAULT DE SESIÓN ==========
 const DEFAULT_SESSION = {

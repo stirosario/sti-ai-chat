@@ -24,7 +24,7 @@
 import conversationOrchestrator from '../orchestrators/conversationOrchestrator.js';
 import decisionEngine from '../orchestrators/decisionEngine.js';
 import sessionService from '../services/sessionService.js';
-import { logFlowInteraction } from '../flowLogger.js';
+import { logFlowInteraction } from '../../flowLogger.js';
 
 // ========== MODO DE OPERACIÓN ==========
 let MODULAR_MODE = process.env.USE_MODULAR_ARCHITECTURE === 'true';

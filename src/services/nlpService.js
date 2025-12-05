@@ -14,8 +14,8 @@
  * COMPATIBILIDAD: Usa las funciones existentes como fallback
  */
 
-import { normalizarTextoCompleto } from '../normalizarTexto.js';
-import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from '../deviceDetection.js';
+import { normalizarTextoCompleto } from '../../normalizarTexto.js';
+import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from '../../deviceDetection.js';
 import { classifyIntent as aiClassifyIntent } from './openaiService.js';
 
 // ========== PATRONES DE INTENCIÓN LOCAL ==========
