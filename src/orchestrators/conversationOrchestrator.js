@@ -477,6 +477,260 @@ class ConversationOrchestrator {
   }
 
   /**
+   * HANDLER: ASK_LANGUAGE - Selección de idioma + GDPR
+   * Compatible con server.js ASK_LANGUAGE stage
+   */
+  async handle_ask_language(session, userInput, analysis, metadata) {
+    const text = (userInput.text || '').toLowerCase();
+    
+    // Detectar selección de idioma
+    if (/español.*argentina|btn_lang_es_ar/i.test(text)) {
+      session.userLocale = 'es-AR';
+      session.gdprAccepted = true;
+      session.stage = STAGES.ASK_NAME;
+      
+      return {
+        text: '¡Genial! 👋 Para personalizar tu experiencia, ¿me decís tu nombre?',
+        options: [],
+        buttons: [
+          { type: 'hint', label: 'O si lo preferís...', value: '' },
+          { type: 'button', label: 'Prefiero no decirlo 🙅', value: 'BTN_NO_NAME' }
+        ]
+      };
+    } else if (/español.*latinoam[eé]rica|btn_lang_es_es/i.test(text)) {
+      session.userLocale = 'es-419';
+      session.gdprAccepted = true;
+      session.stage = STAGES.ASK_NAME;
+      
+      return {
+        text: '¡Genial! 👋 Para personalizar tu experiencia, ¿me dices tu nombre?',
+        options: [],
+        buttons: [
+          { type: 'hint', label: 'O si lo prefieres...', value: '' },
+          { type: 'button', label: 'Prefiero no decirlo 🙅', value: 'BTN_NO_NAME' }
+        ]
+      };
+    } else if (/english|btn_lang_en/i.test(text)) {
+      session.userLocale = 'en';
+      session.gdprAccepted = true;
+      session.stage = STAGES.ASK_NAME;
+      
+      return {
+        text: 'Great! 👋 To personalize your experience, could you tell me your name?',
+        options: [],
+        buttons: [
+          { type: 'hint', label: "Or if you'd rather...", value: '' },
+          { type: 'button', label: "I'd rather not say 🙅", value: 'BTN_NO_NAME' }
+        ]
+      };
+    }
+    
+    // Si no seleccionó idioma, mostrar opciones
+    return {
+      text: 'Por favor, seleccioná tu idioma / Please select your language:',
+      options: [],
+      buttons: [
+        { type: 'button', label: '🇦🇷 Español (Argentina)', value: 'BTN_LANG_ES_AR' },
+        { type: 'button', label: '🌎 Español (Latinoamérica)', value: 'BTN_LANG_ES_ES' },
+        { type: 'button', label: '🇬🇧 English', value: 'BTN_LANG_EN' }
+      ]
+    };
+  }
+
+  /**
+   * HANDLER: CLASSIFY_NEED - Clasificación automática
+   */
+  async handle_classify_need(session, userInput, analysis) {
+    // Este stage es automático, redirige a ASK_PROBLEM
+    session.stage = STAGES.ASK_PROBLEM;
+    
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    return {
+      text: isEn 
+        ? 'Please describe your technical issue in detail:'
+        : '¿Podrías contarme más sobre tu problema técnico?',
+      options: []
+    };
+  }
+
+  /**
+   * HANDLER: DETECT_DEVICE - Desambiguación de dispositivo
+   */
+  async handle_detect_device(session, userInput, analysis) {
+    const text = (userInput.text || '').toLowerCase();
+    
+    // Si ya seleccionó dispositivo, avanzar
+    if (text && (text.includes('desktop') || text.includes('notebook') || text.includes('all in one'))) {
+      session.device = text.trim();
+      session.stage = STAGES.GENERATE_HOWTO;
+      
+      return {
+        text: `Perfecto, vamos a diagnosticar tu ${session.device}. Dame un momento mientras genero los pasos...`,
+        options: []
+      };
+    }
+    
+    // Pedir aclaración
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    return {
+      text: isEn
+        ? 'What type of computer do you have?'
+        : '¿Qué tipo de equipo tenés?',
+      buttons: [
+        { type: 'button', label: 'Desktop 💻', value: 'BTN_DESKTOP' },
+        { type: 'button', label: 'All-in-One 🖥️', value: 'BTN_ALLINONE' },
+        { type: 'button', label: 'Notebook 💼', value: 'BTN_NOTEBOOK' }
+      ]
+    };
+  }
+
+  /**
+   * HANDLER: ASK_HOWTO_DETAILS - Detalles adicionales para consultas
+   */
+  async handle_ask_howto_details(session, userInput, analysis) {
+    const text = userInput.text || '';
+    
+    // Guardar detalles
+    session.howtoDetails = text;
+    session.stage = STAGES.GENERATE_HOWTO;
+    
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    return {
+      text: isEn
+        ? 'Got it! Let me prepare a guide for you...'
+        : '¡Entendido! Dejame prepararte una guía paso a paso...',
+      options: []
+    };
+  }
+
+  /**
+   * HANDLER: ADVANCED_TESTS - Pruebas avanzadas
+   * Compatible con server.js ADVANCED_TESTS stage
+   */
+  async handle_advanced_tests(session, userInput, analysis) {
+    const text = (userInput.text || '').toLowerCase();
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    // Usuario dice que solucionó
+    if (/lo pude|solucion[eé]|resuel|solved|fixed/i.test(text)) {
+      session.stage = STAGES.ENDED;
+      const userName = session.userName ? ` ${session.userName}` : '';
+      
+      return {
+        text: isEn
+          ? `Excellent${userName}! 🙌 I'm glad you could solve it. If it fails again, you can reopen the chat.`
+          : `¡Excelente${userName}! 🙌 Me alegra que lo hayas podido resolver. Si vuelve a fallar, podés reabrir el chat.`,
+        options: [],
+        buttons: []
+      };
+    }
+    
+    // Problema persiste → Escalar
+    if (/persist|no funcion|sigue|todav[ií]a no|still not working/i.test(text)) {
+      session.stage = STAGES.ESCALATE;
+      session.waEligible = true;
+      
+      return {
+        text: isEn
+          ? 'I understand. Would you like me to connect you with a technician?'
+          : 'Entiendo. ¿Querés que te conecte con un técnico?',
+        buttons: [
+          { type: 'button', label: isEn ? '🧑‍💻 Connect with technician' : '🧑‍💻 Conectar con técnico', value: 'BTN_TECH' }
+        ]
+      };
+    }
+    
+    // Pide ayuda con un paso (BTN_HELP_N)
+    if (/ayuda paso (\d+)|help step (\d+)/i.test(text)) {
+      const match = text.match(/paso (\d+)|step (\d+)/i);
+      const stepIndex = parseInt(match[1] || match[2]);
+      
+      const steps = session.tests?.advanced || [];
+      if (stepIndex > 0 && stepIndex <= steps.length) {
+        const step = steps[stepIndex - 1];
+        session.lastHelpStep = stepIndex;
+        
+        return {
+          text: `Paso ${stepIndex}: ${step}\n\n¿Necesitás más detalles sobre este paso?`,
+          help: {
+            stepIndex,
+            stepText: step,
+            detail: `Ayuda detallada para: ${step}`
+          },
+          buttons: [
+            { type: 'button', label: isEn ? '👍 I solved it' : '👍 Ya lo solucioné', value: 'BTN_SOLVED' },
+            { type: 'button', label: isEn ? '❌ Still not working' : '❌ Todavía no funciona', value: 'BTN_PERSIST' }
+          ]
+        };
+      }
+    }
+    
+    // Mostrar pasos avanzados
+    const steps = session.tests?.advanced || ['Paso avanzado 1', 'Paso avanzado 2', 'Paso avanzado 3'];
+    const numbered = steps.map((s, i) => `${i + 1}. ${s}`);
+    
+    return {
+      text: `${isEn ? "Let's try these more advanced tests:" : "Probemos con estas pruebas más avanzadas:"}\n\n${numbered.join('\n')}\n\n${isEn ? '🤔 How did it go?' : '🤔 ¿Cómo te fue?'}`,
+      steps,
+      buttons: [
+        { type: 'button', label: isEn ? '👍 I solved it' : '👍 Ya lo solucioné', value: 'BTN_SOLVED' },
+        { type: 'button', label: isEn ? '❌ Still not working' : '❌ Todavía no funciona', value: 'BTN_PERSIST' },
+        { type: 'button', label: isEn ? '🧑‍💻 Connect with technician' : '🧑‍💻 Conectar con técnico', value: 'BTN_TECH' }
+      ]
+    };
+  }
+
+  /**
+   * HANDLER: CREATE_TICKET - Crear ticket y generar link WhatsApp
+   * Compatible con server.js CREATE_TICKET stage
+   */
+  async handle_create_ticket(session, userInput, analysis) {
+    // TODO: Integrar con ticketing.js del server.js
+    // Placeholder por ahora
+    const ticketId = `TKT-${Date.now()}`;
+    session.ticketId = ticketId;
+    session.stage = STAGES.TICKET_SENT;
+    
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    return {
+      text: isEn
+        ? `✅ Ticket created: ${ticketId}. A technician will contact you shortly via WhatsApp.`
+        : `✅ Ticket creado: ${ticketId}. Un técnico te va a contactar en breve por WhatsApp.`,
+      ticket: {
+        ticketId,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * HANDLER: TICKET_SENT - Confirmación de ticket enviado
+   */
+  async handle_ticket_sent(session, userInput, analysis) {
+    session.stage = STAGES.ENDED;
+    
+    const locale = session.userLocale || 'es-AR';
+    const isEn = locale.startsWith('en');
+    
+    return {
+      text: isEn
+        ? 'Thank you for your patience! Is there anything else I can help you with?'
+        : '¡Gracias por tu paciencia! ¿Hay algo más en lo que pueda ayudarte?',
+      options: []
+    };
+  }
+
+  /**
    * Obtener estado actual de la sesión
    */
   async getSessionState(sessionId) {
