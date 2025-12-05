@@ -212,3 +212,24 @@ Nº,Timestamp,SessionId,Etapa Actual,Input Usuario,Trigger Detectado,Respuesta d
 211,2025-11-24T06:43:03.683Z,web-demo-logs-5425,understanding_problem,Tengo una impresora HP que no imprime,question,"Carlos, contame con detalle: ¿qué problema tenés o qué querés hacer? Mientras más me cuentes, mejor",understanding_problem,conversational_question,3
 212,2025-11-24T06:43:05.709Z,web-demo-logs-5425,solving,Est� encendida pero no responde,problem,"Dale, Carlos. Vamos a resolverlo paso a paso. 🔍 **Paso 1:** Fijate si la impresora tiene alguna l",solving,conversational_problem,5
 213,2025-11-24T06:43:07.727Z,web-demo-logs-5425,solving,�Qu� hago?,question,"¿Eso significa que funcionó o sigue sin andar? Decime ""sí funcionó"" o ""no, sigue igual"" para saber c",solving,conversational_question,3
+215,2025-12-05T18:53:52.764Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,28
+217,2025-12-05T18:54:17.213Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,14
+219,2025-12-05T18:54:17.743Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,15
+221,2025-12-05T18:54:18.273Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,8
+223,2025-12-05T18:54:18.810Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,10
+225,2025-12-05T18:54:18.832Z,N/A,ASK_LANGUAGE,BTN_LANG_ES_AR,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,12
+227,2025-12-05T18:54:18.850Z,N/A,ASK_LANGUAGE,Juan,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,9
+229,2025-12-05T18:54:18.866Z,N/A,ASK_LANGUAGE,BTN_PROBLEMA,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,8
+231,2025-12-05T18:54:18.884Z,N/A,ASK_LANGUAGE,La PC no enciende,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,9
+233,2025-12-05T18:54:18.901Z,N/A,ASK_LANGUAGE,BTN_DESKTOP,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,8
+235,2025-12-05T18:54:18.916Z,N/A,ASK_LANGUAGE,BTN_PERSIST,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,8
+237,2025-12-05T18:54:19.448Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,9
+239,2025-12-05T18:54:19.464Z,N/A,ASK_LANGUAGE,BTN_LANG_ES_AR,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,8
+241,2025-12-05T18:54:53.960Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,10
+243,2025-12-05T18:56:42.317Z,N/A,ASK_LANGUAGE,Hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,32
+245,2025-12-05T20:41:04.658Z,N/A,ASK_LANGUAGE,hola,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,23
+247,2025-12-05T20:41:04.690Z,N/A,ASK_LANGUAGE,BTN_LANG_ES_AR,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,7
+249,2025-12-05T20:42:10.792Z,N/A,ASK_LANGUAGE,Necesito ayuda con mi computadora,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,23
+251,2025-12-05T20:42:10.823Z,N/A,ASK_LANGUAGE,español,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,7
+253,2025-12-05T20:43:48.958Z,N/A,ASK_LANGUAGE,acepto,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,22
+255,2025-12-05T20:43:48.989Z,N/A,ASK_LANGUAGE,español,N/A,"Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?",ASK_LANGUAGE,modular_adapter,6

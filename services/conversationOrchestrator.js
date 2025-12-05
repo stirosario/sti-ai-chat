@@ -20,6 +20,138 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ========================================
+// CONFIGURACIONES DINÁMICAS (Auto-Learning)
+// ========================================
+let nlpConfig = null;
+let deviceConfig = null;
+let phrasesConfig = null;
+
+/**
+ * Cargar configuraciones JSON desde /config
+ */
+async function loadConfigurations() {
+  try {
+    const configDir = path.join(__dirname, '../config');
+    
+    // Cargar nlp-tuning.json
+    const nlpPath = path.join(configDir, 'nlp-tuning.json');
+    if (fs.existsSync(nlpPath)) {
+      const nlpContent = fs.readFileSync(nlpPath, 'utf8');
+      nlpConfig = JSON.parse(nlpContent);
+      console.log('[ORCHESTRATOR] ✅ nlp-tuning.json loaded');
+    }
+    
+    // Cargar device-detection.json
+    const devicePath = path.join(configDir, 'device-detection.json');
+    if (fs.existsSync(devicePath)) {
+      const deviceContent = fs.readFileSync(devicePath, 'utf8');
+      deviceConfig = JSON.parse(deviceContent);
+      console.log('[ORCHESTRATOR] ✅ device-detection.json loaded');
+    }
+    
+    // Cargar phrases-training.json
+    const phrasesPath = path.join(configDir, 'phrases-training.json');
+    if (fs.existsSync(phrasesPath)) {
+      const phrasesContent = fs.readFileSync(phrasesPath, 'utf8');
+      phrasesConfig = JSON.parse(phrasesContent);
+      console.log('[ORCHESTRATOR] ✅ phrases-training.json loaded');
+    }
+    
+  } catch (error) {
+    console.error('[ORCHESTRATOR] Error loading configurations:', error.message);
+  }
+}
+
+// Cargar configuraciones al iniciar
+await loadConfigurations();
+
+/**
+ * Recargar configuraciones (útil después de auto-learning)
+ */
+export async function reloadConfigurations() {
+  console.log('[ORCHESTRATOR] 🔄 Reloading configurations...');
+  await loadConfigurations();
+}
+
+/**
+ * Normalizar texto usando nlp-tuning.json
+ */
+function normalizeTextWithConfig(text) {
+  if (!text || !nlpConfig) return text;
+  
+  let normalized = text.toLowerCase();
+  
+  // Aplicar corrección de typos
+  if (nlpConfig.typos) {
+    for (const [typo, correct] of Object.entries(nlpConfig.typos)) {
+      const regex = new RegExp(`\\b${typo}\\b`, 'gi');
+      normalized = normalized.replace(regex, correct);
+    }
+  }
+  
+  // Expandir sinónimos (opcional)
+  // Aquí podrías expandir sinónimos para mejorar detección
+  
+  return normalized;
+}
+
+/**
+ * Detectar dispositivo usando device-detection.json
+ */
+function detectDeviceWithConfig(text) {
+  if (!text || !deviceConfig) return null;
+  
+  const normalized = text.toLowerCase();
+  
+  for (const [deviceType, deviceInfo] of Object.entries(deviceConfig.devices || {})) {
+    // Buscar keywords
+    if (deviceInfo.keywords) {
+      for (const keyword of deviceInfo.keywords) {
+        if (normalized.includes(keyword.toLowerCase())) {
+          return {
+            type: deviceType,
+            confidence: 'high',
+            keyword
+          };
+        }
+      }
+    }
+    
+    // Buscar patterns (regex)
+    if (deviceInfo.patterns) {
+      for (const pattern of deviceInfo.patterns) {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(text)) {
+          return {
+            type: deviceType,
+            confidence: 'high',
+            pattern
+          };
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Seleccionar frase empática basada en contexto
+ */
+function selectEmpathyPhrase(context = 'frustration') {
+  if (!phrasesConfig || !phrasesConfig.empathyResponses) {
+    return null;
+  }
+  
+  const phrases = phrasesConfig.empathyResponses[context];
+  if (!phrases || phrases.length === 0) return null;
+  
+  // Seleccionar frase con mayor score
+  const sorted = [...phrases].sort((a, b) => (b.score || 0) - (a.score || 0));
+  return sorted[0]?.text || null;
+}
+
 /**
  * ORCHESTRATE TURN
  * 
@@ -97,14 +229,31 @@ export async function orchestrateTurn({
     // 3b. Texto del usuario
     else if (userMessage) {
       console.log('[ORCHESTRATOR] Processing text message');
+      
+      // APLICAR NORMALIZACIÓN CON NLP CONFIG
+      const normalizedMessage = normalizeTextWithConfig(userMessage);
+      if (normalizedMessage !== userMessage) {
+        console.log('[ORCHESTRATOR] Text normalized:', userMessage, '=>', normalizedMessage);
+      }
+      
+      // DETECTAR DISPOSITIVO CON CONFIG
+      const detectedDevice = detectDeviceWithConfig(normalizedMessage);
+      if (detectedDevice) {
+        console.log('[ORCHESTRATOR] Device detected:', detectedDevice);
+        // Guardar en sesión para uso futuro
+        session.detectedDeviceFromConfig = detectedDevice;
+      }
+      
       const textHandler = getStageHandler(currentStage, 'onText');
       
       if (textHandler) {
         flowResult = textHandler({ 
-          text: userMessage, 
+          text: normalizedMessage, // Usar texto normalizado
+          originalText: userMessage, // Mantener original
           session, 
           smartAnalysis, 
-          imageAnalysis 
+          imageAnalysis,
+          detectedDevice // Pasar info de dispositivo
         });
       } else {
         console.warn('[ORCHESTRATOR] No text handler for stage:', currentStage);
