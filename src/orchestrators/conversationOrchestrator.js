@@ -132,8 +132,6 @@ const STATE_TRANSITIONS = {
     description: 'Conversación finalizada'
   }
 };
-  }
-};
 
 // ========== CLASE ORQUESTADOR ==========
 class ConversationOrchestrator {
