@@ -4243,6 +4243,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // ========================================================
     // 🏗️  MODULAR ARCHITECTURE TOGGLE
     // ========================================================
+    console.log('[DEBUG] USE_MODULAR_ARCHITECTURE:', USE_MODULAR_ARCHITECTURE);
+    console.log('[DEBUG] chatAdapter exists:', !!chatAdapter);
+    console.log('[DEBUG] chatAdapter.handleChatMessage exists:', !!(chatAdapter?.handleChatMessage));
+    
     if (USE_MODULAR_ARCHITECTURE && chatAdapter) {
       console.log('[MODULAR] 🔀 Redirigiendo a chatAdapter.handleChatMessage()');
       
@@ -4264,11 +4268,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         return res.json(modularResponse);
       } catch (modularError) {
         console.error('[MODULAR] ❌ Error en chatAdapter:', modularError);
+        console.error('[MODULAR] Stack:', modularError.stack);
         // Fallback a legacy
         console.log('[MODULAR] 🔄 Fallback a arquitectura legacy');
         updateMetric('errors', 'modular_fallback', 1);
         // Continuar con código legacy abajo
       }
+    } else {
+      console.log('[DEBUG] Usando legacy porque: USE_MODULAR=', USE_MODULAR_ARCHITECTURE, 'chatAdapter=', !!chatAdapter);
     }
     // ========================================================
     // 📦 LEGACY ARCHITECTURE (Código original continúa aquí)
