@@ -5848,10 +5848,71 @@ La guía debe ser:
       const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
       const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌|BTN_PERSIST)\b/i;
       const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico|BTN_CONNECT_TECH)\b/i;
+      const rxAdvanced = /^\s*(pruebas avanzadas|más pruebas|BTN_ADVANCED_TESTS|BTN_MORE_TESTS)\b/i;
       const rxShowSteps = /^\s*(volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
 
       if (rxShowSteps.test(t)) {
         return await generateAndShowSteps(session, sid, res);
+      }
+
+      // FIX: Atajo directo desde BASIC_TESTS a pruebas avanzadas
+      if (rxAdvanced.test(t) || buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
+        try {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const device = session.device || '';
+          let aiSteps = [];
+          try {
+            aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []);
+          } catch (e) { aiSteps = []; }
+          let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
+
+          // Filtrar resultados avanzados que ya estén en pasos básicos
+          session.tests = session.tests || {};
+          const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
+          const basicSet = new Set((basicList || []).map(normalizeStepText));
+          limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
+          limited = limited.slice(0, 4);
+
+          if (!limited || limited.length === 0) {
+            const noMore = isEn
+              ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
+              : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
+            session.stage = STATES.ESCALATE;
+            session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
+            await saveSession(sid, session);
+            return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
+          }
+
+          session.tests.advanced = limited;
+          session.stepProgress = session.stepProgress || {};
+          limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
+
+          const help = isEn
+            ? `💡 Try these more specific tests. If they don't work, I'll connect you with a technician.`
+            : `💡 Probá estas pruebas más específicas. Si no funcionan, te conecto con un técnico.`;
+
+          const formattedSteps = enumerateSteps(limited);
+          const stepBlock = formattedSteps.join('\n\n');
+          reply = `${help}\n\n**🔬 PRUEBAS AVANZADAS:**\n${stepBlock}\n\n`;
+
+          const prompt = isEn
+            ? `Did any of these tests solve the problem?`
+            : `¿Alguna de estas pruebas solucionó el problema?`;
+          reply += prompt;
+
+          session.stage = STATES.ADVANCED_TESTS;
+          options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
+
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+        } catch (err) {
+          console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
+          session.stage = STATES.ESCALATE;
+          await saveSession(sid, session);
+          return await createTicketAndRespond(session, sid, res);
+        }
       }
 
       if (rxYes.test(t) || buttonToken === 'BTN_SOLVED') {
