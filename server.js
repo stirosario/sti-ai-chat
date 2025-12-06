@@ -54,6 +54,20 @@ import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
 // ========================================================
+// 🧠 SISTEMA INTELIGENTE DE TECNOS
+// Motor de análisis de intención con OpenAI
+// Autor: STI AI Team | Fecha: 2025-12-06
+// ========================================================
+import { 
+  initializeIntelligentSystem, 
+  handleWithIntelligence,
+  setIntelligentMode,
+  getIntelligentSystemStatus
+} from './src/core/integrationPatch.js';
+
+console.log('[IMPORTS] ✅ Sistema inteligente importado');
+
+// ========================================================
 // MODULAR ARCHITECTURE (Feature Flag)
 // ========================================================
 const USE_MODULAR_ARCHITECTURE = process.env.USE_MODULAR_ARCHITECTURE === 'true';
@@ -171,6 +185,34 @@ if (!process.env.LOG_TOKEN) {
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
+
+// ========================================================
+// 🧠 INICIALIZAR SISTEMA INTELIGENTE DE TECNOS
+// ========================================================
+const USE_INTELLIGENT_MODE = process.env.USE_INTELLIGENT_MODE === 'true';
+console.log(`\n${'='.repeat(60)}`);
+console.log(`  🧠 SISTEMA INTELIGENTE DE TECNOS`);
+console.log(`${'='.repeat(60)}`);
+console.log(`  Estado: ${USE_INTELLIGENT_MODE ? '✅ ACTIVADO' : '⏭️ DESACTIVADO (usando legacy)'}`);
+console.log(`  OpenAI: ${process.env.OPENAI_API_KEY ? '✅ Disponible' : '⚠️ No disponible'}`);
+
+const intelligentSystemStatus = initializeIntelligentSystem(
+  process.env.OPENAI_API_KEY,
+  USE_INTELLIGENT_MODE
+);
+
+if (intelligentSystemStatus.enabled) {
+  console.log(`  Modo: 🚀 INTELIGENTE (análisis con OpenAI)`);
+  console.log(`  Features:`);
+  console.log(`    - ✅ Análisis de intención contextual`);
+  console.log(`    - ✅ Validación de acciones`);
+  console.log(`    - ✅ Respuestas dinámicas`);
+  console.log(`    - ✅ Prevención de saltos ilógicos`);
+} else {
+  console.log(`  Modo: 📚 LEGACY (stages rígidos)`);
+  console.log(`  Para activar: USE_INTELLIGENT_MODE=true en .env`);
+}
+console.log(`${'='.repeat(60)}\n`);
 
 // ========================================================
 // 🧠 MODO SUPER INTELIGENTE - AI-Powered Analysis
@@ -4754,6 +4796,63 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       });
     }
 
+    // ========================================================
+    // 🧠 SISTEMA INTELIGENTE - PROCESAMIENTO PRIORITARIO
+    // ========================================================
+    // Si el modo inteligente está activado y el mensaje lo requiere,
+    // procesamos con el motor de intención EN LUGAR de la lógica legacy.
+    //
+    // ¿Cuándo se activa?
+    // - Texto libre del usuario (no botones simples)
+    // - Botones problemáticos que requieren validación contextual
+    // - Mensajes ambiguos que necesitan análisis de intención
+    //
+    // ¿Qué hace?
+    // 1. Analiza la intención real con OpenAI
+    // 2. Valida que la acción sea coherente con el contexto
+    // 3. Genera respuesta dinámica apropiada
+    // 4. Propone opciones lógicas para el siguiente paso
+    //
+    // Si se procesa exitosamente, retorna la respuesta y TERMINA.
+    // Si no se activa o falla, continúa con la lógica legacy.
+    // ========================================================
+    
+    console.log('[api/chat] 🔍 Evaluando si usar sistema inteligente...');
+    
+    const intelligentResponse = await handleWithIntelligence(
+      req, 
+      res, 
+      session, 
+      t, 
+      buttonToken
+    );
+
+    if (intelligentResponse) {
+      // ✅ El sistema inteligente procesó exitosamente
+      console.log('[api/chat] ✅ Procesado con sistema inteligente');
+      console.log('[api/chat] 📊 Intent:', intelligentResponse.intentDetected);
+      console.log('[api/chat] 📊 Stage:', intelligentResponse.stage);
+      console.log('[api/chat] 📊 Options:', intelligentResponse.options?.length || 0);
+      
+      // Guardar sesión actualizada (con nuevo intent, stage, etc.)
+      await saveSessionAndTranscript(sid, session);
+      
+      // Log flow interaction
+      flowLogData.currentStage = intelligentResponse.stage || session.stage;
+      flowLogData.nextStage = intelligentResponse.stage;
+      flowLogData.botResponse = intelligentResponse.reply;
+      flowLogData.serverAction = 'intelligent_system';
+      flowLogData.duration = Date.now() - startTime;
+      logFlowInteraction(flowLogData);
+      
+      // Enviar respuesta al frontend
+      return res.json(intelligentResponse);
+    }
+
+    // ⏭️ Si llegó aquí, el sistema inteligente no se activó
+    // Continuar con la lógica legacy basada en stages
+    console.log('[api/chat] ⏭️ Sistema inteligente no se activó - procesando con legacy');
+    
     // ========================================================
     // 🏗️  MODULAR ARCHITECTURE TOGGLE
     // ========================================================
