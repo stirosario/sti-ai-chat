@@ -1269,6 +1269,111 @@ async function analyzeNameWithOA(nameText = '') {
 }
 
 // ========================================================
+// TRANSCRIPT JSON HELPER (for Codex analysis)
+// ========================================================
+
+/**
+ * Cambia el stage de una sesión y trackea la transición
+ * @param {object} session - Objeto de sesión
+ * @param {string} newStage - Nuevo stage
+ */
+function changeStage(session, newStage) {
+  if (!session) return;
+  
+  const oldStage = session.stage;
+  
+  // Solo trackear si hay un cambio real
+  if (oldStage && oldStage !== newStage) {
+    if (!session.stageTransitions) {
+      session.stageTransitions = [];
+    }
+    
+    session.stageTransitions.push({
+      from: oldStage,
+      to: newStage,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`[STAGE] 🔄 ${oldStage} → ${newStage}`);
+  }
+  
+  // Guardar stage inicial si no existe
+  if (!session.initialStage) {
+    session.initialStage = oldStage || newStage;
+  }
+  
+  session.stage = newStage;
+}
+
+/**
+ * Guarda transcript de sesión en formato JSON para análisis por Codex
+ * @param {string} sessionId - ID de la sesión
+ * @param {object} session - Objeto de sesión completo
+ */
+function saveTranscriptJSON(sessionId, session) {
+  try {
+    const transcriptData = {
+      sessionId: sessionId,
+      timestamp: new Date().toISOString(),
+      device: session.device || 'unknown',
+      initialStage: session.initialStage || session.stage || 'greeting',
+      finalStage: session.stage || 'unknown',
+      messages: [],
+      nlpAnalysis: {
+        intent: session.intent || 'unknown',
+        device: session.device || 'unknown',
+        urgency: session.urgency || 'normal',
+        confidence: session.confidence || 0
+      },
+      stageTransitions: session.stageTransitions || [],
+      visionAnalysis: session.visionAnalysis || null
+    };
+
+    // Convertir transcript a formato de mensajes
+    if (session.transcript && Array.isArray(session.transcript)) {
+      transcriptData.messages = session.transcript.map(entry => ({
+        sender: entry.who === 'user' ? 'user' : 'bot',
+        role: entry.who === 'user' ? 'user' : 'assistant',
+        text: entry.text || '',
+        content: entry.text || '',
+        timestamp: entry.ts || new Date().toISOString(),
+        stage: entry.stage || session.stage,
+        error: entry.error || false
+      }));
+    }
+
+    // Agregar transiciones de stage si no existen
+    if (!transcriptData.stageTransitions || transcriptData.stageTransitions.length === 0) {
+      // Intentar reconstruir desde los mensajes
+      const stages = new Set();
+      session.transcript?.forEach(entry => {
+        if (entry.stage) stages.add(entry.stage);
+      });
+      
+      if (stages.size > 1) {
+        const stagesArray = Array.from(stages);
+        transcriptData.stageTransitions = stagesArray.slice(0, -1).map((stage, idx) => ({
+          from: stage,
+          to: stagesArray[idx + 1],
+          timestamp: new Date().toISOString()
+        }));
+      }
+    }
+
+    // Guardar archivo JSON
+    const jsonPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.json`);
+    fs.writeFileSync(jsonPath, JSON.stringify(transcriptData, null, 2), 'utf8');
+    
+    console.log(`[TRANSCRIPT] 💾 JSON saved for Codex: ${sessionId}.json`);
+    
+    return true;
+  } catch (error) {
+    console.error(`[TRANSCRIPT] ❌ Error saving JSON for ${sessionId}:`, error.message);
+    return false;
+  }
+}
+
+// ========================================================
 // OpenAI problem/steps helpers
 // ========================================================
 
@@ -4750,7 +4855,7 @@ Respondé con una explicación clara y útil para el usuario.`
     // Guardar mensaje del usuario en el transcript (UNA VEZ, al inicio)
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
-    session.transcript.push({ who: 'user', text: userMsg, ts: userTs });
+    session.transcript.push({ who: 'user', text: userMsg, ts: userTs, stage: session.stage });
 
     // ========================================================
     // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
@@ -6402,7 +6507,7 @@ La guía debe ser:
 
     // Save bot reply + persist transcripts to file (single ts pair)
     const pairTs = nowIso();
-    session.transcript.push({ who: 'bot', text: reply, ts: pairTs });
+    session.transcript.push({ who: 'bot', text: reply, ts: pairTs, stage: session.stage });
     await saveSession(sid, session);
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
@@ -6410,6 +6515,9 @@ La guía debe ser:
       const botLine = `[${pairTs}] ASSISTANT: ${reply}\n`;
       fs.appendFile(tf, userLine, () => { });
       fs.appendFile(tf, botLine, () => { });
+      
+      // Guardar también en formato JSON para Codex
+      saveTranscriptJSON(sid, session);
     } catch (e) { /* noop */ }
 
     const response = withOptions({ ok: true, reply, sid, stage: session.stage });
