@@ -99,6 +99,14 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
         return null;
       }
       
+      // ✅ Si estamos en ASK_NEED, SIEMPRE procesar con sistema inteligente
+      // (no devolver null incluso si confidence es baja)
+      if (session.stage === 'ASK_NEED') {
+        console.log('[IntelligentChat] 🎯 En ASK_NEED - procesando aunque confidence sea baja');
+        // Continuar con el análisis - NO devolver null ni pedir aclaración genérica
+        // El sistema inteligente puede manejar intenciones ambiguas mejor que un mensaje genérico
+      }
+      
       const clarificationMsg = isEnglish
         ? `I want to help you, but I need to understand better what you need. Could you tell me:\n\n• Are you having a problem with something that's not working?\n• Do you want to install or configure something?\n• Do you have a question about how to do something?\n\nThe more details you give me, the better I can help you! 😊`
         : `Quiero ayudarte, pero necesito entender mejor qué necesitás. ¿Podrías contarme:\n\n• ¿Tenés un problema con algo que no funciona?\n• ¿Querés instalar o configurar algo?\n• ¿Tenés una pregunta sobre cómo hacer algo?\n\n¡Cuantos más detalles me des, mejor voy a poder ayudarte! 😊`;

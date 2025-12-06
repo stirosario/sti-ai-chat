@@ -67,15 +67,23 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
-  // Verificar si debe usar modo inteligente para este mensaje específico
-  const shouldUse = shouldUseIntelligentMode(userMessage, buttonToken, session);
-  
-  if (!shouldUse) {
-    console.log('[IntelligentSystem] ⏭️ Mensaje simple - usando legacy');
-    return null; // Usar lógica legacy
-  }
+  // ✅ FORZAR MODO INTELIGENTE si estamos en ASK_NEED (después de nombre)
+  // Esto asegura que TODO mensaje después del nombre sea procesado inteligentemente
+  if (session.stage === 'ASK_NEED') {
+    console.log('[IntelligentSystem] 🎯 Stage ASK_NEED detectado - FORZANDO modo inteligente');
+    console.log('[IntelligentSystem] 🧠 Procesando con sistema inteligente (sin verificar shouldUse)...');
+    // NO verificar shouldUse - siempre usar inteligente después del nombre
+  } else {
+    // Para otros stages, verificar si debe usar modo inteligente
+    const shouldUse = shouldUseIntelligentMode(userMessage, buttonToken, session);
+    
+    if (!shouldUse) {
+      console.log('[IntelligentSystem] ⏭️ Mensaje simple - usando legacy');
+      return null; // Usar lógica legacy
+    }
 
-  console.log('[IntelligentSystem] 🧠 Procesando con sistema inteligente...');
+    console.log('[IntelligentSystem] 🧠 Procesando con sistema inteligente...');
+  }
 
   try {
     const locale = session.userLocale || 'es-AR';

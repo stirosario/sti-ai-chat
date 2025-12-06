@@ -1017,10 +1017,14 @@ const EMBEDDED_CHAT = {
       // ✅ LÍNEA ELIMINADA: BTN_NO_NAME ya no se usa
 
       // ========================================================
-      // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
+      // ✅ BOTONES LEGACY DESHABILITADOS - Sistema inteligente maneja intenciones
       // ========================================================
-      { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
-      { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
+      // Estos botones fueron parte del sistema legacy que obligaba al usuario a
+      // elegir entre "Problema" o "Consulta". Ahora el sistema inteligente analiza
+      // automáticamente la intención del usuario sin necesidad de categorización manual.
+      //
+      // { token: 'BTN_PROBLEMA', label: '🔧 Solucionar / Diagnosticar Problema', text: 'tengo un problema' },
+      // { token: 'BTN_CONSULTA', label: '💡 Consulta / Asistencia Informática', text: 'tengo una consulta' },
       // ========================================================
 
       { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
@@ -5544,8 +5548,25 @@ Respondé con una explicación clara y útil para el usuario.`
     //   - Handlers de cada needType (líneas posteriores)
     // No modificar sin implementar lógica para nuevos tipos.
     // ============================================
-    // ASK_NAME consolidated: validate locally and with OpenAI if available
-    if (session.stage === STATES.ASK_NEED) {
+    
+    // ========================================================
+    // ✅ BLOQUE LEGACY DESHABILITADO - ASK_NEED manejado por sistema inteligente
+    // ========================================================
+    // Este bloque ha sido DESHABILITADO como parte de la unificación del sistema.
+    // Ahora TODO el flujo después de ASK_NAME es manejado por el sistema inteligente
+    // (handleWithIntelligence) que analiza automáticamente la intención del usuario
+    // sin necesidad de botones BTN_PROBLEMA/BTN_CONSULTA.
+    //
+    // 📅 Deshabilitado: 06/12/2025
+    // 🎯 Razón: Unificación completa con sistema inteligente
+    // 🔄 Alternativa: Ver handleWithIntelligence() en línea ~4826
+    //
+    // CÓDIGO LEGACY MANTENIDO PARA REFERENCIA HISTÓRICA:
+    // ========================================================
+    if (false && session.stage === STATES.ASK_NEED) {
+      // ⚠️ ESTE CÓDIGO NUNCA SE EJECUTA (envuelto en if(false))
+      console.log('[ASK_NEED] ⚠️ LEGACY CODE - Este bloque no debería ejecutarse');
+      console.log('[ASK_NEED] ⚠️ Si ves este log, hay un problema en la configuración del sistema inteligente');
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       const tLower = t.toLowerCase();
@@ -5708,24 +5729,12 @@ Respondé con una explicación clara y útil para el usuario.`
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
         
+        // ✅ SIN BOTONES - El siguiente mensaje será procesado por el sistema inteligente
         return res.json({
           ok: true,
           reply,
-          stage: session.stage,
-          buttons: [
-            {
-              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
-              value: 'BTN_PROBLEMA',
-              description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
-              example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
-            },
-            {
-              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
-              value: 'BTN_CONSULTA',
-              description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
-              example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
-            }
-          ]
+          stage: session.stage
+          // ✅ BOTONES ELIMINADOS - Sistema inteligente maneja el siguiente mensaje automáticamente
         });
       }
 
@@ -5744,7 +5753,8 @@ Respondé con una explicación clara y útil para el usuario.`
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+        // ✅ SIN BOTONES - El siguiente mensaje será procesado por el sistema inteligente
+        return res.json({ ok: true, reply, stage: session.stage });
       }
 
       // ✅ CÓDIGO ELIMINADO - Ya no aceptamos "Prefiero no decirlo"
