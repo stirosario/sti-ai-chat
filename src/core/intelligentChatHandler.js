@@ -8,7 +8,7 @@
  * @date 2025-12-06
  */
 
-import { analyzeIntent, validateActionInContext, INTENT_TYPES } from './intentEngine.js';
+import { analyzeIntent, validateActionInContext, INTENT_TYPES, detectOS, detectBrand, detectDeviceType } from './intentEngine.js';
 import { generateSmartResponse } from './smartResponseGenerator.js';
 
 /**
@@ -278,43 +278,43 @@ function updateSessionContext(session, intentAnalysis, userMessage) {
   }
 
   // Guardar tipo de dispositivo si fue detectado
-  if (intentAnalysis.deviceType) {
-    session.device = session.device || intentAnalysis.deviceType;
+  if (!session.device && intentAnalysis.deviceType) {
+    session.device = intentAnalysis.deviceType;
   }
   
   // Guardar sistema operativo si fue detectado
-  if (intentAnalysis.operatingSystem) {
-    session.operatingSystem = session.operatingSystem || intentAnalysis.operatingSystem;
+  if (!session.operatingSystem && intentAnalysis.operatingSystem) {
+    session.operatingSystem = intentAnalysis.operatingSystem;
     console.log('[IntelligentChat] 💾 OS guardado:', session.operatingSystem);
   }
   
   // Guardar marca si fue detectada
-  if (intentAnalysis.deviceBrand) {
-    session.deviceBrand = session.deviceBrand || intentAnalysis.deviceBrand;
+  if (!session.deviceBrand && intentAnalysis.deviceBrand) {
+    session.deviceBrand = intentAnalysis.deviceBrand;
     console.log('[IntelligentChat] 💾 Marca guardada:', session.deviceBrand);
   }
   
   // ✅ Si es respuesta auxiliar, actualizar activeIntent con datos auxiliares
   if (intentAnalysis.isAuxiliaryResponse && intentAnalysis.auxiliaryData) {
-    // Detectar tipo de dato auxiliar y guardarlo apropiadamente
-    const aux = intentAnalysis.auxiliaryData.toLowerCase();
+    const aux = intentAnalysis.auxiliaryData;
     
-    // Sistema operativo
-    if (/windows|mac|linux|android|ios/i.test(aux)) {
-      session.operatingSystem = aux;
-      console.log('[IntelligentChat] 💾 Sistema operativo guardado:', aux);
+    // Usar detectores centralizados
+    const detectedOS = detectOS(aux);
+    if (detectedOS && !session.operatingSystem) {
+      session.operatingSystem = detectedOS;
+      console.log('[IntelligentChat] 💾 Sistema operativo guardado:', detectedOS);
     }
     
-    // Tipo de dispositivo
-    if (/notebook|laptop|pc|desktop|impresora|router/i.test(aux)) {
-      session.device = aux;
-      console.log('[IntelligentChat] 💾 Tipo de dispositivo guardado:', aux);
+    const detectedDevice = detectDeviceType(aux);
+    if (detectedDevice && !session.device) {
+      session.device = detectedDevice;
+      console.log('[IntelligentChat] 💾 Tipo de dispositivo guardado:', detectedDevice);
     }
     
-    // Marca
-    if (/hp|dell|lenovo|asus|acer|samsung|apple/i.test(aux)) {
-      session.deviceBrand = aux;
-      console.log('[IntelligentChat] 💾 Marca guardada:', aux);
+    const detectedBrand = detectBrand(aux);
+    if (detectedBrand && !session.deviceBrand) {
+      session.deviceBrand = detectedBrand;
+      console.log('[IntelligentChat] 💾 Marca guardada:', detectedBrand);
     }
   }
 

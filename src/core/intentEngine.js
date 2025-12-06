@@ -387,11 +387,21 @@ function buildUserPrompt(userMessage, context, isEnglish) {
  */
 function detectOS(message) {
   const msg = message.toLowerCase();
-  if (/windows\s*(11|10|8|7)?/i.test(msg)) return msg.match(/windows\s*(11|10|8|7)?/i)[0];
-  if (/mac\s*os|macos/i.test(msg)) return 'macOS';
-  if (/linux|ubuntu|debian/i.test(msg)) return msg.match(/linux|ubuntu|debian/i)[0];
-  if (/android/i.test(msg)) return 'Android';
-  if (/ios|iphone|ipad/i.test(msg)) return 'iOS';
+
+  if (/windows\s*11/.test(msg)) return 'Windows 11';
+  if (/windows\s*10/.test(msg)) return 'Windows 10';
+  if (/win\s*11/.test(msg)) return 'Windows 11';
+  if (/win\s*10/.test(msg)) return 'Windows 10';
+  if (/windows/.test(msg)) return 'Windows';
+
+  if (/mac\s*os|macos/.test(msg)) return 'macOS';
+  if (/\bmac\b/.test(msg)) return 'macOS';
+
+  if (/linux|ubuntu|debian/.test(msg)) return 'Linux';
+
+  if (/android/.test(msg)) return 'Android';
+  if (/ios|iphone|ipad/.test(msg)) return 'iOS';
+
   return null;
 }
 
@@ -409,6 +419,26 @@ function detectBrand(message) {
   if (/apple/i.test(msg)) return 'Apple';
   if (/toshiba/i.test(msg)) return 'Toshiba';
   if (/sony/i.test(msg)) return 'Sony';
+  if (/msi/i.test(msg)) return 'MSI';
+  if (/gigabyte/i.test(msg)) return 'Gigabyte';
+  if (/huawei/i.test(msg)) return 'Huawei';
+  if (/xiaomi/i.test(msg)) return 'Xiaomi';
+  return null;
+}
+
+/**
+ * 🔍 Detecta el tipo de dispositivo mencionado
+ */
+function detectDeviceType(message) {
+  const msg = message.toLowerCase();
+
+  if (/notebook|laptop/.test(msg)) return 'notebook';
+  if (/all[\s-]?in[\s-]?one/.test(msg)) return 'all-in-one';
+  if (/pc de escritorio|desktop/.test(msg)) return 'pc';
+  if (/\bpc\b/.test(msg)) return 'pc';
+  if (/impresora|printer/.test(msg)) return 'impresora';
+  if (/router|modem/.test(msg)) return 'router';
+
   return null;
 }
 
@@ -487,5 +517,8 @@ export default {
   analyzeIntent,
   validateActionInContext,
   INTENT_TYPES,
-  ACTION_CONTEXTS
+  ACTION_CONTEXTS,
+  detectOS,
+  detectBrand,
+  detectDeviceType
 };

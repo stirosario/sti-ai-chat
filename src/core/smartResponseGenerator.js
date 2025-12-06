@@ -230,7 +230,7 @@ Generá instrucciones completas de instalación para esta solicitud en ${osInfo}
     const reply = response.choices[0].message.content.trim();
 
     return {
-      reply,
+      reply: reply + '\n\n— Tecnos de STI 🛠️',
       options: [{
         text: isEnglish ? '✅ It worked!' : '✅ ¡Funcionó!',
         value: 'BTN_SUCCESS',
