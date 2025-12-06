@@ -1487,6 +1487,17 @@ function saveTranscriptJSON(sessionId, session) {
   }
 }
 
+/**
+ * Helper function: Save session to Redis AND save transcript JSON files
+ * Combines saveSession() + saveTranscriptJSON() to ensure files are always created
+ * @param {string} sessionId - Session ID
+ * @param {object} sessionData - Complete session object
+ */
+async function saveSessionAndTranscript(sessionId, sessionData) {
+  await saveSession(sessionId, sessionData);
+  saveTranscriptJSON(sessionId, sessionData);
+}
+
 // ========================================================
 // OpenAI problem/steps helpers
 // ========================================================
@@ -5265,8 +5276,7 @@ Respondé con una explicación clara y útil para el usuario.`
         // Mostrar selección de idioma CON ID de conversación
         const reply = `🆔 **${sid}**\n\n✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
-        await saveSession(sid, session);
-        saveTranscriptJSON(sid, session); // Guardar JSON
+        await saveSessionAndTranscript(sid, session);
 
         return res.json({
           ok: true,
@@ -5283,8 +5293,7 @@ Respondé con una explicación clara y útil para el usuario.`
       if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
         const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        saveTranscriptJSON(sid, session); // Guardar JSON
+        await saveSessionAndTranscript(sid, session);
 
         return res.json({
           ok: true,
@@ -5301,8 +5310,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
           const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          saveTranscriptJSON(sid, session); // Guardar JSON
+          await saveSessionAndTranscript(sid, session);
 
           return res.json({
             ok: true,
@@ -5320,8 +5328,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
           const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
-          saveTranscriptJSON(sid, session); // Guardar JSON
+          await saveSessionAndTranscript(sid, session);
 
           return res.json({
             ok: true,
@@ -5337,8 +5344,7 @@ Respondé con una explicación clara y útil para el usuario.`
       // Si no se reconoce la respuesta, re-mostrar opciones
       const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
       session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-      await saveSession(sid, session);
-      saveTranscriptJSON(sid, session); // Guardar JSON
+      await saveSessionAndTranscript(sid, session);
 
       return res.json({
         ok: true,
@@ -5463,7 +5469,7 @@ Respondé con una explicación clara y útil para el usuario.`
         }
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else {
         // No entendió la necesidad, pedir de nuevo
@@ -5473,7 +5479,7 @@ Respondé con una explicación clara y útil para el usuario.`
             ? "Por favor, selecciona una de las opciones usando los botones."
             : "Por favor, seleccioná una de las opciones usando los botones.");
         session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
       }
     }
