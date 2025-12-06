@@ -7165,33 +7165,56 @@ La guía debe ser:
         (session.activeIntent && session.activeIntent.type === 'INSTALLATION_HELP');
       
       if (isInstallationContext) {
-        // Usar flujo de instalación con fallback dinámico
-        console.log('[FALLBACK] 🔧 Contexto de instalación detectado - usando flujo de instalación');
+        // 🔧 DETECCIÓN CRÍTICA: Intentar detectar OS en el mensaje del usuario
+        let detectedOS = null;
+        const msgLower = t.toLowerCase().trim();
         
-        const installationContext = {
-          os: session.operatingSystem || 'tu sistema operativo',
-          device: session.device || 'tu dispositivo',
-          brand: session.deviceBrand || null,
-          originalMessage: session.lastUserMessage || t
-        };
-        
-        reply = isEn
-          ? `I'll help you with the installation. Let me guide you through the specific steps for your system.`
-          : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.`;
-        
-        // Si tenemos información del OS, agregar más contexto
-        if (session.operatingSystem) {
-          reply += isEn
-            ? `\n\nYou're using ${session.operatingSystem}. Here are the steps:`
-            : `\n\nEstás usando ${session.operatingSystem}. Acá van los pasos:`;
+        // Detectar variantes de Windows
+        if (/(windows\s*11|win\s*11|w11|win11)/.test(msgLower)) {
+          detectedOS = 'Windows 11';
+        } else if (/(windows\s*10|win\s*10|w10|win10)/.test(msgLower)) {
+          detectedOS = 'Windows 10';
+        } else if (/(windows\s*8|win\s*8|w8)/.test(msgLower)) {
+          detectedOS = 'Windows 8';
+        } else if (/(windows\s*7|win\s*7|w7)/.test(msgLower)) {
+          detectedOS = 'Windows 7';
+        } else if (/windows/.test(msgLower)) {
+          detectedOS = 'Windows';
+        } else if (/mac\s*os|macos/.test(msgLower)) {
+          detectedOS = 'macOS';
+        } else if (/\bmac\b/.test(msgLower)) {
+          detectedOS = 'macOS';
+        } else if (/linux|ubuntu|debian/.test(msgLower)) {
+          detectedOS = 'Linux';
         }
         
-        // Agregar pasos básicos de instalación
-        reply += isEn
-          ? `\n\n1. Download the installer from the official website\n2. Run the downloaded file\n3. Follow the installation wizard\n4. Restart if needed\n\nDo you need help with any specific step?`
-          : `\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado\n3. Seguí el asistente de instalación\n4. Reiniciá si es necesario\n\n¿Necesitás ayuda con algún paso específico?`;
-        
-        options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+        // Si detectamos OS, guardarlo y generar guía específica
+        if (detectedOS) {
+          session.operatingSystem = detectedOS;
+          console.log('[FALLBACK] ✅ OS detectado en mensaje:', detectedOS);
+          
+          // Obtener el software que quiere instalar del intent activo o problema
+          const softwareName = session.activeIntent?.software || 
+                              session.problem || 
+                              session.activeIntent?.originalMessage || 
+                              'el software';
+          
+          // Generar guía de instalación específica
+          reply = isEn
+            ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
+            : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?\n\n— Soy Tecnos, de STI — Servicio Técnico Inteligente 🛠️`;
+          
+          options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+        } else {
+          // No se detectó OS - respuesta genérica pidiendo aclaración
+          console.log('[FALLBACK] 🔧 Contexto de instalación detectado pero sin OS claro - pidiendo aclaración');
+          
+          reply = isEn
+            ? `I'll help you with the installation. Let me guide you through the specific steps for your system.\n\nWhat operating system are you using? (e.g., Windows 10, Windows 11, macOS, Linux)`
+            : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.\n\n¿Qué sistema operativo estás usando? (ej: Windows 10, Windows 11, macOS, Linux)`;
+          
+          options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+        }
       } else {
         // Comportamiento original para otros contextos
         reply = isEn
