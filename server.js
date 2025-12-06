@@ -4933,8 +4933,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.log('[api/chat] 📊 Stage:', intelligentResponse.stage);
       console.log('[api/chat] 📊 Options:', intelligentResponse.options?.length || 0);
       
-      // Registrar respuesta del bot en transcript
-      await registerBotResponse(session, intelligentResponse.reply, intelligentResponse.stage || session.stage);
+      // NOTA: No registrar aquí - integrationPatch.js ya registró la respuesta en el transcript
       
       // Guardar sesión actualizada (con nuevo intent, stage, etc.)
       await saveSessionAndTranscript(sid, session);
