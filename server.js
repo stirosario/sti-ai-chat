@@ -1365,7 +1365,14 @@ function changeStage(session, newStage) {
  * @param {object} session - Objeto de sesión completo
  */
 function saveTranscriptJSON(sessionId, session) {
+  if (!sessionId || !session) {
+    console.error('[TRANSCRIPT] ❌ Missing sessionId or session data');
+    return false;
+  }
+  
   try {
+    console.log(`[TRANSCRIPT] 💾 Starting save for session: ${sessionId}`);
+    
     const transcriptData = {
       sessionId: sessionId,
       timestamp: new Date().toISOString(),
@@ -1416,7 +1423,9 @@ function saveTranscriptJSON(sessionId, session) {
 
     // Guardar archivo JSON en transcripts (para Codex)
     const jsonPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.json`);
+    console.log(`[TRANSCRIPT] Saving to transcripts: ${jsonPath}`);
     fs.writeFileSync(jsonPath, JSON.stringify(transcriptData, null, 2), 'utf8');
+    console.log(`[TRANSCRIPT] ✅ Codex JSON saved successfully`);
     
     // ========================================================
     // HISTORIAL_CHAT: Guardar conversación legible para análisis manual
@@ -1462,6 +1471,7 @@ function saveTranscriptJSON(sessionId, session) {
 
     // Guardar en historial_chat con formato legible
     const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
+    console.log(`[HISTORIAL] Saving to historial_chat: ${historialPath}`);
     fs.writeFileSync(historialPath, JSON.stringify(historialData, null, 2), 'utf8');
     
     console.log(`[HISTORIAL] 💾 Conversación guardada: ID ${sessionId} (${historialData.conversacion.length} mensajes)`);
