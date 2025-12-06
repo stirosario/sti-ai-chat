@@ -6675,9 +6675,11 @@ La guía debe ser:
       fs.appendFile(tf, userLine, () => { });
       fs.appendFile(tf, botLine, () => { });
       
-      // Guardar también en formato JSON para Codex
+      // Guardar también en formato JSON para Codex y historial_chat
       saveTranscriptJSON(sid, session);
-    } catch (e) { /* noop */ }
+    } catch (e) { 
+      console.error('[TRANSCRIPT] ❌ Error guardando transcript:', e.message);
+    }
 
     const response = withOptions({ ok: true, reply, sid, stage: session.stage });
     if (typeof endConversation !== 'undefined' && endConversation) {
