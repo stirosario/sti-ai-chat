@@ -6501,7 +6501,7 @@ La guía debe ser:
         options = [];
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
 
       } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
@@ -6517,7 +6517,7 @@ La guía debe ser:
         session.stage = STATES.ESCALATE;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
