@@ -873,6 +873,29 @@ const nowIso = () => new Date().toISOString();
 
 const withOptions = obj => ({ options: [], ...obj });
 
+/**
+ * Helper para registrar respuestas del bot en el transcript
+ * @param {object} session - Sesión actual
+ * @param {string} reply - Texto de respuesta del bot
+ * @param {string} stage - Stage actual o resultante
+ */
+async function registerBotResponse(session, reply, stage) {
+  if (!session.transcript) {
+    session.transcript = [];
+  }
+  
+  const botTimestamp = nowIso();
+  
+  session.transcript.push({
+    who: 'bot',
+    text: reply,
+    stage: stage || session.stage,
+    ts: botTimestamp
+  });
+  
+  console.log('[TRANSCRIPT] 🤖 Respuesta del bot registrada:', reply.substring(0, 50));
+}
+
 // maskPII ya está importado desde flowLogger.js (línea 52)
 
 // ========================================================
@@ -4848,6 +4871,31 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     // ========================================================
+    // 📝 REGISTRO UNIVERSAL DEL MENSAJE DEL USUARIO
+    // ========================================================
+    // Registrar SIEMPRE el mensaje del usuario en el transcript
+    // ANTES de cualquier procesamiento (inteligente, modular, legacy)
+    const userTimestamp = nowIso();
+    const userMessage = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
+    
+    console.log('[TRANSCRIPT] 📝 Registrando mensaje del usuario:', userMessage.substring(0, 50));
+    
+    if (!session.transcript) {
+      session.transcript = [];
+    }
+    
+    session.transcript.push({
+      who: 'user',
+      text: userMessage,
+      stage: session.stage,
+      ts: userTimestamp
+    });
+    
+    // Guardar inmediatamente el mensaje del usuario
+    await saveSessionAndTranscript(sid, session);
+    console.log('[TRANSCRIPT] ✅ Mensaje del usuario guardado en transcript');
+
+    // ========================================================
     // 🧠 SISTEMA INTELIGENTE - PROCESAMIENTO PRIORITARIO
     // ========================================================
     // Si el modo inteligente está activado y el mensaje lo requiere,
@@ -4885,6 +4933,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.log('[api/chat] 📊 Stage:', intelligentResponse.stage);
       console.log('[api/chat] 📊 Options:', intelligentResponse.options?.length || 0);
       
+      // Registrar respuesta del bot en transcript
+      await registerBotResponse(session, intelligentResponse.reply, intelligentResponse.stage || session.stage);
+      
       // Guardar sesión actualizada (con nuevo intent, stage, etc.)
       await saveSessionAndTranscript(sid, session);
       
@@ -4916,6 +4967,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       
       try {
         const modularResponse = await chatAdapter.handleChatMessage(body, sid);
+        
+        // Registrar respuesta del bot en transcript
+        await registerBotResponse(session, modularResponse.reply, modularResponse.stage || session.stage);
+        await saveSessionAndTranscript(sid, session);
         
         // Log flow interaction
         flowLogData.currentStage = modularResponse.stage || session.stage;
@@ -5225,11 +5280,6 @@ Respondé con una explicación clara y útil para el usuario.`
         options: optsFr
       }));
     }
-
-    // Guardar mensaje del usuario en el transcript (UNA VEZ, al inicio)
-    const userTs = nowIso();
-    const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
-    session.transcript.push({ who: 'user', text: userMsg, ts: userTs, stage: session.stage });
 
     // ========================================================
     // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
