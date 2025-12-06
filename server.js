@@ -5018,6 +5018,8 @@ Respondé con una explicación clara y útil para el usuario.`
       } catch (errCT) {
         console.error('[CONFIRM_TICKET]', errCT && errCT.message);
         const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
+        session.transcript.push({ who: 'bot', text: failReply, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
       }
     }
@@ -7032,11 +7034,12 @@ La guía debe ser:
 
     // Intentar obtener locale de la request o usar default
     let locale = 'es-AR';
+    let session = null;
     try {
       const sid = req.sessionId;
-      const existingSession = await getSession(sid);
-      if (existingSession && existingSession.userLocale) {
-        locale = existingSession.userLocale;
+      session = await getSession(sid);
+      if (session && session.userLocale) {
+        locale = session.userLocale;
       }
     } catch (errLocale) {
       // Si falla, usar el default
@@ -7046,6 +7049,19 @@ La guía debe ser:
     const errorMsg = isEn
       ? '😅 I had a momentary problem. Please try again.'
       : '😅 Tuve un problema momentáneo. Probá de nuevo.';
+    
+    // 🔥 CRÍTICO: Guardar mensaje de error en transcript para que aparezca en historial
+    if (session && req.sessionId) {
+      try {
+        session.transcript = session.transcript || [];
+        session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
+        await saveSessionAndTranscript(req.sessionId, session);
+        console.log('[api/chat] ✅ Mensaje de error guardado en transcript:', req.sessionId);
+      } catch (saveErr) {
+        console.error('[api/chat] ⚠️ No se pudo guardar mensaje de error en transcript:', saveErr.message);
+      }
+    }
+    
     return res.status(200).json(withOptions({ ok: true, reply: errorMsg }));
   }
 });
