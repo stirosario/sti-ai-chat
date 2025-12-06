@@ -896,6 +896,75 @@ async function registerBotResponse(session, reply, stage) {
   console.log('[TRANSCRIPT] 🤖 Respuesta del bot registrada:', reply.substring(0, 50));
 }
 
+/**
+ * 🔧 Handler especializado para GUIDING_INSTALLATION
+ * Detecta OS en el mensaje del usuario y genera guía de instalación
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} userMessage - Mensaje del usuario
+ * @param {object} activeIntent - Intent activo (opcional)
+ * @param {string} locale - Locale del usuario
+ * @returns {object|null} - { reply, options } o null si no pudo manejar
+ */
+function handleGuidingInstallationOSReply(session, userMessage, activeIntent, locale = 'es-AR') {
+  const isEn = String(locale).toLowerCase().startsWith('en');
+  const msgLower = userMessage.toLowerCase().trim();
+  
+  // 🔍 DETECCIÓN DE SISTEMA OPERATIVO (con todas las variantes)
+  let detectedOS = null;
+  
+  // Detectar variantes de Windows (incluir mayúsculas)
+  if (/(windows\s*11|win\s*11|w11|win11)/i.test(userMessage)) {
+    detectedOS = 'Windows 11';
+  } else if (/(windows\s*10|win\s*10|w10|win10)/i.test(userMessage)) {
+    detectedOS = 'Windows 10';
+  } else if (/(windows\s*8|win\s*8|w8|win8)/i.test(userMessage)) {
+    detectedOS = 'Windows 8';
+  } else if (/(windows\s*7|win\s*7|w7|win7)/i.test(userMessage)) {
+    detectedOS = 'Windows 7';
+  } else if (/windows/i.test(userMessage)) {
+    detectedOS = 'Windows';
+  } else if (/mac\s*os|macos/i.test(userMessage)) {
+    detectedOS = 'macOS';
+  } else if (/\bmac\b/i.test(userMessage)) {
+    detectedOS = 'macOS';
+  } else if (/linux|ubuntu|debian/i.test(userMessage)) {
+    detectedOS = 'Linux';
+  }
+  
+  // Si detectamos OS válido, generar guía de instalación
+  if (detectedOS) {
+    session.operatingSystem = detectedOS;
+    console.log('[GUIDING_INSTALLATION] ✅ OS detectado:', detectedOS, '(mensaje:', userMessage, ')');
+    
+    // Obtener el software que quiere instalar
+    const softwareName = activeIntent?.software || 
+                        activeIntent?.originalMessage || 
+                        session.problem || 
+                        'el software que necesitás';
+    
+    // Generar guía de instalación específica
+    const reply = isEn
+      ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
+      : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?\n\n— Soy Tecnos, de STI — Servicio Técnico Inteligente 🛠️`;
+    
+    const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+    
+    return { reply, options };
+  }
+  
+  // No se detectó OS válido - pedir aclaración (NO fallback genérico)
+  console.log('[GUIDING_INSTALLATION] ⚠️ No se detectó OS en:', userMessage);
+  
+  const reply = isEn
+    ? `I'll help you with the installation. Let me guide you through the specific steps for your system.\n\nWhat operating system are you using? (e.g., Windows 10, Windows 11, macOS, Linux)`
+    : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.\n\n¿Qué sistema operativo estás usando? (ej: Windows 10, Windows 11, macOS, Linux)`;
+  
+  const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+  
+  return { reply, options };
+}
+
 // maskPII ya está importado desde flowLogger.js (línea 52)
 
 // ========================================================
@@ -7159,61 +7228,13 @@ La guía debe ser:
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       
-      // Verificar si estamos en contexto de instalación
-      const isInstallationContext = 
-        session.stage === STATES.GUIDING_INSTALLATION ||
-        (session.activeIntent && session.activeIntent.type === 'INSTALLATION_HELP');
-      
-      if (isInstallationContext) {
-        // 🔧 DETECCIÓN CRÍTICA: Intentar detectar OS en el mensaje del usuario
-        let detectedOS = null;
-        const msgLower = t.toLowerCase().trim();
-        
-        // Detectar variantes de Windows
-        if (/(windows\s*11|win\s*11|w11|win11)/.test(msgLower)) {
-          detectedOS = 'Windows 11';
-        } else if (/(windows\s*10|win\s*10|w10|win10)/.test(msgLower)) {
-          detectedOS = 'Windows 10';
-        } else if (/(windows\s*8|win\s*8|w8)/.test(msgLower)) {
-          detectedOS = 'Windows 8';
-        } else if (/(windows\s*7|win\s*7|w7)/.test(msgLower)) {
-          detectedOS = 'Windows 7';
-        } else if (/windows/.test(msgLower)) {
-          detectedOS = 'Windows';
-        } else if (/mac\s*os|macos/.test(msgLower)) {
-          detectedOS = 'macOS';
-        } else if (/\bmac\b/.test(msgLower)) {
-          detectedOS = 'macOS';
-        } else if (/linux|ubuntu|debian/.test(msgLower)) {
-          detectedOS = 'Linux';
-        }
-        
-        // Si detectamos OS, guardarlo y generar guía específica
-        if (detectedOS) {
-          session.operatingSystem = detectedOS;
-          console.log('[FALLBACK] ✅ OS detectado en mensaje:', detectedOS);
-          
-          // Obtener el software que quiere instalar del intent activo o problema
-          const softwareName = session.activeIntent?.software || 
-                              session.problem || 
-                              session.activeIntent?.originalMessage || 
-                              'el software';
-          
-          // Generar guía de instalación específica
-          reply = isEn
-            ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
-            : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?\n\n— Soy Tecnos, de STI — Servicio Técnico Inteligente 🛠️`;
-          
-          options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
-        } else {
-          // No se detectó OS - respuesta genérica pidiendo aclaración
-          console.log('[FALLBACK] 🔧 Contexto de instalación detectado pero sin OS claro - pidiendo aclaración');
-          
-          reply = isEn
-            ? `I'll help you with the installation. Let me guide you through the specific steps for your system.\n\nWhat operating system are you using? (e.g., Windows 10, Windows 11, macOS, Linux)`
-            : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.\n\n¿Qué sistema operativo estás usando? (ej: Windows 10, Windows 11, macOS, Linux)`;
-          
-          options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+      // 🔧 INTERCEPTAR GUIDING_INSTALLATION ANTES DEL FALLBACK
+      if (session.stage === STATES.GUIDING_INSTALLATION) {
+        console.log('[FALLBACK] 🔧 Stage GUIDING_INSTALLATION detectado - usando handler especializado');
+        const handled = handleGuidingInstallationOSReply(session, t, session.activeIntent, locale);
+        if (handled) {
+          reply = handled.reply;
+          options = handled.options;
         }
       } else {
         // Comportamiento original para otros contextos
