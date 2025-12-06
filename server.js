@@ -2931,6 +2931,49 @@ app.get('/api/transcript/:sid', async (req, res) => {
   }
 });
 
+// Transcript JSON retrieval (REQUIERE AUTENTICACIÓN) - Para admin.php
+app.get('/api/transcript-json/:sid', async (req, res) => {
+  const sid = String(req.params.sid || '').replace(/[^a-zA-Z0-9._-]/g, '');
+
+  // SECURITY: Validar autenticación con admin token
+  let adminToken = req.headers.authorization || req.query.token;
+  
+  if (adminToken && adminToken.startsWith('Bearer ')) {
+    adminToken = adminToken.substring(7);
+  }
+
+  if (adminToken !== LOG_TOKEN) {
+    console.warn(`[SECURITY] Unauthorized transcript-json access attempt: requested=${sid}, IP=${req.ip}`);
+    return res.status(403).json({ ok: false, error: 'No autorizado' });
+  }
+
+  const file = path.join(TRANSCRIPTS_DIR, `${sid}.json`);
+  
+  if (!fs.existsSync(file)) {
+    return res.status(404).json({ ok: false, error: 'Transcript no encontrado' });
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    
+    // Extraer solo los mensajes del transcript
+    const transcript = data.messages || [];
+    
+    res.json({ 
+      ok: true, 
+      transcript: transcript,
+      sessionId: data.sessionId,
+      timestamp: data.timestamp,
+      device: data.device,
+      initialStage: data.initialStage,
+      finalStage: data.finalStage
+    });
+  } catch (e) {
+    console.error('[api/transcript-json] error', e && e.message);
+    res.status(500).json({ ok: false, error: 'Error al leer transcript' });
+  }
+});
+
 // ========================================================
 // HISTORIAL_CHAT: Obtener conversación completa
 // ========================================================
