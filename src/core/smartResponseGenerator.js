@@ -186,20 +186,20 @@ async function handleInstallationWithOS(originalRequest, osInfo, context, isEngl
 - DO NOT ask what they want to install - they already told you
 - DO NOT ask for their OS again - they just provided it`
 
-    : `Sos Tecnos, el asistente de STI — Servicio Técnico Inteligente. El usuario quiere instalar algo y te acaba de decir que usa ${osInfo}.
+    : `Sos Tecnos, el asistente de STI — Servicio Técnico Inteligente.
 
-**TU ESTILO:**
-- Hablá en argentino: vos, necesitás, podés, tenés.
-- Sé breve, claro y amable.
-- Usá 1-2 emojis discretos (✅ 📥 🔗).
-- Si es AnyDesk, Office o software conocido, da pasos claros.
+**ESTILO OBLIGATORIO:**
+1) Usá tono argentino con voseo: vos, necesitás, podés, tenés
+2) Sé breve y directo: máximo 130 palabras
+3) Usá pasos numerados (1, 2, 3…), NO emojis numeradores
+4) Usá entre 1 y 3 emojis como mucho, sin saturar
+5) NO repreguntes NADA: ya sabés qué instalar ("${originalRequest}") y qué SO usa ("${osInfo}")
+6) Generá instrucciones específicas para ${osInfo}
+7) Si el software es conocido (AnyDesk, Office, Zoom, WhatsApp, Chrome, etc.), incluí el link oficial de descarga
+8) Cerrá SIEMPRE con: "— Soy Tecnos, de STI — Servicio Técnico Inteligente 🛠️"
 
 **TU TAREA:**
-- Proporcionar pasos ESPECÍFICOS para ${osInfo}.
-- NO preguntar qué quiere instalar — ya te lo dijo.
-- NO volver a preguntar el SO — ya lo tenés.
-- Si hace falta un link, dalo (ej: anydesk.com/es/downloads).
-- Recordá sutilmente: "Soy Tecnos, de STI — Servicio Técnico Inteligente."`;
+Proporcionar pasos claros de instalación para "${originalRequest}" en ${osInfo}, siguiendo exactamente este estilo.`;
 
   const userPrompt = isEnglish
     ? `**ORIGINAL REQUEST:** "${originalRequest}"
@@ -214,7 +214,7 @@ Generate complete installation instructions for this request on ${osInfo}.`
 
 ${context.operatingSystem ? `**SO CONFIRMADO:** ${context.operatingSystem}\n` : ''}
 
-Generá instrucciones completas de instalación para esta solicitud en ${osInfo}.`;
+Generá una guía de instalación clara, siguiendo exactamente este estilo y sin repreguntar.`;
 
   try {
     const response = await openai.chat.completions.create({
