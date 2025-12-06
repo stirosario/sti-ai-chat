@@ -1014,7 +1014,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
       { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
-      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+      // ✅ LÍNEA ELIMINADA: BTN_NO_NAME ya no se usa
 
       // ========================================================
       // 🎯 BOTONES PRINCIPALES (2 CATEGORÍAS SIMPLIFICADAS)
@@ -5459,10 +5459,8 @@ Respondé con una explicación clara y útil para el usuario.`
           return res.json({
             ok: true,
             reply,
-            stage: session.stage,
-            buttons: [
-              { text: '🙈 Prefiero no decirlo', value: 'prefiero_no_decirlo' }
-            ]
+            stage: session.stage
+            // ✅ BOTÓN ELIMINADO - Usuario debe escribir su nombre
           });
         }
 
@@ -5477,10 +5475,8 @@ Respondé con una explicación clara y útil para el usuario.`
           return res.json({
             ok: true,
             reply,
-            stage: session.stage,
-            buttons: [
-              { text: '🙈 I prefer not to say', value: 'prefer_not_to_say' }
-            ]
+            stage: session.stage
+            // ✅ BOTÓN ELIMINADO - User must type their name
           });
         }
       }
@@ -5693,56 +5689,25 @@ Respondé con una explicación clara y útil para el usuario.`
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
 
-      // 🔘 Detectar botón "Prefiero no decirlo"
-      if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(t)) {
-        session.userName = isEn ? 'User' : 'Usuari@';
+      // ✅ DETECCIÓN AUTOMÁTICA: Si el usuario escribe una palabra que es claramente un nombre
+      // Validar primero si parece un nombre antes de aplicar validaciones estrictas
+      const candidate = extractName(t);
+      if (candidate && isValidName(candidate)) {
+        // ✅ NOMBRE DETECTADO - Guardar y avanzar inmediatamente
+        session.userName = candidate;
         session.stage = STATES.ASK_NEED;
+        session.nameAttempts = 0;
 
+        // ✅ RESPUESTA OBLIGATORIA: Bienvenida personalizada
         const reply = isEn
-          ? `✅ No problem! Let's continue.\n\n**How can I help you, User?**`
-          : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte, Usuari@?**`;
+          ? `Perfect, ${capitalizeToken(session.userName)} 😊 What can I help you with today?`
+          : (locale === 'es-419'
+            ? `Perfecto, ${capitalizeToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`
+            : `Perfecto, ${capitalizeToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
-
-        // ============================================
-        // ========================================================
-        // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #9
-        // ========================================================
-        // ⚠️  ADVERTENCIA: Botones funcionando en producción
-        // 📅 Última validación: 25/11/2025
-        // ✅ Estado: FUNCIONAL - Sistema de 2 botones con descripciones
-        //
-        // 🚨 ANTES DE MODIFICAR:
-        //    1. Este bloque debe ser IDÉNTICO al de línea ~4020
-        //    2. Mantener sincronizado con CONFIG.ui.buttons (línea ~348)
-        //    3. Las propiedades description/example son requeridas por frontend
-        //    4. Valores BTN_* deben coincidir con detección (línea ~3730)
-        //
-        // 📋 Funcionalidad protegida:
-        //    - Renderizado de 2 botones cuando usuario omite nombre
-        //    - Soporte bilingüe (español/inglés)
-        //    - Incluye description y example para cada botón
-        //
-        // 🔗 Dependencias:
-        //    - Frontend: renderButtons() en index.php (línea ~787)
-        //    - Backend: Detección de botones en ASK_NEED (línea ~3730)
-        //    - Bloque gemelo en línea ~4020 (MANTENER SINCRONIZADO)
-        //
-        // ========================================================
-        // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
-        // ============================================
-        // BLOQUE: Renderizado de botones sin nombre de usuario
-        // Propósito: Mostrar 2 opciones cuando usuario omite su nombre
-        // Funcionalidad: Mismo set de botones que flujo normal, soporte bilingüe
-        // Autor: Sistema STI - GitHub Copilot + Lucas
-        // Última modificación: 25/11/2025
-        // 
-        // ADVERTENCIA: Este bloque debe ser idéntico al de línea ~4020.
-        // Los valores (BTN_*) deben coincidir con:
-        //   - CONFIG.ui.buttons (línea ~333)
-        //   - Detección de intent (línea ~3675)
-        // ============================================
+        
         return res.json({
           ok: true,
           reply,
@@ -5764,6 +5729,8 @@ Respondé con una explicación clara y útil para el usuario.`
         });
       }
 
+      // ✅ CÓDIGO ELIMINADO - Ya no se acepta "Prefiero no decirlo"
+
       // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
       if ((session.nameAttempts || 0) >= 5) {
         session.userName = isEn ? 'User' : 'Usuario';
@@ -5780,26 +5747,7 @@ Respondé con una explicación clara y útil para el usuario.`
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
       }
 
-      // Prefiero no decirlo (texto o botón)
-      if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
-        session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_NEED;
-
-        const reply = isEn
-          ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-          : (locale === 'es-419'
-            ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-            : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({
-          ok: true,
-          reply,
-          stage: session.stage,
-          options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA'])
-        }));
-      }
+      // ✅ CÓDIGO ELIMINADO - Ya no aceptamos "Prefiero no decirlo"
 
       // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
       if (looksClearlyNotName(t)) {
@@ -5813,84 +5761,33 @@ Respondé con una explicación clara y útil para el usuario.`
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({
+        return res.json({
           ok: true,
           reply,
-          stage: session.stage,
-          options: [
-            { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-          ]
-        }));
+          stage: session.stage
+          // ✅ BOTÓN ELIMINADO
+        });
       }
 
-      const candidate = extractName(t);
-      if (!candidate || !isValidName(candidate)) {
-        session.nameAttempts = (session.nameAttempts || 0) + 1;
 
-        const reply = isEn
-          ? "I didn't detect a valid name. Please tell me only your name, for example: “Ana” or “John Paul”."
-          : (locale === 'es-419'
-            ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”."
-            : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
+      // ✅ NO ES UN NOMBRE VÁLIDO - Este punto no debería alcanzarse
+      // Fallback final por seguridad
+      console.log('[ASK_NAME] ⚠️ Fallback final alcanzado - código legacy duplicado');
+      session.nameAttempts = (session.nameAttempts || 0) + 1;
 
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({
-          ok: true,
-          reply,
-          stage: session.stage,
-          options: [
-            { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
-          ]
-        }));
-      }
-
-      // Nombre aceptado - transición a ASK_NEED según Flujo.csv
-      session.userName = candidate;
-      session.stage = STATES.ASK_NEED;
-      session.nameAttempts = 0;
-
-      const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
-      const reply = isEn
-        ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today?`
+      const fallbackReply = isEn
+        ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
         : (locale === 'es-419'
-          ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy?`
-          : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
+          ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
+          : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
 
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
       await saveSessionAndTranscript(sid, session);
-      // ============================================
-      // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
-      // ============================================
-      // BLOQUE: Renderizado de botones después de capturar nombre
-      // Propósito: Mostrar 5 opciones de servicio al usuario
-      // Funcionalidad: Botones bilingües (ES/EN) con valores de token
-      // Autor: Sistema STI - GitHub Copilot + Lucas
-      // Última modificación: 25/11/2025
-      // 
-      // ADVERTENCIA: Los valores (BTN_*) deben coincidir con:
-      //   - CONFIG.ui.buttons (línea ~333)
-      //   - Detección de intent (línea ~3675)
-      // Las etiquetas (text) deben mantenerse sincronizadas con traducciones.
-      // ============================================
       return res.json({
         ok: true,
-        reply,
-        stage: session.stage,
-        buttons: [
-          {
-            text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
-            value: 'BTN_PROBLEMA',
-            description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
-            example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
-          },
-          {
-            text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
-            value: 'BTN_CONSULTA',
-            description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
-            example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
-          }
-        ]
+        reply: fallbackReply,
+        stage: session.stage
+        // ✅ BOTÓN ELIMINADO
       });
     }
 

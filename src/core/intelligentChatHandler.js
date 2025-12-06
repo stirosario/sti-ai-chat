@@ -88,8 +88,16 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
     session.lastIntentConfidence = intentAnalysis.confidence;
 
     // PASO 3: Decidir si necesitamos aclaración
+    // ✅ PROHIBIDO: Mensaje genérico en stage ASK_NAME
     if (intentAnalysis.clarificationNeeded || intentAnalysis.confidence < 0.6) {
       console.log('[IntelligentChat] ❓ Intención no clara - pidiendo aclaración');
+      
+      // ⚠️ Si estamos en ASK_NAME, NO usar el mensaje genérico
+      if (session.stage === 'ASK_NAME') {
+        console.log('[IntelligentChat] ⚠️ En ASK_NAME - no usar mensaje genérico, devolver null');
+        // Devolver null para que el flujo legacy de server.js maneje la validación del nombre
+        return null;
+      }
       
       const clarificationMsg = isEnglish
         ? `I want to help you, but I need to understand better what you need. Could you tell me:\n\n• Are you having a problem with something that's not working?\n• Do you want to install or configure something?\n• Do you have a question about how to do something?\n\nThe more details you give me, the better I can help you! 😊`
