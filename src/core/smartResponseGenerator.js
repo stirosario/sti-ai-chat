@@ -25,6 +25,14 @@ export async function generateSmartResponse(intentAnalysis, userMessage, convers
   const isEnglish = locale.toLowerCase().startsWith('en');
 
   console.log('[SmartResponse] 🎯 Generando respuesta para intent:', intentAnalysis.intent);
+  console.log('[SmartResponse] 🔍 isAuxiliaryResponse:', intentAnalysis.isAuxiliaryResponse);
+  console.log('[SmartResponse] 🔍 activeIntent:', conversationContext.activeIntent?.type);
+
+  // ✅ HANDLER ESPECIAL: Respuesta auxiliar con intención activa
+  if (intentAnalysis.isAuxiliaryResponse && conversationContext.activeIntent) {
+    console.log('[SmartResponse] 🎯 Respuesta auxiliar detectada - usando handler específico');
+    return handleAuxiliaryResponse(intentAnalysis, userMessage, conversationContext, locale);
+  }
 
   // Si OpenAI no está disponible, usar respuesta genérica
   if (!openai) {
@@ -74,6 +82,315 @@ export async function generateSmartResponse(intentAnalysis, userMessage, convers
   } catch (error) {
     console.error('[SmartResponse] ❌ Error generando respuesta:', error.message);
     return generateFallbackResponse(intentAnalysis, userMessage, isEnglish);
+  }
+}
+
+/**
+ * 🎯 Handler específico para respuestas auxiliares con intención activa
+ * Evita recalcular y genera respuesta directa basada en el contexto
+ */
+async function handleAuxiliaryResponse(intentAnalysis, userMessage, conversationContext, locale) {
+  const openai = getOpenAIClient();
+  const isEnglish = locale.toLowerCase().startsWith('en');
+  const activeIntent = conversationContext.activeIntent;
+  
+  console.log('[SmartResponse] 🔄 Procesando respuesta auxiliar para:', activeIntent.type);
+  console.log('[SmartResponse] 📝 Dato auxiliar:', intentAnalysis.auxiliaryData);
+  
+  // ✅ CASO ESPECÍFICO: INSTALLATION_HELP
+  if (activeIntent.type === INTENT_TYPES.INSTALLATION_HELP) {
+    return handleInstallationWithOS(
+      activeIntent.originalMessage,
+      intentAnalysis.auxiliaryData,
+      conversationContext,
+      isEnglish,
+      openai
+    );
+  }
+  
+  // ✅ CASO ESPECÍFICO: TECHNICAL_PROBLEM
+  if (activeIntent.type === INTENT_TYPES.TECHNICAL_PROBLEM) {
+    return handleTechnicalProblemWithDevice(
+      activeIntent.originalMessage,
+      intentAnalysis.auxiliaryData,
+      conversationContext,
+      isEnglish,
+      openai
+    );
+  }
+  
+  // ✅ CASO ESPECÍFICO: HOW_TO_QUESTION
+  if (activeIntent.type === INTENT_TYPES.HOW_TO_QUESTION) {
+    return handleHowToWithDetails(
+      activeIntent.originalMessage,
+      intentAnalysis.auxiliaryData,
+      conversationContext,
+      isEnglish,
+      openai
+    );
+  }
+  
+  // Fallback: usar flujo normal si no hay handler específico
+  console.log('[SmartResponse] ⚠️ No hay handler específico para:', activeIntent.type);
+  
+  // Construir prompt enriquecido con contexto activo
+  const systemPrompt = buildResponseSystemPrompt(activeIntent.type, isEnglish);
+  const userPrompt = buildResponseUserPrompt(
+    intentAnalysis,
+    userMessage,
+    conversationContext,
+    isEnglish
+  );
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 800
+    });
+
+    const generatedReply = response.choices[0].message.content.trim();
+    const options = determineOptions(intentAnalysis, conversationContext, isEnglish);
+    const nextAction = determineNextAction(intentAnalysis, conversationContext);
+
+    return {
+      reply: generatedReply,
+      options,
+      nextAction,
+      reasoning: intentAnalysis.reasoning
+    };
+  } catch (error) {
+    console.error('[SmartResponse] ❌ Error en fallback:', error.message);
+    return generateFallbackResponse(intentAnalysis, userMessage, isEnglish);
+  }
+}
+
+/**
+ * 📦 Handler para instalación con sistema operativo conocido
+ */
+async function handleInstallationWithOS(originalRequest, osInfo, context, isEnglish, openai) {
+  console.log('[SmartResponse] 📦 Generando guía de instalación para:', osInfo);
+  
+  const systemPrompt = isEnglish
+    ? `You are Tecnos, an IT support assistant. The user wants to install software and just provided their operating system.
+
+**YOUR TASK:**
+- Provide SPECIFIC, step-by-step installation instructions
+- Use the exact OS they mentioned (${osInfo})
+- Be direct and actionable
+- Include download links if applicable
+- DO NOT ask what they want to install - they already told you
+- DO NOT ask for their OS again - they just provided it`
+
+    : `Sos Tecnos, un asistente de soporte IT. El usuario quiere instalar software y acaba de proporcionar su sistema operativo.
+
+**TU TAREA:**
+- Proporcionar instrucciones de instalación ESPECÍFICAS, paso a paso
+- Usar el SO exacto que mencionaron (${osInfo})
+- Ser directo y accionable
+- Incluir enlaces de descarga si aplica
+- NO preguntar qué quieren instalar - ya te lo dijeron
+- NO volver a preguntar por el SO - acaban de dártelo`;
+
+  const userPrompt = isEnglish
+    ? `**ORIGINAL REQUEST:** "${originalRequest}"
+**OPERATING SYSTEM PROVIDED:** ${osInfo}
+
+${context.operatingSystem ? `**OS CONFIRMED:** ${context.operatingSystem}\n` : ''}
+
+Generate complete installation instructions for this request on ${osInfo}.`
+
+    : `**SOLICITUD ORIGINAL:** "${originalRequest}"
+**SISTEMA OPERATIVO PROPORCIONADO:** ${osInfo}
+
+${context.operatingSystem ? `**SO CONFIRMADO:** ${context.operatingSystem}\n` : ''}
+
+Generá instrucciones completas de instalación para esta solicitud en ${osInfo}.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 1000
+    });
+
+    const reply = response.choices[0].message.content.trim();
+
+    return {
+      reply,
+      options: [{
+        text: isEnglish ? '✅ It worked!' : '✅ ¡Funcionó!',
+        value: 'BTN_SUCCESS',
+        description: isEnglish ? 'Installation successful' : 'Instalación exitosa'
+      }, {
+        text: isEnglish ? '❓ I need help' : '❓ Necesito ayuda',
+        value: 'BTN_NEED_HELP',
+        description: isEnglish ? 'I have questions' : 'Tengo preguntas'
+      }],
+      nextAction: 'await_installation_feedback',
+      reasoning: `Installation guide generated for ${osInfo}`
+    };
+  } catch (error) {
+    console.error('[SmartResponse] ❌ Error en handleInstallationWithOS:', error);
+    return generateFallbackInstallationResponse(originalRequest, osInfo, isEnglish);
+  }
+}
+
+/**
+ * 🔧 Handler para problema técnico con información de dispositivo
+ */
+async function handleTechnicalProblemWithDevice(originalProblem, deviceInfo, context, isEnglish, openai) {
+  console.log('[SmartResponse] 🔧 Generando diagnóstico para:', deviceInfo);
+  
+  const systemPrompt = isEnglish
+    ? `You are Tecnos, an IT support assistant. The user has a technical problem and just provided device information.
+
+**YOUR TASK:**
+- Provide SPECIFIC troubleshooting steps for this device type
+- Be systematic and clear
+- Start with the most likely solutions
+- DO NOT ask what the problem is - they already told you
+- DO NOT ask for device type again - they just provided it`
+
+    : `Sos Tecnos, un asistente de soporte IT. El usuario tiene un problema técnico y acaba de proporcionar información del dispositivo.
+
+**TU TAREA:**
+- Proporcionar pasos de diagnóstico ESPECÍFICOS para este tipo de dispositivo
+- Ser sistemático y claro
+- Empezar con las soluciones más probables
+- NO preguntar cuál es el problema - ya te lo dijeron
+- NO volver a preguntar el tipo de dispositivo - acaban de dártelo`;
+
+  const userPrompt = isEnglish
+    ? `**ORIGINAL PROBLEM:** "${originalProblem}"
+**DEVICE INFO PROVIDED:** ${deviceInfo}
+
+${context.device ? `**DEVICE CONFIRMED:** ${context.device}\n` : ''}
+${context.deviceBrand ? `**BRAND:** ${context.deviceBrand}\n` : ''}
+
+Generate specific troubleshooting steps for this problem on this device.`
+
+    : `**PROBLEMA ORIGINAL:** "${originalProblem}"
+**INFO DE DISPOSITIVO PROPORCIONADA:** ${deviceInfo}
+
+${context.device ? `**DISPOSITIVO CONFIRMADO:** ${context.device}\n` : ''}
+${context.deviceBrand ? `**MARCA:** ${context.deviceBrand}\n` : ''}
+
+Generá pasos específicos de diagnóstico para este problema en este dispositivo.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 1000
+    });
+
+    const reply = response.choices[0].message.content.trim();
+
+    return {
+      reply,
+      options: [{
+        text: isEnglish ? '✅ It worked!' : '✅ ¡Funcionó!',
+        value: 'BTN_PROBLEM_SOLVED',
+        description: isEnglish ? 'Problem resolved' : 'Problema resuelto'
+      }, {
+        text: isEnglish ? '❌ Still not working' : '❌ Sigue sin funcionar',
+        value: 'BTN_STILL_BROKEN',
+        description: isEnglish ? 'Need more help' : 'Necesito más ayuda'
+      }],
+      nextAction: 'await_diagnostic_result',
+      reasoning: `Diagnostic steps generated for ${deviceInfo}`
+    };
+  } catch (error) {
+    console.error('[SmartResponse] ❌ Error en handleTechnicalProblemWithDevice:', error);
+    return generateFallbackDiagnosticResponse(originalProblem, deviceInfo, isEnglish);
+  }
+}
+
+/**
+ * 📚 Handler para pregunta how-to con detalles adicionales
+ */
+async function handleHowToWithDetails(originalQuestion, details, context, isEnglish, openai) {
+  console.log('[SmartResponse] 📚 Generando guía how-to con detalles:', details);
+  
+  const systemPrompt = isEnglish
+    ? `You are Tecnos, an IT support assistant. The user asked a how-to question and provided additional details.
+
+**YOUR TASK:**
+- Provide a CLEAR, step-by-step answer
+- Use the additional context they provided (${details})
+- Be educational and patient
+- Include screenshots descriptions if helpful
+- DO NOT ask what they want to know - they already asked`
+
+    : `Sos Tecnos, un asistente de soporte IT. El usuario hizo una pregunta de procedimiento y proporcionó detalles adicionales.
+
+**TU TAREA:**
+- Proporcionar una respuesta CLARA, paso a paso
+- Usar el contexto adicional que proporcionaron (${details})
+- Ser educativo y paciente
+- Incluir descripciones de capturas si ayuda
+- NO preguntar qué quieren saber - ya te lo preguntaron`;
+
+  const userPrompt = isEnglish
+    ? `**ORIGINAL QUESTION:** "${originalQuestion}"
+**ADDITIONAL DETAILS:** ${details}
+
+${context.operatingSystem ? `**OS:** ${context.operatingSystem}\n` : ''}
+${context.device ? `**DEVICE:** ${context.device}\n` : ''}
+
+Provide a complete, clear answer with step-by-step instructions.`
+
+    : `**PREGUNTA ORIGINAL:** "${originalQuestion}"
+**DETALLES ADICIONALES:** ${details}
+
+${context.operatingSystem ? `**SO:** ${context.operatingSystem}\n` : ''}
+${context.device ? `**DISPOSITIVO:** ${context.device}\n` : ''}
+
+Proporcioná una respuesta completa y clara con instrucciones paso a paso.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 1000
+    });
+
+    const reply = response.choices[0].message.content.trim();
+
+    return {
+      reply,
+      options: [{
+        text: isEnglish ? '👍 Got it!' : '👍 ¡Entendido!',
+        value: 'BTN_UNDERSTOOD',
+        description: isEnglish ? 'Clear explanation' : 'Explicación clara'
+      }, {
+        text: isEnglish ? '❓ Still confused' : '❓ Sigo con dudas',
+        value: 'BTN_NEED_MORE_HELP',
+        description: isEnglish ? 'Need clarification' : 'Necesito aclaración'
+      }],
+      nextAction: 'await_how_to_feedback',
+      reasoning: `How-to guide generated with details: ${details}`
+    };
+  } catch (error) {
+    console.error('[SmartResponse] ❌ Error en handleHowToWithDetails:', error);
+    return generateFallbackHowToResponse(originalQuestion, details, isEnglish);
   }
 }
 
@@ -364,6 +681,63 @@ function generateFallbackResponse(intentAnalysis, userMessage, isEnglish) {
     options: determineOptions(intentAnalysis, {}, isEnglish),
     nextAction: determineNextAction(intentAnalysis, {}),
     reasoning: 'Fallback response (OpenAI unavailable)'
+  };
+}
+
+/**
+ * 🔄 Fallback responses cuando OpenAI falla
+ */
+function generateFallbackInstallationResponse(request, os, isEnglish) {
+  const reply = isEnglish
+    ? `I'll help you install what you need on ${os}. To give you precise instructions, I need OpenAI to be available. Please try again in a moment, or I can connect you with a human technician.`
+    : `Te ayudo a instalar lo que necesitás en ${os}. Para darte instrucciones precisas, necesito que OpenAI esté disponible. Probá de nuevo en un momento, o puedo conectarte con un técnico humano.`;
+
+  return {
+    reply,
+    options: [{
+      text: isEnglish ? '🔄 Try again' : '🔄 Intentar de nuevo',
+      value: 'BTN_RETRY'
+    }, {
+      text: isEnglish ? '👨\u200d💻 Human help' : '👨\u200d💻 Ayuda humana',
+      value: 'BTN_CONNECT_TECH'
+    }],
+    nextAction: 'await_retry_or_escalate',
+    reasoning: 'Fallback - OpenAI unavailable'
+  };
+}
+
+function generateFallbackDiagnosticResponse(problem, device, isEnglish) {
+  const reply = isEnglish
+    ? `I understand you have an issue with your ${device}. To provide specific diagnostic steps, I need OpenAI to be available. Would you like to wait a moment or connect with a technician?`
+    : `Entiendo que tenés un problema con tu ${device}. Para proporcionar pasos específicos de diagnóstico, necesito que OpenAI esté disponible. ¿Querés esperar un momento o conectar con un técnico?`;
+
+  return {
+    reply,
+    options: [{
+      text: isEnglish ? '🔄 Try again' : '🔄 Intentar de nuevo',
+      value: 'BTN_RETRY'
+    }, {
+      text: isEnglish ? '👨\u200d💻 Human help' : '👨\u200d💻 Ayuda humana',
+      value: 'BTN_CONNECT_TECH'
+    }],
+    nextAction: 'await_retry_or_escalate',
+    reasoning: 'Fallback - OpenAI unavailable'
+  };
+}
+
+function generateFallbackHowToResponse(question, details, isEnglish) {
+  const reply = isEnglish
+    ? `I want to answer your question about "${question}" with the details you provided. However, I need OpenAI to generate a clear explanation. Try again in a moment?`
+    : `Quiero responder tu pregunta sobre "${question}" con los detalles que me diste. Sin embargo, necesito OpenAI para generar una explicación clara. ¿Probás de nuevo en un momento?`;
+
+  return {
+    reply,
+    options: [{
+      text: isEnglish ? '🔄 Try again' : '🔄 Intentar de nuevo',
+      value: 'BTN_RETRY'
+    }],
+    nextAction: 'await_retry',
+    reasoning: 'Fallback - OpenAI unavailable'
   };
 }
 

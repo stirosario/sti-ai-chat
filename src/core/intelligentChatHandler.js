@@ -71,7 +71,10 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
       hasAttemptedBasicTests: session.hasAttemptedBasicTests || false,
       userLocale: locale,
       device: session.device || null,
-      problem: session.problem || null
+      problem: session.problem || null,
+      activeIntent: session.activeIntent || null,
+      operatingSystem: session.operatingSystem || null,
+      deviceBrand: session.deviceBrand || null
     };
 
     console.log('[IntelligentChat] 🔍 Analizando intención...');
