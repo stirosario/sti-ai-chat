@@ -48,6 +48,12 @@ export async function createTicket(session) {
       ? stepsCompleted.map((step, i) => `${i + 1}. ${step}`).join('\n')
       : 'No se completaron pasos de diagnóstico';
     
+    // Generar resumen automático del problema
+    const problemSummary = generateProblemSummary(session);
+    
+    // Formatear conversación limpia para el ticket
+    const cleanConversation = formatCleanConversation(session.transcript, session.userName || 'Usuario');
+    
     // Construir ticket (CON DATOS ENMASCARADOS)
     const ticket = {
       id: ticketId,
@@ -67,7 +73,7 @@ export async function createTicket(session) {
       issue: {
         device: session.detectedEntities?.device || session.device || 'No especificado',
         problem: maskPII(session.detectedEntities?.problem || session.problem || 'No especificado'),
-        description: maskPII(session.detectedEntities?.description || ''),
+        description: problemSummary, // ✅ NUEVO: Resumen automático generado
         category: session.issueKey || 'general'
       },
       
@@ -84,6 +90,9 @@ export async function createTicket(session) {
         ...msg,
         text: maskPII(msg.text)
       })) : [],
+      
+      // ✅ NUEVO: Conversación formateada para humanos
+      cleanConversation: cleanConversation,
       
       // Metadatos
       metadata: {
@@ -117,28 +126,123 @@ export function getTicketPublicUrl(ticketId) {
 }
 
 /**
- * Genera link de WhatsApp con resumen del ticket
+ * Formatea el transcript como conversación humana limpia
+ * @param {Array} transcript - Array de mensajes del transcript
+ * @param {string} userName - Nombre del usuario
+ * @returns {string} Conversación formateada
+ */
+function formatCleanConversation(transcript, userName) {
+  if (!transcript || transcript.length === 0) {
+    return '(Sin conversación registrada)';
+  }
+  
+  const lines = [];
+  
+  for (const msg of transcript) {
+    // Saltar mensajes de sistema, metadata, o vacíos
+    if (!msg.text || msg.who === 'system' || msg.text.trim() === '') continue;
+    
+    // Limpiar texto de emojis de control y metadata
+    let cleanText = msg.text
+      .replace(/\[ts:.*?\]/g, '') // Eliminar timestamps internos
+      .replace(/\[who:.*?\]/g, '') // Eliminar metadata
+      .replace(/\[system:.*?\]/g, '') // Eliminar system messages
+      .replace(/\{.*?\}/g, '') // Eliminar objetos JSON incrustados
+      .trim();
+    
+    // Saltar si después de limpiar quedó vacío
+    if (!cleanText) continue;
+    
+    // Formatear hora del mensaje
+    const timestamp = msg.ts ? new Date(msg.ts) : new Date();
+    const timeStr = timestamp.toLocaleTimeString('es-AR', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    });
+    
+    // Determinar quién habla
+    const speaker = msg.who === 'user' ? userName : 'Tecnos';
+    
+    // Agregar línea de conversación
+    lines.push(`[${timeStr}] ${speaker}: ${cleanText}`);
+  }
+  
+  return lines.length > 0 ? lines.join('\n') : '(Sin conversación válida)';
+}
+
+/**
+ * Genera resumen automático del problema detectado
+ * @param {Object} session - Sesión del usuario
+ * @returns {string} Resumen del problema
+ */
+function generateProblemSummary(session) {
+  const device = session.detectedEntities?.device || session.device || 'dispositivo no especificado';
+  const problem = session.detectedEntities?.problem || session.problem || 'problema no especificado';
+  const description = session.detectedEntities?.description || '';
+  
+  let summary = `El usuario reporta ${problem} en ${device}.`;
+  
+  if (description) {
+    summary += ` ${description}`;
+  }
+  
+  const stepsCount = session.stepsDone?.length || 0;
+  if (stepsCount > 0) {
+    summary += ` Se completaron ${stepsCount} pasos de diagnóstico sin éxito.`;
+  }
+  
+  return summary;
+}
+
+/**
+ * Genera link de WhatsApp con resumen del ticket en formato humano
  * @param {Object} ticket - Ticket creado
  * @returns {string} URL de WhatsApp
  */
 export function generateWhatsAppLink(ticket) {
-  const userName = ticket.user.nameOriginal; // Usar nombre real para WhatsApp
-  const device = ticket.issue.device;
-  const problem = ticket.issue.problem;
-  const ticketUrl = getTicketPublicUrl(ticket.id);
+  const userName = ticket.user.nameOriginal || 'Usuario';
+  const device = ticket.issue.device || 'Sin especificar';
+  const startTime = ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit'
+  }) : 'N/A';
   
+  // Generar resumen automático
+  const problemSummary = ticket.issue.description || 
+    `Problema: ${ticket.issue.problem || 'No especificado'}`;
+  
+  // Formatear conversación limpia
+  const conversation = formatCleanConversation(ticket.transcript, userName);
+  
+  // Determinar estado final
+  let finalStatus = '🔄 En espera de asistencia técnica';
+  if (ticket.diagnostic.stepsCompleted > 0) {
+    finalStatus = `✅ ${ticket.diagnostic.stepsCompleted} pasos de diagnóstico completados - Requiere asistencia adicional`;
+  }
+  
+  // Construir mensaje limpio y legible
   const message = `Hola STI! 👋
 
 Vengo del chat web con Tecnos (Asistente AI).
 
 📝 **Ticket:** ${ticket.id}
-👤 **Nombre:** ${userName}
+👤 **Usuario:** ${userName}
 💻 **Dispositivo:** ${device}
-⚠️ **Problema:** ${problem}
+🕒 **Inicio:** ${startTime}
 
-He completado ${ticket.diagnostic.stepsCompleted} pasos de diagnóstico pero necesito ayuda adicional.
+🧾 **RESUMEN DEL PROBLEMA:**
+${problemSummary}
 
-🔗 Ver detalles completos: ${ticketUrl}
+💬 **CONVERSACIÓN:**
+
+${conversation}
+
+${finalStatus}
+
+🔗 Ver ticket completo: ${getTicketPublicUrl(ticket.id)}
 
 Gracias!`;
 
