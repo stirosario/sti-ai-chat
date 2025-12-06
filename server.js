@@ -4048,7 +4048,7 @@ async function createTicketAndRespond(session, sid, res) {
     const waIntentUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
     session.waEligible = true;
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
 
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4086,7 +4086,7 @@ async function createTicketAndRespond(session, sid, res) {
     console.error('[createTicketAndRespond] Error', err && err.message);
     ticketCreationLocks.delete(sid); // Liberar lock en error
     session.waEligible = false;
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
     return res.json(withOptions({
       ok: false,
       reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
@@ -4111,13 +4111,13 @@ async function handleDontUnderstand(session, sid, t) {
     const replyTxt = `${prefix} 😊.\n\nVeamos ese paso más despacio:\n\n${helpDetail}\n\nCuando termines, contame si te ayudó o si preferís que te conecte con un técnico.`;
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
     return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   } else {
     const replyTxt = `${prefix} 😊.\n\nDecime sobre qué paso querés ayuda (1, 2, 3, ...) o tocá el botón del número y te lo explico con más calma.`;
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
     return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   }
 }
@@ -4325,7 +4325,7 @@ async function generateAndShowSteps(session, sid, res) {
     });
 
     const payload = withOptions({ ok: true, reply, options });
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
     return res.status(200).json(payload);
   } catch (err) {
     console.error('[generateAndShowSteps] error:', err?.message || err);
@@ -4501,7 +4501,7 @@ Respondé en formato JSON:
       ts: nowIso()
     });
 
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
 
     // Build response
     let replyText = '✅ Imagen recibida correctamente.';
@@ -4524,7 +4524,7 @@ Respondé en formato JSON:
       ts: nowIso()
     });
 
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
 
     // Update metrics
     updateMetric('uploads', 'total', 1);
@@ -4707,7 +4707,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       // Agregar mensaje de GDPR al transcript
       session.transcript.push({ who: 'bot', text: fullGreeting.text, ts: nowIso() });
       
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       console.log('[api/chat] ✅ Sesión nueva guardada con mensaje de GDPR');
       
       // Retornar mensaje de GDPR con botones
@@ -4978,7 +4978,7 @@ Respondé con una explicación clara y útil para el usuario.`
     // Confirm / cancel pending ticket actions
     if (buttonToken === BUTTONS.CONFIRM_TICKET && session.pendingAction && session.pendingAction.type === 'create_ticket') {
       session.pendingAction = null;
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       try {
         return await createTicketAndRespond(session, sid, res);
       } catch (errCT) {
@@ -4989,7 +4989,7 @@ Respondé con una explicación clara y útil para el usuario.`
     }
     if (buttonToken === BUTTONS.CANCEL && session.pendingAction) {
       session.pendingAction = null;
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       const loc = session.userLocale || 'es-AR';
       const isEnCancel = String(loc).toLowerCase().startsWith('en');
       let replyCancel;
@@ -5020,7 +5020,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
     if (FRUSTRATION_RX.test(t)) {
       session.frustrationCount = (session.frustrationCount || 0) + 1;
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       const loc = session.userLocale || 'es-AR';
       const isEnFr = String(loc).toLowerCase().startsWith('en');
       let replyFr;
@@ -5079,7 +5079,7 @@ Respondé con una explicación clara y útil para el usuario.`
           }
           
           session.transcript.push({ who: 'bot', text: smartReply, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           
           return logAndReturn({
             ok: true,
@@ -5126,14 +5126,14 @@ Respondé con una explicación clara y útil para el usuario.`
       session.stage = STATES.ENDED;
       session.waEligible = false;
       session.transcript.push({ who: 'bot', text: replyClose, ts: tsClose });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       return res.json(withOptions({ ok: true, reply: replyClose, stage: session.stage, options: [] }));
     }
 
     // Quick escalate via button or text (confirmation step)
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t)) {
       session.pendingAction = { type: 'create_ticket' };
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       const loc = session.userLocale || 'es-AR';
       const isEnCT = String(loc).toLowerCase().startsWith('en');
       let replyCT;
@@ -5173,14 +5173,14 @@ Respondé con una explicación clara y útil para el usuario.`
         if (!steps || steps.length === 0) {
           const msg = 'Aún no propuse pasos para este nivel. Probá primero con las opciones anteriores.';
           session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
         }
 
         if (idx < 1 || idx > steps.length) {
           const msg = `Paso inválido. Elegí un número entre 1 y ${steps.length}.`;
           session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
         }
 
@@ -5203,7 +5203,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
         // NO duplicar el mensaje del usuario, ya se guardó al inicio
         session.transcript.push({ who: 'bot', text: reply, ts });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
 
         try {
           const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
@@ -5228,7 +5228,7 @@ Respondé con una explicación clara y útil para el usuario.`
         console.error('[help_step] Error generando ayuda:', err && err.message);
         const msg = 'No pude preparar la ayuda ahora. Probá de nuevo en unos segundos.';
         session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: false, reply: msg, stage: session.stage, options: [] }));
       }
     }
@@ -5533,7 +5533,7 @@ Respondé con una explicación clara y útil para el usuario.`
           : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte, Usuari@?**`;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
 
         // ============================================
         // ========================================================
@@ -5606,7 +5606,7 @@ Respondé con una explicación clara y útil para el usuario.`
             : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
       }
 
@@ -5622,7 +5622,7 @@ Respondé con una explicación clara y útil para el usuario.`
             : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({
           ok: true,
           reply,
@@ -5642,7 +5642,7 @@ Respondé con una explicación clara y útil para el usuario.`
             : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({
           ok: true,
           reply,
@@ -5664,7 +5664,7 @@ Respondé con una explicación clara y útil para el usuario.`
             : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({
           ok: true,
           reply,
@@ -5688,7 +5688,7 @@ Respondé con una explicación clara y útil para el usuario.`
           : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
 
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       // ============================================
       // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
       // ============================================
@@ -5740,7 +5740,7 @@ Respondé con una explicación clara y útil para el usuario.`
               ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
               : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
         }
       }
@@ -5762,7 +5762,7 @@ Respondé con una explicación clara y útil para el usuario.`
       session.tests = { basic: [], ai: [], advanced: [] };
       session.lastHelpStep = null;
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
 
@@ -5794,7 +5794,7 @@ Respondé con una explicación clara y útil para el usuario.`
         ];
         
         session.transcript.push({ who: 'bot', text: responseText, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         
         return logAndReturn({
           ok: true,
@@ -5871,7 +5871,7 @@ Respondé con una explicación clara y útil para el usuario.`
             ];
 
             session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
 
             return res.json({
               ok: true,
@@ -5895,7 +5895,7 @@ Respondé con una explicación clara y útil para el usuario.`
           const deviceButtons = generateDeviceButtons(ambiguousResult.candidates);
 
           session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
 
           return res.json({
             ok: true,
@@ -5931,7 +5931,7 @@ Respondé con una explicación clara y útil para el usuario.`
           const uiButtons = buildUiButtonsFromTokens(optionTokens, locale);
           const ts = nowIso();
           session.transcript.push({ who: 'bot', text: replyText, ts });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
 
           const response = {
             ok: true,
@@ -5980,7 +5980,7 @@ Respondé con una explicación clara y útil para el usuario.`
             : 'Disculpa, no entendí tu consulta o no es informática. ¿Querés reformular?');
         const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
         session.transcript.push({ who: 'bot', text: replyNotIT, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
       }
 
@@ -6017,7 +6017,7 @@ Respondé con una explicación clara y útil para el usuario.`
         }
 
         session.transcript.push({ who: 'bot', text: replyHowTo, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json({ ok: true, reply: replyHowTo, stage: session.stage });
       }
 
@@ -6139,7 +6139,7 @@ La guía debe ser:
           : '\n\n¿Te funcionó? Respondé "sí" o "no".';
 
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
 
         return res.json(withOptions({
           ok: true,
@@ -6158,7 +6158,7 @@ La guía debe ser:
             ? 'No pude generar la guía en este momento. ¿Puedes reformular tu consulta o intentar más tarde?'
             : 'No pude generar la guía en este momento. ¿Podés reformular tu consulta o intentar más tarde?');
         session.transcript.push({ who: 'bot', text: errorMsg, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json({ ok: true, reply: errorMsg, stage: session.stage });
       }
 
@@ -6173,7 +6173,7 @@ La guía debe ser:
             ? 'Por favor, elige una de las opciones con los botones que te mostré.'
             : 'Por favor, elegí una de las opciones con los botones que te mostré.');
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
         return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
       }
@@ -6203,7 +6203,7 @@ La guía debe ser:
                 ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
                 : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
             session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
             return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: [] }));
           } else {
             // Provide short confirmation then show steps
@@ -6216,7 +6216,7 @@ La guía debe ser:
                 : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
             const ts = nowIso();
             session.transcript.push({ who: 'bot', text: replyIntro, ts });
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
             // proceed to generate steps
             return await generateAndShowSteps(session, sid, res);
           }
@@ -6229,7 +6229,7 @@ La guía debe ser:
           ? 'No reconozco esa opción. Elige por favor usando los botones.'
           : 'No reconozco esa opción. Elegí por favor usando los botones.');
       session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
       return res.json(withOptions({ ok: true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
 
@@ -6256,7 +6256,7 @@ La guía debe ser:
 
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
         session.stage = STATES.ASK_PROBLEM;
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
 
         // Continuar con generación de pasos
         return await generateAndShowSteps(session, sid, res);
@@ -6278,7 +6278,7 @@ La guía debe ser:
           : [];
 
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
 
         return res.json({
           ok: true,
@@ -6296,7 +6296,7 @@ La guía debe ser:
           ? 'Por favor, elegí una de las opciones.'
           : 'Por favor, elegí una de las opciones.');
       session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
 
       // ========================================================
@@ -6343,7 +6343,7 @@ La guía debe ser:
 
             session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
             session.stage = STATES.ASK_PROBLEM;
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
 
             console.log('[CHOOSE_DEVICE] ✅ Dispositivo seleccionado:', selectedDevice.label, '(', selectedDevice.id, ')');
 
@@ -6360,7 +6360,7 @@ La guía debe ser:
           ? 'Por favor, elegí una de las opciones de dispositivo.'
           : 'Por favor, elegí una de las opciones de dispositivo.');
       session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
-      await saveSession(sid, session);
+      await saveSessionAndTranscript(sid, session);
 
       console.log('[CHOOSE_DEVICE] ⚠️ No se reconoció el dispositivo. buttonToken:', buttonToken);
 
@@ -6402,7 +6402,7 @@ La guía debe ser:
           };
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: true, reply, stage: session.stage }, [backButton]));
         }
       }
@@ -6448,7 +6448,7 @@ La guía debe ser:
               : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
             session.stage = STATES.ESCALATE;
             session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
             return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
           }
 
@@ -6473,12 +6473,12 @@ La guía debe ser:
           options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
         } catch (err) {
           console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
           session.stage = STATES.ESCALATE;
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return await createTicketAndRespond(session, sid, res);
         }
       }
@@ -6570,7 +6570,7 @@ La guía debe ser:
               ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
               : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
             session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
-            await saveSession(sid, session);
+            await saveSessionAndTranscript(sid, session);
             return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
           }
 
@@ -6593,7 +6593,7 @@ La guía debe ser:
           session.lastHelpStep = null;
           session.stage = STATES.ADVANCED_TESTS;
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           const helpOptions = limited.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
           const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
           const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
@@ -6607,7 +6607,7 @@ La guía debe ser:
             ? 'An error occurred generating more tests. Try again or ask me to connect you with a technician.'
             : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
         }
       } else if (isOpt2) {
@@ -6632,11 +6632,11 @@ La guía debe ser:
         const result = handleShowSteps(session, 'advanced');
         if (result.error) {
           session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
         }
         session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-        await saveSession(sid, session);
+        await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
       }
 
@@ -6647,7 +6647,7 @@ La guía debe ser:
         if (typeof idx === 'number' && idx >= 1) {
           session.stepProgress = session.stepProgress || {};
           session.stepProgress[`adv_${idx}`] = 'done';
-          await saveSession(sid, session);
+          await saveSessionAndTranscript(sid, session);
         }
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
         const empatia = addEmpatheticResponse('ENDED', locale);
@@ -6696,7 +6696,7 @@ La guía debe ser:
     // Save bot reply + persist transcripts to file (single ts pair)
     const pairTs = nowIso();
     session.transcript.push({ who: 'bot', text: reply, ts: pairTs, stage: session.stage });
-    await saveSession(sid, session);
+    await saveSessionAndTranscript(sid, session);
     try {
       const tf = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
       const userLine = `[${pairTs}] USER: ${buttonToken ? '[BOTON] ' + buttonLabel : t}\n`;
