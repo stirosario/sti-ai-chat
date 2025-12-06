@@ -1446,13 +1446,20 @@ function saveTranscriptJSON(sessionId, session) {
         const timestamp = entry.ts || new Date().toISOString();
         const quien = entry.who === 'user' ? 'USUARIO' : 'TECNOS';
         
-        return {
+        const msg = {
           orden: index + 1,
           timestamp: timestamp,
           quien: quien,
           mensaje: entry.text || '',
           stage: entry.stage || 'unknown'
         };
+        
+        // Agregar botones/opciones si existen
+        if (entry.opciones && Array.isArray(entry.opciones) && entry.opciones.length > 0) {
+          msg.opciones_ofrecidas = entry.opciones;
+        }
+        
+        return msg;
       });
     }
 
@@ -1496,6 +1503,33 @@ function saveTranscriptJSON(sessionId, session) {
 async function saveSessionAndTranscript(sessionId, sessionData) {
   await saveSession(sessionId, sessionData);
   saveTranscriptJSON(sessionId, sessionData);
+}
+
+/**
+ * Helper function: Add bot message to transcript with optional buttons/options
+ * @param {object} session - Session object
+ * @param {string} text - Message text
+ * @param {Array} options - Optional array of button objects with {text, value}
+ * @param {string} stage - Optional stage override
+ */
+function addBotMessageToTranscript(session, text, options = null, stage = null) {
+  const entry = {
+    who: 'bot',
+    text: text,
+    ts: nowIso(),
+    stage: stage || session.stage
+  };
+  
+  // Add options if provided (buttons offered to user)
+  if (options && Array.isArray(options) && options.length > 0) {
+    entry.opciones = options.map(opt => ({
+      texto: opt.text || opt.label || opt.value,
+      valor: opt.value,
+      emoji: opt.emoji || null
+    }));
+  }
+  
+  session.transcript.push(entry);
 }
 
 // ========================================================
@@ -5473,7 +5507,7 @@ Respondé con una explicación clara y útil para el usuario.`
           session.isProblem = false;
         }
 
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        addBotMessageToTranscript(session, reply, options);
         await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
       } else {
@@ -5483,9 +5517,10 @@ Respondé con una explicación clara y útil para el usuario.`
           : (locale === 'es-419'
             ? "Por favor, selecciona una de las opciones usando los botones."
             : "Por favor, seleccioná una de las opciones usando los botones.");
-        session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
+        const retryOptions = buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']);
+        addBotMessageToTranscript(session, retry, retryOptions);
         await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: retryOptions }));
       }
     }
 
