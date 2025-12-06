@@ -6046,8 +6046,98 @@ Respondé con una explicación clara y útil para el usuario.`
         // 👨‍💻 HANDLER: BTN_CONNECT_TECH desde ASK_PROBLEM
         if (rxConnectTech.test(t) || buttonToken === 'BTN_CONNECT_TECH') {
           session.stage = STATES.ESCALATE;
+          
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          
+          const escalationReply = isEn
+            ? `Perfect! I'll connect you with a human technician via WhatsApp.\n\n✅ I'll send them the complete conversation history so you don't have to explain everything again.\n\nClick the button below to continue on WhatsApp:`
+            : (locale === 'es-419'
+              ? `¡Perfecto! Te conecto con un técnico humano por WhatsApp.\n\n✅ Le voy a enviar el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nHacé clic en el botón de abajo para continuar por WhatsApp:`
+              : `¡Perfecto! Te conecto con un técnico humano por WhatsApp.\n\n✅ Le voy a enviar el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nHacé clic en el botón de abajo para continuar por WhatsApp:`);
+          
+          session.transcript.push({ who: 'bot', text: escalationReply, ts: nowIso(), stage: session.stage });
           await saveSessionAndTranscript(sid, session);
-          return await createTicketAndRespond(session, sid, res);
+          
+          // Crear botón de WhatsApp personalizado
+          const whatsappButton = {
+            token: 'BTN_WHATSAPP_TECNICO',
+            label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
+            text: 'whatsapp técnico',
+            emoji: '💚',
+            action: 'external',
+            style: 'primary'
+          };
+          
+          return res.json({
+            ok: true,
+            reply: escalationReply,
+            stage: session.stage,
+            options: [whatsappButton],
+            ui: {
+              buttons: [whatsappButton]
+            }
+          });
+        }
+        
+        // 💚 HANDLER: BTN_WHATSAPP_TECNICO - Enviar historial por WhatsApp
+        if (buttonToken === 'BTN_WHATSAPP_TECNICO') {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          
+          // Preparar historial de conversación
+          const transcriptText = session.transcript
+            .map((msg, idx) => {
+              const time = msg.ts ? new Date(msg.ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+              const who = msg.who === 'user' ? '👤 Cliente' : '🤖 Tecnos';
+              const stage = msg.stage ? ` [${msg.stage}]` : '';
+              return `${idx + 1}. ${who} ${time}${stage}:\n   ${msg.text}`;
+            })
+            .join('\n\n');
+          
+          // Información técnica recopilada
+          const technicalInfo = [
+            `📱 *Información Técnica:*`,
+            session.operatingSystem ? `• OS: ${session.operatingSystem}` : null,
+            session.device ? `• Dispositivo: ${session.device}` : null,
+            session.deviceBrand ? `• Marca: ${session.deviceBrand}` : null,
+            session.problemCategory ? `• Categoría: ${session.problemCategory}` : null,
+            session.activeIntent ? `• Intent: ${session.activeIntent.type} (${Math.round(session.activeIntent.confidence * 100)}%)` : null
+          ].filter(Boolean).join('\n');
+          
+          // Preparar mensaje completo para WhatsApp
+          const whatsappMessage = encodeURIComponent(
+            `🆘 *Solicitud de Soporte Técnico*\n\n` +
+            `📋 *ID Sesión:* ${sid}\n\n` +
+            `${technicalInfo}\n\n` +
+            `📝 *Historial de Conversación:*\n\n` +
+            `${transcriptText}\n\n` +
+            `⏰ *Hora de solicitud:* ${new Date().toLocaleString('es-AR')}`
+          );
+          
+          // Número de WhatsApp del soporte (ajustar según configuración)
+          const whatsappNumber = process.env.WHATSAPP_SUPPORT_NUMBER || '5492323569443'; // STI Support
+          const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
+          
+          const confirmMsg = isEn
+            ? `Perfect! Click the link below to open WhatsApp with all the conversation history ready to send:\n\n${whatsappUrl}\n\n✅ The technician will receive all the context and will be able to help you quickly.`
+            : (locale === 'es-419'
+              ? `¡Perfecto! Hacé clic en el enlace de abajo para abrir WhatsApp con todo el historial de conversación listo para enviar:\n\n${whatsappUrl}\n\n✅ El técnico va a recibir todo el contexto y va a poder ayudarte rápidamente.`
+              : `¡Perfecto! Hacé clic en el enlace de abajo para abrir WhatsApp con todo el historial de conversación listo para enviar:\n\n${whatsappUrl}\n\n✅ El técnico va a recibir todo el contexto y va a poder ayudarte rápidamente.`);
+          
+          session.transcript.push({ who: 'bot', text: confirmMsg, ts: nowIso(), stage: session.stage });
+          await saveSessionAndTranscript(sid, session);
+          
+          return res.json({
+            ok: true,
+            reply: confirmMsg,
+            stage: session.stage,
+            whatsappUrl: whatsappUrl,
+            metadata: {
+              action: 'open_whatsapp',
+              url: whatsappUrl
+            }
+          });
         }
         
         // 🚪 HANDLER: BTN_CLOSE desde ASK_PROBLEM
@@ -7068,13 +7158,50 @@ La guía debe ser:
     } else {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      reply = isEn
-        ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
-        : (locale === 'es-419'
-          ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
-          : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
-      const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
-      options = [reformBtn];
+      
+      // Verificar si estamos en contexto de instalación
+      const isInstallationContext = 
+        session.stage === STATES.GUIDING_INSTALLATION ||
+        (session.activeIntent && session.activeIntent.type === 'INSTALLATION_HELP');
+      
+      if (isInstallationContext) {
+        // Usar flujo de instalación con fallback dinámico
+        console.log('[FALLBACK] 🔧 Contexto de instalación detectado - usando flujo de instalación');
+        
+        const installationContext = {
+          os: session.operatingSystem || 'tu sistema operativo',
+          device: session.device || 'tu dispositivo',
+          brand: session.deviceBrand || null,
+          originalMessage: session.lastUserMessage || t
+        };
+        
+        reply = isEn
+          ? `I'll help you with the installation. Let me guide you through the specific steps for your system.`
+          : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.`;
+        
+        // Si tenemos información del OS, agregar más contexto
+        if (session.operatingSystem) {
+          reply += isEn
+            ? `\n\nYou're using ${session.operatingSystem}. Here are the steps:`
+            : `\n\nEstás usando ${session.operatingSystem}. Acá van los pasos:`;
+        }
+        
+        // Agregar pasos básicos de instalación
+        reply += isEn
+          ? `\n\n1. Download the installer from the official website\n2. Run the downloaded file\n3. Follow the installation wizard\n4. Restart if needed\n\nDo you need help with any specific step?`
+          : `\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado\n3. Seguí el asistente de instalación\n4. Reiniciá si es necesario\n\n¿Necesitás ayuda con algún paso específico?`;
+        
+        options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+      } else {
+        // Comportamiento original para otros contextos
+        reply = isEn
+          ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
+          : (locale === 'es-419'
+            ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
+            : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
+        const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
+        options = [reformBtn];
+      }
     }
 
     // Save bot reply + persist transcripts to file (single ts pair)
