@@ -1480,6 +1480,9 @@ function saveTranscriptJSON(sessionId, session) {
     return true;
   } catch (error) {
     console.error(`[TRANSCRIPT] ❌ Error saving JSON for ${sessionId}:`, error.message);
+    console.error(`[TRANSCRIPT] Error stack:`, error.stack);
+    console.error(`[TRANSCRIPT] TRANSCRIPTS_DIR:`, TRANSCRIPTS_DIR);
+    console.error(`[TRANSCRIPT] HISTORIAL_CHAT_DIR:`, HISTORIAL_CHAT_DIR);
     return false;
   }
 }
@@ -6686,9 +6689,13 @@ La guía debe ser:
       fs.appendFile(tf, botLine, () => { });
       
       // Guardar también en formato JSON para Codex y historial_chat
-      saveTranscriptJSON(sid, session);
+      const saveResult = saveTranscriptJSON(sid, session);
+      if (!saveResult) {
+        console.error('[TRANSCRIPT] ⚠️  saveTranscriptJSON returned false - check logs above');
+      }
     } catch (e) { 
       console.error('[TRANSCRIPT] ❌ Error guardando transcript:', e.message);
+      console.error('[TRANSCRIPT] Stack:', e.stack);
     }
 
     const response = withOptions({ ok: true, reply, sid, stage: session.stage });
