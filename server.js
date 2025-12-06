@@ -4643,7 +4643,13 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     let session = await getSession(sid);
     console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
+    
+    // 🆕 Si no existe sesión, crear y retornar mensaje de GDPR inicial
     if (!session) {
+      console.log('[api/chat] 🆕 Nueva sesión detectada - enviando mensaje de GDPR');
+      
+      const fullGreeting = buildLanguageSelectionGreeting();
+      
       session = {
         id: sid,
         userName: null,
@@ -4664,12 +4670,25 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         stepProgress: {},
         pendingDeviceGroup: null,
         userLocale: 'es-AR',
-        images: [], // Array para guardar referencias de imágenes
-        helpAttempts: {},
+        images: [],
         frustrationCount: 0,
         pendingAction: null
       };
-      console.log('[api/chat] nueva session', sid);
+      
+      // Agregar mensaje de GDPR al transcript
+      session.transcript.push({ who: 'bot', text: fullGreeting.text, ts: nowIso() });
+      
+      await saveSession(sid, session);
+      console.log('[api/chat] ✅ Sesión nueva guardada con mensaje de GDPR');
+      
+      // Retornar mensaje de GDPR con botones
+      return res.json({
+        ok: true,
+        reply: fullGreeting.text,
+        stage: STATES.ASK_LANGUAGE,
+        buttons: fullGreeting.buttons || [],
+        sessionId: sid
+      });
     }
 
     // ========================================================
