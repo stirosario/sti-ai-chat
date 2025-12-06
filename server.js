@@ -5810,6 +5810,29 @@ Respondé con una explicación clara y útil para el usuario.`
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
 
+      // 🎯 DETECTAR BOTONES DE ACCIÓN ANTES DE ANALIZAR
+      // Si el usuario clickea un botón de acción (Pruebas Avanzadas, Conectar Técnico, etc.)
+      // NO analizar ese texto como un problema - dejar que caiga al handler correspondiente más abajo
+      const rxAdvanced = /^\s*(pruebas avanzadas|más pruebas)\b/i;
+      const rxConnectTech = /^\s*(conectar con técnico|hablar con técnico)\b/i;
+      const rxClose = /^\s*(cerrar|terminar)\b/i;
+      
+      const isActionButton = 
+        buttonToken === 'BTN_ADVANCED_TESTS' || 
+        buttonToken === 'BTN_MORE_TESTS' ||
+        buttonToken === 'BTN_CONNECT_TECH' ||
+        buttonToken === 'BTN_CLOSE' ||
+        rxAdvanced.test(t) ||
+        rxConnectTech.test(t) ||
+        rxClose.test(t);
+      
+      if (isActionButton) {
+        console.log('[ASK_PROBLEM] ⏭️ Botón de acción detectado:', buttonToken || t, '- Skip análisis AI, ir a handler');
+        // No hacer nada aquí, dejar que caiga a los handlers más abajo en el código
+        // que manejan BASIC_TESTS, ADVANCED_TESTS, ESCALATE, etc.
+      } else {
+        // SOLO ANALIZAR CON AI SI NO ES UN BOTÓN DE ACCIÓN
+        
       // 🖼️ SI HAY ANÁLISIS DE IMAGEN, RESPONDER CON ESE ANÁLISIS PRIMERO
       if (imageContext && imageContext.includes('🔍 **Análisis de la imagen:**')) {
         console.log('[ASK_PROBLEM] ✅ Respondiendo con análisis de imagen');
@@ -6062,6 +6085,8 @@ Respondé con una explicación clara y útil para el usuario.`
 
       // Generate and show steps
       return await generateAndShowSteps(session, sid, res);
+      
+      } // End of else - skip AI analysis for action buttons
 
     } else if (session.stage === STATES.ASK_HOWTO_DETAILS) {
       // User is responding with OS + device model for how-to guide
