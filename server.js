@@ -2205,7 +2205,11 @@ app.use((req, res, next) => {
 // ========================================================
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://stia.com.ar', 'https://www.stia.com.ar'];
+  : [
+      'https://stia.com.ar',
+      'https://www.stia.com.ar',
+      'https://sti-rosario-ai.onrender.com' // Render backend URL
+    ];
 
 // Solo en desarrollo agregar localhost
 if (process.env.NODE_ENV !== 'production') {
