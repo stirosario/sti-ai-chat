@@ -114,6 +114,10 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
       if (session.activeIntent && !session.activeIntent.resolved) {
         console.log('[IntelligentChat] ⚠️ Confidence baja PERO hay intent activo - continuando flujo');
         // Continuar al PASO 4 - el sistema inteligente manejará la respuesta
+      } else if (intentAnalysis.isAuxiliaryResponse && session.activeIntent && !session.activeIntent.resolved) {
+        // Guard clause: Si es respuesta auxiliar Y hay intent activo, NO mostrar mensaje genérico
+        console.log('[IntelligentChat] 🔄 Respuesta auxiliar con intent activo - saltando mensaje genérico');
+        // Continuar al PASO 4
       } else {
         // Solo pedir aclaración si NO hay intención activa
         const clarificationMsg = isEnglish

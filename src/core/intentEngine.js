@@ -84,6 +84,12 @@ function isAuxiliaryResponse(userMessage) {
     if (/^(tengo\s+\w+|uso\s+\w+|es\s+(un|una)\s+\w+)$/i.test(msg)) return true;
   }
   
+  // Frases que contienen sistema operativo (para respuestas a INSTALLATION_HELP o CONFIGURATION_HELP)
+  if (/(windows\s*(11|10|8|7)?|win\s*(11|10)|mac|macos|linux|ubuntu|android|ios)/i.test(msg)) {
+    // Frases como "windows 11", "tengo windows 11", "uso win 10", "es mac"
+    if (msg.length < 30) return true;
+  }
+  
   return false;
 }
 
