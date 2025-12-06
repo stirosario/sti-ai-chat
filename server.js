@@ -5449,6 +5449,36 @@ Respondé con una explicación clara y útil para el usuario.`
       const isEn = String(locale).toLowerCase().startsWith('en');
       const tLower = t.toLowerCase();
 
+      // 🔬 HANDLER: BTN_ADVANCED_TESTS desde ASK_NEED
+      // Usuario clickea "Pruebas Avanzadas" sin haber definido el tipo de necesidad primero
+      // Tratarlo como un problema técnico y avanzar a ASK_PROBLEM
+      if (buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS' || /pruebas?\s+avanzadas?/i.test(t)) {
+        console.log('[ASK_NEED] ⏭️ Botón Pruebas Avanzadas detectado - Asumir problema técnico');
+        needType = 'problema';
+        session.needType = needType;
+        session.isProblem = true;
+        session.isHowTo = false;
+        session.stage = STATES.ASK_PROBLEM;
+
+        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+        const reply = isEn
+          ? `Perfect ${whoName}. Tell me: what problem are you having?`
+          : `Perfecto, ${whoName} 🤖✨.\nSi tu situación está en esta lista, elegí la opción que mejor la describa: 👉\n\nO si lo preferís, describime el problema con tus palabras… 💬🔧`;
+
+        const options = buildUiButtonsFromTokens([
+          'BTN_NO_ENCIENDE',
+          'BTN_NO_INTERNET',
+          'BTN_LENTITUD',
+          'BTN_BLOQUEO',
+          'BTN_PERIFERICOS',
+          'BTN_VIRUS'
+        ], locale);
+
+        addBotMessageToTranscript(session, reply, options);
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+      }
+
       let needType = null;
 
       // Detectar por botones (2 opciones principales)
