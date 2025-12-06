@@ -164,7 +164,10 @@ export async function analyzeIntent(userMessage, conversationContext = {}, local
       requiresDiagnostic: analysis.requiresDiagnostic || false,
       deviceType: analysis.deviceType || null,
       urgency: analysis.urgency || 'normal',
-      clarificationNeeded: analysis.clarificationNeeded || false
+      clarificationNeeded: analysis.clarificationNeeded || false,
+      topic: analysis.topic || detectTopic(userMessage),
+      operatingSystem: analysis.operatingSystem || detectOS(userMessage),
+      deviceBrand: analysis.deviceBrand || detectBrand(userMessage)
     };
 
   } catch (error) {
@@ -328,7 +331,10 @@ Tu rol es analizar mensajes de usuarios y determinar su INTENCIÓN VERDADERA con
   "requiresDiagnostic": true/false,
   "deviceType": "pc, notebook, impresora, router, etc. o null",
   "urgency": "low, normal, high",
-  "clarificationNeeded": true/false
+  "clarificationNeeded": true/false,
+  "topic": "office, drivers, wifi, software o null",
+  "operatingSystem": "Windows 11, Windows 10, macOS, Linux, etc. o null",
+  "deviceBrand": "HP, Dell, Lenovo, etc. o null"
 }
 
 **EJEMPLOS:**
@@ -374,6 +380,57 @@ function buildUserPrompt(userMessage, context, isEnglish) {
   }
 
   return prompt;
+}
+
+/**
+ * 🔍 Detecta el sistema operativo mencionado en el mensaje
+ */
+function detectOS(message) {
+  const msg = message.toLowerCase();
+  if (/windows\s*(11|10|8|7)?/i.test(msg)) return msg.match(/windows\s*(11|10|8|7)?/i)[0];
+  if (/mac\s*os|macos/i.test(msg)) return 'macOS';
+  if (/linux|ubuntu|debian/i.test(msg)) return msg.match(/linux|ubuntu|debian/i)[0];
+  if (/android/i.test(msg)) return 'Android';
+  if (/ios|iphone|ipad/i.test(msg)) return 'iOS';
+  return null;
+}
+
+/**
+ * 🔍 Detecta la marca del dispositivo mencionada
+ */
+function detectBrand(message) {
+  const msg = message.toLowerCase();
+  if (/\bhp\b/i.test(msg)) return 'HP';
+  if (/dell/i.test(msg)) return 'Dell';
+  if (/lenovo/i.test(msg)) return 'Lenovo';
+  if (/asus/i.test(msg)) return 'Asus';
+  if (/acer/i.test(msg)) return 'Acer';
+  if (/samsung/i.test(msg)) return 'Samsung';
+  if (/apple/i.test(msg)) return 'Apple';
+  if (/toshiba/i.test(msg)) return 'Toshiba';
+  if (/sony/i.test(msg)) return 'Sony';
+  return null;
+}
+
+/**
+ * 🔍 Detecta tema específico del mensaje
+ */
+function detectTopic(message) {
+  const msg = message.toLowerCase();
+  
+  // Office
+  if (/office|word|excel|powerpoint|outlook/i.test(msg)) return 'office';
+  
+  // Drivers
+  if (/driver|sonido|audio|video|grafica|impresora no imprime|no detecta/i.test(msg)) return 'drivers';
+  
+  // WiFi
+  if (/wifi|wi-fi|inalambrico|red|internet no funciona|no se conecta|conexion/i.test(msg)) return 'wifi';
+  
+  // Instalación de software específico
+  if (/anydesk|teamviewer|chrome|firefox|zoom|skype/i.test(msg)) return 'software';
+  
+  return null;
 }
 
 /**

@@ -251,6 +251,18 @@ function updateSessionContext(session, intentAnalysis, userMessage) {
     session.device = session.device || intentAnalysis.deviceType;
   }
   
+  // Guardar sistema operativo si fue detectado
+  if (intentAnalysis.operatingSystem) {
+    session.operatingSystem = session.operatingSystem || intentAnalysis.operatingSystem;
+    console.log('[IntelligentChat] 💾 OS guardado:', session.operatingSystem);
+  }
+  
+  // Guardar marca si fue detectada
+  if (intentAnalysis.deviceBrand) {
+    session.deviceBrand = session.deviceBrand || intentAnalysis.deviceBrand;
+    console.log('[IntelligentChat] 💾 Marca guardada:', session.deviceBrand);
+  }
+  
   // ✅ Si es respuesta auxiliar, actualizar activeIntent con datos auxiliares
   if (intentAnalysis.isAuxiliaryResponse && intentAnalysis.auxiliaryData) {
     // Detectar tipo de dato auxiliar y guardarlo apropiadamente

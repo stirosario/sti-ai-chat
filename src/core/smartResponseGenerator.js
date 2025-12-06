@@ -186,15 +186,20 @@ async function handleInstallationWithOS(originalRequest, osInfo, context, isEngl
 - DO NOT ask what they want to install - they already told you
 - DO NOT ask for their OS again - they just provided it`
 
-    : `Sos Tecnos, un asistente de soporte IT. El usuario quiere instalar software y acaba de proporcionar su sistema operativo.
+    : `Sos Tecnos, el asistente de STI — Servicio Técnico Inteligente. El usuario quiere instalar algo y te acaba de decir que usa ${osInfo}.
+
+**TU ESTILO:**
+- Hablá en argentino: vos, necesitás, podés, tenés.
+- Sé breve, claro y amable.
+- Usá 1-2 emojis discretos (✅ 📥 🔗).
+- Si es AnyDesk, Office o software conocido, da pasos claros.
 
 **TU TAREA:**
-- Proporcionar instrucciones de instalación ESPECÍFICAS, paso a paso
-- Usar el SO exacto que mencionaron (${osInfo})
-- Ser directo y accionable
-- Incluir enlaces de descarga si aplica
-- NO preguntar qué quieren instalar - ya te lo dijeron
-- NO volver a preguntar por el SO - acaban de dártelo`;
+- Proporcionar pasos ESPECÍFICOS para ${osInfo}.
+- NO preguntar qué quiere instalar — ya te lo dijo.
+- NO volver a preguntar el SO — ya lo tenés.
+- Si hace falta un link, dalo (ej: anydesk.com/es/downloads).
+- Recordá sutilmente: "Soy Tecnos, de STI — Servicio Técnico Inteligente."`;
 
   const userPrompt = isEnglish
     ? `**ORIGINAL REQUEST:** "${originalRequest}"
@@ -240,7 +245,7 @@ Generá instrucciones completas de instalación para esta solicitud en ${osInfo}
     };
   } catch (error) {
     console.error('[SmartResponse] ❌ Error en handleInstallationWithOS:', error);
-    return generateFallbackInstallationResponse(originalRequest, osInfo, isEnglish);
+    return openAIFallback('installation', { os: osInfo, originalMessage: originalRequest }, isEnglish);
   }
 }
 
@@ -260,14 +265,20 @@ async function handleTechnicalProblemWithDevice(originalProblem, deviceInfo, con
 - DO NOT ask what the problem is - they already told you
 - DO NOT ask for device type again - they just provided it`
 
-    : `Sos Tecnos, un asistente de soporte IT. El usuario tiene un problema técnico y acaba de proporcionar información del dispositivo.
+    : `Sos Tecnos, el asistente de STI — Servicio Técnico Inteligente. El usuario tiene un problema y te dio info de su dispositivo: ${deviceInfo}.
+
+**TU ESTILO:**
+- Hablá en argentino: vos, necesitás, podés, tenés.
+- Sé empático pero práctico.
+- Usá 1-2 emojis (🔧 ⚙️ ✅).
+- Pasos claros, numerados.
 
 **TU TAREA:**
-- Proporcionar pasos de diagnóstico ESPECÍFICOS para este tipo de dispositivo
-- Ser sistemático y claro
-- Empezar con las soluciones más probables
-- NO preguntar cuál es el problema - ya te lo dijeron
-- NO volver a preguntar el tipo de dispositivo - acaban de dártelo`;
+- Dar pasos ESPECÍFICOS para ${deviceInfo}.
+- Empezar por lo más probable.
+- NO preguntar cuál es el problema — ya te lo contó.
+- NO volver a preguntar el dispositivo — ya lo tenés.
+- Si es tema de drivers, sonido o WiFi, mencioná descargar desde el sitio del fabricante.`;
 
   const userPrompt = isEnglish
     ? `**ORIGINAL PROBLEM:** "${originalProblem}"
@@ -315,7 +326,7 @@ Generá pasos específicos de diagnóstico para este problema en este dispositiv
     };
   } catch (error) {
     console.error('[SmartResponse] ❌ Error en handleTechnicalProblemWithDevice:', error);
-    return generateFallbackDiagnosticResponse(originalProblem, deviceInfo, isEnglish);
+    return openAIFallback('diagnostic', { device: deviceInfo, brand: context.deviceBrand, originalMessage: originalProblem }, isEnglish);
   }
 }
 
@@ -335,14 +346,19 @@ async function handleHowToWithDetails(originalQuestion, details, context, isEngl
 - Include screenshots descriptions if helpful
 - DO NOT ask what they want to know - they already asked`
 
-    : `Sos Tecnos, un asistente de soporte IT. El usuario hizo una pregunta de procedimiento y proporcionó detalles adicionales.
+    : `Sos Tecnos, el asistente de STI — Servicio Técnico Inteligente. El usuario te preguntó algo y acaba de darte más info: ${details}.
+
+**TU ESTILO:**
+- Hablá en argentino: vos, necesitás, podés, tenés.
+- Sé educativo, paciente y claro.
+- Usá 1-2 emojis (📚 ✅).
+- Pasos simples, numerados.
 
 **TU TAREA:**
-- Proporcionar una respuesta CLARA, paso a paso
-- Usar el contexto adicional que proporcionaron (${details})
-- Ser educativo y paciente
-- Incluir descripciones de capturas si ayuda
-- NO preguntar qué quieren saber - ya te lo preguntaron`;
+- Responder CLARO, paso a paso.
+- Usar ${details} que te dio.
+- NO preguntar qué quiere saber — ya te lo preguntó.
+- Si es Office, WiFi o drivers, da guía completa.`;
 
   const userPrompt = isEnglish
     ? `**ORIGINAL QUESTION:** "${originalQuestion}"
@@ -390,7 +406,7 @@ Proporcioná una respuesta completa y clara con instrucciones paso a paso.`;
     };
   } catch (error) {
     console.error('[SmartResponse] ❌ Error en handleHowToWithDetails:', error);
-    return generateFallbackHowToResponse(originalQuestion, details, isEnglish);
+    return openAIFallback('howto', { os: context.operatingSystem, originalMessage: originalQuestion, details }, isEnglish);
   }
 }
 
@@ -408,13 +424,18 @@ function buildResponseSystemPrompt(intent, isEnglish) {
 - Never offer solutions that don't apply to the context
 - If unsure, ask for clarification
 - Focus on solving the user's actual problem`
-    : `Sos Tecnos, un asistente inteligente de soporte IT. Sos útil, empático, claro y eficiente.
+    : `Sos Tecnos, el asistente inteligente de STI — Servicio Técnico Inteligente. Sos útil, empático, claro y profesional.
+
+**TU ESTILO:**
+- Hablá en argentino: vos, necesitás, podés, tenés.
+- Sé conciso, claro y amable.
+- Usá 1-3 emojis discretos máximo.
+- Si corresponde, recordá: "Soy Tecnos de STI."
 
 **TUS PRINCIPIOS:**
-- Siempre entendé la necesidad REAL del usuario antes de actuar
-- Sé conciso pero completo
-- Usá lenguaje simple y amigable
-- Nunca ofrezcas soluciones que no aplican al contexto
+- Entendé la necesidad REAL antes de actuar
+- Usá contexto disponible (OS, dispositivo, marca)
+- Nunca ofrezcas soluciones que no aplican
 - Si no estás seguro, pedí aclaración
 - Enfocate en resolver el problema real del usuario`;
 
@@ -494,6 +515,24 @@ function buildResponseUserPrompt(intentAnalysis, userMessage, context, isEnglish
     prompt += isEnglish
       ? `**DEVICE TYPE:** ${intentAnalysis.deviceType}\n`
       : `**TIPO DE DISPOSITIVO:** ${intentAnalysis.deviceType}\n`;
+  }
+  
+  if (intentAnalysis.topic) {
+    prompt += isEnglish
+      ? `**TOPIC:** ${intentAnalysis.topic} (office/drivers/wifi/software)\n`
+      : `**TEMA:** ${intentAnalysis.topic} (office/drivers/wifi/software)\n`;
+  }
+  
+  if (context.operatingSystem) {
+    prompt += isEnglish
+      ? `**OS:** ${context.operatingSystem}\n`
+      : `**SISTEMA OPERATIVO:** ${context.operatingSystem}\n`;
+  }
+  
+  if (context.deviceBrand) {
+    prompt += isEnglish
+      ? `**BRAND:** ${context.deviceBrand}\n`
+      : `**MARCA:** ${context.deviceBrand}\n`;
   }
 
   if (context.recentMessages && context.recentMessages.length > 0) {
@@ -681,6 +720,84 @@ function generateFallbackResponse(intentAnalysis, userMessage, isEnglish) {
     options: determineOptions(intentAnalysis, {}, isEnglish),
     nextAction: determineNextAction(intentAnalysis, {}),
     reasoning: 'Fallback response (OpenAI unavailable)'
+  };
+}
+
+/**
+ * 🆘 Fallback centralizado para cuando OpenAI falla o devuelve basura
+ */
+function openAIFallback(actionType, context, isEnglish) {
+  const { os, device, brand, originalMessage } = context;
+  
+  let reply = '';
+  let steps = [];
+  
+  if (actionType === 'installation') {
+    if (isEnglish) {
+      reply = `I want to help you install what you need${os ? ` on ${os}` : ''}. `;
+      steps = [
+        '1. Go to the official software website',
+        '2. Download the installer for your OS',
+        '3. Run the installer and follow the wizard'
+      ];
+    } else {
+      reply = `Quiero ayudarte a instalar lo que necesitás${os ? ` en ${os}` : ''}. `;
+      steps = [
+        '1️⃣ Andá al sitio oficial del software',
+        '2️⃣ Descargá el instalador para tu sistema',
+        '3️⃣ Ejecutalo y seguí el asistente'
+      ];
+    }
+  } else if (actionType === 'diagnostic') {
+    if (isEnglish) {
+      reply = `Let me help you diagnose the issue${device ? ` with your ${device}` : ''}. `;
+      steps = [
+        '1. Restart the device',
+        '2. Check all cables are connected',
+        '3. Look for error messages or unusual behavior'
+      ];
+    } else {
+      reply = `Dejame ayudarte a diagnosticar el problema${device ? ` con tu ${device}` : ''}. `;
+      steps = [
+        '1️⃣ Reiniciá el equipo',
+        '2️⃣ Verificá que todos los cables estén conectados',
+        '3️⃣ Fijate si hay mensajes de error'
+      ];
+    }
+  } else if (actionType === 'howto') {
+    if (isEnglish) {
+      reply = `I'll explain how to do it${os ? ` on ${os}` : ''}. `;
+      steps = [
+        '1. Open the relevant settings or control panel',
+        '2. Look for the option you need',
+        '3. Follow the on-screen instructions'
+      ];
+    } else {
+      reply = `Te explico cómo hacerlo${os ? ` en ${os}` : ''}. `;
+      steps = [
+        '1️⃣ Abrí la configuración correspondiente',
+        '2️⃣ Buscá la opción que necesitás',
+        '3️⃣ Seguí las instrucciones en pantalla'
+      ];
+    }
+  }
+  
+  reply += '\n\n' + steps.join('\n');
+  reply += isEnglish
+    ? '\n\nIf you need more specific help, I can connect you with a technician.'
+    : '\n\nSi necesitás ayuda más específica, puedo conectarte con un técnico. 👨‍💻';
+  
+  return {
+    reply,
+    options: [{
+      text: isEnglish ? '🔄 Try again' : '🔄 Intentar de nuevo',
+      value: 'BTN_RETRY'
+    }, {
+      text: isEnglish ? '👨‍💻 Talk to technician' : '👨‍💻 Hablar con técnico',
+      value: 'BTN_CONNECT_TECH'
+    }],
+    nextAction: 'await_retry_or_escalate',
+    reasoning: 'Fallback - OpenAI unavailable or error'
   };
 }
 
