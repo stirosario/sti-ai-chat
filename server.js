@@ -697,6 +697,7 @@ const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'tra
 const TICKETS_DIR = process.env.TICKETS_DIR || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR = process.env.LOGS_DIR || path.join(DATA_BASE, 'logs');
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
+const HISTORIAL_CHAT_DIR = process.env.HISTORIAL_CHAT_DIR || path.join(DATA_BASE, 'historial_chat');
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
@@ -717,7 +718,7 @@ if (!process.env.LOG_TOKEN) {
   console.error('='.repeat(80) + '\n'.repeat(2));
 }
 
-for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
+for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, HISTORIAL_CHAT_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
@@ -1273,6 +1274,59 @@ async function analyzeNameWithOA(nameText = '') {
 // ========================================================
 
 /**
+ * Lee y formatea una conversación del historial para análisis
+ * @param {string} conversationId - ID de la conversación a leer
+ * @returns {object|null} - Datos formateados o null si no existe
+ */
+function readHistorialChat(conversationId) {
+  try {
+    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
+    
+    if (!fs.existsSync(historialPath)) {
+      console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
+      return null;
+    }
+
+    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    
+    // Formatear para lectura humana
+    console.log('\n' + '='.repeat(80));
+    console.log(`📋 HISTORIAL DE CONVERSACIÓN: ${conversationId}`);
+    console.log('='.repeat(80));
+    console.log(`👤 Usuario: ${data.usuario}`);
+    console.log(`📅 Fecha: ${new Date(data.fecha_inicio).toLocaleString('es-AR')}`);
+    console.log(`📱 Dispositivo: ${data.dispositivo}`);
+    console.log(`🌍 Idioma: ${data.idioma}`);
+    console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
+    console.log('='.repeat(80) + '\n');
+
+    // Mostrar conversación
+    data.conversacion.forEach(msg => {
+      const time = new Date(msg.timestamp).toLocaleTimeString('es-AR');
+      const icon = msg.quien === 'USUARIO' ? '👤' : '🤖';
+      console.log(`[${time}] ${icon} ${msg.quien}:`);
+      console.log(`   ${msg.mensaje}`);
+      console.log(`   (stage: ${msg.stage})`);
+      console.log('');
+    });
+
+    console.log('='.repeat(80));
+    console.log(`📊 Stage inicial: ${data.metadata.stage_inicial}`);
+    console.log(`📊 Stage final: ${data.metadata.stage_final}`);
+    console.log(`✅ Solucionado: ${data.metadata.solucion_aplicada ? 'SÍ' : 'NO'}`);
+    if (data.metadata.ticket_generado) {
+      console.log(`🎫 Ticket generado: ${data.metadata.ticket_generado}`);
+    }
+    console.log('='.repeat(80) + '\n');
+
+    return data;
+  } catch (error) {
+    console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, error.message);
+    return null;
+  }
+}
+
+/**
  * Cambia el stage de una sesión y trackea la transición
  * @param {object} session - Objeto de sesión
  * @param {string} newStage - Nuevo stage
@@ -1360,10 +1414,57 @@ function saveTranscriptJSON(sessionId, session) {
       }
     }
 
-    // Guardar archivo JSON
+    // Guardar archivo JSON en transcripts (para Codex)
     const jsonPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.json`);
     fs.writeFileSync(jsonPath, JSON.stringify(transcriptData, null, 2), 'utf8');
     
+    // ========================================================
+    // HISTORIAL_CHAT: Guardar conversación legible para análisis manual
+    // ========================================================
+    const historialData = {
+      id: sessionId,
+      fecha_inicio: transcriptData.timestamp,
+      fecha_ultima_actualizacion: new Date().toISOString(),
+      usuario: session.userName || 'Anónimo',
+      dispositivo: session.device || 'unknown',
+      idioma: session.userLocale || 'es-AR',
+      conversacion: []
+    };
+
+    // Construir conversación en formato legible
+    if (session.transcript && Array.isArray(session.transcript)) {
+      historialData.conversacion = session.transcript.map((entry, index) => {
+        const timestamp = entry.ts || new Date().toISOString();
+        const quien = entry.who === 'user' ? 'USUARIO' : 'TECNOS';
+        
+        return {
+          orden: index + 1,
+          timestamp: timestamp,
+          quien: quien,
+          mensaje: entry.text || '',
+          stage: entry.stage || 'unknown'
+        };
+      });
+    }
+
+    // Agregar metadata adicional
+    historialData.metadata = {
+      total_mensajes: historialData.conversacion.length,
+      mensajes_usuario: historialData.conversacion.filter(m => m.quien === 'USUARIO').length,
+      mensajes_bot: historialData.conversacion.filter(m => m.quien === 'TECNOS').length,
+      stage_inicial: session.initialStage || session.stage || 'greeting',
+      stage_final: session.stage || 'unknown',
+      problema_detectado: session.problem || null,
+      solucion_aplicada: session.stage === 'ENDED' || session.stage === 'SOLVED',
+      ticket_generado: session.ticketId || null,
+      imagenes_enviadas: session.imageUrls ? session.imageUrls.length : 0
+    };
+
+    // Guardar en historial_chat con formato legible
+    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
+    fs.writeFileSync(historialPath, JSON.stringify(historialData, null, 2), 'utf8');
+    
+    console.log(`[HISTORIAL] 💾 Conversación guardada: ID ${sessionId} (${historialData.conversacion.length} mensajes)`);
     console.log(`[TRANSCRIPT] 💾 JSON saved for Codex: ${sessionId}.json`);
     
     return true;
@@ -2719,6 +2820,45 @@ app.get('/api/transcript/:sid', async (req, res) => {
   } catch (e) {
     console.error('[api/transcript] error', e && e.message);
     res.send('');
+  }
+});
+
+// ========================================================
+// HISTORIAL_CHAT: Obtener conversación completa
+// ========================================================
+app.get('/api/historial/:conversationId', async (req, res) => {
+  const conversationId = String(req.params.conversationId || '').replace(/[^a-zA-Z0-9._-]/g, '');
+
+  // SECURITY: Validar autenticación
+  const requestSessionId = req.sessionId || req.headers['x-session-id'];
+  const adminToken = req.headers.authorization || req.query.token;
+
+  // Permitir solo si:
+  // 1. El session ID del request coincide con el conversationId solicitado
+  // 2. O tiene un admin token válido (LOG_TOKEN para admin panel)
+  if (conversationId !== requestSessionId && adminToken !== LOG_TOKEN) {
+    console.warn(`[SECURITY] Unauthorized historial access attempt: requested=${conversationId}, session=${requestSessionId}, IP=${req.ip}`);
+    return res.status(403).json({ ok: false, error: 'No autorizado para ver este historial' });
+  }
+
+  const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
+  
+  if (!fs.existsSync(historialPath)) {
+    return res.status(404).json({ ok: false, error: 'Conversación no encontrada' });
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    
+    // Opcional: Maskear PII si no es admin
+    if (adminToken !== LOG_TOKEN && data.usuario) {
+      data.usuario = data.usuario.substring(0, 1) + '***';
+    }
+
+    res.json({ ok: true, historial: data });
+  } catch (error) {
+    console.error('[api/historial] Error:', error.message);
+    res.status(500).json({ ok: false, error: 'Error al leer historial' });
   }
 });
 
@@ -5090,9 +5230,9 @@ Respondé con una explicación clara y útil para el usuario.`
         session.gdprConsentDate = nowIso();
         console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
 
-        // Mostrar selección de idioma
-        const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        // Mostrar selección de idioma CON ID de conversación
+        const reply = `🆔 **${sid}**\n\n✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
         await saveSession(sid, session);
 
         return res.json({
