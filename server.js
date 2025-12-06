@@ -2855,7 +2855,12 @@ app.get('/api/historial/:conversationId', async (req, res) => {
 
   // SECURITY: Validar autenticación
   const requestSessionId = req.sessionId || req.headers['x-session-id'];
-  const adminToken = req.headers.authorization || req.query.token;
+  let adminToken = req.headers.authorization || req.query.token;
+  
+  // Extraer token si viene como "Bearer <token>"
+  if (adminToken && adminToken.startsWith('Bearer ')) {
+    adminToken = adminToken.substring(7);
+  }
 
   // Permitir solo si:
   // 1. El session ID del request coincide con el conversationId solicitado
