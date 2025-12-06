@@ -489,7 +489,21 @@ function buildResponseSystemPrompt(intent, isEnglish) {
 - Pedí amablemente al usuario que aclare qué necesita
 - Ofrecé ejemplos de cómo puede reformular
 - Sé amigable y alentador
-- No hagas suposiciones`
+- No hagas suposiciones`,
+
+    [INTENT_TYPES.ESCALATION_REQUEST]: isEnglish
+      ? `\n\n**FOR THIS INTENT (Escalation to Human):**
+- Acknowledge their request immediately
+- Offer WhatsApp connection with conversation history
+- Keep response SHORT and direct (max 2 sentences)
+- Be warm and reassuring
+- Explain that the technician will receive full context`
+      : `\n\n**PARA ESTA INTENCIÓN (Derivación a Humano):**
+- Reconocé su solicitud inmediatamente
+- Ofrecé conexión por WhatsApp con historial de conversación
+- Mantené la respuesta CORTA y directa (máx 2 oraciones)
+- Sé cálido y tranquilizador
+- Explicá que el técnico recibirá el contexto completo`
   };
 
   return basePersonality + (intentSpecificPrompts[intent] || '');
@@ -650,6 +664,16 @@ function determineOptions(intentAnalysis, context, isEnglish) {
       });
       break;
 
+    case INTENT_TYPES.ESCALATION_REQUEST:
+      // Ofrecer WhatsApp con historial completo
+      options.push({
+        text: isEnglish ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
+        value: 'BTN_WHATSAPP_TECNICO',
+        description: isEnglish ? 'Send conversation history' : 'Enviar historial de conversación',
+        style: 'primary'
+      });
+      break;
+
     case INTENT_TYPES.HOW_TO_QUESTION:
       options.push({
         text: isEnglish ? '👍 I understand' : '👍 Entendí',
@@ -709,6 +733,10 @@ function generateFallbackResponse(intentAnalysis, userMessage, isEnglish) {
     [INTENT_TYPES.INSTALLATION_HELP]: isEnglish
       ? 'I can help you with the installation. What operating system are you using?'
       : 'Puedo ayudarte con la instalación. ¿Qué sistema operativo estás usando?',
+    
+    [INTENT_TYPES.ESCALATION_REQUEST]: isEnglish
+      ? 'Perfect! I can connect you with a human technician from STI via WhatsApp 👨‍💻. Click the green button and the conversation history will be sent automatically so you don\'t have to explain everything again.'
+      : 'Perfecto, te puedo derivar con un técnico humano de STI por WhatsApp para seguir con este caso 👨‍💻. Hacé clic en el botón verde y se envía el historial de esta conversación, así no tenés que explicar todo de nuevo.',
     
     [INTENT_TYPES.UNCLEAR]: isEnglish
       ? 'I want to help you, but I need a bit more information. Could you rephrase what you need? For example: "I want to install...", "My computer won\'t...", or "How do I..."'

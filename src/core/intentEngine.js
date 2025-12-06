@@ -66,8 +66,8 @@ function isAuxiliaryResponse(userMessage) {
   
   // Respuestas muy cortas (< 10 caracteres)
   if (msg.length < 10) {
-    // Sistemas operativos
-    if (/^(windows|win|mac|macos|linux|ubuntu|android|ios)$/i.test(msg)) return true;
+    // Sistemas operativos (incluir variantes)
+    if (/^(windows|win|w10|w11|mac|macos|linux|ubuntu|android|ios)$/i.test(msg)) return true;
     
     // Confirmaciones
     if (/^(s[ií]|yes|ok|dale|claro|exacto|correcto|no)$/i.test(msg)) return true;
@@ -85,9 +85,10 @@ function isAuxiliaryResponse(userMessage) {
   }
   
   // Frases que contienen sistema operativo (para respuestas a INSTALLATION_HELP o CONFIGURATION_HELP)
-  if (/(windows\s*(11|10|8|7)?|win\s*(11|10)|mac|macos|linux|ubuntu|android|ios)/i.test(msg)) {
-    // Frases como "windows 11", "tengo windows 11", "uso win 10", "es mac"
-    if (msg.length < 30) return true;
+  // Incluir todas las variantes: win10, w10, w11, win 10, win 11, windows 10, etc.
+  if (/(windows\s*(11|10|8|7)?|win\s*(11|10)|w(10|11)|mac|macos|linux|ubuntu|android|ios)/i.test(msg)) {
+    // Frases como "windows 11", "tengo windows 11", "uso win 10", "w10", "w11", "es mac"
+    if (msg.length < 40) return true;
   }
   
   return false;
@@ -314,7 +315,16 @@ Your role is to analyze user messages and determine their TRUE INTENTION with hi
 - "I want to install AnyDesk" → installation_help, requiresDiagnostic: false
 - "My PC won't turn on" → technical_problem, requiresDiagnostic: true
 - "How do I increase volume" → how_to_question, requiresDiagnostic: false
-- "It's running slow" → performance_issue (technical_problem), requiresDiagnostic: true`;
+- "It's running slow" → performance_issue (technical_problem), requiresDiagnostic: true
+- "I want to talk to a technician" → escalation_request
+- "Can I speak with a real person?" → escalation_request
+- "I need human help" → escalation_request
+
+**⚠️ CRITICAL: Escalation Detection**
+- Any clear request for human assistance = escalation_request
+- "talk to/speak with technician/person/human" = escalation_request
+- "can I get human help" = escalation_request
+- "someone from STI" = escalation_request`;
   }
 
   return `Sos el Motor de Análisis de Intención para Tecnos, un asistente inteligente de soporte IT.
@@ -348,7 +358,18 @@ Tu rol es analizar mensajes de usuarios y determinar su INTENCIÓN VERDADERA con
 - "Mi PC no prende" → technical_problem, requiresDiagnostic: true
 - "Cómo subo el volumen" → how_to_question, requiresDiagnostic: false
 - "Está lento" → performance_issue, requiresDiagnostic: true
-- "No tengo internet" → connection_problem, requiresDiagnostic: true`;
+- "No tengo internet" → connection_problem, requiresDiagnostic: true
+- "Quiero hablar con un técnico" → escalation_request
+- "Podría hablar con un técnico real?" → escalation_request
+- "Puedo hablar con una persona?" → escalation_request
+- "Necesito ayuda humana" → escalation_request
+- "Me atiende alguien de STI?" → escalation_request
+
+**⚠️ CRÍTICO: Detección de Escalamiento**
+- Cualquier solicitud clara de asistencia humana = escalation_request
+- "quiero/puedo/podría hablar con técnico/persona/humano" = escalation_request
+- "necesito ayuda humana/real" = escalation_request
+- "alguien de STI" = escalation_request`;
 }
 
 /**
@@ -394,10 +415,19 @@ function buildUserPrompt(userMessage, context, isEnglish) {
 function detectOS(message) {
   const msg = message.toLowerCase();
 
-  if (/windows\s*11/.test(msg)) return 'Windows 11';
-  if (/windows\s*10/.test(msg)) return 'Windows 10';
-  if (/win\s*11/.test(msg)) return 'Windows 11';
-  if (/win\s*10/.test(msg)) return 'Windows 10';
+  // Detectar Windows 11 (todas las variantes)
+  if (/(windows\s*11|win\s*11|w11|win11)/.test(msg)) return 'Windows 11';
+  
+  // Detectar Windows 10 (todas las variantes)
+  if (/(windows\s*10|win\s*10|w10|win10)/.test(msg)) return 'Windows 10';
+  
+  // Detectar Windows 8
+  if (/(windows\s*8|win\s*8|w8)/.test(msg)) return 'Windows 8';
+  
+  // Detectar Windows 7
+  if (/(windows\s*7|win\s*7|w7)/.test(msg)) return 'Windows 7';
+  
+  // Detectar Windows genérico
   if (/windows/.test(msg)) return 'Windows';
 
   if (/mac\s*os|macos/.test(msg)) return 'macOS';
