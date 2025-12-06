@@ -513,12 +513,11 @@ function fallbackIntentAnalysis(userMessage) {
   };
 }
 
+export { detectOS, detectBrand, detectDeviceType };
+
 export default {
   analyzeIntent,
   validateActionInContext,
   INTENT_TYPES,
-  ACTION_CONTEXTS,
-  detectOS,
-  detectBrand,
-  detectDeviceType
+  ACTION_CONTEXTS
 };
