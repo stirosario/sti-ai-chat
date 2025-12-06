@@ -89,34 +89,6 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
     // Guardar intent detectado en sesión para próximas validaciones
     session.lastDetectedIntent = intentAnalysis.intent;
     session.lastIntentConfidence = intentAnalysis.confidence;
-    
-    // ✅ GUARDAR INTENCIÓN ACTIVA si es una intención principal (no auxiliar)
-    if (!intentAnalysis.isAuxiliaryResponse) {
-      const principalIntents = [
-        INTENT_TYPES.TECHNICAL_PROBLEM,
-        INTENT_TYPES.PERFORMANCE_ISSUE,
-        INTENT_TYPES.CONNECTION_PROBLEM,
-        INTENT_TYPES.INSTALLATION_HELP,
-        INTENT_TYPES.CONFIGURATION_HELP,
-        INTENT_TYPES.HOW_TO_QUESTION
-      ];
-      
-      if (principalIntents.includes(intentAnalysis.intent)) {
-        session.activeIntent = {
-          type: intentAnalysis.intent,
-          confidence: intentAnalysis.confidence,
-          originalMessage: userMessage,
-          timestamp: Date.now(),
-          resolved: false,
-          requiresDiagnostic: intentAnalysis.requiresDiagnostic,
-          deviceType: intentAnalysis.deviceType,
-          urgency: intentAnalysis.urgency
-        };
-        console.log('[IntelligentChat] 💾 Intención activa guardada:', session.activeIntent.type);
-      }
-    } else {
-      console.log('[IntelligentChat] 🔄 Respuesta auxiliar - manteniendo intent activo');
-    }
 
     // PASO 3: Decidir si necesitamos aclaración
     // ✅ PROHIBIDO: Mensaje genérico en stage ASK_NAME
@@ -161,6 +133,10 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
 
     // PASO 4: Generar respuesta inteligente basada en la intención
     console.log('[IntelligentChat] 💬 Generando respuesta inteligente...');
+    
+    // ✅ PASO 4A: Actualizar session.activeIntent ANTES de generar respuesta
+    updateSessionIntent(session, intentAnalysis, userMessage);
+    
     const smartResponse = await generateSmartResponse(
       intentAnalysis,
       userMessage,
@@ -211,17 +187,72 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
 }
 
 /**
- * 🔄 Actualiza el contexto de la sesión basado en la intención detectada
+ * 💾 Actualiza session.activeIntent cuando se detecta una intención principal
+ * NO actualiza si:
+ * - Es respuesta auxiliar
+ * - Estamos en ASK_NAME
+ * - Estamos en ASK_LANGUAGE
  */
-function updateSessionContext(session, intentAnalysis, userMessage) {
-  // ✅ Si el intent cambió significativamente, marcar intención anterior como resuelta
-  if (session.activeIntent && 
-      session.activeIntent.type !== intentAnalysis.intent &&
-      !intentAnalysis.isAuxiliaryResponse) {
-    console.log('[IntelligentChat] ✅ Intención anterior resuelta:', session.activeIntent.type);
+function updateSessionIntent(session, intentAnalysis, userMessage) {
+  // NO actualizar si es respuesta auxiliar
+  if (intentAnalysis.isAuxiliaryResponse) {
+    console.log('[IntelligentChat] 🔄 Respuesta auxiliar - manteniendo intent activo');
+    return;
+  }
+  
+  // NO actualizar si estamos en stages de setup
+  if (session.stage === 'ASK_NAME' || session.stage === 'ASK_LANGUAGE') {
+    console.log('[IntelligentChat] ⚠️ En stage de setup - no guardar activeIntent');
+    return;
+  }
+  
+  // Lista de intents principales que merecen ser guardados
+  const principalIntents = [
+    INTENT_TYPES.TECHNICAL_PROBLEM,
+    INTENT_TYPES.PERFORMANCE_ISSUE,
+    INTENT_TYPES.CONNECTION_PROBLEM,
+    INTENT_TYPES.INSTALLATION_HELP,
+    INTENT_TYPES.CONFIGURATION_HELP,
+    INTENT_TYPES.HOW_TO_QUESTION,
+    INTENT_TYPES.INFORMATION_REQUEST
+  ];
+  
+  // Solo guardar si es un intent principal
+  if (!principalIntents.includes(intentAnalysis.intent)) {
+    console.log('[IntelligentChat] ⚠️ Intent no principal - no guardar:', intentAnalysis.intent);
+    return;
+  }
+  
+  // Si ya hay un activeIntent y cambió el tipo, marcar el anterior como resuelto
+  if (session.activeIntent && session.activeIntent.type !== intentAnalysis.intent) {
+    console.log('[IntelligentChat] ✅ Intent cambió de', session.activeIntent.type, 'a', intentAnalysis.intent);
     session.activeIntent.resolved = true;
   }
   
+  // Crear o actualizar activeIntent
+  session.activeIntent = {
+    type: intentAnalysis.intent,
+    originalMessage: userMessage,
+    confidence: intentAnalysis.confidence,
+    timestamp: Date.now(),
+    resolved: false,
+    requiresDiagnostic: intentAnalysis.requiresDiagnostic || false,
+    deviceType: intentAnalysis.deviceType || null,
+    urgency: intentAnalysis.urgency || 'normal',
+    topic: intentAnalysis.topic || null
+  };
+  
+  console.log('[IntelligentChat] 💾 ActiveIntent guardado:', {
+    type: session.activeIntent.type,
+    confidence: session.activeIntent.confidence,
+    topic: session.activeIntent.topic
+  });
+}
+
+/**
+ * 🔄 Actualiza el contexto de la sesión basado en la intención detectada
+ */
+function updateSessionContext(session, intentAnalysis, userMessage) {
   // Guardar el mensaje en el contexto apropiado
   switch (intentAnalysis.intent) {
     case INTENT_TYPES.TECHNICAL_PROBLEM:
