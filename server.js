@@ -5828,8 +5828,110 @@ Respondé con una explicación clara y útil para el usuario.`
       
       if (isActionButton) {
         console.log('[ASK_PROBLEM] ⏭️ Botón de acción detectado:', buttonToken || t, '- Skip análisis AI, ir a handler');
-        // No hacer nada aquí, dejar que caiga a los handlers más abajo en el código
-        // que manejan BASIC_TESTS, ADVANCED_TESTS, ESCALATE, etc.
+        
+        // 🔬 HANDLER: BTN_ADVANCED_TESTS desde ASK_PROBLEM
+        // Usuario clickea "Pruebas Avanzadas" sin haber visto pasos básicos primero
+        if (rxAdvanced.test(t) || buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
+          try {
+            const locale = session.userLocale || 'es-AR';
+            const isEn = String(locale).toLowerCase().startsWith('en');
+            const device = session.device || '';
+            
+            // Primero, asegurarse de que hay pasos básicos guardados
+            // Si no hay, generarlos primero antes de mostrar avanzados
+            if (!session.tests || !session.tests.basic || session.tests.basic.length === 0) {
+              console.log('[ASK_PROBLEM → ADVANCED] No hay pasos básicos aún, generando primero...');
+              // Generar pasos básicos y continuar con avanzados
+              return await generateAndShowSteps(session, sid, res);
+            }
+            
+            // Generar pruebas avanzadas
+            let aiSteps = [];
+            try {
+              aiSteps = await aiQuickTests(
+                session.problem || '', 
+                device || '', 
+                locale, 
+                Array.isArray(session.tests?.basic) ? session.tests.basic : []
+              );
+            } catch (e) { 
+              console.error('[ASK_PROBLEM → ADVANCED] Error calling aiQuickTests:', e);
+              aiSteps = []; 
+            }
+            
+            let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
+
+            // Filtrar resultados avanzados que ya estén en pasos básicos
+            session.tests = session.tests || {};
+            const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
+            const basicSet = new Set((basicList || []).map(normalizeStepText));
+            limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
+            limited = limited.slice(0, 4);
+
+            if (!limited || limited.length === 0) {
+              const noMore = isEn
+                ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
+                : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
+              session.stage = STATES.ESCALATE;
+              session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
+              await saveSessionAndTranscript(sid, session);
+              return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
+            }
+
+            session.tests.advanced = limited;
+            session.stepProgress = session.stepProgress || {};
+            limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
+
+            const help = isEn
+              ? `💡 Try these more specific tests. If they don't work, I'll connect you with a technician.`
+              : `💡 Probá estas pruebas más específicas. Si no funcionan, te conecto con un técnico.`;
+
+            const formattedSteps = enumerateSteps(limited);
+            const stepBlock = formattedSteps.join('\n\n');
+            let reply = `${help}\n\n**🔬 PRUEBAS AVANZADAS:**\n${stepBlock}\n\n`;
+
+            const prompt = isEn
+              ? `Did any of these tests solve the problem?`
+              : `¿Alguna de estas pruebas solucionó el problema?`;
+            reply += prompt;
+
+            session.stage = STATES.ADVANCED_TESTS;
+            const options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
+
+            session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+            await saveSessionAndTranscript(sid, session);
+            return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+          } catch (err) {
+            console.error('[ASK_PROBLEM → ADVANCED] Error generating advanced tests:', err);
+            session.stage = STATES.ESCALATE;
+            await saveSessionAndTranscript(sid, session);
+            return await createTicketAndRespond(session, sid, res);
+          }
+        }
+        
+        // 👨‍💻 HANDLER: BTN_CONNECT_TECH desde ASK_PROBLEM
+        if (rxConnectTech.test(t) || buttonToken === 'BTN_CONNECT_TECH') {
+          session.stage = STATES.ESCALATE;
+          await saveSessionAndTranscript(sid, session);
+          return await createTicketAndRespond(session, sid, res);
+        }
+        
+        // 🚪 HANDLER: BTN_CLOSE desde ASK_PROBLEM
+        if (rxClose.test(t) || buttonToken === 'BTN_CLOSE') {
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const farewell = isEn
+            ? 'Okay, if you need help in the future, I\'ll be here. Have a great day! 👋'
+            : (locale === 'es-419'
+              ? 'Dale, cualquier cosa que necesites en el futuro, acá estoy. ¡Que tengas un buen día! 👋'
+              : 'Dale, cualquier cosa que necesites en el futuro, acá estoy. ¡Que tengas un buen día! 👋');
+          session.stage = STATES.ENDED;
+          session.transcript.push({ who: 'bot', text: farewell, ts: nowIso() });
+          await saveSessionAndTranscript(sid, session);
+          return res.json({ ok: true, reply: farewell, stage: session.stage, close: true });
+        }
+        
+        // Si no hay handler específico, continuar con análisis AI normal
       } else {
         // SOLO ANALIZAR CON AI SI NO ES UN BOTÓN DE ACCIÓN
         
@@ -6042,7 +6144,42 @@ Respondé con una explicación clara y útil para el usuario.`
         return res.json(withOptions({ ok: true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
       }
 
-      if (ai.device) session.device = session.device || ai.device;
+      // 🎯 VALIDACIÓN: Solo aceptar device de AI si el problema menciona explícitamente el dispositivo
+      // Para evitar que "pantalla azul" asuma "notebook" sin confirmación
+      if (ai.device && !session.device) {
+        const problemLower = (session.problem || '').toLowerCase();
+        const deviceKeywords = {
+          'notebook': ['notebook', 'note book', 'laptop', 'portátil', 'portatil'],
+          'pc': ['pc', 'compu', 'computadora', 'ordenador', 'escritorio', 'desktop', 'torre'],
+          'router': ['router', 'modem', 'módem'],
+          'impresora': ['impresora', 'printer'],
+          'fire_tv': ['fire tv', 'firetv', 'fire stick'],
+          'chromecast': ['chromecast', 'chrome cast'],
+          'roku': ['roku'],
+          'android_tv': ['android tv', 'google tv'],
+          'apple_tv': ['apple tv', 'appletv'],
+          'smart_tv_samsung': ['samsung', 'smart tv samsung'],
+          'smart_tv_lg': ['lg', 'smart tv lg'],
+          'smart_tv_sony': ['sony', 'smart tv sony'],
+          'smart_tv_generic': ['smart tv', 'televisor', 'televisión'],
+          'webcam': ['webcam', 'cámara web', 'camara web'],
+          'mouse': ['mouse', 'ratón', 'raton'],
+          'teclado': ['teclado', 'keyboard'],
+          'monitor': ['monitor', 'pantalla']
+        };
+        
+        const keywords = deviceKeywords[ai.device] || [];
+        const deviceMentioned = keywords.some(kw => problemLower.includes(kw));
+        
+        if (deviceMentioned) {
+          session.device = ai.device;
+          console.log(`[ASK_PROBLEM] ✅ Device detectado y validado: ${ai.device} (mencionado en problema)`);
+        } else {
+          console.log(`[ASK_PROBLEM] ⚠️ Device AI sugerido (${ai.device}) pero NO mencionado en problema - no asignar automáticamente`);
+          // No asignar device - dejar que el flujo pida confirmación
+        }
+      }
+      
       if (ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
       // Detectar si es solicitud de ayuda (How-To) o problema técnico
@@ -6082,6 +6219,40 @@ Respondé con una explicación clara y útil para el usuario.`
       // Si llegó acá, es un PROBLEMA técnico → generar pasos de diagnóstico
       session.isProblem = true;
       session.isHowTo = false;
+
+      // 🎯 VALIDACIÓN PRE-STEPS: Si no conocemos el dispositivo, preguntar antes de generar pasos
+      if (!session.device) {
+        console.log('[ASK_PROBLEM] ⚠️ Device desconocido - solicitar al usuario');
+        
+        const askDeviceMsg = isEn
+          ? `To give you the most accurate steps, I need to know:\n\n**What device are you having trouble with?**`
+          : (locale === 'es-419'
+            ? `Para darte los pasos más precisos, necesito saber:\n\n**¿Con qué dispositivo tenés el problema?**`
+            : `Para darte los pasos más precisos, necesito saber:\n\n**¿Con qué dispositivo tenés el problema?**`);
+        
+        session.stage = 'CHOOSE_DEVICE';
+        
+        // Botones comunes de dispositivos
+        const commonDeviceButtons = [
+          { token: 'DEVICE_PC_DESKTOP', icon: '🖥️', label: isEn ? 'Desktop PC' : 'PC de Escritorio', description: isEn ? 'Tower or all-in-one' : 'Torre o todo en uno', text: isEn ? 'Desktop PC' : 'PC de Escritorio' },
+          { token: 'DEVICE_NOTEBOOK', icon: '💻', label: 'Notebook', description: isEn ? 'Laptop' : 'Portátil', text: 'Notebook' },
+          { token: 'DEVICE_MONITOR', icon: '🖥️', label: isEn ? 'Monitor' : 'Monitor', description: isEn ? 'External screen' : 'Pantalla externa', text: isEn ? 'Monitor' : 'Monitor' },
+          { token: 'DEVICE_PRINTER', icon: '🖨️', label: isEn ? 'Printer' : 'Impresora', description: isEn ? 'Printer or scanner' : 'Impresora o escáner', text: isEn ? 'Printer' : 'Impresora' },
+          { token: 'DEVICE_ROUTER', icon: '📡', label: 'Router', description: isEn ? 'Internet router/modem' : 'Router/módem de internet', text: 'Router' },
+          { token: 'DEVICE_OTHER', icon: '❓', label: isEn ? 'Other device' : 'Otro dispositivo', description: isEn ? 'Something else' : 'Otra cosa', text: isEn ? 'Other device' : 'Otro dispositivo' }
+        ];
+        
+        session.transcript.push({ who: 'bot', text: askDeviceMsg, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply: askDeviceMsg,
+          stage: session.stage,
+          options: commonDeviceButtons,
+          buttons: commonDeviceButtons
+        });
+      }
 
       // Generate and show steps
       return await generateAndShowSteps(session, sid, res);
@@ -6369,47 +6540,66 @@ La guía debe ser:
       // Usuario eligió un dispositivo
       // Aceptar tanto token (DEVICE_*) como label directo del frontend
       if (buttonToken) {
-        const ambiguousResult = detectAmbiguousDevice(session.problem);
+        // Mapeo directo de tokens a device IDs (para botones comunes sin ambiguousResult)
+        const directDeviceMap = {
+          'DEVICE_PC_DESKTOP': { id: 'pc-escritorio', label: isEn ? 'Desktop PC' : 'PC de Escritorio' },
+          'DEVICE_NOTEBOOK': { id: 'notebook', label: 'Notebook' },
+          'DEVICE_MONITOR': { id: 'monitor', label: isEn ? 'Monitor' : 'Monitor' },
+          'DEVICE_PRINTER': { id: 'impresora', label: isEn ? 'Printer' : 'Impresora' },
+          'DEVICE_ROUTER': { id: 'router', label: 'Router' },
+          'DEVICE_OTHER': { id: 'generic', label: isEn ? 'Other device' : 'Otro dispositivo' }
+        };
+        
         let selectedDevice = null;
+        
+        // Intento 1: Mapeo directo de tokens comunes
+        if (directDeviceMap[buttonToken]) {
+          selectedDevice = directDeviceMap[buttonToken];
+        }
+        
+        // Intento 2: Buscar en ambiguousResult si existe
+        if (!selectedDevice) {
+          const ambiguousResult = detectAmbiguousDevice(session.problem);
+          
+          if (ambiguousResult) {
+            // Buscar por token (formato: DEVICE_PC_DESKTOP)
+            if (buttonToken.startsWith('DEVICE_')) {
+              const deviceId = buttonToken.replace('DEVICE_', '');
+              selectedDevice = ambiguousResult.candidates.find(d => d.id === deviceId);
+            }
 
-        if (ambiguousResult) {
-          // Intento 1: Buscar por token (formato: DEVICE_PC_DESKTOP)
-          if (buttonToken.startsWith('DEVICE_')) {
-            const deviceId = buttonToken.replace('DEVICE_', '');
-            selectedDevice = ambiguousResult.candidates.find(d => d.id === deviceId);
+            // Buscar por label exacto (formato: "PC de Escritorio")
+            if (!selectedDevice) {
+              selectedDevice = ambiguousResult.candidates.find(d => d.label === buttonToken);
+            }
+
+            // Buscar por label case-insensitive
+            if (!selectedDevice) {
+              const lowerToken = buttonToken.toLowerCase();
+              selectedDevice = ambiguousResult.candidates.find(d => d.label.toLowerCase() === lowerToken);
+            }
           }
+        }
+        
+        if (selectedDevice) {
+          session.device = selectedDevice.id;
+          session.deviceLabel = selectedDevice.label;
+          delete session.ambiguousTerm;
 
-          // Intento 2: Buscar por label exacto (formato: "PC de Escritorio")
-          if (!selectedDevice) {
-            selectedDevice = ambiguousResult.candidates.find(d => d.label === buttonToken);
-          }
+          const replyText = isEn
+            ? `Perfect! I'll help you with your **${selectedDevice.label}**.`
+            : (locale === 'es-419'
+              ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
+              : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
 
-          // Intento 3: Buscar por label case-insensitive
-          if (!selectedDevice) {
-            const lowerToken = buttonToken.toLowerCase();
-            selectedDevice = ambiguousResult.candidates.find(d => d.label.toLowerCase() === lowerToken);
-          }
+          session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
+          session.stage = STATES.ASK_PROBLEM;
+          await saveSessionAndTranscript(sid, session);
 
-          if (selectedDevice) {
-            session.device = selectedDevice.id;
-            session.deviceLabel = selectedDevice.label;
-            delete session.ambiguousTerm;
+          console.log('[CHOOSE_DEVICE] ✅ Dispositivo seleccionado:', selectedDevice.label, '(', selectedDevice.id, ')');
 
-            const replyText = isEn
-              ? `Perfect! I'll help you with your **${selectedDevice.label}**.`
-              : (locale === 'es-419'
-                ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
-                : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
-
-            session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-            session.stage = STATES.ASK_PROBLEM;
-            await saveSessionAndTranscript(sid, session);
-
-            console.log('[CHOOSE_DEVICE] ✅ Dispositivo seleccionado:', selectedDevice.label, '(', selectedDevice.id, ')');
-
-            // Continuar con generación de pasos
-            return await generateAndShowSteps(session, sid, res);
-          }
+          // Continuar con generación de pasos
+          return await generateAndShowSteps(session, sid, res);
         }
       }
 
