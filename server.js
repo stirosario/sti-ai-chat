@@ -5266,6 +5266,7 @@ Respondé con una explicación clara y útil para el usuario.`
         const reply = `🆔 **${sid}**\n\n✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
         await saveSession(sid, session);
+        saveTranscriptJSON(sid, session); // Guardar JSON
 
         return res.json({
           ok: true,
@@ -5283,6 +5284,7 @@ Respondé con una explicación clara y útil para el usuario.`
         const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
+        saveTranscriptJSON(sid, session); // Guardar JSON
 
         return res.json({
           ok: true,
@@ -5300,6 +5302,7 @@ Respondé con una explicación clara y útil para el usuario.`
           const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
+          saveTranscriptJSON(sid, session); // Guardar JSON
 
           return res.json({
             ok: true,
@@ -5318,6 +5321,7 @@ Respondé con una explicación clara y útil para el usuario.`
           const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
+          saveTranscriptJSON(sid, session); // Guardar JSON
 
           return res.json({
             ok: true,
@@ -5334,6 +5338,7 @@ Respondé con una explicación clara y útil para el usuario.`
       const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
       session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
       await saveSession(sid, session);
+      saveTranscriptJSON(sid, session); // Guardar JSON
 
       return res.json({
         ok: true,
