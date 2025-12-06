@@ -55,6 +55,39 @@ export const ACTION_CONTEXTS = {
 };
 
 /**
+ * 🔍 Detecta si un mensaje es una respuesta auxiliar a una pregunta previa
+ * Ejemplos: "windows", "mac", "sí", "hp", "notebook", "ok"
+ * 
+ * @param {string} userMessage - Mensaje del usuario
+ * @returns {boolean} - true si es respuesta auxiliar
+ */
+function isAuxiliaryResponse(userMessage) {
+  const msg = userMessage.toLowerCase().trim();
+  
+  // Respuestas muy cortas (< 10 caracteres)
+  if (msg.length < 10) {
+    // Sistemas operativos
+    if (/^(windows|win|mac|macos|linux|ubuntu|android|ios)$/i.test(msg)) return true;
+    
+    // Confirmaciones
+    if (/^(s[ií]|yes|ok|dale|claro|exacto|correcto|no)$/i.test(msg)) return true;
+    
+    // Marcas/modelos
+    if (/^(hp|dell|lenovo|asus|acer|samsung|apple|toshiba|sony)$/i.test(msg)) return true;
+    
+    // Tipos de dispositivo
+    if (/^(notebook|pc|desktop|laptop|impresora|router|modem)$/i.test(msg)) return true;
+  }
+  
+  // Respuestas cortas con patrón auxiliar (< 20 caracteres)
+  if (msg.length < 20) {
+    if (/^(tengo\s+\w+|uso\s+\w+|es\s+(un|una)\s+\w+)$/i.test(msg)) return true;
+  }
+  
+  return false;
+}
+
+/**
  * 🎯 Función principal: Analiza un mensaje y determina la intención
  * 
  * @param {string} userMessage - Mensaje del usuario
@@ -63,6 +96,29 @@ export const ACTION_CONTEXTS = {
  * @returns {Promise<Object>} - { intent, confidence, reasoning, suggestedAction }
  */
 export async function analyzeIntent(userMessage, conversationContext = {}, locale = 'es-AR') {
+  // ✅ VERIFICAR SI HAY INTENCIÓN ACTIVA Y ES RESPUESTA AUXILIAR
+  if (conversationContext.activeIntent && 
+      !conversationContext.activeIntent.resolved &&
+      isAuxiliaryResponse(userMessage)) {
+    
+    console.log('[IntentEngine] 🎯 Respuesta auxiliar detectada para intent activo:', 
+                conversationContext.activeIntent.type);
+    console.log('[IntentEngine] 📝 Respuesta auxiliar:', userMessage);
+    
+    // NO recalcular intención - mantener la activa
+    return {
+      intent: conversationContext.activeIntent.type,
+      confidence: conversationContext.activeIntent.confidence,
+      reasoning: `Continuando con intención activa: ${conversationContext.activeIntent.type}`,
+      isAuxiliaryResponse: true,
+      auxiliaryData: userMessage.trim(),
+      requiresDiagnostic: conversationContext.activeIntent.requiresDiagnostic || false,
+      deviceType: conversationContext.activeIntent.deviceType || null,
+      urgency: conversationContext.activeIntent.urgency || 'normal',
+      clarificationNeeded: false
+    };
+  }
+  
   const openai = getOpenAIClient();
   
   if (!openai) {

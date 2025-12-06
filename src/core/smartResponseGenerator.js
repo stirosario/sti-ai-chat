@@ -195,10 +195,52 @@ function buildResponseUserPrompt(intentAnalysis, userMessage, context, isEnglish
       ? `\n**NOTE:** User already tried basic diagnostic steps.\n`
       : `\n**NOTA:** El usuario ya intentó pasos básicos de diagnóstico.\n`;
   }
-
-  prompt += isEnglish
-    ? `\n**TASK:** Generate a helpful, contextually appropriate response. Be empathetic and clear. ${intentAnalysis.clarificationNeeded ? 'Ask for clarification.' : 'Provide actionable guidance.'}`
-    : `\n**TAREA:** Generá una respuesta útil y contextualmente apropiada. Sé empático y claro. ${intentAnalysis.clarificationNeeded ? 'Pedí aclaración.' : 'Proporcioná guía accionable.'}`;
+  
+  // ✅ AGREGAR CONTEXTO DE INTENCIÓN ACTIVA si hay respuesta auxiliar
+  if (context.activeIntent && intentAnalysis.isAuxiliaryResponse) {
+    prompt += isEnglish
+      ? `\n**🎯 ACTIVE INTENT CONTEXT:**\n`
+      : `\n**🎯 CONTEXTO DE INTENCIÓN ACTIVA:**\n`;
+    
+    prompt += isEnglish
+      ? `- Original request: "${context.activeIntent.originalMessage}"\n`
+      : `- Solicitud original: "${context.activeIntent.originalMessage}"\n`;
+    
+    prompt += isEnglish
+      ? `- User just provided: "${userMessage}" (auxiliary/clarifying response)\n`
+      : `- Usuario acaba de proporcionar: "${userMessage}" (respuesta auxiliar/aclaratoria)\n`;
+    
+    prompt += isEnglish
+      ? `- Intent type: ${context.activeIntent.type}\n`
+      : `- Tipo de intención: ${context.activeIntent.type}\n`;
+    
+    // Agregar información adicional capturada
+    if (context.operatingSystem) {
+      prompt += isEnglish
+        ? `- Operating System: ${context.operatingSystem}\n`
+        : `- Sistema Operativo: ${context.operatingSystem}\n`;
+    }
+    
+    if (context.device) {
+      prompt += isEnglish
+        ? `- Device: ${context.device}\n`
+        : `- Dispositivo: ${context.device}\n`;
+    }
+    
+    if (context.deviceBrand) {
+      prompt += isEnglish
+        ? `- Brand: ${context.deviceBrand}\n`
+        : `- Marca: ${context.deviceBrand}\n`;
+    }
+    
+    prompt += isEnglish
+      ? `\n**CRITICAL TASK:** Continue with the ${context.activeIntent.type} flow using this new information. Provide the NEXT logical step based on what the user just told you. DO NOT ask for information they already provided.\n`
+      : `\n**TAREA CRÍTICA:** Continuar con el flujo de ${context.activeIntent.type} usando esta nueva información. Proporcionar el SIGUIENTE paso lógico basado en lo que el usuario acaba de decir. NO pedir información que ya proporcionó.\n`;
+  } else {
+    prompt += isEnglish
+      ? `\n**TASK:** Generate a helpful, contextually appropriate response. Be empathetic and clear. ${intentAnalysis.clarificationNeeded ? 'Ask for clarification.' : 'Provide actionable guidance.'}`
+      : `\n**TAREA:** Generá una respuesta útil y contextualmente apropiada. Sé empático y claro. ${intentAnalysis.clarificationNeeded ? 'Pedí aclaración.' : 'Proporcioná guía accionable.'}`;
+  }
 
   return prompt;
 }

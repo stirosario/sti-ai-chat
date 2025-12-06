@@ -86,11 +86,40 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
     // Guardar intent detectado en sesión para próximas validaciones
     session.lastDetectedIntent = intentAnalysis.intent;
     session.lastIntentConfidence = intentAnalysis.confidence;
+    
+    // ✅ GUARDAR INTENCIÓN ACTIVA si es una intención principal (no auxiliar)
+    if (!intentAnalysis.isAuxiliaryResponse) {
+      const principalIntents = [
+        INTENT_TYPES.TECHNICAL_PROBLEM,
+        INTENT_TYPES.PERFORMANCE_ISSUE,
+        INTENT_TYPES.CONNECTION_PROBLEM,
+        INTENT_TYPES.INSTALLATION_HELP,
+        INTENT_TYPES.CONFIGURATION_HELP,
+        INTENT_TYPES.HOW_TO_QUESTION
+      ];
+      
+      if (principalIntents.includes(intentAnalysis.intent)) {
+        session.activeIntent = {
+          type: intentAnalysis.intent,
+          confidence: intentAnalysis.confidence,
+          originalMessage: userMessage,
+          timestamp: Date.now(),
+          resolved: false,
+          requiresDiagnostic: intentAnalysis.requiresDiagnostic,
+          deviceType: intentAnalysis.deviceType,
+          urgency: intentAnalysis.urgency
+        };
+        console.log('[IntelligentChat] 💾 Intención activa guardada:', session.activeIntent.type);
+      }
+    } else {
+      console.log('[IntelligentChat] 🔄 Respuesta auxiliar - manteniendo intent activo');
+    }
 
     // PASO 3: Decidir si necesitamos aclaración
     // ✅ PROHIBIDO: Mensaje genérico en stage ASK_NAME
+    // ✅ PROHIBIDO: Mensaje genérico si hay intención activa
     if (intentAnalysis.clarificationNeeded || intentAnalysis.confidence < 0.6) {
-      console.log('[IntelligentChat] ❓ Intención no clara - pidiendo aclaración');
+      console.log('[IntelligentChat] ❓ Intención no clara - evaluando si pedir aclaración');
       
       // ⚠️ Si estamos en ASK_NAME, NO usar el mensaje genérico
       if (session.stage === 'ASK_NAME') {
@@ -104,21 +133,27 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
       if (session.stage === 'ASK_NEED') {
         console.log('[IntelligentChat] 🎯 En ASK_NEED - procesando aunque confidence sea baja');
         // Continuar con el análisis - NO devolver null ni pedir aclaración genérica
-        // El sistema inteligente puede manejar intenciones ambiguas mejor que un mensaje genérico
       }
       
-      const clarificationMsg = isEnglish
-        ? `I want to help you, but I need to understand better what you need. Could you tell me:\n\n• Are you having a problem with something that's not working?\n• Do you want to install or configure something?\n• Do you have a question about how to do something?\n\nThe more details you give me, the better I can help you! 😊`
-        : `Quiero ayudarte, pero necesito entender mejor qué necesitás. ¿Podrías contarme:\n\n• ¿Tenés un problema con algo que no funciona?\n• ¿Querés instalar o configurar algo?\n• ¿Tenés una pregunta sobre cómo hacer algo?\n\n¡Cuantos más detalles me des, mejor voy a poder ayudarte! 😊`;
+      // ✅ Si hay intención activa, NO pedir aclaración genérica
+      if (session.activeIntent && !session.activeIntent.resolved) {
+        console.log('[IntelligentChat] ⚠️ Confidence baja PERO hay intent activo - continuando flujo');
+        // Continuar al PASO 4 - el sistema inteligente manejará la respuesta
+      } else {
+        // Solo pedir aclaración si NO hay intención activa
+        const clarificationMsg = isEnglish
+          ? `I want to help you, but I need to understand better what you need. Could you tell me:\n\n• Are you having a problem with something that's not working?\n• Do you want to install or configure something?\n• Do you have a question about how to do something?\n\nThe more details you give me, the better I can help you! 😊`
+          : `Quiero ayudarte, pero necesito entender mejor qué necesitás. ¿Podrías contarme:\n\n• ¿Tenés un problema con algo que no funciona?\n• ¿Querés instalar o configurar algo?\n• ¿Tenés una pregunta sobre cómo hacer algo?\n\n¡Cuantos más detalles me des, mejor voy a poder ayudarte! 😊`;
 
-      return {
-        reply: clarificationMsg,
-        options: [],
-        stage: 'AWAITING_CLARIFICATION',
-        reasoning: 'Low confidence or unclear intent - asking for clarification',
-        intentDetected: intentAnalysis.intent,
-        needsClarification: true
-      };
+        return {
+          reply: clarificationMsg,
+          options: [],
+          stage: 'AWAITING_CLARIFICATION',
+          reasoning: 'Low confidence or unclear intent - asking for clarification',
+          intentDetected: intentAnalysis.intent,
+          needsClarification: true
+        };
+      }
     }
 
     // PASO 4: Generar respuesta inteligente basada en la intención
@@ -176,6 +211,14 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
  * 🔄 Actualiza el contexto de la sesión basado en la intención detectada
  */
 function updateSessionContext(session, intentAnalysis, userMessage) {
+  // ✅ Si el intent cambió significativamente, marcar intención anterior como resuelta
+  if (session.activeIntent && 
+      session.activeIntent.type !== intentAnalysis.intent &&
+      !intentAnalysis.isAuxiliaryResponse) {
+    console.log('[IntelligentChat] ✅ Intención anterior resuelta:', session.activeIntent.type);
+    session.activeIntent.resolved = true;
+  }
+  
   // Guardar el mensaje en el contexto apropiado
   switch (intentAnalysis.intent) {
     case INTENT_TYPES.TECHNICAL_PROBLEM:
@@ -203,6 +246,30 @@ function updateSessionContext(session, intentAnalysis, userMessage) {
   // Guardar tipo de dispositivo si fue detectado
   if (intentAnalysis.deviceType) {
     session.device = session.device || intentAnalysis.deviceType;
+  }
+  
+  // ✅ Si es respuesta auxiliar, actualizar activeIntent con datos auxiliares
+  if (intentAnalysis.isAuxiliaryResponse && intentAnalysis.auxiliaryData) {
+    // Detectar tipo de dato auxiliar y guardarlo apropiadamente
+    const aux = intentAnalysis.auxiliaryData.toLowerCase();
+    
+    // Sistema operativo
+    if (/windows|mac|linux|android|ios/i.test(aux)) {
+      session.operatingSystem = aux;
+      console.log('[IntelligentChat] 💾 Sistema operativo guardado:', aux);
+    }
+    
+    // Tipo de dispositivo
+    if (/notebook|laptop|pc|desktop|impresora|router/i.test(aux)) {
+      session.device = aux;
+      console.log('[IntelligentChat] 💾 Tipo de dispositivo guardado:', aux);
+    }
+    
+    // Marca
+    if (/hp|dell|lenovo|asus|acer|samsung|apple/i.test(aux)) {
+      session.deviceBrand = aux;
+      console.log('[IntelligentChat] 💾 Marca guardada:', aux);
+    }
   }
 
   // Actualizar urgencia
