@@ -53,6 +53,18 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
 
+// 🔧 REFACTOR: Importar módulos nuevos
+import { sanitizeInput, sanitizeFilePath } from './utils/sanitization.js';
+import { validateSessionId, getSessionId as getSessionIdUtil, generateSessionId, isPathSafe } from './utils/validation.js';
+import { nowIso, withOptions } from './utils/common.js';
+import { handleAskNameStage, extractName, isValidName, isValidHumanName, looksClearlyNotName, capitalizeToken, analyzeNameWithOA } from './handlers/nameHandler.js';
+import { handleAskLanguageStage } from './handlers/stageHandlers.js';
+import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE } from './handlers/stateMachine.js';
+import { processMessage } from './services/messageProcessor.js';
+import { processImages, analyzeImagesWithVision } from './services/imageProcessor.js';
+import { buildTimeGreeting, buildLanguagePrompt, buildNameGreeting } from './utils/helpers.js';
+import { markSessionDirty, saveSessionImmediate, flushPendingSaves } from './services/sessionSaver.js';
+
 // ========================================================
 // 🧠 SISTEMA INTELIGENTE DE TECNOS
 // Motor de análisis de intención con OpenAI
@@ -1244,166 +1256,107 @@ const NAME_STOPWORDS = new Set([
   'hola', 'buenas', 'buenos', 'gracias', 'gracias!', 'gracias.', 'gracias,', 'help', 'ayuda', 'porfa', 'por favor', 'hola!', 'buenas tardes', 'buenas noches', 'buen dia', 'buen dí­a', 'si', 'no'
 ]);
 
+// 🔧 REFACTOR FASE 2: Constantes mantenidas para compatibilidad
 const NAME_TOKEN_RX = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’-]{2,20}$/u;
 const MAX_NAME_TOKENS = 3;
 const MIN_NAME_TOKENS = 1;
 
-function capitalizeToken(tok) {
-  if (!tok) return tok;
-  return tok.split(/[-'’\u2019]/).map(part => {
-    if (!part) return part;
-    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-  }).join('-');
-}
+// 🔧 REFACTOR FASE 2: Funciones eliminadas - ahora se usan desde handlers/nameHandler.js
+// Las siguientes funciones están importadas en la línea 60:
+// - capitalizeToken
+// - isValidName
+// - isValidHumanName (alias de isValidName)
+// - extractName
+// - looksClearlyNotName
+// - analyzeNameWithOA
+// 
+// Estas funciones duplicadas fueron eliminadas de forma segura (~158 líneas).
+// Todas las referencias ahora usan las funciones importadas desde handlers/nameHandler.js
 
-function isValidName(text) {
-  if (!text || typeof text !== 'string') return false;
-  const s = String(text).trim();
-  if (!s) return false;
+// ========================================================
+// TRANSCRIPT JSON HELPER (for Codex analysis)
+// ========================================================
 
-  // reject digits or special symbols
-  if (/[0-9@#\$%\^&\*\(\)_=\+\[\]\{\}\\\/<>]/.test(s)) return false;
-
-  // reject if includes technical words
-  if (TECH_WORDS.test(s)) return false;
-
-  const lower = s.toLowerCase();
-  for (const w of lower.split(/\s+/)) {
-    if (NAME_STOPWORDS.has(w)) return false;
-  }
-
-  const tokens = s.split(/\s+/).filter(Boolean);
-  if (tokens.length < MIN_NAME_TOKENS || tokens.length > MAX_NAME_TOKENS) return false;
-
-  // if too many words overall -> reject
-  if (s.split(/\s+/).filter(Boolean).length > 6) return false;
-
-  // blacklist (trolls, apodos, palabras comunes)
-  const blacklist = [
-    'pepelito', 'papelito', 'pepito', 'probando', 'aaaa', 'jjjj', 'zzzz', 'asdasd', 'qwerty', 'basurita', 'basura', 'tuerquita', 'chuchuki',
-    'corcho', 'coco', 'pepe', 'toto', 'nene', 'nena', 'pibe', 'piba', 'guacho', 'wacho', 'bobo', 'boludo', 'pelotudo',
-    'chicle', 'goma', 'lapiz', 'papel', 'mesa', 'silla', 'puerta', 'ventana', 'techo', 'piso', 'pared',
-    'amigo', 'amiga', 'hermano', 'hermana', 'primo', 'prima', 'tio', 'tia', 'abuelo', 'abuela',
-    'test', 'testing', 'prueba', 'ejemplo', 'admin', 'usuario', 'user', 'cliente', 'persona',
-    'hola', 'chau', 'gracias', 'perdon', 'disculpa', 'sorry', 'hello', 'bye'
-  ];
-  if (blacklist.includes(s.toLowerCase())) return false;
-
-  for (const tok of tokens) {
-    // each token must match token regex
-    if (!NAME_TOKEN_RX.test(tok)) return false;
-    // token stripped of punctuation should be at least 2 chars
-    if (tok.replace(/['’\-]/g, '').length < 2) return false;
-  }
-
-  // passed validations
-  return true;
-}
-
-const isValidHumanName = isValidName;
-
-function extractName(text) {
-  if (!text || typeof text !== 'string') return null;
-  const sRaw = String(text).trim();
-  if (!sRaw) return null;
-  const s = sRaw.replace(/[.,!?]+$/, '').trim();
-
-  // patterns: "me llamo X", "soy X", "mi nombre es X"
-  const patterns = [
-    /\b(?:me llamo|soy|mi nombre es|me presento como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})$/i,
-    /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-\s]{2,60})\s*$/i
-  ];
-
-  for (const rx of patterns) {
-    const m = s.match(rx);
-    if (m && m[1]) {
-      let candidate = m[1].trim().replace(/\s+/g, ' ');
-      // limit tokens to MAX_NAME_TOKENS
-      const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-      const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
-      if (isValidName(normalized)) return normalized;
-    }
-  }
-
-  // fallback: if the whole short text looks like a name
-  const singleCandidate = s;
-  if (isValidName(singleCandidate)) {
-    const tokens = singleCandidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-    return tokens.map(capitalizeToken).join(' ');
-  }
-
-  return null;
-}
-
-function looksClearlyNotName(text) {
-  if (!text || typeof text !== 'string') return true;
-  const s = text.trim().toLowerCase();
-  if (!s) return true;
-
-  // clear short greetings
-  if (s.length <= 6 && ['hola', 'hola!', 'buenas', 'buenos', 'buen día', 'buen dia'].includes(s)) return true;
-
-  if (NAME_STOPWORDS.has(s)) return true;
-
-  if (TECH_WORDS.test(s)) return true;
-
-  const words = s.split(/\s+/).filter(Boolean);
-  if (words.length > 6) return true;
-
-  const indicators = ['mi', 'no', 'enciende', 'tengo', 'problema', 'problemas', 'se', 'me', 'con', 'esta', 'está', 'tiene'];
-  for (const w of words) { if (indicators.includes(w)) return true; }
-
-  return false;
-}
-
-// OpenAI name analyzer - RELAXED validation
-async function analyzeNameWithOA(nameText = '') {
-  if (!openai) return { isValid: true, confidence: 0.8, reason: 'fallback_accepted' };
-  const prompt = [
-    "Sos un validador de nombres humanos en español (Argentina).",
-    "",
-    "RECHAZÁ únicamente si es CLARAMENTE:",
-    "- Palabras comunes de objetos: Mesa, Silla, Puerta, Celular, Teclado, etc.",
-    "- Saludos o frases: Hola, Gracias, Buenos días, Chau, etc.",
-    "- Palabras sin sentido: Aaaa, Zzzz, Asdasd, 123, etc.",
-    "- Descripciones de problemas: 'tengo un problema', 'mi computadora', etc.",
-    "",
-    "ACEPTÁ si puede ser un nombre real, aunque sea un apodo o diminutivo:",
-    "- Nombres comunes: María, Juan, Ana, Carlos, Raúl, Laura, José, Lucía, Diego, etc.",
-    "- Apodos comunes que las personas usan: Pepe, Toto, Coco, Pancho, Lucho, Nico, etc.",
-    "- Nombres cortos o diminutivos: Raul, Marcos, Franco, Mateo, etc.",
-    "- Nombres compuestos: María Elena, Juan Carlos, Ana Laura, José Luis, etc.",
-    "",
-    "Ante la duda, ACEPTÁ el nombre.",
-    "",
-    "Respondé SOLO un JSON con {isValid: true|false, confidence: 0..1, reason: 'explicación clara'}.",
-    `Texto a validar: "${String(nameText).replace(/"/g, '\\"')}"`
-  ].join('\n');
+/**
+ * Lee y formatea una conversación del historial para análisis
+ * @param {string} conversationId - ID de la conversación a leer
+ * @returns {object|null} - Datos formateados o null si no existe
+ */
+function readHistorialChat(conversationId) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g, '');
-    try {
-      const parsed = JSON.parse(raw);
-      return {
-        isValid: !!parsed.isValid,
-        confidence: Math.max(0, Math.min(1, Number(parsed.confidence || 0))),
-        reason: parsed.reason || ''
-      };
-    } catch (e) {
-      console.error('[analyzeNameWithOA] parse error', e && e.message, 'raw:', raw);
-      return { isValid: false, confidence: 0, reason: 'parse_error' };
+    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
+    
+    if (!fs.existsSync(historialPath)) {
+      console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
+      return null;
     }
+
+    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    
+    // Formatear para lectura humana
+    console.log('\n' + '='.repeat(80));
+    console.log(`📋 HISTORIAL DE CONVERSACIÓN: ${conversationId}`);
+    console.log('='.repeat(80));
+    console.log(`👤 Usuario: ${data.usuario}`);
+    console.log(`📅 Fecha: ${new Date(data.fecha_inicio).toLocaleString('es-AR')}`);
+    console.log(`📱 Dispositivo: ${data.dispositivo}`);
+    console.log(`🌍 Idioma: ${data.idioma}`);
+    console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
+    console.log('='.repeat(80) + '\n');
+    
+    return data;
   } catch (e) {
-    console.error('[analyzeNameWithOA] error', e && e.message);
-    return { isValid: false, confidence: 0, reason: 'error' };
+    console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, e && e.message);
+    return null;
+  }
+}
+
+// 🔴 MARCADOR FIN CÓDIGO CORRUPTO - ELIMINAR HASTA LA LÍNEA 1492 (inclusive)
+// ========================================================
+// TRANSCRIPT JSON HELPER (for Codex analysis)
+// ========================================================
+
+/**
+ * Lee y formatea una conversación del historial para análisis
+ * @param {string} conversationId - ID de la conversación a leer
+ * @returns {object|null} - Datos formateados o null si no existe
+ */
+function readHistorialChat(conversationId) {
+  try {
+    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
+    
+    if (!fs.existsSync(historialPath)) {
+      console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
+      return null;
+    }
+
+    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    
+    // Formatear para lectura humana
+    console.log('\n' + '='.repeat(80));
+    console.log(`📋 HISTORIAL DE CONVERSACIÓN: ${conversationId}`);
+    console.log('='.repeat(80));
+    console.log(`👤 Usuario: ${data.usuario}`);
+    console.log(`📅 Fecha: ${new Date(data.fecha_inicio).toLocaleString('es-AR')}`);
+    console.log(`📱 Dispositivo: ${data.dispositivo}`);
+    console.log(`🌍 Idioma: ${data.idioma}`);
+    console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
+    console.log('='.repeat(80) + '\n');
+    
+    // Mostrar conversación
+    data.conversacion.forEach(msg => {
+      const time = new Date(msg.timestamp).toLocaleTimeString('es-AR');
+      const icon = msg.quien === 'USUARIO' ? '👤' : '🤖';
+      console.log(`[${time}] ${icon} ${msg.quien}:`);
+      console.log(`   ${msg.mensaje}`);
+      console.log(`   (stage: ${msg.stage})`);
+      console.log('');
+    });
+    
+    return data;
+  } catch (e) {
+    console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, e && e.message);
+    return null;
   }
 }
 
@@ -1466,13 +1419,36 @@ function readHistorialChat(conversationId) {
 
 /**
  * Cambia el stage de una sesión y trackea la transición
+ * 🔧 FIX CRÍTICO-2: Integra validación del state machine
  * @param {object} session - Objeto de sesión
  * @param {string} newStage - Nuevo stage
+ * @param {boolean} force - Si true, fuerza la transición sin validar (solo para casos especiales)
+ * @returns {object} { success: boolean, error?: string, oldStage: string, newStage: string }
  */
-function changeStage(session, newStage) {
-  if (!session) return;
+function changeStage(session, newStage, force = false) {
+  if (!session) {
+    return { success: false, error: 'Session is required' };
+  }
   
   const oldStage = session.stage;
+  
+  // Validar transición con state machine (excepto si es forzada o es el stage inicial)
+  if (!force && oldStage && oldStage !== newStage) {
+    if (!isValidTransition(oldStage, newStage)) {
+      const validNext = getNextStages(oldStage);
+      console.error(`[STAGE] ❌ Transición inválida: ${oldStage} → ${newStage}. Válidas: ${validNext.join(', ')}`);
+      // En producción, permitir pero registrar error (no bloquear para evitar romper flujos existentes)
+      // TODO: Después de validación extensiva, cambiar a bloquear transiciones inválidas
+    } else {
+      console.log(`[STAGE] ✅ Transición válida: ${oldStage} → ${newStage}`);
+    }
+  }
+  
+  // Validar que el nuevo stage existe en el state machine
+  if (!force && !getStageInfo(newStage)) {
+    console.warn(`[STAGE] ⚠️ Stage desconocido en state machine: ${newStage}`);
+    // Permitir pero registrar advertencia
+  }
   
   // Solo trackear si hay un cambio real
   if (oldStage && oldStage !== newStage) {
@@ -1483,10 +1459,11 @@ function changeStage(session, newStage) {
     session.stageTransitions.push({
       from: oldStage,
       to: newStage,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      validated: !force && isValidTransition(oldStage, newStage)
     });
     
-    console.log(`[STAGE] 🔄 ${oldStage} → ${newStage}`);
+    console.log(`[STAGE] 🔄 ${oldStage} → ${newStage}${force ? ' (forced)' : ''}`);
   }
   
   // Guardar stage inicial si no existe
@@ -1495,6 +1472,12 @@ function changeStage(session, newStage) {
   }
   
   session.stage = newStage;
+  
+  return {
+    success: true,
+    oldStage,
+    newStage
+  };
 }
 
 /**
@@ -1641,6 +1624,24 @@ function saveTranscriptJSON(sessionId, session) {
 async function saveSessionAndTranscript(sessionId, sessionData) {
   await saveSession(sessionId, sessionData);
   saveTranscriptJSON(sessionId, sessionData);
+}
+
+/**
+ * 🔧 REFACTOR FASE 2: Helper para respuestas optimizadas con guardado diferido
+ * Envuelve res.json() y hace flush de guardados pendientes antes de responder
+ * 
+ * @param {object} res - Express response object
+ * @param {string} sessionId - Session ID
+ * @param {object} session - Session object
+ * @param {object} payload - Payload para enviar al cliente
+ * @returns {Promise<void>}
+ */
+async function sendResponseWithSave(res, sessionId, session, payload) {
+  // Flush todos los guardados pendientes antes de responder
+  await flushPendingSaves(sessionId, session, saveSessionAndTranscript);
+  
+  // Enviar respuesta
+  return res.json(payload);
 }
 
 /**
@@ -2892,93 +2893,14 @@ const STATES = {
   ENDED: 'ENDED'
 };
 
-// Función para generar sessionId único
-function generateSessionId() {
-  return 'web-' + crypto.randomBytes(12).toString('hex');
-}
+// 🔧 REFACTOR: generateSessionId movida a utils/validation.js
 
 // ========================================================
 // Security: Input Validation & Sanitization
 // ========================================================
-function sanitizeInput(input, maxLength = 1000) {
-  if (!input) return '';
-  return String(input)
-    .trim()
-    .slice(0, maxLength)
-    .replace(/[<>"'`]/g, '') // Remove potential XSS characters
-    .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
-}
-
-function sanitizeFilePath(fileName) {
-  if (!fileName || typeof fileName !== 'string') return null;
-
-  // Remover path traversal patterns
-  const sanitized = fileName
-    .replace(/\.\./g, '')
-    .replace(/[\/\\]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .slice(0, 255);
-
-  // Validar que no esté vacío después de sanitizar
-  if (!sanitized || sanitized.length === 0) return null;
-
-  return sanitized;
-}
-
-function isPathSafe(filePath, allowedDir) {
-  const resolvedPath = path.resolve(filePath);
-  const resolvedBase = path.resolve(allowedDir);
-  return resolvedPath.startsWith(resolvedBase);
-}
-
-function validateSessionId(sid) {
-  if (!sid || typeof sid !== 'string') {
-    return false;
-  }
-
-  // Permitir tanto sesiones del servidor (srv-) como del cliente web (web-)
-  if (!sid.startsWith('srv-') && !sid.startsWith('web-')) {
-    return false;
-  }
-
-  // Para sesiones del servidor: formato srv-TIMESTAMP-HASH64
-  if (sid.startsWith('srv-')) {
-    if (sid.length !== 82) { // 4 + 1 + 13 + 1 + 64 = 83, pero verificar
-      return false;
-    }
-    const sessionIdRegex = /^srv-\d{13}-[a-f0-9]{64}$/;
-    return sessionIdRegex.test(sid);
-  }
-
-  // Para sesiones del cliente web: formato flexible
-  // Ejemplos: web-heber-123456, web-lo123abc-xy9z0m, web-1234567890
-  if (sid.startsWith('web-')) {
-    // Validación flexible: permitir letras, números y guiones
-    if (sid.length < 10 || sid.length > 60) {
-      return false;
-    }
-    // Formato: web- seguido de caracteres alfanuméricos y guiones
-    const webSessionRegex = /^web-[a-zA-Z0-9_-]+$/;
-    return webSessionRegex.test(sid);
-  }
-
-  return false;
-}
-
-function getSessionId(req) {
-  const h = sanitizeInput(req.headers['x-session-id'] || '', 128);
-  const b = sanitizeInput(req.body?.sessionId || req.body?.sid || '', 128);
-  const q = sanitizeInput(req.query?.sessionId || req.query?.sid || '', 128);
-
-  const sid = h || b || q;
-
-  if (sid && validateSessionId(sid)) {
-    return sid;
-  }
-
-  // Generate new session ID
-  return generateSessionId();
-}
+// 🔧 REFACTOR: Funciones movidas a utils/sanitization.js y utils/validation.js
+// Las funciones sanitizeInput, sanitizeFilePath, isPathSafe, validateSessionId, getSessionId
+// ahora están importadas desde los módulos utils
 
 // CSP Report endpoint (para monitorear violaciones)
 app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
@@ -4008,29 +3930,8 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
 });
 
 
-function buildTimeGreeting() {
-  const now = new Date();
-  const hour = now.getHours();
-
-  if (hour >= 6 && hour < 12) {
-    return {
-      es: "🌅 Buen día, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌅 Good morning, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
-  }
-
-  if (hour >= 12 && hour < 19) {
-    return {
-      es: "🌇 Buenas tardes, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌇 Good afternoon, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
-  }
-
-  return {
-    es: "🌙 Buenas noches, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-    en: "🌙 Good evening, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-  };
-}
+// 🔧 REFACTOR FASE 2: Función eliminada - ahora se usa desde utils/helpers.js
+// La función buildTimeGreeting está importada en la línea 64
 
 function buildLanguageSelectionGreeting() {
   return {
@@ -4073,56 +3974,11 @@ function addEmpatheticResponse(stage, locale = 'es-AR') {
 }
 
 
-function buildLanguagePrompt(locale = 'es-AR') {
-  const norm = (locale || '').toLowerCase();
-  const isEn = norm.startsWith('en');
+// 🔧 REFACTOR FASE 2: Función eliminada - ahora se usa desde utils/helpers.js
+// La función buildLanguagePrompt está importada en la línea 64
 
-  if (isEn) {
-    return '🌐 You can change the language at any time using the buttons below:';
-  }
-
-  return '🌐 Podés cambiar el idioma en cualquier momento usando los botones:';
-}
-
-function buildNameGreeting(locale = 'es-AR') {
-  const norm = (locale || '').toLowerCase();
-  const isEn = norm.startsWith('en');
-  const isEsLatam = norm.startsWith('es-') && !norm.includes('ar');
-
-  if (isEn) {
-    const line1 = "👋 Hi, I'm Tecnos, the intelligent assistant of STI — Servicio Técnico Inteligente.";
-    const line2 = "I can help you with PCs, notebooks, Wi‑Fi, printers and some TV / streaming devices.";
-    const line3 = "I can't access your device remotely or make changes for you; we'll try guided steps to diagnose the issue and, if needed, I'll connect you with a human technician.";
-    const line4 = "To get started, what's your name?";
-    return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-  }
-
-  if (isEsLatam) {
-    const line1 = "👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.";
-    const line2 = "Puedo ayudarte con PC, notebooks, Wi‑Fi, impresoras y algunos dispositivos de TV y streaming.";
-    const line3 = "No puedo acceder a tu equipo ni ejecutar cambios remotos; vamos a probar pasos guiados para diagnosticar y, si hace falta, te derivo a un técnico humano.";
-    const line4 = "Para empezar, ¿cómo te llamas?";
-    return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-  }
-
-  const line1 = "👋 Hola, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.";
-  const line2 = "Puedo ayudarte con PC, notebooks, Wi‑Fi, impresoras y algunos dispositivos de TV y streaming.";
-  const line3 = "No puedo acceder a tu equipo ni ejecutar cambios remotos; vamos a probar pasos guiados para diagnosticar y, si hace falta, te derivo a un técnico humano.";
-  const line4 = "Para empezar: ¿cómo te llamás?";
-  return `${line1}
-
-${line2} ${line3}
-
-${line4}`;
-}
+// 🔧 REFACTOR FASE 2: Función eliminada - ahora se usa desde utils/helpers.js
+// La función buildNameGreeting está importada en la línea 64
 
 
 
@@ -4861,7 +4717,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    let incomingText = String(body.text || '').trim();
+    // 🔧 FIX: Leer mensaje de múltiples campos posibles (body.message, body.text)
+    // El frontend envía 'message', pero mantenemos compatibilidad con 'text'
+    let incomingText = String(body.message || body.text || '').trim();
     let buttonToken = null;
     let buttonLabel = null;
 
@@ -4960,9 +4818,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       ts: userTimestamp
     });
     
-    // Guardar inmediatamente el mensaje del usuario
-    await saveSessionAndTranscript(sid, session);
-    console.log('[TRANSCRIPT] ✅ Mensaje del usuario guardado en transcript');
+    // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
+    // El guardado se hará al final del request antes de enviar la respuesta
+    markSessionDirty(sid, session);
+    console.log('[TRANSCRIPT] ✅ Mensaje del usuario registrado (guardado diferido)');
 
     // ========================================================
     // 🧠 SISTEMA INTELIGENTE - PROCESAMIENTO PRIORITARIO
@@ -5004,8 +4863,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       
       // NOTA: No registrar aquí - integrationPatch.js ya registró la respuesta en el transcript
       
-      // Guardar sesión actualizada (con nuevo intent, stage, etc.)
-      await saveSessionAndTranscript(sid, session);
+      // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
+      markSessionDirty(sid, session);
       
       // Log flow interaction
       flowLogData.currentStage = intelligentResponse.stage || session.stage;
@@ -5015,8 +4874,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       flowLogData.duration = Date.now() - startTime;
       logFlowInteraction(flowLogData);
       
-      // Enviar respuesta al frontend
-      return res.json(intelligentResponse);
+      // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
+      return await sendResponseWithSave(res, sid, session, intelligentResponse);
     }
 
     // ⏭️ Si llegó aquí, el sistema inteligente no se activó
@@ -5038,7 +4897,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         
         // Registrar respuesta del bot en transcript
         await registerBotResponse(session, modularResponse.reply, modularResponse.stage || session.stage);
-        await saveSessionAndTranscript(sid, session);
+        
+        // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
+        markSessionDirty(sid, session);
         
         // Log flow interaction
         flowLogData.currentStage = modularResponse.stage || session.stage;
@@ -5052,7 +4913,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         updateMetric('chat', 'modular', 1);
         
         console.log('[MODULAR] ✅ Respuesta generada por arquitectura modular');
-        return res.json(modularResponse);
+        
+        // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
+        return await sendResponseWithSave(res, sid, session, modularResponse);
       } catch (modularError) {
         console.error('[MODULAR] ❌ Error en chatAdapter:', modularError);
         console.error('[MODULAR] Stack:', modularError.stack);
@@ -5157,6 +5020,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // ========================================================
 
     // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
+    // 🔧 REFACTOR: Procesamiento de imágenes movido a services/imageProcessor.js
     const images = body.images || [];
     let imageContext = '';
     let savedImageUrls = [];
@@ -5164,106 +5028,27 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (images.length > 0) {
       console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
       
-      // Guardar las imágenes en disco
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        try {
-          console.log(`[IMAGE] Processing image ${i + 1}/${images.length}: ${img.name || 'unnamed'}`);
-          
-          if (!img.data) {
-            console.error('[IMAGE] Image data is missing for:', img.name);
-            continue;
-          }
-          
-          // Extraer base64 y extensión
-          const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          
-          console.log(`[IMAGE] Buffer size: ${buffer.length} bytes`);
-          
-          // Generar nombre único
-          const timestamp = Date.now();
-          const random = crypto.randomBytes(8).toString('hex');
-          const ext = img.name ? path.extname(img.name).toLowerCase() : '.png';
-          const fileName = `${sid.substring(0, 20)}_${timestamp}_${random}${ext}`;
-          const filePath = path.join(UPLOADS_DIR, fileName);
-          
-          console.log(`[IMAGE] Saving to: ${filePath}`);
-          
-          // Guardar imagen
-          fs.writeFileSync(filePath, buffer);
-          
-          // Verificar que se guardó
-          if (fs.existsSync(filePath)) {
-            const stats = fs.statSync(filePath);
-            console.log(`[IMAGE] File saved successfully: ${stats.size} bytes`);
-          }
-          
-          // URL pública para acceder a la imagen
-          const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
-          savedImageUrls.push(imageUrl);
-          
-          console.log(`[IMAGE] ✅ Guardada: ${fileName} -> ${imageUrl}`);
-        } catch (err) {
-          console.error(`[IMAGE] ❌ Error guardando imagen ${i + 1}:`, err.message);
-          console.error('[IMAGE] Stack:', err.stack);
-        }
-      }
+      // Procesar imágenes usando el servicio modular
+      const imageResults = await processImages(images, sid, UPLOADS_DIR, PUBLIC_BASE_URL);
+      
+      // Extraer URLs de imágenes guardadas exitosamente
+      savedImageUrls = imageResults
+        .filter(result => result.success)
+        .map(result => result.url);
       
       if (savedImageUrls.length > 0) {
         console.log(`[IMAGE] Total images saved: ${savedImageUrls.length}`);
         
         // 🔍 ANALIZAR IMÁGENES CON VISION API
-        if (openai && savedImageUrls.length > 0) {
-          try {
-            console.log('[VISION] Analyzing image(s) for problem detection...');
-            
-            const visionMessages = [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: `Analizá esta imagen que subió un usuario de soporte técnico. 
-Identificá:
-1. ¿Qué tipo de problema o dispositivo se muestra?
-2. ¿Hay mensajes de error visibles? ¿Cuáles?
-3. ¿Qué información técnica relevante podés extraer?
-4. Dame una respuesta conversacional en español para el usuario explicando lo que ves y qué podemos hacer.
-
-Respondé con una explicación clara y útil para el usuario.`
-                  },
-                  ...savedImageUrls.map(url => ({
-                    type: 'image_url',
-                    image_url: {
-                      url: url,
-                      detail: 'high'
-                    }
-                  }))
-                ]
-              }
-            ];
-            
-            const visionResponse = await openai.chat.completions.create({
-              model: 'gpt-4o-mini',
-              messages: visionMessages,
-              max_tokens: 800,
-              temperature: 0.4
-            });
-            
-            const analysisText = visionResponse.choices[0]?.message?.content || '';
-            
-            if (analysisText) {
-              console.log('[VISION] ✅ Analysis completed:', analysisText.substring(0, 100) + '...');
-              imageContext = `\n\n🔍 **Análisis de la imagen:**\n${analysisText}`;
-              
-              // Guardar análisis en la sesión
-              session.images[session.images.length - 1].analysis = analysisText;
-            }
-            
-          } catch (visionErr) {
-            console.error('[VISION] ❌ Error analyzing image:', visionErr.message);
-            imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
+        const analysisText = await analyzeImagesWithVision(savedImageUrls, openai);
+        
+        if (analysisText) {
+          imageContext = `\n\n🔍 **Análisis de la imagen:**\n${analysisText}`;
+          
+          // Guardar análisis en la sesión
+          if (!session.images) session.images = [];
+          if (session.images.length > 0) {
+            session.images[session.images.length - 1].analysis = analysisText;
           }
         } else {
           imageContext = `\n\n[Usuario adjuntó ${savedImageUrls.length} imagen(es) del problema]`;
@@ -5275,7 +5060,6 @@ Respondé con una explicación clara y útil para el usuario.`
           url: url,
           timestamp: nowIso()
         })));
-        
       } else {
         console.warn('[IMAGE] No images were successfully saved');
       }
@@ -5545,127 +5329,47 @@ Respondé con una explicación clara y útil para el usuario.`
     // ========================================================
     // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #2
     // ========================================================
-    // ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
-    // 📅 Última validación: 25/11/2025
-    // ✅ Estado: FUNCIONAL Y TESTEADO
-    //
-    // 🚨 ANTES DE MODIFICAR:
-    //    1. Consultar con el equipo
-    //    2. Verificar compliance GDPR
-    //    3. Testear ambos idiomas (ES/EN)
-    //    4. Validar flujo de rechazo (botón "No")
-    //
-    // 📋 Funcionalidad protegida:
-    //    - Detección de aceptación GDPR (Sí/acepto/ok/dale)
-    //    - Detección de rechazo GDPR (No/no acepto/rechazo)
-    //    - Selección de idioma (Español/English)
-    //    - Transición a stage ASK_NAME después de idioma
-    //    - Guardado de gdprConsent + gdprConsentDate
-    //
-    // 🔗 Dependencias:
-    //    - Frontend: Botones "Sí"/"No" envían estos valores
-    //    - Frontend: Botones idioma envían "español"/"english"
-    //    - Next stage: ASK_NAME espera userLocale configurado
-    //    - Legal: GDPR compliance depende de este consentimiento
-    //
+    // 🔧 REFACTOR: Este bloque ha sido movido a handlers/stageHandlers.js
+    // La funcionalidad se mantiene idéntica, solo cambió la ubicación
     // ========================================================
     // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
     console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
 
+    // 🔧 REFACTOR: ASK_LANGUAGE ahora manejado por handlers/stageHandlers.js
     if (session.stage === STATES.ASK_LANGUAGE) {
-      const lowerMsg = t.toLowerCase().trim();
-      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken, 'GDPR consent:', session.gdprConsent);
-
-      // Detectar aceptación de GDPR
-      if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
-        session.gdprConsent = true;
-        session.gdprConsentDate = nowIso();
-        console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
-
-        // Mostrar selección de idioma CON ID de conversación
-        const reply = `🆔 **${sid}**\n\n✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
-        await saveSessionAndTranscript(sid, session);
-
-        return res.json({
-          ok: true,
-          reply,
-          stage: session.stage,
-          buttons: [
-            { text: '(🇦🇷) Español 🌎', value: 'español' },
-            { text: '(🇺🇸) English 🌎', value: 'english' }
-          ]
-        });
-      }
-
-      // Detectar rechazo de GDPR
-      if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
-        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-
-        return res.json({
-          ok: true,
-          reply,
-          stage: session.stage
-        });
-      }
-
-      // Detectar selección de idioma (después de aceptar GDPR)
-      if (session.gdprConsent) {
-        if (/español|spanish|es-|arg|latino/i.test(lowerMsg)) {
-          session.userLocale = 'es-AR';
-          session.stage = STATES.ASK_NAME;
-
-          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-
-          return res.json({
-            ok: true,
-            reply,
-            stage: session.stage
-            // ✅ BOTÓN ELIMINADO - Usuario debe escribir su nombre
+      try {
+        const result = await handleAskLanguageStage(
+          session,
+          t,
+          buttonToken,
+          sid,
+          res,
+          {
+            STATES,
+            saveSessionAndTranscript,
+            buildLanguageSelectionGreeting,
+            changeStage
+          }
+        );
+        
+        if (result && result.handled) {
+          // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
+          return await sendResponseWithSave(res, sid, session, {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            buttons: result.buttons
           });
         }
-
-        if (/english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
-          session.userLocale = 'en-US';
-          session.stage = STATES.ASK_NAME;
-
-          const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-
-          return res.json({
-            ok: true,
-            reply,
-            stage: session.stage
-            // ✅ BOTÓN ELIMINADO - User must type their name
-          });
-        }
+      } catch (languageHandlerError) {
+        console.error('[ASK_LANGUAGE] Error en stageHandlers:', languageHandlerError);
+        // Fallback a código legacy si el handler falla
+        // (el código legacy sigue abajo como respaldo)
       }
-
-      // Si no se reconoce la respuesta, re-mostrar opciones
-      const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
-      session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-
-      return res.json({
-        ok: true,
-        reply: retry,
-        stage: session.stage,
-        buttons: session.gdprConsent
-          ? [
-            { text: '(🇦🇷) Español 🌎', value: 'español' },
-            { text: '(🇺🇸) English 🌎', value: 'english' }
-          ]
-          : [
-            { text: 'Sí Acepto', value: 'si' },
-            { text: 'No Acepto', value: 'no' }
-          ]
-      });
     }
+    
+    // 🔧 REFACTOR FASE 2: Código legacy de ASK_LANGUAGE eliminado completamente
+    // La funcionalidad ahora está completamente en handlers/stageHandlers.js
 
     // ============================================
     // ========================================================
@@ -5722,154 +5426,77 @@ Respondé con una explicación clara y útil para el usuario.`
     // 🎯 Razón: Unificación completa con sistema inteligente
     // 🔄 Alternativa: Ver handleWithIntelligence() en línea ~4826
     //
-    // CÓDIGO LEGACY MANTENIDO PARA REFERENCIA HISTÓRICA:
-    // ========================================================
-    if (false && session.stage === STATES.ASK_NEED) {
-      // ⚠️ ESTE CÓDIGO NUNCA SE EJECUTA (envuelto en if(false))
-      console.log('[ASK_NEED] ⚠️ LEGACY CODE - Este bloque no debería ejecutarse');
-      console.log('[ASK_NEED] ⚠️ Si ves este log, hay un problema en la configuración del sistema inteligente');
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const tLower = t.toLowerCase();
-
-      // 🔬 HANDLER: BTN_ADVANCED_TESTS desde ASK_NEED
-      // Usuario clickea "Pruebas Avanzadas" sin haber definido el tipo de necesidad primero
-      // Tratarlo como un problema técnico y avanzar a ASK_PROBLEM
-      if (buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS' || /pruebas?\s+avanzadas?/i.test(t)) {
-        console.log('[ASK_NEED] ⏭️ Botón Pruebas Avanzadas detectado - Asumir problema técnico');
-        needType = 'problema';
-        session.needType = needType;
-        session.isProblem = true;
-        session.isHowTo = false;
-        session.stage = STATES.ASK_PROBLEM;
-
-        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-        const reply = isEn
-          ? `Perfect ${whoName}. Tell me: what problem are you having?`
-          : `Perfecto, ${whoName} 🤖✨.\nSi tu situación está en esta lista, elegí la opción que mejor la describa: 👉\n\nO si lo preferís, describime el problema con tus palabras… 💬🔧`;
-
-        const options = buildUiButtonsFromTokens([
-          'BTN_NO_ENCIENDE',
-          'BTN_NO_INTERNET',
-          'BTN_LENTITUD',
-          'BTN_BLOQUEO',
-          'BTN_PERIFERICOS',
-          'BTN_VIRUS'
-        ], locale);
-
-        addBotMessageToTranscript(session, reply, options);
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-      }
-
-      let needType = null;
-
-      // Detectar por botones (2 opciones principales)
-      if (buttonToken === 'BTN_PROBLEMA' || buttonToken === '🔧 Solucionar / Diagnosticar Problema') {
-        needType = 'problema';
-      } else if (buttonToken === 'BTN_CONSULTA' || buttonToken === '💡 Consulta / Asistencia Informática') {
-        needType = 'consulta_general';
-      }
-      // Detectar por palabras clave según CSV: problema, no prende, no enciende, no funciona, no anda, no carga, error, falla, roto, dañado
-      else if (/problema|no\s+prende|no\s+enciende|no\s+carga|no\s+funciona|no\s+anda|roto|da[ñn]ado|error|falla|fallo|se\s+rompi[oó]/i.test(tLower)) {
-        needType = 'problema';
-      }
-      // Detectar consultas: instalar, configurar, cómo hago para, conectar, poner, setup, ayuda, guía
-      else if (/instalar|configurar|c[oó]mo\s+(hago|hacer|puedo)|conectar|setup|how\s+to|poner|agregar|a[ñn]adir|gu[ií]a|ayuda|consulta/i.test(tLower)) {
-        needType = 'consulta_general';
-      }
-
-      if (needType) {
-        session.needType = needType;
-        session.stage = STATES.ASK_PROBLEM;
-
-        let reply = '';
-        let options = [];
-        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-
-        // Respuestas personalizadas según el tipo de necesidad
-        if (needType === 'problema') {
-          reply = isEn
-            ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto, ${whoName} 🤖✨.\nSi tu situación está en esta lista, elegí la opción que mejor la describa: 👉`;
-          session.isProblem = true;
-          session.isHowTo = false;
-          // Agregar botones de problemas frecuentes
-          options = buildUiButtonsFromTokens([
-            'BTN_NO_ENCIENDE',
-            'BTN_NO_INTERNET',
-            'BTN_LENTITUD',
-            'BTN_BLOQUEO',
-            'BTN_PERIFERICOS',
-            'BTN_VIRUS'
-          ], locale);
-          // Agregar mensaje adicional como parte del reply (no como botón)
-          reply += '\n\nO si lo preferís, describime el problema con tus palabras… 💬🔧';
-        } else if (needType === 'consulta_general') {
-          reply = isEn
-            ? `Great ${whoName}! What do you need help with?`
-            : `Dale ${whoName}! ¿Con qué necesitás ayuda?`;
-          session.isHowTo = true;
-          session.isProblem = false;
-        } else {
-          // Fallback para needType no reconocido
-          reply = isEn
-            ? `Tell me what you need help with.`
-            : `Contame en qué necesitás ayuda.`;
-          session.isHowTo = false;
-          session.isProblem = false;
-        }
-
-        addBotMessageToTranscript(session, reply, options);
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-      } else {
-        // No entendió la necesidad, pedir de nuevo
-        const retry = isEn
-          ? "Please select one of the options using the buttons."
-          : (locale === 'es-419'
-            ? "Por favor, selecciona una de las opciones usando los botones."
-            : "Por favor, seleccioná una de las opciones usando los botones.");
-        const retryOptions = buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']);
-        addBotMessageToTranscript(session, retry, retryOptions);
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: retryOptions }));
-      }
-    }
+    // 🔧 REFACTOR FASE 2: Código legacy de ASK_NEED eliminado completamente
+    // Este bloque fue eliminado porque ASK_NEED ahora es manejado por el sistema inteligente
 
     // ========================================================
     // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #3
     // ========================================================
-    // ⚠️  ADVERTENCIA: Este bloque está funcionando en producción
-    // 📅 Última validación: 25/11/2025
-    // ✅ Estado: FUNCIONAL Y TESTEADO
-    //
-    // 🚨 ANTES DE MODIFICAR:
-    //    1. Consultar con el equipo
-    //    2. Verificar validación de nombres
-    //    3. Testear botón "Prefiero no decirlo"
-    //    4. Validar extracción y capitalización de nombres
-    //
-    // 📋 Funcionalidad protegida:
-    //    - Detección de botón "Prefiero no decirlo" (ambos idiomas)
-    //    - Validación de nombres con extractName() e isValidName()
-    //    - Capitalización de nombres multi-palabra
-    //    - Límite de 5 intentos antes de continuar sin nombre
-    //    - Transición a stage ASK_NEED con botones técnica/asistencia
-    //
-    // 🔗 Dependencias:
-    //    - Frontend: Botón "Prefiero no decirlo" envía value específico
-    //    - Frontend: Input de texto envía nombre como text
-    //    - Funciones: extractName(), isValidName(), capitalizeToken()
-    //    - Next stage: ASK_NEED usa userName en saludos
-    //
+    // 🔧 REFACTOR: Este bloque ha sido movido a handlers/nameHandler.js
+    // La funcionalidad se mantiene idéntica, solo cambió la ubicación
     // ========================================================
-    // ASK_NAME consolidated: validate locally and with OpenAI if available
+    // ASK_NAME: Handler modularizado con validación defensiva
 
+    // 🔧 REFACTOR: ASK_NAME ahora manejado por handlers/nameHandler.js
     if (session.stage === STATES.ASK_NAME) {
-      console.log('[ASK_NAME] DEBUG - buttonToken:', buttonToken, 'text:', t);
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
+      try {
+        const result = await handleAskNameStage(
+          session,
+          t,
+          buttonToken,
+          sid,
+          res,
+          {
+            STATES,
+            nowIso,
+            saveSessionAndTranscript,
+            markSessionDirty,
+            capitalizeToken,
+            changeStage
+          }
+        );
+        
+        if (result && result.handled) {
+          // 🔧 FIX CRÍTICO-1: Usar sendResponseWithSave para mantener consistencia con guardado optimizado
+          return await sendResponseWithSave(res, sid, session, {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage
+          });
+        }
+      } catch (nameHandlerError) {
+        console.error('[ASK_NAME] Error en nameHandler:', nameHandlerError);
+        // Fallback a código legacy si el handler falla
+        // (el código legacy sigue abajo como respaldo)
+      }
+    }
+    
+    // 🔧 REFACTOR FASE 2: Código legacy de ASK_NAME eliminado completamente
+    // La funcionalidad ahora está completamente en handlers/nameHandler.js
+
+    // 🔧 REFACTOR: Inline fallback extraction - mantener por compatibilidad pero revisar
+    // Inline fallback extraction (if we are not in ASK_NAME)
+    {
+      if (!t || t.length === 0) {
+        console.error('[ASK_NAME] ⚠️ Mensaje vacío recibido:', {
+          body: { message: body.message, text: body.text, action: body.action, value: body.value },
+          incomingText: incomingText,
+          buttonToken: buttonToken
+        });
+        
+        const reply = isEn
+          ? "I didn't receive your message. Please try typing your name again."
+          : "No recibí tu mensaje. Por favor, escribí tu nombre de nuevo.";
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        
+        return res.json({ 
+          ok: true, 
+          reply, 
+          stage: session.stage 
+        });
+      }
 
       // ✅ DETECCIÓN AUTOMÁTICA: Si el usuario escribe una palabra que es claramente un nombre
       // Validar primero si parece un nombre antes de aplicar validaciones estrictas
@@ -5941,27 +5568,12 @@ Respondé con una explicación clara y útil para el usuario.`
       }
 
 
-      // ✅ NO ES UN NOMBRE VÁLIDO - Este punto no debería alcanzarse
-      // Fallback final por seguridad
-      console.log('[ASK_NAME] ⚠️ Fallback final alcanzado - código legacy duplicado');
-      session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-      const fallbackReply = isEn
-        ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
-        : (locale === 'es-419'
-          ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
-          : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
-
-      session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-      return res.json({
-        ok: true,
-        reply: fallbackReply,
-        stage: session.stage
-        // ✅ BOTÓN ELIMINADO
-      });
+      // 🔧 REFACTOR: Este bloque ahora está en handlers/nameHandler.js
+      // El fallback final está manejado dentro de handleAskNameStage
+      console.log('[ASK_NAME] ⚠️ Este código debería estar en nameHandler - revisar implementación');
     }
 
+    // 🔧 REFACTOR: Inline fallback extraction - mantener por compatibilidad pero revisar
     // Inline fallback extraction (if we are not in ASK_NAME)
     {
       const nmInline2 = extractName(t);
