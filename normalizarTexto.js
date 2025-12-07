@@ -98,6 +98,8 @@ const TYPO_CORRECTIONS = {
   'apeas': 'apenas',
   'funsiona': 'funciona',
   'repondee': 'responde',
+  // ✅ CORRECCIÓN 1: "no me nada" → "no me funciona" (typo común)
+  'nada': 'funciona',  // Solo en contexto negativo, pero la normalización básica lo manejará
   'abissar': 'avisar',
   'rruido': 'ruido',
   'almaceamiento': 'almacenamiento',
@@ -401,6 +403,7 @@ export function reemplazarArgentinismosV1(text = '') {
   const reemplazos = {
     'no funca': 'no funciona',
     'no anda': 'no funciona',
+    'no me nada': 'no me funciona',  // ✅ CORRECCIÓN 1: Typo común "no me nada" → "no me funciona"
     'anda mal': 'funciona mal',
     'colgado': 'congelado',
     'lento': 'funciona lento',

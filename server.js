@@ -2126,11 +2126,28 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
     ].join('\n');
   }
 
+  // ✅ CORRECCIÓN 2 y 3: Detectar si es teclado de notebook para generar pasos específicos
+  const isNotebookKeyboard = /notebook|laptop|portátil/i.test(deviceLabel) && /teclado|keyboard/i.test(userText);
+  const notebookKeyboardContext = isNotebookKeyboard ? [
+    '',
+    '⚠️ CONTEXTO ESPECIAL: El problema es con el teclado de una NOTEBOOK.',
+    'Los pasos deben ser ESPECÍFICOS para teclado de notebook (NO teclado externo):',
+    '- Verificar si funciona en BIOS (al iniciar)',
+    '- Probar combinación Fn + NumLock o Fn + F11/F12 (desbloqueo de teclado)',
+    '- Activar teclado en pantalla (On-Screen Keyboard)',
+    '- Preguntar si hubo derrame de líquido reciente',
+    '- Preguntar si la notebook sufrió golpe o caída',
+    '- Recargar driver del teclado (si el usuario puede usar mouse)',
+    '- NO sugerir revisar cables USB o conexiones (no aplica a teclado integrado)',
+    ''
+  ].join('\n') : '';
+
   const prompt = [
     'Generá una lista corta de pasos numerados para ayudar a un usuario final a diagnosticar y resolver un problema técnico.',
     `El usuario habla en el idioma: ${profile.languageTag}.`,
     `Dispositivo (si se conoce): ${deviceLabel}.`,
     imageContext, // Incluir análisis de imagen aquí
+    notebookKeyboardContext, // ✅ CORRECCIÓN 2 y 3: Contexto específico para teclado de notebook
     '',
     'IMPORTANTE:',
     '- Respondé SOLO en el idioma del usuario.',
@@ -2138,6 +2155,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
     '- Cada string debe describir un paso concreto, simple y seguro.',
     '- Evitá cualquier acción peligrosa o avanzada (no tocar BIOS, no usar comandos destructivos).',
     imageAnalysis ? '- Los pasos deben ser RELEVANTES al error específico mostrado en la imagen.' : '',
+    isNotebookKeyboard ? '- Los pasos deben ser ESPECÍFICOS para teclado de notebook (no teclado externo).' : '',
     '',
     // Si se recibieron pasos a evitar, pedí explícitamente no repetirlos
     (Array.isArray(avoidSteps) && avoidSteps.length) ? (`- NO repitas los siguientes pasos ya probados por el usuario: ${avoidSteps.map(s => '"' + String(s).replace(/\s+/g,' ').trim().slice(0,80) + '"').join(', ')}`) : '',
@@ -2147,7 +2165,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
     '',
     'Texto del usuario (descripción del problema):',
     userText
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   try {
     // ✅ FASE 4-2 y FASE 5-3: Timeout con constante centralizada
@@ -5371,7 +5389,27 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
 
-    // Confirm / cancel pending ticket actions
+    // ✅ CORRECCIÓN 4: Detectar confirmación "Sí" cuando hay pendingAction de tipo create_ticket
+    if (session.pendingAction && session.pendingAction.type === 'create_ticket') {
+      // Detectar confirmación por texto (sí, si, ok, dale, perfecto, etc.)
+      const confirmRx = /^\s*(sí|si|ok|dale|perfecto|bueno|vamos|adelante|claro|por supuesto|yes|okay|sure|alright)\s*$/i;
+      if (confirmRx.test(t) || buttonToken === BUTTONS.CONFIRM_TICKET) {
+        session.pendingAction = null;
+        await saveSessionAndTranscript(sid, session);
+        try {
+          return await createTicketAndRespond(session, sid, res);
+        } catch (errCT) {
+          console.error('[CONFIRM_TICKET]', errCT && errCT.message);
+          const failReply = '❗ No pude generar el ticket en este momento. Probá de nuevo en unos minutos o escribí directo a STI por WhatsApp.';
+          session.transcript.push({ who: 'bot', text: failReply, ts: nowIso() });
+          await saveSessionAndTranscript(sid, session);
+          return res.json(withOptions({ ok: false, reply: failReply, stage: session.stage, options: [BUTTONS.CLOSE] }));
+        }
+      }
+      // Si no es confirmación, continuar con el flujo normal
+    }
+    
+    // Confirm / cancel pending ticket actions (legacy - ahora manejado arriba)
     if (buttonToken === BUTTONS.CONFIRM_TICKET && session.pendingAction && session.pendingAction.type === 'create_ticket') {
       session.pendingAction = null;
       await saveSessionAndTranscript(sid, session);
