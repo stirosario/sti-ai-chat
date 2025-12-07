@@ -12,3 +12,5 @@ config/*.bak
 uploads/*
 !uploads/.gitkeep
 
+
+sync_config.jsonc

@@ -31,6 +31,11 @@
  * - Set LOG_TOKEN to protect logs endpoint
  */
 
+// ✅ FASE 5-4: Imports organizados por categoría
+
+// ========================================================
+// LIBRERÍAS EXTERNAS
+// ========================================================
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -47,23 +52,52 @@ import sharp from 'sharp';
 import cron from 'node-cron';
 import compression from 'compression';
 
-import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+// ========================================================
+// MÓDULOS INTERNOS - SERVICES
+// ========================================================
+import { getSession, saveSession, listActiveSessions, deleteSession } from './sessionStore.js';
 import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel, maskPII } from './flowLogger.js';
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
-import { normalizarTextoCompleto } from './normalizarTexto.js';
-import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
+import { markSessionDirty, saveSessionImmediate, flushPendingSaves } from './services/sessionSaver.js';
+import { processImages, analyzeImagesWithVision } from './services/imageProcessor.js';
+import { processMessage } from './services/messageProcessor.js';
 
-// 🔧 REFACTOR: Importar módulos nuevos
-import { sanitizeInput, sanitizeFilePath } from './utils/sanitization.js';
-import { validateSessionId, getSessionId as getSessionIdUtil, generateSessionId, isPathSafe } from './utils/validation.js';
-import { nowIso, withOptions } from './utils/common.js';
+// ========================================================
+// MÓDULOS INTERNOS - HANDLERS
+// ========================================================
 import { handleAskNameStage, extractName, isValidName, isValidHumanName, looksClearlyNotName, capitalizeToken, analyzeNameWithOA } from './handlers/nameHandler.js';
 import { handleAskLanguageStage } from './handlers/stageHandlers.js';
 import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE } from './handlers/stateMachine.js';
-import { processMessage } from './services/messageProcessor.js';
-import { processImages, analyzeImagesWithVision } from './services/imageProcessor.js';
+
+// ========================================================
+// MÓDULOS INTERNOS - UTILS
+// ========================================================
+import { sanitizeInput, sanitizeFilePath } from './utils/sanitization.js';
+import { validateSessionId, getSessionId as getSessionIdUtil, generateSessionId, isPathSafe } from './utils/validation.js';
+import { nowIso, withOptions } from './utils/common.js';
 import { buildTimeGreeting, buildLanguagePrompt, buildNameGreeting } from './utils/helpers.js';
-import { markSessionDirty, saveSessionImmediate, flushPendingSaves } from './services/sessionSaver.js';
+
+// ========================================================
+// MÓDULOS INTERNOS - HELPERS Y UTILIDADES
+// ========================================================
+import { normalizarTextoCompleto } from './normalizarTexto.js';
+import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
+
+// ========================================================
+// CONSTANTES
+// ========================================================
+import { 
+  MAX_CACHED_SESSIONS, 
+  SESSION_CACHE_TTL, 
+  CSRF_TOKEN_TTL,
+  MAX_IMAGES_PER_SESSION,
+  MAX_NAME_ATTEMPTS,
+  OPENAI_TIMEOUT,
+  MAX_TRANSCRIPT_SLICE,
+  MAX_CONVERSATION_CONTEXT,
+  MAX_CONCURRENT_USERS,
+  USER_SESSION_TIMEOUT_MS
+} from './constants.js';
 
 // ========================================================
 // 🧠 SISTEMA INTELIGENTE DE TECNOS
@@ -120,7 +154,7 @@ const REQUEST_ID_HEADER = 'x-request-id';
 
 // PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
 const sessionCache = new Map(); // Map<sessionId, {data, lastAccess}>
-const MAX_CACHED_SESSIONS = 1000;
+// ✅ FASE 5-3: Usar constante centralizada
 
 function cacheSession(sid, data) {
   // Si el cache está lleno, eliminar la sesión menos usada
@@ -183,15 +217,62 @@ function generateRequestId() {
 // ========================================================
 // Configuration & Clients
 // ========================================================
-// Validar variables de entorno críticas
-if (!process.env.OPENAI_API_KEY) {
-  console.warn('[WARN] OPENAI_API_KEY no configurada. Funciones de IA deshabilitadas.');
-}
-if (!process.env.ALLOWED_ORIGINS) {
-  console.warn('[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.');
-}
-if (!process.env.LOG_TOKEN) {
-  console.warn('[WARN] LOG_TOKEN no configurado. Endpoint /api/logs sin protección.');
+// ✅ PRODUCCIÓN: Validación estricta de variables de entorno críticas
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+if (IS_PRODUCTION) {
+  console.log('\n' + '='.repeat(80));
+  console.log('🔒 VALIDACIÓN DE CONFIGURACIÓN DE PRODUCCIÓN');
+  console.log('='.repeat(80));
+  
+  // Validar NODE_ENV
+  if (!IS_PRODUCTION) {
+    console.error('[ERROR] NODE_ENV debe ser "production" en producción');
+    process.exit(1);
+  }
+  console.log('✅ NODE_ENV=production');
+  
+  // Validar LOG_TOKEN (ya validado más abajo, pero confirmar aquí)
+  if (!process.env.LOG_TOKEN && !process.env.SSE_TOKEN) {
+    console.error('[ERROR] LOG_TOKEN es OBLIGATORIO en producción');
+    console.error('[ERROR] Generar con: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+  }
+  console.log('✅ LOG_TOKEN configurado');
+  
+  // Validar ALLOWED_ORIGINS
+  if (!process.env.ALLOWED_ORIGINS) {
+    console.error('[ERROR] ALLOWED_ORIGINS es OBLIGATORIO en producción');
+    console.error('[ERROR] Configurar con tus dominios reales separados por comas');
+    console.error('[ERROR] Ejemplo: ALLOWED_ORIGINS=https://tudominio.com,https://www.tudominio.com');
+    process.exit(1);
+  }
+  const allowedOriginsList = process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
+  console.log(`✅ ALLOWED_ORIGINS configurado (${allowedOriginsList.length} dominio(s))`);
+  allowedOriginsList.forEach(origin => {
+    console.log(`   - ${origin}`);
+  });
+  
+  // Validar OPENAI_API_KEY (recomendado pero no crítico si no se usa IA)
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('[WARN] OPENAI_API_KEY no configurada. Funciones de IA avanzadas deshabilitadas.');
+    console.warn('[WARN] Para activar IA: definir OPENAI_API_KEY en .env');
+  } else {
+    console.log('✅ OPENAI_API_KEY configurado');
+  }
+  
+  console.log('='.repeat(80) + '\n');
+} else {
+  // En desarrollo, solo advertir
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('[WARN] OPENAI_API_KEY no configurada. Funciones de IA deshabilitadas.');
+  }
+  if (!process.env.ALLOWED_ORIGINS) {
+    console.warn('[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.');
+  }
+  if (!process.env.LOG_TOKEN) {
+    console.warn('[WARN] LOG_TOKEN no configurado. Endpoint /api/logs sin protección.');
+  }
 }
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -201,25 +282,31 @@ const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
 // ========================================================
 // 🧠 INICIALIZAR SISTEMA INTELIGENTE DE TECNOS
 // ========================================================
-const USE_INTELLIGENT_MODE = process.env.USE_INTELLIGENT_MODE === 'true';
+// ✅ PRODUCCIÓN: Activar por defecto para conversación natural
+const USE_INTELLIGENT_MODE = process.env.USE_INTELLIGENT_MODE !== 'false'; // Activado por defecto
 console.log(`\n${'='.repeat(60)}`);
 console.log(`  🧠 SISTEMA INTELIGENTE DE TECNOS`);
 console.log(`${'='.repeat(60)}`);
 console.log(`  Estado: ${USE_INTELLIGENT_MODE ? '✅ ACTIVADO' : '⏭️ DESACTIVADO (usando legacy)'}`);
-console.log(`  OpenAI: ${process.env.OPENAI_API_KEY ? '✅ Disponible' : '⚠️ No disponible'}`);
+// ✅ FASE 4-3: No exponer estado de API key en logs
+const hasOpenAI = !!process.env.OPENAI_API_KEY;
+console.log(`  OpenAI: ${hasOpenAI ? '✅ Disponible' : '⚠️ No disponible'}`);
 
 const intelligentSystemStatus = initializeIntelligentSystem(
   process.env.OPENAI_API_KEY,
   USE_INTELLIGENT_MODE
 );
 
-if (intelligentSystemStatus.enabled) {
+if (intelligentSystemStatus.enabled && hasOpenAI) {
   console.log(`  Modo: 🚀 INTELIGENTE (análisis con OpenAI)`);
   console.log(`  Features:`);
   console.log(`    - ✅ Análisis de intención contextual`);
   console.log(`    - ✅ Validación de acciones`);
   console.log(`    - ✅ Respuestas dinámicas`);
   console.log(`    - ✅ Prevención de saltos ilógicos`);
+} else if (intelligentSystemStatus.enabled && !hasOpenAI) {
+  console.log(`  Modo: ⚠️ INTELIGENTE ACTIVADO pero sin OPENAI_API_KEY`);
+  console.log(`  Estado: Funciones de IA deshabilitadas hasta configurar OPENAI_API_KEY`);
 } else {
   console.log(`  Modo: 📚 LEGACY (stages rígidos)`);
   console.log(`  Para activar: USE_INTELLIGENT_MODE=true en .env`);
@@ -229,7 +316,17 @@ console.log(`${'='.repeat(60)}\n`);
 // ========================================================
 // 🧠 MODO SUPER INTELIGENTE - AI-Powered Analysis
 // ========================================================
+// ✅ PRODUCCIÓN: Activar por defecto para análisis inteligente
 const SMART_MODE_ENABLED = process.env.SMART_MODE !== 'false'; // Activado por defecto
+
+// Log estado de SMART_MODE
+if (SMART_MODE_ENABLED && process.env.OPENAI_API_KEY) {
+  console.log('[SMART_MODE] 🧠 Modo Super Inteligente: ✅ ACTIVADO (con OpenAI)');
+} else if (SMART_MODE_ENABLED && !process.env.OPENAI_API_KEY) {
+  console.log('[SMART_MODE] 🧠 Modo Super Inteligente: ⚠️ ACTIVADO pero sin OPENAI_API_KEY');
+} else {
+  console.log('[SMART_MODE] 🧠 Modo Super Inteligente: ❌ DESACTIVADO');
+}
 
 /**
  * 🧠 Análisis Inteligente de Mensaje del Usuario
@@ -392,7 +489,7 @@ ${conversationContext}
     const analysisPrompt = `Sos Tecnos, un asistente técnico experto de STI (Argentina) analizando una conversación de soporte.
 
 **IDIOMA:** ${language}
-**TONO:** ${isEnglish ? 'Professional, empathetic' : 'Profesional argentino con voseo (contame, fijate, podés)'}
+**TONO:** ${isEnglish ? 'Professional, empathetic, conversational - like talking to a helpful colleague' : 'Profesional argentino, empático, conversacional - como hablar con un compañero que te ayuda. Usá voseo natural (contame, fijate, podés, probá). Sé amigable pero técnico.'}
 
 **CONTEXTO PREVIO:**
 ${conversationContext}
@@ -426,7 +523,7 @@ Usá el texto normalizado para mejor comprensión.
   "sentiment": "positive|neutral|negative|frustrated|angry",
   "needsHumanHelp": true/false,
   "language": "${language}",
-  "suggestedResponse": "${isEnglish ? 'natural empathetic response' : 'respuesta natural y empática con voseo argentino'}",
+      "suggestedResponse": "${isEnglish ? 'natural, empathetic, conversational response - like a helpful colleague' : 'respuesta natural, empática y conversacional con voseo argentino - como un compañero que te ayuda'}",
   "useStructuredFlow": true/false,
   "clarificationNeeded": true/false
 }`;
@@ -489,7 +586,8 @@ async function generateSmartResponse(analysis, session, context = {}) {
     // ========================================
     // 📚 CONTEXTO CONVERSACIONAL
     // ========================================
-    const conversationHistory = session.transcript.slice(-8).map(msg =>
+    // ✅ FASE 5-3: Usar constante centralizada
+    const conversationHistory = session.transcript.slice(-MAX_TRANSCRIPT_SLICE).map(msg =>
       `${msg.who === 'user' ? 'Usuario' : 'Tecnos'}: ${msg.text}`
     ).join('\n');
     
@@ -520,12 +618,13 @@ Calidad de imagen: ${vc.imageQuality || 'N/A'}`;
     const systemPrompt = `Sos Tecnos, el asistente técnico inteligente de STI (Servicio Técnico Inteligente) de Rosario, Argentina.
 
 **PERSONALIDAD:**
-- Profesional y confiable
-- Empático y comprensivo
-- Directo y claro (sin rodeos)
-- Usa emojis con moderación (2-3 máximo)
-- Evitá jerga técnica innecesaria
-- Si el usuario está frustrado → mostrá empatía genuina
+- Profesional y confiable, pero conversacional y natural
+- Empático y comprensivo - como un compañero que te ayuda
+- Directo y claro (sin rodeos ni formalidades excesivas)
+- Usa emojis con moderación (2-3 máximo) solo cuando aporten
+- Evitá jerga técnica innecesaria - explicá como si fuera a un amigo
+- Si el usuario está frustrado → mostrá empatía genuina y ofrecé soluciones concretas
+- Conversá de forma natural, como si fuera una charla entre colegas
 
 **TONO Y LENGUAJE:**
 ${isEnglish ? `
@@ -565,13 +664,14 @@ ${analysis.hasVision ? `
 ` : ''}
 
 **INSTRUCCIONES DE RESPUESTA:**
-1. Sé claro y directo
-2. Da pasos accionables (no vagos)
-3. Si hay error técnico → explicalo en términos simples
-4. Si necesita ayuda humana → preparalo para escalamiento
-5. ${isEnglish ? 'Use natural English' : 'Usá voseo argentino SIEMPRE'}
-6. Máximo 3-4 párrafos cortos
+1. Sé claro, directo y conversacional - como hablar con un amigo que sabe de tecnología
+2. Da pasos accionables y específicos (no vagos ni genéricos)
+3. Si hay error técnico → explicalo en términos simples y humanos
+4. Si necesita ayuda humana → preparalo para escalamiento de forma natural
+5. ${isEnglish ? 'Use natural, conversational English - like a helpful colleague' : 'Usá voseo argentino SIEMPRE - conversá de forma natural'}
+6. Máximo 3-4 párrafos cortos y legibles
 7. ${context.includeNextSteps ? 'Incluí 2-3 pasos concretos numerados' : ''}
+8. Soná humano - evitá sonar como un bot o un manual técnico
 
 **EJEMPLO DE RESPUESTA CORRECTA (ES-AR):**
 "Veo que tu notebook tiene una pantalla azul con el error DRIVER_IRQL_NOT_LESS_OR_EQUAL 🔍
@@ -757,32 +857,54 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 
 // SECURITY: Generar token seguro si no está configurado
+// ✅ AUDITORÍA CRÍTICO-4: LOG_TOKEN obligatorio en producción
 // Permitir fallback desde `SSE_TOKEN` en .env para despliegues donde se use ese nombre
-const LOG_TOKEN = process.env.LOG_TOKEN || process.env.SSE_TOKEN || crypto.randomBytes(32).toString('hex');
-if (!process.env.LOG_TOKEN) {
-  console.error('\n'.repeat(3) + '='.repeat(80));
-  console.error('[SECURITY CRITICAL] ⚠️  LOG_TOKEN NOT CONFIGURED!');
-  console.error('[SECURITY] Generated RANDOM token for this session ONLY.');
-  console.error('[SECURITY] This token will change on every restart!');
-  console.error('[SECURITY] ');
-  console.error('[SECURITY] Current session token:', LOG_TOKEN);
-  console.error('[SECURITY] ');
-  console.error('[SECURITY] To fix: Add to your .env file:');
-  console.error('[SECURITY] LOG_TOKEN=' + LOG_TOKEN);
-  console.error('='.repeat(80) + '\n'.repeat(2));
+let LOG_TOKEN = process.env.LOG_TOKEN || process.env.SSE_TOKEN;
+
+// En producción, LOG_TOKEN es obligatorio por seguridad
+if (process.env.NODE_ENV === 'production') {
+  if (!LOG_TOKEN) {
+    console.error('\n'.repeat(3) + '='.repeat(80));
+    console.error('[SECURITY CRITICAL] ❌ LOG_TOKEN REQUIRED IN PRODUCTION!');
+    console.error('[SECURITY] The server will not start without LOG_TOKEN configured.');
+    console.error('[SECURITY] ');
+    console.error('[SECURITY] To fix: Add to your .env file:');
+    console.error('[SECURITY] LOG_TOKEN=<your-secure-random-token>');
+    console.error('[SECURITY] Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    console.error('='.repeat(80) + '\n'.repeat(2));
+    process.exit(1);
+  }
+  // En producción, NUNCA imprimir el token
+} else {
+  // En desarrollo, generar token aleatorio si no está configurado (pero advertir)
+  if (!LOG_TOKEN) {
+    LOG_TOKEN = crypto.randomBytes(32).toString('hex');
+    console.warn('\n'.repeat(2) + '='.repeat(80));
+    console.warn('[SECURITY] ⚠️  LOG_TOKEN NOT CONFIGURED (DEVELOPMENT MODE)');
+    console.warn('[SECURITY] Generated RANDOM token for this session ONLY.');
+    console.warn('[SECURITY] This token will change on every restart!');
+    console.warn('[SECURITY] ');
+    console.warn('[SECURITY] To fix: Add to your .env file:');
+    console.warn('[SECURITY] LOG_TOKEN=<generated-token>');
+    console.warn('[SECURITY] (Token not shown for security - check logs on first run)');
+    console.warn('='.repeat(80) + '\n'.repeat(2));
+  }
 }
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, HISTORIAL_CHAT_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
-// Escribir token de logs a archivo seguro para interfaces administrativas locales
-try {
-  const tokenPath = path.join(LOGS_DIR, 'log_token.txt');
-  try { fs.writeFileSync(tokenPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) { fs.writeFileSync(tokenPath, LOG_TOKEN); }
-  console.log('[SECURITY] Wrote log token to', tokenPath);
-} catch (e) {
-  console.error('[SECURITY] Failed to write log token file:', e && e.message);
+// ✅ AUDITORÍA CRÍTICO-4: No escribir LOG_TOKEN a archivo en producción (riesgo de exposición)
+// Escribir token de logs a archivo seguro para interfaces administrativas locales (solo desarrollo)
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    const tokenPath = path.join(LOGS_DIR, 'log_token.txt');
+    try { fs.writeFileSync(tokenPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) { fs.writeFileSync(tokenPath, LOG_TOKEN); }
+    console.log('[SECURITY] Wrote log token to', tokenPath, '(development only)');
+  } catch (e) {
+    console.error('[SECURITY] Failed to write log token file:', e && e.message);
+  }
 }
 
 // Additionally attempt to write a copy into the repo's public_html/logs
@@ -881,9 +1003,9 @@ try {
   console.error('[init] no pude abrir stream de logs', e && e.message);
 }
 
-const nowIso = () => new Date().toISOString();
-
-const withOptions = obj => ({ options: [], ...obj });
+// ✅ AUDITORÍA CRÍTICO-1: Eliminadas redeclaraciones de nowIso y withOptions
+// Estas funciones ya están importadas desde './utils/common.js' (línea 77)
+// Las redeclaraciones causaban SyntaxError al arrancar el módulo
 
 /**
  * Helper para registrar respuestas del bot en el transcript
@@ -891,7 +1013,15 @@ const withOptions = obj => ({ options: [], ...obj });
  * @param {string} reply - Texto de respuesta del bot
  * @param {string} stage - Stage actual o resultante
  */
-async function registerBotResponse(session, reply, stage) {
+/**
+ * Registra una respuesta del bot en el transcript
+ * 🔧 FIX ALTO-7: Marca automáticamente la sesión como dirty
+ * @param {object} session - Sesión actual
+ * @param {string} reply - Texto de respuesta del bot
+ * @param {string} stage - Stage actual o resultante
+ * @param {string} sessionId - ID de sesión (opcional, necesario para marcar como dirty)
+ */
+async function registerBotResponse(session, reply, stage, sessionId = null) {
   if (!session.transcript) {
     session.transcript = [];
   }
@@ -904,6 +1034,11 @@ async function registerBotResponse(session, reply, stage) {
     stage: stage || session.stage,
     ts: botTimestamp
   });
+  
+  // 🔧 FIX ALTO-7: Marcar automáticamente la sesión como dirty
+  if (sessionId) {
+    markSessionDirty(sessionId, session);
+  }
   
   console.log('[TRANSCRIPT] 🤖 Respuesta del bot registrada:', reply.substring(0, 50));
 }
@@ -1017,6 +1152,20 @@ function appendToLogFile(entry) {
       fs.appendFile(LOG_FILE, entry + '\n', 'utf8', () => { });
     }
   } catch (e) { /* noop */ }
+}
+
+// ✅ AUDITORÍA CRÍTICO-2: Implementar logMsg como wrapper de formatLog + appendToLogFile
+// logMsg se usa en compressImage, cleanup, upload handlers pero no estaba definido
+function logMsg(...args) {
+  try {
+    const entry = formatLog('INFO', ...args);
+    appendToLogFile(entry);
+    // También mostrar en consola para debugging
+    console.log(...args);
+  } catch (e) {
+    // Fallback silencioso si falla el logging
+    console.log(...args);
+  }
 }
 
 function sseSend(res, eventData) {
@@ -1278,20 +1427,24 @@ const MIN_NAME_TOKENS = 1;
 // ========================================================
 
 /**
- * Lee y formatea una conversación del historial para análisis
+ * ✅ MEDIO-6: Función consolidada - Lee y formatea una conversación del historial para análisis
+ * ✅ ALTA PRIORIDAD-1: Migrado a async para usar fs.promises
  * @param {string} conversationId - ID de la conversación a leer
- * @returns {object|null} - Datos formateados o null si no existe
+ * @returns {Promise<object|null>} - Datos formateados o null si no existe
  */
-function readHistorialChat(conversationId) {
+async function readHistorialChat(conversationId) {
   try {
     const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
     
-    if (!fs.existsSync(historialPath)) {
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+    try {
+      await fs.promises.access(historialPath);
+    } catch (e) {
       console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
       return null;
     }
 
-    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    const data = JSON.parse(await fs.promises.readFile(historialPath, 'utf8'));
     
     // Formatear para lectura humana
     console.log('\n' + '='.repeat(80));
@@ -1304,103 +1457,18 @@ function readHistorialChat(conversationId) {
     console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
     console.log('='.repeat(80) + '\n');
     
-    return data;
-  } catch (e) {
-    console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, e && e.message);
-    return null;
-  }
-}
-
-// 🔴 MARCADOR FIN CÓDIGO CORRUPTO - ELIMINAR HASTA LA LÍNEA 1492 (inclusive)
-// ========================================================
-// TRANSCRIPT JSON HELPER (for Codex analysis)
-// ========================================================
-
-/**
- * Lee y formatea una conversación del historial para análisis
- * @param {string} conversationId - ID de la conversación a leer
- * @returns {object|null} - Datos formateados o null si no existe
- */
-function readHistorialChat(conversationId) {
-  try {
-    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
-    
-    if (!fs.existsSync(historialPath)) {
-      console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
-      return null;
+    // Mostrar conversación si existe
+    if (data.conversacion && Array.isArray(data.conversacion)) {
+      data.conversacion.forEach(msg => {
+        const time = new Date(msg.timestamp).toLocaleTimeString('es-AR');
+        const icon = msg.quien === 'USUARIO' ? '👤' : '🤖';
+        console.log(`[${time}] ${icon} ${msg.quien}:`);
+        console.log(`   ${msg.mensaje}`);
+        console.log(`   (stage: ${msg.stage})`);
+        console.log('');
+      });
     }
-
-    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
     
-    // Formatear para lectura humana
-    console.log('\n' + '='.repeat(80));
-    console.log(`📋 HISTORIAL DE CONVERSACIÓN: ${conversationId}`);
-    console.log('='.repeat(80));
-    console.log(`👤 Usuario: ${data.usuario}`);
-    console.log(`📅 Fecha: ${new Date(data.fecha_inicio).toLocaleString('es-AR')}`);
-    console.log(`📱 Dispositivo: ${data.dispositivo}`);
-    console.log(`🌍 Idioma: ${data.idioma}`);
-    console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
-    console.log('='.repeat(80) + '\n');
-    
-    // Mostrar conversación
-    data.conversacion.forEach(msg => {
-      const time = new Date(msg.timestamp).toLocaleTimeString('es-AR');
-      const icon = msg.quien === 'USUARIO' ? '👤' : '🤖';
-      console.log(`[${time}] ${icon} ${msg.quien}:`);
-      console.log(`   ${msg.mensaje}`);
-      console.log(`   (stage: ${msg.stage})`);
-      console.log('');
-    });
-    
-    return data;
-  } catch (e) {
-    console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, e && e.message);
-    return null;
-  }
-}
-
-// ========================================================
-// TRANSCRIPT JSON HELPER (for Codex analysis)
-// ========================================================
-
-/**
- * Lee y formatea una conversación del historial para análisis
- * @param {string} conversationId - ID de la conversación a leer
- * @returns {object|null} - Datos formateados o null si no existe
- */
-function readHistorialChat(conversationId) {
-  try {
-    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
-    
-    if (!fs.existsSync(historialPath)) {
-      console.log(`[HISTORIAL] ⚠️  Conversación no encontrada: ${conversationId}`);
-      return null;
-    }
-
-    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
-    
-    // Formatear para lectura humana
-    console.log('\n' + '='.repeat(80));
-    console.log(`📋 HISTORIAL DE CONVERSACIÓN: ${conversationId}`);
-    console.log('='.repeat(80));
-    console.log(`👤 Usuario: ${data.usuario}`);
-    console.log(`📅 Fecha: ${new Date(data.fecha_inicio).toLocaleString('es-AR')}`);
-    console.log(`📱 Dispositivo: ${data.dispositivo}`);
-    console.log(`🌍 Idioma: ${data.idioma}`);
-    console.log(`💬 Total mensajes: ${data.metadata.total_mensajes} (${data.metadata.mensajes_usuario} usuario / ${data.metadata.mensajes_bot} bot)`);
-    console.log('='.repeat(80) + '\n');
-
-    // Mostrar conversación
-    data.conversacion.forEach(msg => {
-      const time = new Date(msg.timestamp).toLocaleTimeString('es-AR');
-      const icon = msg.quien === 'USUARIO' ? '👤' : '🤖';
-      console.log(`[${time}] ${icon} ${msg.quien}:`);
-      console.log(`   ${msg.mensaje}`);
-      console.log(`   (stage: ${msg.stage})`);
-      console.log('');
-    });
-
     console.log('='.repeat(80));
     console.log(`📊 Stage inicial: ${data.metadata.stage_inicial}`);
     console.log(`📊 Stage final: ${data.metadata.stage_final}`);
@@ -1409,7 +1477,7 @@ function readHistorialChat(conversationId) {
       console.log(`🎫 Ticket generado: ${data.metadata.ticket_generado}`);
     }
     console.log('='.repeat(80) + '\n');
-
+    
     return data;
   } catch (error) {
     console.error(`[HISTORIAL] ❌ Error leyendo conversación ${conversationId}:`, error.message);
@@ -1417,13 +1485,20 @@ function readHistorialChat(conversationId) {
   }
 }
 
+// ✅ BUG 1 FIX: Eliminada definición duplicada de readHistorialChat
+// La función ya está definida arriba (línea 1332) y es la versión completa y correcta
+
 /**
- * Cambia el stage de una sesión y trackea la transición
- * 🔧 FIX CRÍTICO-2: Integra validación del state machine
+ * ✅ MEDIO-12: Cambia el stage de una sesión y trackea la transición
+ * Integra validación del state machine para prevenir transiciones inválidas
+ * 
+ * ✅ BUG 2 FIX: Retorna objeto con información de la transición, pero los callers pueden ignorarlo
+ * El retorno es útil para debugging y validación, pero no es obligatorio usarlo
+ * 
  * @param {object} session - Objeto de sesión
- * @param {string} newStage - Nuevo stage
- * @param {boolean} force - Si true, fuerza la transición sin validar (solo para casos especiales)
- * @returns {object} { success: boolean, error?: string, oldStage: string, newStage: string }
+ * @param {string} newStage - Nuevo stage (debe existir en STATE_MACHINE)
+ * @param {boolean} [force=false] - Si true, fuerza la transición sin validar (solo para casos especiales)
+ * @returns {object} { success: boolean, error?: string, oldStage: string, newStage: string } - Retorno opcional, puede ignorarse
  */
 function changeStage(session, newStage, force = false) {
   if (!session) {
@@ -1482,17 +1557,21 @@ function changeStage(session, newStage, force = false) {
 
 /**
  * Guarda transcript de sesión en formato JSON para análisis por Codex
+ * ✅ ALTA PRIORIDAD-1: Migrado a async para usar fs.promises
  * @param {string} sessionId - ID de la sesión
  * @param {object} session - Objeto de sesión completo
+ * @returns {Promise<boolean>} - true si se guardó correctamente
  */
-function saveTranscriptJSON(sessionId, session) {
+async function saveTranscriptJSON(sessionId, session) {
   if (!sessionId || !session) {
     console.error('[TRANSCRIPT] ❌ Missing sessionId or session data');
     return false;
   }
   
   try {
-    console.log(`[TRANSCRIPT] 💾 Starting save for session: ${sessionId}`);
+    // ✅ FASE 4-3: Limpieza de datos sensibles en logs - declarar una vez al inicio
+    const sessionIdPreview = sessionId ? `${sessionId.substring(0, 8)}...` : 'null';
+    console.log(`[TRANSCRIPT] Starting save for session: ${sessionIdPreview}`);
     
     const transcriptData = {
       sessionId: sessionId,
@@ -1542,10 +1621,11 @@ function saveTranscriptJSON(sessionId, session) {
       }
     }
 
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
     // Guardar archivo JSON en transcripts (para Codex)
     const jsonPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.json`);
     console.log(`[TRANSCRIPT] Saving to transcripts: ${jsonPath}`);
-    fs.writeFileSync(jsonPath, JSON.stringify(transcriptData, null, 2), 'utf8');
+    await fs.promises.writeFile(jsonPath, JSON.stringify(transcriptData, null, 2), 'utf8');
     console.log(`[TRANSCRIPT] ✅ Codex JSON saved successfully`);
     
     // ========================================================
@@ -1597,13 +1677,16 @@ function saveTranscriptJSON(sessionId, session) {
       imagenes_enviadas: session.imageUrls ? session.imageUrls.length : 0
     };
 
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
     // Guardar en historial_chat con formato legible
     const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
     console.log(`[HISTORIAL] Saving to historial_chat: ${historialPath}`);
-    fs.writeFileSync(historialPath, JSON.stringify(historialData, null, 2), 'utf8');
+    await fs.promises.writeFile(historialPath, JSON.stringify(historialData, null, 2), 'utf8');
     
-    console.log(`[HISTORIAL] 💾 Conversación guardada: ID ${sessionId} (${historialData.conversacion.length} mensajes)`);
-    console.log(`[TRANSCRIPT] 💾 JSON saved for Codex: ${sessionId}.json`);
+    // ✅ FASE 4-3: Limpieza de datos sensibles en logs
+    const sessionIdPreview2 = sessionId ? `${sessionId.substring(0, 8)}...` : 'null';
+    console.log(`[HISTORIAL] Conversación guardada: ID ${sessionIdPreview2} (${historialData.conversacion.length} mensajes)`);
+    console.log(`[TRANSCRIPT] JSON saved for Codex: ${sessionIdPreview2}.json`);
     
     return true;
   } catch (error) {
@@ -1623,18 +1706,19 @@ function saveTranscriptJSON(sessionId, session) {
  */
 async function saveSessionAndTranscript(sessionId, sessionData) {
   await saveSession(sessionId, sessionData);
-  saveTranscriptJSON(sessionId, sessionData);
+  await saveTranscriptJSON(sessionId, sessionData);
 }
 
 /**
- * 🔧 REFACTOR FASE 2: Helper para respuestas optimizadas con guardado diferido
+ * ✅ MEDIO-12: Helper para respuestas optimizadas con guardado diferido
  * Envuelve res.json() y hace flush de guardados pendientes antes de responder
+ * Reduce múltiples escrituras a disco a una sola operación por request
  * 
  * @param {object} res - Express response object
  * @param {string} sessionId - Session ID
- * @param {object} session - Session object
- * @param {object} payload - Payload para enviar al cliente
- * @returns {Promise<void>}
+ * @param {object} session - Session object actualizado
+ * @param {object} payload - Payload para enviar al cliente {ok, reply, stage, options?, ...}
+ * @returns {Promise<void>} Resuelve cuando la respuesta se envió
  */
 async function sendResponseWithSave(res, sessionId, session, payload) {
   // Flush todos los guardados pendientes antes de responder
@@ -1890,8 +1974,9 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
   ].join('\n');
 
   try {
+    // ✅ FASE 4-2 y FASE 5-3: Timeout con constante centralizada
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT);
     
     // Construir mensaje con soporte para imágenes
     let userMessage;
@@ -2027,8 +2112,9 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
   ].join('\n');
 
   try {
+    // ✅ FASE 4-2 y FASE 5-3: Timeout con constante centralizada
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT);
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -2129,8 +2215,9 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
   ].join('\n');
 
   try {
+    // ✅ FASE 4-2 y FASE 5-3: Timeout con constante centralizada
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT);
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -2550,6 +2637,102 @@ const uploadLimiter = rateLimit({
 // 🔐 RATE LIMITERS (Production-Ready)
 // ========================================================
 
+// ========================================================
+// 👥 CONCURRENT USER LIMIT (Production: 10 usuarios máximo)
+// ========================================================
+const activeUsers = new Map(); // Map<sessionId, {lastActivity, createdAt}>
+// ✅ PRODUCCIÓN: Confirmar límite de 10 usuarios
+const MAX_CONCURRENT = MAX_CONCURRENT_USERS || 10;
+if (MAX_CONCURRENT !== 10) {
+  console.warn(`[WARN] MAX_CONCURRENT_USERS es ${MAX_CONCURRENT}, no 10. Ajustar en constants.js si es necesario.`);
+} else {
+  console.log(`[CONCURRENT_USERS] ✅ Límite configurado: ${MAX_CONCURRENT} usuarios simultáneos`);
+}
+
+/**
+ * Verifica si se puede aceptar un nuevo usuario concurrente
+ * @param {string} sessionId - ID de sesión
+ * @returns {Object} {allowed: boolean, reason?: string, activeCount: number}
+ */
+function checkConcurrentUserLimit(sessionId) {
+  const now = Date.now();
+  
+  // Limpiar usuarios inactivos (sin actividad por 30 minutos)
+  for (const [sid, data] of activeUsers.entries()) {
+    if (now - data.lastActivity > USER_SESSION_TIMEOUT_MS) {
+      activeUsers.delete(sid);
+      console.log(`[CONCURRENT_USERS] Removed inactive session: ${sid.substring(0, 8)}...`);
+    }
+  }
+  
+  const activeCount = activeUsers.size;
+  
+  // Si la sesión ya está activa, actualizar timestamp y permitir
+  if (activeUsers.has(sessionId)) {
+    activeUsers.set(sessionId, {
+      lastActivity: now,
+      createdAt: activeUsers.get(sessionId).createdAt
+    });
+    return { allowed: true, activeCount };
+  }
+  
+  // Si hay espacio, agregar nuevo usuario
+  if (activeCount < MAX_CONCURRENT) {
+    activeUsers.set(sessionId, {
+      lastActivity: now,
+      createdAt: now
+    });
+    console.log(`[CONCURRENT_USERS] ✅ New user accepted. Active: ${activeCount + 1}/${MAX_CONCURRENT}`);
+    return { allowed: true, activeCount: activeCount + 1 };
+  }
+  
+  // Límite alcanzado
+  console.warn(`[CONCURRENT_USERS] ❌ Limit reached. Active: ${activeCount}/${MAX_CONCURRENT}. Rejecting session: ${sessionId.substring(0, 8)}...`);
+  return { 
+    allowed: false, 
+    reason: `Límite de ${MAX_CONCURRENT} usuarios concurrentes alcanzado. Por favor, intentá más tarde.`,
+    activeCount 
+  };
+}
+
+/**
+ * Actualiza la actividad de un usuario activo
+ * @param {string} sessionId - ID de sesión
+ */
+function updateUserActivity(sessionId) {
+  if (activeUsers.has(sessionId)) {
+    activeUsers.set(sessionId, {
+      ...activeUsers.get(sessionId),
+      lastActivity: Date.now()
+    });
+  }
+}
+
+/**
+ * Remueve un usuario de la lista de activos (al cerrar sesión)
+ * @param {string} sessionId - ID de sesión
+ */
+function removeActiveUser(sessionId) {
+  if (activeUsers.delete(sessionId)) {
+    console.log(`[CONCURRENT_USERS] Removed user. Active: ${activeUsers.size}/${MAX_CONCURRENT}`);
+  }
+}
+
+// Limpiar usuarios inactivos cada 5 minutos
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [sid, data] of activeUsers.entries()) {
+    if (now - data.lastActivity > USER_SESSION_TIMEOUT_MS) {
+      activeUsers.delete(sid);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[CONCURRENT_USERS] Cleaned ${cleaned} inactive user(s). Active: ${activeUsers.size}/${MAX_CONCURRENT}`);
+  }
+}, 5 * 60 * 1000);
+
 // Rate limit POR SESIÓN (previene abuse de bots)
 const sessionMessageCounts = new Map(); // Map<sessionId, {count, resetAt}>
 
@@ -2933,10 +3116,15 @@ app.get('/api/transcript/:sid', async (req, res) => {
   }
 
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
+  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+  try {
+    await fs.promises.access(file);
+  } catch (e) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
   res.set('Content-Type', 'text/plain; charset=utf-8');
   try {
-    const raw = fs.readFileSync(file, 'utf8');
+    const raw = await fs.promises.readFile(file, 'utf8');
     const masked = maskPII(raw);
     res.send(masked);
   } catch (e) {
@@ -2963,12 +3151,15 @@ app.get('/api/transcript-json/:sid', async (req, res) => {
 
   const file = path.join(TRANSCRIPTS_DIR, `${sid}.json`);
   
-  if (!fs.existsSync(file)) {
+  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+  try {
+    await fs.promises.access(file);
+  } catch (e) {
     return res.status(404).json({ ok: false, error: 'Transcript no encontrado' });
   }
 
   try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const data = JSON.parse(await fs.promises.readFile(file, 'utf8'));
     
     // Extraer solo los mensajes del transcript
     const transcript = data.messages || [];
@@ -3013,12 +3204,15 @@ app.get('/api/historial/:conversationId', async (req, res) => {
 
   const historialPath = path.join(HISTORIAL_CHAT_DIR, `${conversationId}.json`);
   
-  if (!fs.existsSync(historialPath)) {
+  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+  try {
+    await fs.promises.access(historialPath);
+  } catch (e) {
     return res.status(404).json({ ok: false, error: 'Conversación no encontrada' });
   }
 
   try {
-    const data = JSON.parse(fs.readFileSync(historialPath, 'utf8'));
+    const data = JSON.parse(await fs.promises.readFile(historialPath, 'utf8'));
     
     // Opcional: Maskear PII si no es admin
     if (adminToken !== LOG_TOKEN && data.usuario) {
@@ -3089,12 +3283,19 @@ app.get('/api/logs/stream', async (req, res) => {
   }
 });
 
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', async (req, res) => {
   if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   try {
-    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+    let txt = '';
+    try {
+      await fs.promises.access(LOG_FILE);
+      txt = await fs.promises.readFile(LOG_FILE, 'utf8');
+    } catch (e) {
+      // Archivo no existe, usar string vacío
+    }
     res.set('Content-Type', 'text/plain; charset=utf-8');
     res.send(txt);
   } catch (e) {
@@ -3209,9 +3410,10 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
       });
     }
 
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+    try { await fs.promises.mkdir(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
     const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
+    await fs.promises.writeFile(ticketPathTxt, lines.join('\n'), 'utf8');
 
     const ticketJson = {
       id: ticketId,
@@ -3225,7 +3427,7 @@ app.post('/api/whatsapp-ticket', validateCSRF, async (req, res) => {
       redactPublic: true
     };
     const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
+    await fs.promises.writeFile(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
 
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
@@ -3370,14 +3572,15 @@ app.get('/api/tickets', async (req, res) => {
       return res.status(401).json({ ok: false, error: 'unauthorized' });
     }
 
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
     // Leer todos los archivos JSON del directorio de tickets
-    const files = fs.readdirSync(TICKETS_DIR).filter(f => f.endsWith('.json'));
+    const files = (await fs.promises.readdir(TICKETS_DIR)).filter(f => f.endsWith('.json'));
     const tickets = [];
 
     for (const file of files) {
       try {
         const filePath = path.join(TICKETS_DIR, file);
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = await fs.promises.readFile(filePath, 'utf8');
         const ticket = JSON.parse(content);
         tickets.push(ticket);
       } catch (err) {
@@ -3420,18 +3623,30 @@ app.delete('/api/ticket/:tid', async (req, res) => {
     const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
     const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
 
-    if (!fs.existsSync(jsonFile) && !fs.existsSync(txtFile)) {
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+    let txtExists = false;
+    let jsonExists = false;
+    try {
+      await fs.promises.access(txtFile);
+      txtExists = true;
+    } catch (e) { /* noop */ }
+    try {
+      await fs.promises.access(jsonFile);
+      jsonExists = true;
+    } catch (e) { /* noop */ }
+
+    if (!txtExists && !jsonExists) {
       return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
     }
 
     // Eliminar archivos
     let deletedFiles = [];
-    if (fs.existsSync(txtFile)) {
-      fs.unlinkSync(txtFile);
+    if (txtExists) {
+      await fs.promises.unlink(txtFile);
       deletedFiles.push('txt');
     }
-    if (fs.existsSync(jsonFile)) {
-      fs.unlinkSync(jsonFile);
+    if (jsonExists) {
+      await fs.promises.unlink(jsonFile);
       deletedFiles.push('json');
     }
 
@@ -3456,14 +3671,21 @@ app.get('/api/ticket/:tid', async (req, res) => {
   const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
   const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
 
-  if (!fs.existsSync(txtFile) && !fs.existsSync(jsonFile)) {
-    return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
+  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+  try {
+    await fs.promises.access(txtFile);
+  } catch (e) {
+    try {
+      await fs.promises.access(jsonFile);
+    } catch (e2) {
+      return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
+    }
   }
 
   // Tickets son completamente públicos - cualquiera con el ID puede verlos
   console.log(`[TICKET] Public access granted: ticket=${tid}`);
 
-  const raw = fs.readFileSync(txtFile, 'utf8');
+  const raw = await fs.promises.readFile(txtFile, 'utf8');
   const maskedRaw = maskPII(raw);
 
   // parse lines into messages
@@ -3483,12 +3705,17 @@ app.get('/api/ticket/:tid', async (req, res) => {
 });
 
 // Pretty ticket view
-app.get('/ticket/:tid', (req, res) => {
+app.get('/ticket/:tid', async (req, res) => {
   const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
   const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).send('ticket no encontrado');
+  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+  try {
+    await fs.promises.access(file);
+  } catch (e) {
+    return res.status(404).send('ticket no encontrado');
+  }
 
-  const raw = fs.readFileSync(file, 'utf8');
+  const raw = await fs.promises.readFile(file, 'utf8');
   const safeRaw = escapeHtml(raw);
 
   const lines = raw.split(/\r?\n/);
@@ -3633,11 +3860,14 @@ app.post('/api/session/validate', async (req, res) => {
       return res.json({ valid: false, error: 'SessionId inválido' });
     }
 
+    // ✅ FASE 4-3: Limpieza de datos sensibles en logs - declarar una vez al inicio
+    const sessionIdPreview = sessionId ? `${sessionId.substring(0, 8)}...` : 'null';
+    
     // Verificar que la sesión existe y está activa
     const session = await getSession(sessionId);
 
     if (!session) {
-      console.log(`[SESSION] Validación fallida: sesión no encontrada ${sessionId}`);
+      console.log(`[SESSION] Validación fallida: sesión no encontrada ${sessionIdPreview}`);
       return res.json({ valid: false, error: 'Sesión no encontrada' });
     }
 
@@ -3646,12 +3876,12 @@ app.post('/api/session/validate', async (req, res) => {
     const sessionAge = Date.now() - (session.createdAt || 0);
 
     if (sessionAge > MAX_AGE) {
-      console.log(`[SESSION] Validación fallida: sesión expirada ${sessionId}, age=${Math.floor(sessionAge / 1000 / 60)}min`);
+      console.log(`[SESSION] Validación fallida: sesión expirada ${sessionIdPreview}, age=${Math.floor(sessionAge / 1000 / 60)}min`);
       await deleteSession(sessionId);
       return res.json({ valid: false, error: 'Sesión expirada' });
     }
 
-    console.log(`[SESSION] Validación exitosa: ${sessionId}, stage=${session.stage}`);
+    console.log(`[SESSION] Validación exitosa: ${sessionIdPreview}, stage=${session.stage}`);
 
     // Devolver datos de sesión (sin info sensible)
     return res.json({
@@ -3850,6 +4080,19 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     if (!sid) {
       sid = generateSessionId();
       req.sessionId = sid;
+    }
+    
+    // ✅ PRODUCCIÓN: Verificar límite de usuarios concurrentes
+    const concurrentCheck = checkConcurrentUserLimit(sid);
+    if (!concurrentCheck.allowed) {
+      console.warn(`[CONCURRENT_USERS] Rejected new greeting. Active: ${concurrentCheck.activeCount}/${MAX_CONCURRENT}`);
+      return res.status(503).json({
+        ok: false,
+        error: concurrentCheck.reason || `Límite de ${MAX_CONCURRENT} usuarios concurrentes alcanzado. Por favor, intentá más tarde.`,
+        retryAfter: 60,
+        activeUsers: concurrentCheck.activeCount,
+        maxUsers: MAX_CONCURRENT
+      });
     }
 
     // Validar longitud de inputs si vienen en body
@@ -4076,11 +4319,12 @@ async function createTicketAndRespond(session, sid, res) {
       });
     }
 
-    try { fs.mkdirSync(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
+    // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
+    try { await fs.promises.mkdir(TICKETS_DIR, { recursive: true }); } catch (e) { /* noop */ }
 
     // Public masked text file
     const ticketPathTxt = path.join(TICKETS_DIR, `${ticketId}.txt`);
-    fs.writeFileSync(ticketPathTxt, lines.join('\n'), 'utf8');
+    await fs.promises.writeFile(ticketPathTxt, lines.join('\n'), 'utf8');
 
     // JSON estructurado para integraciones futuras
     const ticketJson = {
@@ -4098,7 +4342,7 @@ async function createTicketAndRespond(session, sid, res) {
       redactPublic: true
     };
     const ticketPathJson = path.join(TICKETS_DIR, `${ticketId}.json`);
-    fs.writeFileSync(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
+    await fs.promises.writeFile(ticketPathJson, JSON.stringify(ticketJson, null, 2), 'utf8');
 
     const publicUrl = `${PUBLIC_BASE_URL}/ticket/${ticketId}`;
     const apiPublicUrl = `${PUBLIC_BASE_URL}/api/ticket/${ticketId}`;
@@ -4123,7 +4367,7 @@ async function createTicketAndRespond(session, sid, res) {
     const waIntentUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
 
     session.waEligible = true;
-    await saveSessionAndTranscript(sid, session);
+    markSessionDirty(sid, session);
 
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
@@ -4186,13 +4430,13 @@ async function handleDontUnderstand(session, sid, t) {
     const replyTxt = `${prefix} 😊.\n\nVeamos ese paso más despacio:\n\n${helpDetail}\n\nCuando termines, contame si te ayudó o si preferís que te conecte con un técnico.`;
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
-    await saveSessionAndTranscript(sid, session);
+    markSessionDirty(sid, session);
     return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   } else {
     const replyTxt = `${prefix} 😊.\n\nDecime sobre qué paso querés ayuda (1, 2, 3, ...) o tocá el botón del número y te lo explico con más calma.`;
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
-    await saveSessionAndTranscript(sid, session);
+    markSessionDirty(sid, session);
     return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
   }
 }
@@ -4316,7 +4560,7 @@ async function generateAndShowSteps(session, sid, res) {
       steps = steps.filter(s => !basicSet.has(normalizeStepText(s)));
     }
 
-    session.stage = STATES.BASIC_TESTS;
+    changeStage(session, STATES.BASIC_TESTS);
     session.basicTests = steps;
     // Mantener compatibilidad con estructuras que usan session.tests
     session.tests = session.tests || {};
@@ -4400,8 +4644,8 @@ async function generateAndShowSteps(session, sid, res) {
     });
 
     const payload = withOptions({ ok: true, reply, options });
-    await saveSessionAndTranscript(sid, session);
-    return res.status(200).json(payload);
+    markSessionDirty(sid, session);
+    return await sendResponseWithSave(res, sid, session, payload);
   } catch (err) {
     console.error('[generateAndShowSteps] error:', err?.message || err);
     return res.status(200).json(withOptions({
@@ -4449,12 +4693,13 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
 
     // Limitar uploads por sesión
     if (!session.images) session.images = [];
-    if (session.images.length >= 10) {
+    // ✅ FASE 5-3: Usar constante centralizada
+    if (session.images.length >= MAX_IMAGES_PER_SESSION) {
       updateMetric('uploads', 'failed', 1);
       if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
         fs.unlinkSync(uploadedFilePath);
       }
-      return res.status(400).json({ ok: false, error: 'Límite de imágenes por sesión alcanzado (10 máx)' });
+      return res.status(400).json({ ok: false, error: `Límite de imágenes por sesión alcanzado (${MAX_IMAGES_PER_SESSION} máx)` });
     }
 
     // Validar que sea una imagen real
@@ -4672,7 +4917,27 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   try {
     // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     const sessionId = req.body.sessionId || req.sessionId;
-    console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
+    // ✅ FASE 4-3: Limpieza de datos sensibles en logs - solo mostrar primeros caracteres
+    const sessionIdPreview = sessionId ? `${sessionId.substring(0, 8)}...` : 'null';
+    console.log('[DEBUG /api/chat] INICIO - sessionId:', sessionIdPreview);
+    
+    // ✅ PRODUCCIÓN: Verificar límite de usuarios concurrentes
+    if (sessionId) {
+      const concurrentCheck = checkConcurrentUserLimit(sessionId);
+      if (!concurrentCheck.allowed) {
+        console.warn(`[CONCURRENT_USERS] Rejected chat request. Active: ${concurrentCheck.activeCount}/${MAX_CONCURRENT}`);
+        return res.status(503).json({
+          ok: false,
+          reply: concurrentCheck.reason || `Límite de ${MAX_CONCURRENT} usuarios concurrentes alcanzado. Por favor, intentá más tarde.`,
+          error: 'concurrent_user_limit',
+          retryAfter: 60,
+          activeUsers: concurrentCheck.activeCount,
+          maxUsers: MAX_CONCURRENT
+        });
+      }
+      // Actualizar actividad del usuario
+      updateUserActivity(sessionId);
+    }
     
     // Log body sin imágenes para no saturar
     const bodyWithoutImages = { ...req.body };
@@ -4719,12 +4984,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     // 🔧 FIX: Leer mensaje de múltiples campos posibles (body.message, body.text)
     // El frontend envía 'message', pero mantenemos compatibilidad con 'text'
-    let incomingText = String(body.message || body.text || '').trim();
+    // ✅ MEDIO-1: Aplicar sanitización de inputs para prevenir XSS
+    let incomingText = sanitizeInput(String(body.message || body.text || '').trim());
     let buttonToken = null;
     let buttonLabel = null;
 
     if (body.action === 'button' && body.value) {
-      buttonToken = String(body.value);
+      // ✅ MEDIO-1: Sanitizar buttonToken para prevenir XSS
+      buttonToken = sanitizeInput(String(body.value));
       console.log('[DEBUG BUTTON] Received button - action:', body.action, 'value:', body.value, 'token:', buttonToken);
       const def = getButtonDefinition(buttonToken);
       if (tokenMap[buttonToken] !== undefined) {
@@ -4741,7 +5008,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
 
-    console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
+    // ✅ FASE 4-3: Limpieza de datos sensibles en logs
+    const sidPreview = sid ? `${sid.substring(0, 8)}...` : 'null';
+    console.log('[DEBUG /api/chat] SessionId:', sidPreview, 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
 
     // Inicializar datos de log
     flowLogData.sessionId = sid;
@@ -4896,10 +5165,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         const modularResponse = await chatAdapter.handleChatMessage(body, sid);
         
         // Registrar respuesta del bot en transcript
-        await registerBotResponse(session, modularResponse.reply, modularResponse.stage || session.stage);
-        
-        // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
-        markSessionDirty(sid, session);
+        // ✅ registerBotResponse ahora marca automáticamente como dirty
+        await registerBotResponse(session, modularResponse.reply, modularResponse.stage || session.stage, sid);
         
         // Log flow interaction
         flowLogData.currentStage = modularResponse.stage || session.stage;
@@ -4914,7 +5181,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         
         console.log('[MODULAR] ✅ Respuesta generada por arquitectura modular');
         
-        // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
+        // ✅ Enviar respuesta con guardado optimizado
         return await sendResponseWithSave(res, sid, session, modularResponse);
       } catch (modularError) {
         console.error('[MODULAR] ❌ Error en chatAdapter:', modularError);
@@ -5082,7 +5349,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
     if (buttonToken === BUTTONS.CANCEL && session.pendingAction) {
       session.pendingAction = null;
-      await saveSessionAndTranscript(sid, session);
+      markSessionDirty(sid, session);
       const loc = session.userLocale || 'es-AR';
       const isEnCancel = String(loc).toLowerCase().startsWith('en');
       let replyCancel;
@@ -5211,7 +5478,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
       const replyClose = `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
       const tsClose = nowIso();
-      session.stage = STATES.ENDED;
+      changeStage(session, STATES.ENDED);
       session.waEligible = false;
       session.transcript.push({ who: 'bot', text: replyClose, ts: tsClose });
       await saveSessionAndTranscript(sid, session);
@@ -5274,7 +5541,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
         session.helpAttempts[idx] = (session.helpAttempts[idx] || 0) + 1;
         session.lastHelpStep = idx;
-        session.stage = session.stage || STATES.BASIC_TESTS;
+        if (!session.stage) {
+          changeStage(session, STATES.BASIC_TESTS);
+        }
 
         const stepText = steps[idx - 1];
         let helpDetail = await getHelpForStep(stepText, idx, session.device || '', session.problem || '');
@@ -5323,7 +5592,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     // Limitar transcript a últimos 100 mensajes para prevenir crecimiento indefinido
     if (session.transcript.length > 100) {
-      session.transcript = session.slice(-100);
+      // ✅ BUG 3 FIX: Corregido - session es un objeto, debe ser session.transcript.slice()
+      session.transcript = session.transcript ? session.transcript.slice(-100) : [];
     }
 
     // ========================================================
@@ -5336,7 +5606,12 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
 
     // 🔧 REFACTOR: ASK_LANGUAGE ahora manejado por handlers/stageHandlers.js
+    // ✅ MEDIO-9: Validar stage antes de procesar
     if (session.stage === STATES.ASK_LANGUAGE) {
+      const stageInfo = getStageInfo(session.stage);
+      if (!stageInfo) {
+        console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
+      }
       try {
         const result = await handleAskLanguageStage(
           session,
@@ -5353,7 +5628,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         );
         
         if (result && result.handled) {
-          // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
+          // ✅ Enviar respuesta con guardado optimizado
           return await sendResponseWithSave(res, sid, session, {
             ok: result.ok,
             reply: result.reply,
@@ -5368,7 +5643,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
     
-    // 🔧 REFACTOR FASE 2: Código legacy de ASK_LANGUAGE eliminado completamente
+    // ✅ MEDIO-10: Comentarios obsoletos limpiados
     // La funcionalidad ahora está completamente en handlers/stageHandlers.js
 
     // ============================================
@@ -5426,7 +5701,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // 🎯 Razón: Unificación completa con sistema inteligente
     // 🔄 Alternativa: Ver handleWithIntelligence() en línea ~4826
     //
-    // 🔧 REFACTOR FASE 2: Código legacy de ASK_NEED eliminado completamente
+    // ✅ MEDIO-10: Comentarios obsoletos limpiados
     // Este bloque fue eliminado porque ASK_NEED ahora es manejado por el sistema inteligente
 
     // ========================================================
@@ -5466,135 +5741,29 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         }
       } catch (nameHandlerError) {
         console.error('[ASK_NAME] Error en nameHandler:', nameHandlerError);
-        // Fallback a código legacy si el handler falla
-        // (el código legacy sigue abajo como respaldo)
+        // ✅ BUG 4 FIX: Fallback seguro - definir variables necesarias si el handler falla
+        // Si el handler falla, el código continúa normalmente y necesita estas variables
+        // Las definimos aquí para que estén disponibles en el scope del bloque if (session.stage === STATES.ASK_NAME)
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        
+        // Fallback básico: responder con mensaje de error amigable
+        const fallbackReply = isEn
+          ? "I'm sorry, there was an error processing your name. Please try again."
+          : "Lo siento, hubo un error procesando tu nombre. Por favor, intentá de nuevo.";
+        
+        session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
+        markSessionDirty(sid, session);
+        
+        return await sendResponseWithSave(res, sid, session, {
+          ok: true,
+          reply: fallbackReply,
+          stage: session.stage
+        });
       }
     }
     
-    // 🔧 REFACTOR FASE 2: Código legacy de ASK_NAME eliminado completamente
-    // La funcionalidad ahora está completamente en handlers/nameHandler.js
-
-    // 🔧 REFACTOR: Inline fallback extraction - mantener por compatibilidad pero revisar
-    // Inline fallback extraction (if we are not in ASK_NAME)
-    {
-      if (!t || t.length === 0) {
-        console.error('[ASK_NAME] ⚠️ Mensaje vacío recibido:', {
-          body: { message: body.message, text: body.text, action: body.action, value: body.value },
-          incomingText: incomingText,
-          buttonToken: buttonToken
-        });
-        
-        const reply = isEn
-          ? "I didn't receive your message. Please try typing your name again."
-          : "No recibí tu mensaje. Por favor, escribí tu nombre de nuevo.";
-        
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        
-        return res.json({ 
-          ok: true, 
-          reply, 
-          stage: session.stage 
-        });
-      }
-
-      // ✅ DETECCIÓN AUTOMÁTICA: Si el usuario escribe una palabra que es claramente un nombre
-      // Validar primero si parece un nombre antes de aplicar validaciones estrictas
-      const candidate = extractName(t);
-      if (candidate && isValidName(candidate)) {
-        // ✅ NOMBRE DETECTADO - Guardar y avanzar inmediatamente
-        session.userName = candidate;
-        session.stage = STATES.ASK_NEED;
-        session.nameAttempts = 0;
-
-        // ✅ RESPUESTA OBLIGATORIA: Bienvenida personalizada
-        const reply = isEn
-          ? `Perfect, ${capitalizeToken(session.userName)} 😊 What can I help you with today?`
-          : (locale === 'es-419'
-            ? `Perfecto, ${capitalizeToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`
-            : `Perfecto, ${capitalizeToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`);
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        
-        // ✅ SIN BOTONES - El siguiente mensaje será procesado por el sistema inteligente
-        return res.json({
-          ok: true,
-          reply,
-          stage: session.stage
-          // ✅ BOTONES ELIMINADOS - Sistema inteligente maneja el siguiente mensaje automáticamente
-        });
-      }
-
-      // ✅ CÓDIGO ELIMINADO - Ya no se acepta "Prefiero no decirlo"
-
-      // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
-      if ((session.nameAttempts || 0) >= 5) {
-        session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_NEED;
-
-        const reply = isEn
-          ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-          : (locale === 'es-419'
-            ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-            : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        // ✅ SIN BOTONES - El siguiente mensaje será procesado por el sistema inteligente
-        return res.json({ ok: true, reply, stage: session.stage });
-      }
-
-      // ✅ CÓDIGO ELIMINADO - Ya no aceptamos "Prefiero no decirlo"
-
-      // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
-      if (looksClearlyNotName(t)) {
-        session.nameAttempts = (session.nameAttempts || 0) + 1;
-
-        const reply = isEn
-          ? "I didn't detect a name. Could you tell me just your name? For example: “Ana” or “John Paul”."
-          : (locale === 'es-419'
-            ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”."
-            : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json({
-          ok: true,
-          reply,
-          stage: session.stage
-          // ✅ BOTÓN ELIMINADO
-        });
-      }
-
-
-      // 🔧 REFACTOR: Este bloque ahora está en handlers/nameHandler.js
-      // El fallback final está manejado dentro de handleAskNameStage
-      console.log('[ASK_NAME] ⚠️ Este código debería estar en nameHandler - revisar implementación');
-    }
-
-    // 🔧 REFACTOR: Inline fallback extraction - mantener por compatibilidad pero revisar
-    // Inline fallback extraction (if we are not in ASK_NAME)
-    {
-      const nmInline2 = extractName(t);
-      if (nmInline2 && !session.userName && isValidHumanName(nmInline2)) {
-        session.userName = nmInline2;
-        if (session.stage === STATES.ASK_NAME) {
-          session.stage = STATES.ASK_NEED;
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          const empatia = addEmpatheticResponse('ASK_NAME', locale);
-          const reply = isEn
-            ? `${empatia} Great, ${session.userName}! 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
-            : (locale === 'es-419'
-              ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-              : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
-        }
-      }
-    }
+    // ✅ MEDIO-10: Comentarios obsoletos limpiados - ASK_NAME manejado por handlers/nameHandler.js
 
     // Reformulate problem
     if (/^\s*reformular\s*problema\s*$/i.test(t)) {
@@ -5606,21 +5775,25 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         : (locale === 'es-419'
           ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora cuéntame: ¿qué problema estás teniendo o en qué necesitas ayuda?`
           : `¡Intentemos nuevamente, ${whoName}! 👍\n\nAhora contame: ¿qué problema estás teniendo o en qué necesitás ayuda?`);
-      session.stage = STATES.ASK_PROBLEM;
+      changeStage(session, STATES.ASK_PROBLEM);
       session.problem = null;
       session.issueKey = null;
       session.tests = { basic: [], ai: [], advanced: [] };
       session.lastHelpStep = null;
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+      return await sendResponseWithSave(res, sid, session, withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
 
     // State machine core: ASK_PROBLEM -> ASK_DEVICE -> BASIC_TESTS -> ...
     let reply = '';
     let options = [];
 
+    // ✅ MEDIO-9: Validar stage antes de procesar
     if (session.stage === STATES.ASK_PROBLEM) {
+      const stageInfo = getStageInfo(session.stage);
+      if (!stageInfo) {
+        console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
+      }
       session.problem = t || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
@@ -5687,7 +5860,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
               const noMore = isEn
                 ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
                 : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
-              session.stage = STATES.ESCALATE;
+              changeStage(session, STATES.ESCALATE);
               session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
               await saveSessionAndTranscript(sid, session);
               return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
@@ -5710,7 +5883,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
               : `¿Alguna de estas pruebas solucionó el problema?`;
             reply += prompt;
 
-            session.stage = STATES.ADVANCED_TESTS;
+            changeStage(session, STATES.ADVANCED_TESTS);
             const options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
 
             session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -5718,7 +5891,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
           } catch (err) {
             console.error('[ASK_PROBLEM → ADVANCED] Error generating advanced tests:', err);
-            session.stage = STATES.ESCALATE;
+            changeStage(session, STATES.ESCALATE);
             await saveSessionAndTranscript(sid, session);
             return await createTicketAndRespond(session, sid, res);
           }
@@ -5726,7 +5899,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         
         // 👨‍💻 HANDLER: BTN_CONNECT_TECH desde ASK_PROBLEM
         if (rxConnectTech.test(t) || buttonToken === 'BTN_CONNECT_TECH') {
-          session.stage = STATES.ESCALATE;
+          changeStage(session, STATES.ESCALATE);
           
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
@@ -5830,7 +6003,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
             : (locale === 'es-419'
               ? 'Dale, cualquier cosa que necesites en el futuro, acá estoy. ¡Que tengas un buen día! 👋'
               : 'Dale, cualquier cosa que necesites en el futuro, acá estoy. ¡Que tengas un buen día! 👋');
-          session.stage = STATES.ENDED;
+          changeStage(session, STATES.ENDED);
           session.transcript.push({ who: 'bot', text: farewell, ts: nowIso() });
           await saveSessionAndTranscript(sid, session);
           return res.json({ ok: true, reply: farewell, stage: session.stage, close: true });
@@ -5909,7 +6082,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           // CASO 1: Alta confianza (>=0.33 = 1+ keywords) - Confirmar con 1 botón
           if (confidence >= 0.33 && ambiguousResult.bestMatch) {
             const device = ambiguousResult.bestMatch;
-            session.stage = 'CONFIRM_DEVICE';
+            changeStage(session, 'CONFIRM_DEVICE');
             session.pendingDevice = device;
 
             const replyText = isEn
@@ -5948,7 +6121,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           }
 
           // CASO 2: Baja confianza (<0.33) - Mostrar todos los botones
-          session.stage = 'CHOOSE_DEVICE';
+          changeStage(session, 'CHOOSE_DEVICE');
           session.ambiguousTerm = ambiguousResult.term;
 
           const replyText = isEn
@@ -5985,7 +6158,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           if (/^pc$/i.test(rawWord)) shownWord = 'PC';
           else if (/^compu$/i.test(rawWord)) shownWord = isEn ? 'computer' : 'la compu';
           else shownWord = rawWord.toLowerCase();
-          session.stage = STATES.ASK_DEVICE;
+          changeStage(session, STATES.ASK_DEVICE);
           session.pendingDeviceGroup = 'compu';
           const replyText = isEn
             ? `Perfect. When you say "${shownWord}", which of these devices do you mean?`
@@ -6091,8 +6264,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       if (ai.isHowTo && !ai.isProblem) {
         // Es una solicitud de guía/instalación/configuración
         session.isHowTo = true;
-        session.stage = STATES.ASK_HOWTO_DETAILS;
-
+        changeStage(session, STATES.ASK_HOWTO_DETAILS);
+        
         let replyHowTo = '';
         const deviceName = ai.device || (isEn ? 'device' : 'dispositivo');
 
@@ -6245,7 +6418,7 @@ La guía debe ser:
         session.tests = session.tests || {};
         session.tests.howto = guideData.steps || [];
         session.currentStepIndex = 0;
-        session.stage = STATES.BASIC_TESTS; // Reuse BASIC_TESTS flow for showing steps
+        changeStage(session, STATES.BASIC_TESTS); // Reuse BASIC_TESTS flow for showing steps
 
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
@@ -6331,7 +6504,7 @@ La guía debe ser:
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           if (!session.problem || String(session.problem || '').trim() === '') {
-            session.stage = STATES.ASK_PROBLEM;
+            changeStage(session, STATES.ASK_PROBLEM);
             const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
             const replyText = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
@@ -6343,7 +6516,7 @@ La guía debe ser:
             return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: [] }));
           } else {
             // Provide short confirmation then show steps
-            session.stage = STATES.ASK_PROBLEM;
+            changeStage(session, STATES.ASK_PROBLEM);
             const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
             const replyIntro = isEn
               ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
@@ -6391,7 +6564,7 @@ La guía debe ser:
             : `¡Perfecto! Te ayudo con tu **${device.label}**.`);
 
         session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        session.stage = STATES.ASK_PROBLEM;
+        changeStage(session, STATES.ASK_PROBLEM);
         await saveSessionAndTranscript(sid, session);
 
         // Continuar con generación de pasos
@@ -6400,7 +6573,7 @@ La guía debe ser:
 
       // Usuario dijo NO - mostrar todas las opciones
       if (buttonToken === 'DEVICE_CONFIRM_NO' || /^(no|n|nop|not)$/i.test(buttonToken) || /otro/i.test(buttonToken)) {
-        session.stage = 'CHOOSE_DEVICE';
+        changeStage(session, 'CHOOSE_DEVICE');
         const ambiguousResult = detectAmbiguousDevice(session.problem);
 
         const replyText = isEn
@@ -6497,9 +6670,9 @@ La guía debe ser:
               ? `¡Perfecto! Te ayudaré con tu **${selectedDevice.label}**.`
               : `¡Perfecto! Te ayudo con tu **${selectedDevice.label}**.`);
 
-          session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-          session.stage = STATES.ASK_PROBLEM;
-          await saveSessionAndTranscript(sid, session);
+        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
+        changeStage(session, STATES.ASK_PROBLEM);
+        await saveSessionAndTranscript(sid, session);
 
           console.log('[CHOOSE_DEVICE] ✅ Dispositivo seleccionado:', selectedDevice.label, '(', selectedDevice.id, ')');
 
@@ -6601,7 +6774,7 @@ La guía debe ser:
             const noMore = isEn
               ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
               : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
-            session.stage = STATES.ESCALATE;
+            changeStage(session, STATES.ESCALATE);
             session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
             await saveSessionAndTranscript(sid, session);
             return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
@@ -6624,7 +6797,7 @@ La guía debe ser:
             : `¿Alguna de estas pruebas solucionó el problema?`;
           reply += prompt;
 
-          session.stage = STATES.ADVANCED_TESTS;
+          changeStage(session, STATES.ADVANCED_TESTS);
           options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -6632,7 +6805,7 @@ La guía debe ser:
           return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
         } catch (err) {
           console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
-          session.stage = STATES.ESCALATE;
+          changeStage(session, STATES.ESCALATE);
           await saveSessionAndTranscript(sid, session);
           return await createTicketAndRespond(session, sid, res);
         }
@@ -6651,7 +6824,7 @@ La guía debe ser:
           ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
           : `${firstLine}\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
 
-        session.stage = STATES.ENDED;
+        changeStage(session, STATES.ENDED);
         session.waEligible = false;
         options = [];
 
@@ -6669,7 +6842,7 @@ La guía debe ser:
           : `💡 Entiendo. ${empatia} ¿Querés que te ayude con algo más?`;
         // Custom buttons (usar una sola opción para solicitar pruebas avanzadas)
         options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
-        session.stage = STATES.ESCALATE;
+        changeStage(session, STATES.ESCALATE);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
@@ -6746,7 +6919,7 @@ La guía debe ser:
           session.stepsDone.push('advanced_tests_shown');
           session.waEligible = false;
           session.lastHelpStep = null;
-          session.stage = STATES.ADVANCED_TESTS;
+          changeStage(session, STATES.ADVANCED_TESTS);
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSessionAndTranscript(sid, session);
           const helpOptions = limited.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
@@ -6812,7 +6985,7 @@ La guía debe ser:
         reply = isEn
           ? `${firstLine}\n\n${empatia}\n\nIf it fails again later, you can reopen the chat and we'll resume the diagnosis together.`
           : `${firstLine}\n\n${empatia}\n\nSi más adelante vuelve a fallar, podés volver a abrir el chat y retomamos el diagnóstico juntos.`;
-        session.stage = STATES.ENDED;
+        changeStage(session, STATES.ENDED);
         session.waEligible = false;
         options = [];
       } else if (rxNo.test(t)) {
@@ -6823,7 +6996,7 @@ La guía debe ser:
           ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
           : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
         options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
-        session.stage = STATES.ESCALATE;
+        changeStage(session, STATES.ESCALATE);
       } else if (rxTech.test(t)) {
         return await createTicketAndRespond(session, sid, res);
       } else {

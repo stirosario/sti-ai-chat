@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tecnos 2D - Demo Local</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="tecnos-2d.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="tecnos-card" class="state-idle">
+      <div id="tecnos-avatar">
+        <div class="face">
+          <div class="eyes">
+            <span class="eye left"></span>
+            <span class="eye right"></span>
+          </div>
+          <div class="mouth"></div>
+        </div>
+        <div class="badge">STI</div>
+      </div>
+
+      <div id="tecnos-info">
+        <h1>Tecnos 2D (demo local)</h1>
+        <p id="tecnos-state-label">Estado: <strong>Idle</strong></p>
+        <p id="tecnos-log">Listo para probar animación y voz en tu PC.</p>
+      </div>
+
+      <div id="buttons-row">
+        <div class="group">
+          <h2>Estados manuales</h2>
+          <button id="btn-idle">Idle 😌</button>
+          <button id="btn-thinking">Pensando 🤔</button>
+          <button id="btn-talking">Hablando 🗣️</button>
+        </div>
+
+        <div class="group">
+          <h2>Voz de Tecnos</h2>
+          <button id="btn-speak">Probar voz de Tecnos 🔊</button>
+        </div>
+
+        <div class="group">
+          <h2>Hablarle a Tecnos</h2>
+          <button id="btn-listen">Hablar por micrófono 🎙️</button>
+          <p class="hint" id="stt-hint"></p>
+        </div>
+      </div>
+
+      <div id="user-text-box">
+        <h2>Lo que escuchó Tecnos</h2>
+        <p id="user-text">(todavía nada)</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="tecnos-2d.js"></script>
+</body>
+</html>
