@@ -19,30 +19,23 @@ export function buildWhatsAppUrl(phoneNumber, text) {
 
 /**
  * Genera saludo basado en la hora del día
- * @returns {object} Objeto con saludos en español e inglés
+ * @param {string} userName - Nombre del usuario (opcional)
+ * @returns {string} Saludo acorde al horario
  */
-export function buildTimeGreeting() {
+export function buildTimeGreeting(userName = '') {
   const now = new Date();
   const hour = now.getHours();
+  const namePart = userName ? `, ${userName}` : '';
 
   if (hour >= 6 && hour < 12) {
-    return {
-      es: "🌅 Buen día, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌅 Good morning, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
+    return `🌅 Buen día${namePart}! Gracias por usar Tecnos de STI — Servicio Técnico Inteligente.`;
   }
 
   if (hour >= 12 && hour < 19) {
-    return {
-      es: "🌇 Buenas tardes, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-      en: "🌇 Good afternoon, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-    };
+    return `🌇 Buenas tardes${namePart}! Gracias por usar Tecnos de STI — Servicio Técnico Inteligente.`;
   }
 
-  return {
-    es: "🌙 Buenas noches, soy Tecnos, asistente inteligente de STI — Servicio Técnico Inteligente.",
-    en: "🌙 Good evening, I'm Tecnos, STI's intelligent assistant — Intelligent Technical Service."
-  };
+  return `🌙 Buenas noches${namePart}! Gracias por usar Tecnos de STI — Servicio Técnico Inteligente.`;
 }
 
 /**

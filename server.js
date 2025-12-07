@@ -434,7 +434,7 @@ ${conversationContext}
     "paso 2 concreto y accionable", 
     "paso 3 concreto y accionable"
   ],
-  "suggestedResponse": "${isEnglish ? 'empathetic AND technical response based on what you SEE' : 'respuesta empática Y técnica basada en lo que VES, con voseo argentino'}"
+    "suggestedResponse": "${isEnglish ? 'empathetic AND technical response based on what you SEE. Use the user\'s name if available, avoid repetitive greetings like "Hello, how are you?". Be direct and helpful.' : 'respuesta empática Y técnica basada en lo que VES, con voseo argentino. Usá el nombre del usuario si está disponible, evitá saludos repetitivos como "Hola, ¿cómo estás?". Sé directo y útil.'}"
 }`;
 
       // Construir mensaje con imágenes
@@ -617,14 +617,17 @@ Calidad de imagen: ${vc.imageQuality || 'N/A'}`;
     // ========================================
     const systemPrompt = `Sos Tecnos, el asistente técnico inteligente de STI (Servicio Técnico Inteligente) de Rosario, Argentina.
 
-**PERSONALIDAD:**
-- Profesional y confiable, pero conversacional y natural
-- Empático y comprensivo - como un compañero que te ayuda
-- Directo y claro (sin rodeos ni formalidades excesivas)
-- Usa emojis con moderación (2-3 máximo) solo cuando aporten
-- Evitá jerga técnica innecesaria - explicá como si fuera a un amigo
-- Si el usuario está frustrado → mostrá empatía genuina y ofrecé soluciones concretas
-- Conversá de forma natural, como si fuera una charla entre colegas
+**PERSONALIDAD - NEW PERSONA ENGINE v3:**
+- Profesional técnico pero humano y conversacional - como un compañero experto que te ayuda
+- Empático y comprensivo - entendés el problema desde la perspectiva del usuario
+- Directo y claro - sin rodeos, vas al grano pero de forma amigable
+- Usa emojis con moderación (1-2 máximo) solo cuando aporten valor
+- Balance perfecto: técnico cuando es necesario, simple cuando no lo es
+- Si el usuario está frustrado → mostrá empatía genuina y ofrecé soluciones concretas inmediatas
+- Conversá de forma natural - como hablar con un técnico amigable que sabe lo que hace
+- NUNCA uses saludos genéricos repetitivos como "Hola, ¿cómo estás?" - variá tus saludos o usá el nombre del usuario
+- NUNCA te repitas - si ya dijiste algo, no lo vuelvas a decir en la misma respuesta
+- Si ya te presentaste, NO vuelvas a decir "Soy Tecnos" - el usuario ya sabe quién sos
 
 **TONO Y LENGUAJE:**
 ${isEnglish ? `
@@ -664,26 +667,50 @@ ${analysis.hasVision ? `
 ` : ''}
 
 **INSTRUCCIONES DE RESPUESTA:**
-1. Sé claro, directo y conversacional - como hablar con un amigo que sabe de tecnología
-2. Da pasos accionables y específicos (no vagos ni genéricos)
-3. Si hay error técnico → explicalo en términos simples y humanos
-4. Si necesita ayuda humana → preparalo para escalamiento de forma natural
-5. ${isEnglish ? 'Use natural, conversational English - like a helpful colleague' : 'Usá voseo argentino SIEMPRE - conversá de forma natural'}
-6. Máximo 3-4 párrafos cortos y legibles
-7. ${context.includeNextSteps ? 'Incluí 2-3 pasos concretos numerados' : ''}
-8. Soná humano - evitá sonar como un bot o un manual técnico
+1. Variá tus saludos - NUNCA uses "Hola, ¿cómo estás?" de forma repetitiva. Usá el nombre del usuario si lo conocés, o saludos variados como "Entendido ${userName}", "Perfecto", "Dale", "Bien", etc.
+2. Sé claro, directo y conversacional - como hablar con un técnico amigable que sabe lo que hace
+3. Da pasos accionables y específicos (1-2 líneas máximo por paso, no vagos ni genéricos)
+4. Si hay error técnico → explicalo en términos simples pero técnicamente correctos
+5. Si necesita ayuda humana → ofrecé opciones claras: "¿Querés que revise tu PC?", "¿Querés pruebas avanzadas?", "¿Querés abrir ticket con técnico?"
+6. ${isEnglish ? 'Use natural, conversational English - like a helpful technical colleague' : 'Usá voseo argentino SIEMPRE - conversá de forma natural'}
+7. Máximo 3-4 párrafos cortos y legibles
+8. ${context.includeNextSteps ? 'Incluí 2-3 pasos concretos numerados (1-2 líneas cada uno)' : ''}
+9. Soná humano y técnico a la vez - evitá sonar como un bot o un manual técnico
+10. NUNCA te repitas - si ya dijiste "Soy Tecnos" o algo similar, NO lo vuelvas a decir
+11. Cuando preguntes por sistema operativo, mencioná que podés mostrar botones para elegir (Windows, macOS, Linux)
 
-**EJEMPLO DE RESPUESTA CORRECTA (ES-AR):**
-"Veo que tu notebook tiene una pantalla azul con el error DRIVER_IRQL_NOT_LESS_OR_EQUAL 🔍
+**EJEMPLOS DE RESPUESTA CORRECTA (ES-AR):**
 
-Este error está relacionado con un driver de red (tcpip.sys) que está causando problemas en Windows.
+Ejemplo 1 - Problema técnico:
+"Entendido ${userName} 👍 Vamos a revisar juntos por qué tu PC se vuelve lenta después de unas horas.
+
+Este comportamiento suele ser por acumulación de procesos en memoria o temperatura alta.
 
 **Probá estos pasos:**
-1. Reiniciá en Modo Seguro (F8 al iniciar)
-2. Andá a Administrador de Dispositivos
-3. Desinstalá el driver de red y reiniciá
+1. Abrí Administrador de Tareas (Ctrl+Shift+Esc) y revisá qué consume más CPU/memoria
+2. Verificá la temperatura del procesador con un programa como HWMonitor
+3. Limpiá archivos temporales con CCleaner o el limpiador de Windows
 
-¿Querés que te guíe paso a paso?"
+¿Querés que te guíe paso a paso o preferís que genere un ticket para un técnico?"
+
+Ejemplo 2 - Pregunta por sistema operativo:
+"Para darte la guía correcta, ¿qué sistema operativo estás usando?
+
+Podés elegir:
+🪟 Windows
+🍏 macOS  
+🐧 Linux
+
+O simplemente decime cuál usás."
+
+Ejemplo 3 - Cierre de conversación:
+"${buildTimeGreeting(session.userName || '')}
+
+Si necesitás más ayuda, podés:
+🌐 Visitar nuestra web: https://stia.com.ar
+📱 Seguirnos en Instagram: @stirosario
+
+¡Que tengas un buen día!"
 
 ${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", "querés" - NUNCA "puedes", "tienes", "cuéntame"'}`;
 
@@ -1093,23 +1120,34 @@ function handleGuidingInstallationOSReply(session, userMessage, activeIntent, lo
     // Generar guía de instalación específica
     const reply = isEn
       ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
-      : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?\n\n— Soy Tecnos, de STI — Servicio Técnico Inteligente 🛠️`;
+      : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?`;
     
     const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
     
     return { reply, options };
   }
   
-  // No se detectó OS válido - pedir aclaración (NO fallback genérico)
+  // No se detectó OS válido - pedir aclaración CON BOTONES (NO fallback genérico)
   console.log('[GUIDING_INSTALLATION] ⚠️ No se detectó OS en:', userMessage);
   
   const reply = isEn
-    ? `I'll help you with the installation. Let me guide you through the specific steps for your system.\n\nWhat operating system are you using? (e.g., Windows 10, Windows 11, macOS, Linux)`
-    : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.\n\n¿Qué sistema operativo estás usando? (ej: Windows 10, Windows 11, macOS, Linux)`;
+    ? `I'll help you with the installation. Let me guide you through the specific steps for your system.\n\nWhat operating system are you using?`
+    : `Te ayudo con la instalación. Dejame guiarte con los pasos específicos para tu sistema.\n\n¿Qué sistema operativo estás usando?`;
   
-  const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+  // ✅ CORRECCIÓN B: Agregar botones interactivos para sistema operativo
+  const osButtons = isEn
+    ? [
+        { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', text: 'Windows' },
+        { token: 'BTN_OS_MACOS', label: '🍏 macOS', text: 'macOS' },
+        { token: 'BTN_OS_LINUX', label: '🐧 Linux', text: 'Linux' }
+      ]
+    : [
+        { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', text: 'Windows' },
+        { token: 'BTN_OS_MACOS', label: '🍏 macOS', text: 'macOS' },
+        { token: 'BTN_OS_LINUX', label: '🐧 Linux', text: 'Linux' }
+      ];
   
-  return { reply, options };
+  return { reply, options: osButtons };
 }
 
 // maskPII ya está importado desde flowLogger.js (línea 52)
@@ -5401,6 +5439,69 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     // ========================================================
+    // ✅ CORRECCIÓN C: Detectar solicitud de habilitar subida de imágenes
+    // ========================================================
+    if (/habilitar.*imagen|habilitar.*adjuntar|enable.*image|enable.*upload|adjuntar.*habilit/i.test(t)) {
+      console.log('[IMAGE_UPLOAD] Usuario solicita habilitar subida de imágenes');
+      session.imageUploadEnabled = true;
+      markSessionDirty(sid, session);
+      
+      const locale = session.userLocale || 'es-AR';
+      const isEn = locale.toLowerCase().startsWith('en');
+      const reply = isEn
+        ? `✅ Image upload is now enabled! You can attach images of your problem using the attachment button.`
+        : `✅ ¡Subida de imágenes habilitada! Ya podés adjuntar imágenes de tu problema usando el botón de adjuntar.`;
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      
+      return res.json(withOptions({
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: [BUTTONS.CLOSE],
+        imageUploadEnabled: true
+      }));
+    }
+
+    // ========================================================
+    // ✅ CORRECCIÓN B: Manejar botones de sistema operativo
+    // ========================================================
+    if (buttonToken && (buttonToken === 'BTN_OS_WINDOWS' || buttonToken === 'BTN_OS_MACOS' || buttonToken === 'BTN_OS_LINUX')) {
+      const osMap = {
+        'BTN_OS_WINDOWS': 'Windows',
+        'BTN_OS_MACOS': 'macOS',
+        'BTN_OS_LINUX': 'Linux'
+      };
+      const selectedOS = osMap[buttonToken];
+      session.operatingSystem = selectedOS;
+      console.log('[OS_SELECTION] Usuario seleccionó:', selectedOS);
+      
+      // Continuar con el flujo de instalación usando el OS seleccionado
+      const activeIntent = session.activeIntent || {};
+      const softwareName = activeIntent.software || session.problem || 'el software que necesitás';
+      
+      const locale = session.userLocale || 'es-AR';
+      const isEn = locale.toLowerCase().startsWith('en');
+      
+      const reply = isEn
+        ? `Perfect! I'll guide you through installing ${softwareName} on ${selectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?`
+        : `¡Perfecto! Te guío para instalar ${softwareName} en ${selectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?`;
+      
+      const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      
+      return res.json(withOptions({
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: options
+      }));
+    }
+
+    // ========================================================
     // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
     // ========================================================
     let smartAnalysis = null;
@@ -5422,12 +5523,50 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         });
         
         if (smartReply) {
-          // Determinar opciones basadas en el contexto
+          // ✅ CORRECCIÓN D: Determinar opciones basadas en el contexto - ofrecer ticket cuando corresponde
           let smartOptions = [];
           
-          if (smartAnalysis.needsHumanHelp || smartAnalysis.sentiment === 'frustrated') {
+          // Si hay problema detectado y no se ha ofrecido ticket aún, ofrecer opciones de escalamiento
+          const hasProblem = smartAnalysis.problem?.detected;
+          const needsHelp = smartAnalysis.needsHumanHelp;
+          const isFrustrated = smartAnalysis.sentiment === 'frustrated' || smartAnalysis.sentiment === 'angry';
+          const problemNotResolved = hasProblem && !session.ticketOffered;
+          
+          if (needsHelp || isFrustrated || problemNotResolved) {
+            // ✅ Ofrecer opciones de escalamiento cuando hay problema no resuelto
+            const locale = session.userLocale || 'es-AR';
+            const isEn = locale.toLowerCase().startsWith('en');
+            
+            if (problemNotResolved && !session.ticketOffered) {
+              // Marcar que ya se ofreció ticket para no repetir
+              session.ticketOffered = true;
+              markSessionDirty(sid, session);
+              
+              // Agregar mensaje ofreciendo opciones
+              const ticketOffer = isEn
+                ? `\n\nWould you like me to:\n• Review your ${smartAnalysis.problem?.summary || 'problem'}?\n• Run advanced tests?\n• Create a ticket with a technician?`
+                : `\n\n¿Querés que:\n• Revise tu ${smartAnalysis.problem?.summary || 'problema'}?\n• Haga pruebas avanzadas?\n• Genere un ticket con un técnico?`;
+              
+              // Agregar al reply
+              const enhancedReply = smartReply + ticketOffer;
+              
+              smartOptions = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+              
+              session.transcript.push({ who: 'bot', text: enhancedReply, ts: nowIso() });
+              await saveSessionAndTranscript(sid, session);
+              
+              return logAndReturn({
+                ok: true,
+                reply: enhancedReply,
+                stage: session.stage,
+                options: smartOptions,
+                buttons: smartOptions,
+                aiPowered: true
+              }, session.stage, session.stage, 'smart_ai_response', 'ai_replied');
+            }
+            
             smartOptions = [BUTTONS.CONNECT_TECH, BUTTONS.MORE_TESTS, BUTTONS.CLOSE];
-          } else if (smartAnalysis.problem?.detected) {
+          } else if (hasProblem) {
             smartOptions = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
           } else {
             smartOptions = [BUTTONS.CLOSE];
@@ -5473,10 +5612,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    // Cerrar chat de forma prolija (movido fuera del bloque de creación)
+    // ✅ CORRECCIÓN E: Cerrar chat de forma prolija CON CTAs
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
       const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
-      const replyClose = `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
+      const locale = session.userLocale || 'es-AR';
+      const isEn = locale.toLowerCase().startsWith('en');
+      
+      // ✅ Saludo acorde al horario
+      const timeGreeting = buildTimeGreeting(whoLabel);
+      
+      // ✅ CTAs con links
+      const ctaLinks = isEn
+        ? `\n\nIf you need more help:\n🌐 Visit our website: https://stia.com.ar\n📱 Follow us on Instagram: @stirosario`
+        : `\n\nSi necesitás más ayuda:\n🌐 Visitá nuestra web: https://stia.com.ar\n📱 Seguinos en Instagram: @stirosario`;
+      
+      const replyClose = `${timeGreeting}\n\n${ctaLinks}`;
+      
       const tsClose = nowIso();
       changeStage(session, STATES.ENDED);
       session.waEligible = false;
