@@ -82,6 +82,7 @@ import { buildTimeGreeting, buildLanguagePrompt, buildNameGreeting } from './uti
 // ========================================================
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
+import { detectProblemPattern, hasProblemPattern } from './problemPatterns.js';
 
 // ========================================================
 // CONSTANTES
@@ -356,6 +357,39 @@ async function analyzeUserMessage(text, session, imageUrls = []) {
     }
     
     // ========================================
+    // ✅ DETECCIÓN DE PATRONES DE PROBLEMAS (1000 expresiones)
+    // ========================================
+    const patternDetection = detectProblemPattern(originalText || normalizedText);
+    let forcedProblemDetection = null;
+    
+    if (patternDetection.detected) {
+      console.log('[PATTERN_DETECTION] ✅ Problema detectado por patrón:', {
+        category: patternDetection.category,
+        pattern: patternDetection.pattern,
+        confidence: patternDetection.confidence
+      });
+      
+      // Forzar detección de problema con alta confianza
+      forcedProblemDetection = {
+        detected: true,
+        summary: patternDetection.summary || `Problema con ${patternDetection.category}`,
+        category: patternDetection.category === 'keyboard' ? 'hardware' :
+                  patternDetection.category === 'mouse' ? 'hardware' :
+                  patternDetection.category === 'internet' ? 'connectivity' :
+                  patternDetection.category === 'printer' ? 'hardware' :
+                  patternDetection.category === 'windows' ? 'software' :
+                  patternDetection.category === 'hardware' ? 'hardware' :
+                  patternDetection.category === 'software' ? 'software' :
+                  patternDetection.category === 'network' ? 'connectivity' :
+                  patternDetection.category === 'security' ? 'security' :
+                  patternDetection.category === 'advanced' ? 'other' : 'other',
+        urgency: patternDetection.category === 'security' ? 'high' : 'medium',
+        keywords: patternDetection.keywords || [],
+        confidence: patternDetection.confidence || 0.95
+      };
+    }
+    
+    // ========================================
     // 🌍 DETECCIÓN DE IDIOMA
     // ========================================
     const locale = session.userLocale || 'es-AR';
@@ -502,13 +536,25 @@ Detectá intención, dispositivo probable, problema, sentimiento y urgencia.
 Tolerá errores ortográficos y frases ambiguas.
 Usá el texto normalizado para mejor comprensión.
 
+**✅ DETECCIÓN ESPECIAL DE TECLADO:**
+Si el mensaje menciona "teclado" (o variantes como "tekado", "teclao", "keyboard") o frases como:
+- "no me anda el teclado"
+- "no me nada el teclado" (error común)
+- "problema con mi teclado"
+- "el teclado no responde"
+- "no funciona el teclado"
+Entonces DEBÉS detectar:
+- "device": {"detected": true, "type": "teclado" o el dispositivo que contiene el teclado}
+- "problem": {"detected": true, "summary": "problema con teclado", "category": "hardware"}
+- "confidence": 0.8 o superior (alta confianza)
+
 **Respondé en JSON:**
 {
   "intent": "diagnose_problem|ask_question|express_frustration|confirm|cancel|greeting|other",
   "confidence": 0.0-1.0,
   "device": {
     "detected": true/false,
-    "type": "notebook|desktop|monitor|smartphone|tablet|printer|router|other",
+    "type": "notebook|desktop|monitor|smartphone|tablet|printer|router|teclado|other",
     "confidence": 0.0-1.0,
     "ambiguous": true/false,
     "inferredFrom": "qué palabras usaste para detectarlo"
@@ -537,12 +583,34 @@ Usá el texto normalizado para mejor comprensión.
     });
 
     const analysis = JSON.parse(response.choices[0].message.content);
+    
+    // ✅ INTEGRACIÓN: Si se detectó un patrón, forzar la detección del problema
+    if (forcedProblemDetection) {
+      console.log('[PATTERN_DETECTION] 🔧 Forzando detección de problema basada en patrón');
+      analysis.problem = forcedProblemDetection;
+      analysis.confidence = Math.max(analysis.confidence || 0.5, forcedProblemDetection.confidence);
+      analysis.clarificationNeeded = false; // NO pedir aclaración genérica
+      analysis.useStructuredFlow = false; // Usar respuesta IA directa
+      
+      // Si el patrón detectó un dispositivo específico, actualizar device
+      if (patternDetection.category === 'keyboard' || patternDetection.category === 'mouse') {
+        analysis.device = {
+          detected: true,
+          type: patternDetection.category === 'keyboard' ? 'teclado' : 'mouse',
+          confidence: 0.9,
+          ambiguous: false,
+          inferredFrom: `Patrón detectado: ${patternDetection.pattern}`
+        };
+      }
+    }
+    
     console.log('[SMART_MODE] ✅ Análisis de texto completado:', {
       intent: analysis.intent,
       confidence: analysis.confidence,
       device: analysis.device?.type,
       problem: analysis.problem?.summary,
-      needsHuman: analysis.needsHumanHelp
+      needsHuman: analysis.needsHumanHelp,
+      patternDetected: patternDetection.detected
     });
 
     return { 
@@ -550,6 +618,7 @@ Usá el texto normalizado para mejor comprensión.
       hasVision: false, 
       originalText,
       normalizedText,
+      patternDetected: patternDetection.detected,
       ...analysis 
     };
     
@@ -678,6 +747,8 @@ ${analysis.hasVision ? `
 9. Soná humano y técnico a la vez - evitá sonar como un bot o un manual técnico
 10. NUNCA te repitas - si ya dijiste "Soy Tecnos" o algo similar, NO lo vuelvas a decir
 11. Cuando preguntes por sistema operativo, mencioná que podés mostrar botones para elegir (Windows, macOS, Linux)
+12. ✅ CORRECCIÓN 2: NUNCA repitas el mismo mensaje genérico como "Necesito entender mejor qué necesitás" - si el usuario repite el problema, avanzá directamente a hacer preguntas específicas o ofrecé soluciones concretas
+13. ✅ CORRECCIÓN 3: Si el usuario menciona un problema específico (ej: teclado) y ya lo mencionó antes, NO vuelvas a pedir aclaración genérica - avanzá directamente con preguntas técnicas relevantes o pasos de solución
 
 **EJEMPLOS DE RESPUESTA CORRECTA (ES-AR):**
 
@@ -770,6 +841,21 @@ function shouldUseStructuredFlow(analysis, session) {
   // PRIORIZAR IA (mejor experiencia)
   // ========================================
   
+  // ✅ DETECCIÓN DE PATRONES: Si se detectó un patrón de problema, SIEMPRE usar IA directa
+  if (analysis.patternDetected || analysis.useStructuredFlow === false) {
+    console.log('[DECISION] 🎯 Usando IA - Patrón de problema detectado (1000 expresiones)');
+    return false;
+  }
+  
+  // ✅ CORRECCIÓN 1 y 4: Problemas de teclado → SIEMPRE usar IA con flujo específico
+  if (session.keyboardProblemDetected || 
+      analysis.problem?.summary?.toLowerCase().includes('teclado') ||
+      analysis.problem?.keywords?.some(k => /teclado|keyboard/i.test(k)) ||
+      analysis.device?.type === 'teclado') {
+    console.log('[DECISION] ⌨️ Usando IA - Problema de teclado detectado');
+    return false;
+  }
+  
   // Si analizó imágenes → SIEMPRE usar respuesta IA basada en visión
   if (analysis.hasVision && analysis.imagesAnalyzed) {
     console.log('[DECISION] 🎨 Usando IA - Análisis visual disponible');
@@ -822,6 +908,11 @@ function normalizeUserInput(text) {
   
   let normalized = text.toLowerCase().trim();
   
+  // ✅ CORRECCIÓN 6: Corregir "nada" -> "anda" en contexto de "no me nada"
+  // Detectar patrones como "no me nada el teclado" -> "no me anda el teclado"
+  normalized = normalized.replace(/\bno\s+me\s+nada\b/gi, 'no me anda');
+  normalized = normalized.replace(/\bno\s+nada\b/gi, 'no anda');
+  
   // Correcciones comunes en español argentino
   const corrections = {
     // Errores comunes de dispositivos
@@ -839,6 +930,12 @@ function normalizeUserInput(text) {
     'fono': 'celular',
     'impre': 'impresora',
     'impresor': 'impresora',
+    
+    // ✅ CORRECCIÓN 6: Variantes comunes de "teclado" con errores
+    'tekado': 'teclado',
+    'teclao': 'teclado',
+    'teclado': 'teclado', // Mantener para consistencia
+    'keyboard': 'teclado',
     
     // Errores comunes de problemas
     'no prende': 'no enciende',
@@ -5549,26 +5646,169 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (!buttonToken && SMART_MODE_ENABLED && openai) {
       smartAnalysis = await analyzeUserMessage(t, session, imageUrlsForAnalysis);
       
+      // ✅ CORRECCIÓN 1: Detección específica de problemas de teclado
+      const normalizedText = normalizeUserInput(t);
+      const keyboardKeywords = /teclado|keyboard|tekado|teclao/i;
+      const isKeyboardProblem = keyboardKeywords.test(normalizedText) || 
+                                keyboardKeywords.test(t) ||
+                                (smartAnalysis.analyzed && (
+                                  smartAnalysis.problem?.summary?.toLowerCase().includes('teclado') ||
+                                  smartAnalysis.problem?.keywords?.some(k => /teclado|keyboard/i.test(k)) ||
+                                  smartAnalysis.device?.type === 'teclado'
+                                ));
+      
+      if (isKeyboardProblem) {
+        console.log('[KEYBOARD_DETECTION] ⌨️ Problema de teclado detectado');
+        
+        // Actualizar análisis para reflejar problema de teclado
+        if (smartAnalysis.analyzed) {
+          if (!smartAnalysis.problem?.detected) {
+            smartAnalysis.problem = {
+              detected: true,
+              summary: 'problema con teclado',
+              category: 'hardware',
+              urgency: 'medium',
+              keywords: ['teclado', 'keyboard']
+            };
+          }
+          if (!smartAnalysis.device?.detected || smartAnalysis.device.type === 'other') {
+            // Intentar detectar si es notebook o desktop
+            const isNotebook = /notebook|laptop|portátil/i.test(normalizedText) || 
+                              /notebook|laptop|portátil/i.test(t);
+            smartAnalysis.device = {
+              detected: true,
+              type: isNotebook ? 'notebook' : 'desktop',
+              confidence: 0.7,
+              ambiguous: false,
+              inferredFrom: 'detección de teclado'
+            };
+          }
+          smartAnalysis.confidence = Math.max(smartAnalysis.confidence || 0.5, 0.8);
+        }
+        
+        // ✅ CORRECCIÓN 4: Activar flujo específico de teclado
+        session.keyboardProblemDetected = true;
+        session.keyboardMentions = (session.keyboardMentions || 0) + 1;
+        markSessionDirty(sid, session);
+      }
+      
+      // ✅ CORRECCIÓN 2 y 5: Detectar repetición del mismo problema y evitar mensajes genéricos repetidos
+      const lastBotMessages = session.transcript
+        .filter(msg => msg.who === 'bot')
+        .slice(-3)
+        .map(msg => msg.text.toLowerCase());
+      
+      const lastUserMessages = session.transcript
+        .filter(msg => msg.who === 'user')
+        .slice(-3)
+        .map(msg => normalizeUserInput(msg.text));
+      
+      // Detectar si el usuario está repitiendo el mismo problema
+      const userRepeatingProblem = lastUserMessages.length >= 2 && 
+                                   lastUserMessages[lastUserMessages.length - 1] === lastUserMessages[lastUserMessages.length - 2];
+      
+      // Detectar si el bot ya dio una respuesta genérica similar
+      const genericResponses = [
+        'necesito entender mejor',
+        'entender mejor qué necesitás',
+        'puedo ayudarte',
+        'ayudarte mejor',
+        'qué necesitás'
+      ];
+      const botRepeatedGeneric = lastBotMessages.some(msg => 
+        genericResponses.some(gen => msg.includes(gen))
+      ) && lastBotMessages.length >= 2 && 
+         lastBotMessages[lastBotMessages.length - 1].includes(genericResponses.find(gen => 
+           lastBotMessages[lastBotMessages.length - 2].includes(gen)
+         ) || '');
+      
+      // Si el usuario repite el problema o el bot ya dio respuesta genérica, avanzar automáticamente
+      if ((userRepeatingProblem || botRepeatedGeneric) && isKeyboardProblem && session.keyboardMentions >= 2) {
+        console.log('[KEYBOARD_DETECTION] ⚡ Usuario insiste con teclado - avanzando automáticamente');
+        // Forzar que NO use flujo estructurado para generar respuesta específica
+        smartAnalysis.useStructuredFlow = false;
+        smartAnalysis.clarificationNeeded = false;
+      }
+      
+      // ✅ INTEGRACIÓN: Si se detectó un patrón de problema, forzar respuesta directa sin mensajes genéricos
+      if (smartAnalysis.patternDetected) {
+        console.log('[PATTERN_DETECTION] ⚡ Patrón detectado - activando flujo directo sin mensajes genéricos');
+        smartAnalysis.clarificationNeeded = false;
+        smartAnalysis.useStructuredFlow = false;
+      }
+      
       // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
       if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
         
+        // ✅ CORRECCIÓN 3 y 4: Generar respuesta específica para teclado
+        let specificPrompt = smartAnalysis.problem?.detected 
+          ? `El usuario reporta: ${smartAnalysis.problem.summary}. Respondé de forma útil y empática.`
+          : 'Ayudá al usuario a clarificar su problema.';
+        
+        if (isKeyboardProblem) {
+          const isNotebook = smartAnalysis.device?.type === 'notebook' || 
+                            /notebook|laptop|portátil/i.test(normalizedText);
+          
+          specificPrompt = `El usuario tiene un problema con el teclado${isNotebook ? ' de su notebook' : ''}.
+
+IMPORTANTE:
+- NO repitas mensajes genéricos como "Necesito entender mejor"
+- Si ya mencionó el teclado antes, avanzá directamente a hacer preguntas específicas
+- Hacé preguntas útiles como:
+  * ¿Es teclado de notebook o externo?
+  * ¿Responde alguna tecla o ninguna?
+  * ¿Hubo algún derrame de líquido o golpe reciente?
+  * ¿Funciona en la pantalla de inicio (BIOS)?
+- Ofrecé pasos concretos de solución
+- Si no podés resolver, ofrecé conectar con un técnico
+
+Respondé de forma directa, empática y técnica.`;
+        }
+        
         const smartReply = await generateSmartResponse(smartAnalysis, session, {
           includeNextSteps: true,
-          specificPrompt: smartAnalysis.problem?.detected 
-            ? `El usuario reporta: ${smartAnalysis.problem.summary}. Respondé de forma útil y empática.`
-            : 'Ayudá al usuario a clarificar su problema.'
+          specificPrompt: specificPrompt
         });
         
         if (smartReply) {
           // ✅ CORRECCIÓN D: Determinar opciones basadas en el contexto - ofrecer ticket cuando corresponde
           let smartOptions = [];
           
-          // Si hay problema detectado y no se ha ofrecido ticket aún, ofrecer opciones de escalamiento
-          const hasProblem = smartAnalysis.problem?.detected;
+          // ✅ CORRECCIÓN 5 y 6: Si hay problema detectado y no se ha ofrecido ticket aún, ofrecer opciones de escalamiento
+          const hasProblem = smartAnalysis.problem?.detected || isKeyboardProblem;
           const needsHelp = smartAnalysis.needsHumanHelp;
           const isFrustrated = smartAnalysis.sentiment === 'frustrated' || smartAnalysis.sentiment === 'angry';
           const problemNotResolved = hasProblem && !session.ticketOffered;
+          
+          // ✅ CORRECCIÓN 6: Para problemas de teclado, siempre ofrecer asistencia si no se resolvió
+          if (isKeyboardProblem && !session.ticketOffered) {
+            const locale = session.userLocale || 'es-AR';
+            const isEn = locale.toLowerCase().startsWith('en');
+            
+            // Agregar oferta de asistencia al final de la respuesta
+            const assistanceOffer = isEn
+              ? `\n\nIf this doesn't solve your keyboard issue, I can:\n• Connect you with a technician\n• Run advanced diagnostics\n• Create a support ticket`
+              : `\n\nSi esto no resuelve el problema del teclado, puedo:\n• Conectarte con un técnico\n• Hacer diagnósticos avanzados\n• Generar un ticket de soporte`;
+            
+            const enhancedReply = smartReply + assistanceOffer;
+            session.ticketOffered = true;
+            markSessionDirty(sid, session);
+            
+            const keyboardOptions = [BUTTONS.CONNECT_TECH, BUTTONS.ADVANCED_TESTS, BUTTONS.CLOSE];
+            
+            session.transcript.push({ who: 'bot', text: enhancedReply, ts: nowIso() });
+            await saveSessionAndTranscript(sid, session);
+            
+            return logAndReturn({
+              ok: true,
+              reply: enhancedReply,
+              stage: session.stage,
+              options: keyboardOptions,
+              buttons: keyboardOptions,
+              aiPowered: true
+            }, session.stage, session.stage, 'smart_ai_response', 'ai_replied');
+          }
           
           if (needsHelp || isFrustrated || problemNotResolved) {
             // ✅ Ofrecer opciones de escalamiento cuando hay problema no resuelto
@@ -5650,11 +5890,38 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    // ✅ CORRECCIÓN E: Cerrar chat de forma prolija CON CTAs
+    // ✅ CORRECCIÓN E y 5: Cerrar chat de forma prolija CON CTAs y ofrecer asistencia si hay problema no resuelto
     if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(t)) {
       const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
       const locale = session.userLocale || 'es-AR';
       const isEn = locale.toLowerCase().startsWith('en');
+      
+      // ✅ CORRECCIÓN 5: Verificar si hay problema no resuelto antes de cerrar
+      const hasUnresolvedProblem = session.keyboardProblemDetected || 
+                                   session.problem || 
+                                   (smartAnalysis && smartAnalysis.problem?.detected && !session.ticketOffered);
+      
+      if (hasUnresolvedProblem && !session.ticketOffered) {
+        // Ofrecer asistencia humana antes de cerrar
+        const assistanceOffer = isEn
+          ? `Before closing, I noticed you mentioned a problem with ${session.problem || 'your device'}.\n\nWould you like me to:\n• Connect you with a technician?\n• Generate a ticket with the conversation summary?\n• Try more advanced troubleshooting steps?`
+          : `Antes de cerrar, noté que mencionaste un problema con ${session.problem || 'tu dispositivo'}.\n\n¿Querés que:\n• Te conecte con un técnico?\n• Genere un ticket con el resumen de la conversación?\n• Pruebe pasos de diagnóstico más avanzados?`;
+        
+        session.ticketOffered = true; // Marcar para no repetir
+        markSessionDirty(sid, session);
+        
+        const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_WHATSAPP', 'BTN_CLOSE'], locale);
+        
+        session.transcript.push({ who: 'bot', text: assistanceOffer, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        
+        return res.json(withOptions({
+          ok: true,
+          reply: assistanceOffer,
+          stage: session.stage,
+          options: options
+        }));
+      }
       
       // ✅ Saludo acorde al horario
       const timeGreeting = buildTimeGreeting(whoLabel);
