@@ -30,6 +30,15 @@ export const STAGES = {
   ENDED: 'ENDED'
 };
 
+const NOT_UNDERSTOOD_REPLY = {
+  'es-AR': 'No te entendí bien. Elegí una opción o contame con más detalle 😊',
+  'en': "I didn't get that. Please choose an option or add more detail 😊"
+};
+
+function getNotUnderstoodReply(locale) {
+  return locale === 'en' ? NOT_UNDERSTOOD_REPLY['en'] : NOT_UNDERSTOOD_REPLY['es-AR'];
+}
+
 /**
  * FLOW CONFIGURATION
  * 
@@ -48,6 +57,7 @@ export const FLOW = {
   
   // ========================================
   // 1. ASK_LANGUAGE - GDPR + Idioma
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_LANGUAGE (PRIORIDAD=ALTA)
   // ========================================
   ASK_LANGUAGE: {
     name: 'Selección de Idioma',
@@ -62,8 +72,8 @@ export const FLOW = {
           action: 'ACCEPT_GDPR',
           gdprConsent: true,
           reply: {
-            'es-AR': '✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**',
-            'en': '✅ **Thanks for accepting**\n\n🌍 **Select your language:**'
+            'es-AR': '✅ Gracias por aceptar. 🌍 Elegí tu idioma para seguir. Sin consentimiento no puedo continuar.',
+            'en': '✅ Thanks for accepting. 🌍 Pick your language to continue. Without consent I cannot continue.'
           },
           buttons: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
           nextStage: 'ASK_LANGUAGE' // Mantener hasta que seleccione idioma
@@ -75,8 +85,8 @@ export const FLOW = {
         return {
           action: 'REJECT_GDPR',
           reply: {
-            'es-AR': '😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar',
-            'en': '😔 I understand. Without your consent I cannot continue.\n\nIf you change your mind, you can restart the chat.\n\n📧 For inquiries without registration, write to: web@stia.com.ar'
+            'es-AR': '😔 Sin tu consentimiento no puedo seguir. Si cambiás de opinión, escribí "hola" y reiniciamos. 📧 Consultas sin registro: web@stia.com.ar',
+            'en': '😔 Without your consent I cannot continue. If you change your mind, say "hi" to restart. 📧 For unregistered inquiries: web@stia.com.ar'
           },
           endConversation: true,
           nextStage: 'ENDED'
@@ -89,7 +99,7 @@ export const FLOW = {
           return {
             action: 'SELECT_LANGUAGE',
             locale: 'es-AR',
-            reply: '✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊',
+            reply: '✅ Listo, seguimos en Español. ¿Cómo te llamás? Podés seguir anónimo si querés. 😊',
             buttons: ['BTN_NO_NAME'],
             nextStage: 'ASK_NAME'
           };
@@ -99,7 +109,7 @@ export const FLOW = {
           return {
             action: 'SELECT_LANGUAGE',
             locale: 'en',
-            reply: '✅ Perfect! Let\'s continue in **English**.\n\nWhat\'s your name? 😊',
+            reply: '✅ Great. We’ll continue in English. What’s your name? You can stay anonymous if you prefer. 😊',
             buttons: ['BTN_NO_NAME'],
             nextStage: 'ASK_NAME'
           };
@@ -110,8 +120,8 @@ export const FLOW = {
       return {
         action: 'NOT_UNDERSTOOD',
         reply: {
-          'es-AR': 'Disculpá, no entendí bien. ¿Podrías reformular tu mensaje?',
-          'en': 'Sorry, I didn\'t understand. Could you rephrase your message?'
+          'es-AR': getNotUnderstoodReply('es-AR'),
+          'en': getNotUnderstoodReply('en')
         },
         nextStage: 'ASK_LANGUAGE' // Mantener
       };
@@ -122,7 +132,7 @@ export const FLOW = {
         return {
           action: 'SELECT_LANGUAGE',
           locale: 'es-AR',
-          reply: '✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊',
+          reply: '✅ Listo, seguimos en Español. ¿Cómo te llamás? Podés seguir anónimo si querés. 😊',
           buttons: ['BTN_NO_NAME'],
           nextStage: 'ASK_NAME'
         };
@@ -132,7 +142,7 @@ export const FLOW = {
         return {
           action: 'SELECT_LANGUAGE',
           locale: 'en',
-          reply: '✅ Perfect! Let\'s continue in **English**.\n\nWhat\'s your name? 😊',
+          reply: '✅ Great. We’ll continue in English. What’s your name? You can stay anonymous if you prefer. 😊',
           buttons: ['BTN_NO_NAME'],
           nextStage: 'ASK_NAME'
         };
@@ -144,6 +154,7 @@ export const FLOW = {
   
   // ========================================
   // 2. ASK_NAME - Nombre del usuario
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_NAME (PRIORIDAD=ALTA)
   // ========================================
   ASK_NAME: {
     name: 'Solicitar Nombre',
@@ -158,8 +169,8 @@ export const FLOW = {
           action: 'ANONYMOUS',
           userName: null,
           reply: {
-            'es-AR': '🙈 Perfecto, sin problema. Puedo llamarte simplemente Usuario.\n\n¿En qué puedo ayudarte hoy? ¿Tenés un problema o una consulta?',
-            'en': '🙈 Perfect, no problem. I can just call you User.\n\nHow can I help you today? Do you have a problem or a question?'
+            'es-AR': '🙈 Sin problema, seguimos anónimos. ¿Tenés un problema o una consulta?',
+            'en': '🙈 No worries, we can keep it anonymous. Do you have a problem or a question?'
           },
           buttons: ['BTN_PROBLEMA', 'BTN_CONSULTA'],
           nextStage: 'ASK_NEED'
@@ -180,8 +191,8 @@ export const FLOW = {
           action: 'ANONYMOUS',
           userName: null,
           reply: {
-            'es-AR': '🙈 Perfecto, sin problema. Puedo llamarte simplemente Usuario.\n\n¿En qué puedo ayudarte hoy? ¿Tenés un problema o una consulta?',
-            'en': '🙈 Perfect, no problem. I can just call you User.\n\nHow can I help you today? Do you have a problem or a question?'
+            'es-AR': '🙈 Sin problema, seguimos anónimos. ¿Tenés un problema o una consulta?',
+            'en': '🙈 No worries, we can keep it anonymous. Do you have a problem or a question?'
           },
           buttons: ['BTN_PROBLEMA', 'BTN_CONSULTA'],
           nextStage: 'ASK_NEED'
@@ -193,6 +204,7 @@ export const FLOW = {
   
   // ========================================
   // 3. ASK_NEED - ¿Problema o Consulta?
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_NEED (PRIORIDAD=ALTA)
   // ========================================
   ASK_NEED: {
     name: 'Tipo de Necesidad',
@@ -233,8 +245,8 @@ export const FLOW = {
           action: 'PROBLEMA',
           needType: 'problema',
           reply: {
-            'es-AR': '📌 Entendido. ¿Qué tipo de dispositivo te está dando problemas?',
-            'en': '📌 Understood. What type of device is giving you problems?'
+            'es-AR': '📌 Entendido. ¿Qué tipo de equipo es? Elegí o contame.',
+            'en': '📌 Got it. What type of device is it? Pick or tell me.'
           },
           buttons: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'],
           nextStage: 'ASK_DEVICE'
@@ -259,13 +271,14 @@ export const FLOW = {
   
   // ========================================
   // 4. CLASSIFY_NEED - Clasificar con AI
+  // PLANILLA_FLUJO_STI: ID_ESTADO=CLASSIFY_NEED (PRIORIDAD=MEDIA)
   // ========================================
   CLASSIFY_NEED: {
     name: 'Clasificar Necesidad',
     description: 'Usar AI para determinar si es problema o consulta',
     
     onText: ({ text, smartAnalysis }) => {
-      // El orchestrator usará smartAnalysis.intention
+      // AI con confianza suficiente
       if (smartAnalysis?.intention === 'problem') {
         return {
           action: 'PROBLEMA',
@@ -282,12 +295,12 @@ export const FLOW = {
         };
       }
       
-      // Fallback: preguntar directamente
+      // Fallback breve con botones (sin repetir pregunta larga)
       return {
         action: 'ASK_CLARIFICATION',
         reply: {
-          'es-AR': '¿Tenés un problema técnico o querés hacer una consulta?',
-          'en': 'Do you have a technical problem or want to ask a question?'
+          'es-AR': 'Elegí si tenés un problema técnico o una consulta.',
+          'en': 'Choose if you have a technical issue or a question.'
         },
         buttons: ['BTN_PROBLEMA', 'BTN_CONSULTA'],
         nextStage: 'ASK_NEED'
@@ -297,6 +310,7 @@ export const FLOW = {
   
   // ========================================
   // 5. ASK_DEVICE - Tipo de dispositivo
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_DEVICE (PRIORIDAD=ALTA)
   // ========================================
   ASK_DEVICE: {
     name: 'Tipo de Dispositivo',
@@ -358,8 +372,8 @@ export const FLOW = {
           action: 'SET_DEVICE',
           device: deviceMap[token],
           reply: {
-            'es-AR': `✅ Perfecto. ¿Qué problema estás teniendo con tu ${deviceMap[token]}?`,
-            'en': `✅ Perfect. What problem are you having with your ${deviceMap[token]}?`
+            'es-AR': `✅ Listo. ¿Qué problema tiene tu ${deviceMap[token]}? Si podés, mandá una foto.`,
+            'en': `✅ Great. What issue is your ${deviceMap[token]} having? A photo helps if you can send it.`
           },
           nextStage: 'ASK_PROBLEM'
         };
@@ -387,16 +401,23 @@ export const FLOW = {
   
   // ========================================
   // 6. DETECT_DEVICE - Desambiguar dispositivo
+  // PLANILLA_FLUJO_STI: ID_ESTADO=DETECT_DEVICE (PRIORIDAD=BAJA)
   // ========================================
   DETECT_DEVICE: {
     name: 'Detectar Dispositivo',
     description: 'Resolver ambigüedad en tipo de dispositivo',
     
     onText: ({ text }) => {
-      // Aquí el orchestrator llamará a deviceDetection.js
-      // y procesará la desambiguación
+      // Copy breve alineado a planilla: pedir definición clara de dispositivo
+      const lower = (text || '').toLowerCase();
+      const reply = {
+        'es-AR': 'No me quedó claro el tipo de equipo. Decime si es PC de escritorio, All-in-one o Notebook.',
+        'en': 'I’m not sure which device you have. Tell me if it is a desktop PC, all-in-one, or notebook.'
+      };
+      // El orchestrator llamará a deviceDetection.js y procesará la desambiguación
       return {
         action: 'PROCESS_DISAMBIGUATION',
+        reply,
         nextStage: 'ASK_PROBLEM'
       };
     }
@@ -404,16 +425,27 @@ export const FLOW = {
   
   // ========================================
   // 7. ASK_PROBLEM - Describir problema
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_PROBLEM (PRIORIDAD=MEDIA)
   // ========================================
   ASK_PROBLEM: {
     name: 'Describir Problema',
     description: 'Usuario describe el problema técnico',
     
     onText: ({ text }) => {
-      // Guardar problema y generar diagnóstico
+      const problem = text || '';
+      const summary = problem.length > 180 ? `${problem.slice(0, 177)}...` : problem;
+      const reply = {
+        'es-AR': summary
+          ? `Entendí: "${summary}". Ahora vamos con pruebas básicas.`
+          : 'Listo, vamos con pruebas básicas.',
+        'en': summary
+          ? `Got it: "${summary}". Now let’s run basic checks.`
+          : 'Got it, let’s run basic checks.'
+      };
       return {
         action: 'GENERATE_DIAGNOSTIC',
-        problem: text,
+        problem,
+        reply,
         nextStage: 'BASIC_TESTS'
       };
     },
@@ -425,8 +457,8 @@ export const FLOW = {
           action: 'IMAGE_ERROR_DETECTED',
           problem: imageAnalysis.errorDescription,
           reply: {
-            'es-AR': `📸 Detecté un error: **${imageAnalysis.errorDescription}**\n\nVoy a darte pasos para solucionarlo.`,
-            'en': `📸 I detected an error: **${imageAnalysis.errorDescription}**\n\nI'll give you steps to fix it.`
+            'es-AR': `📸 Detecté este error: **${imageAnalysis.errorDescription}**. Vamos con pruebas básicas.`,
+            'en': `📸 Detected this error: **${imageAnalysis.errorDescription}**. Running basic checks next.`
           },
           imageAnalysis: imageAnalysis,
           nextStage: 'BASIC_TESTS'
@@ -438,8 +470,8 @@ export const FLOW = {
         return {
           action: 'REQUEST_BETTER_IMAGE',
           reply: {
-            'es-AR': '📸 La imagen no se ve muy clara. ¿Podrías tomar otra foto más nítida del problema?',
-            'en': '📸 The image is not very clear. Could you take a clearer photo of the problem?'
+            'es-AR': '📸 La imagen no se ve clara. Enviá otra más nítida o describí el problema en texto.',
+            'en': '📸 Image is unclear. Send a sharper one or describe the issue in text.'
           },
           nextStage: 'ASK_PROBLEM' // Mantener
         };
@@ -451,15 +483,27 @@ export const FLOW = {
   
   // ========================================
   // 8. ASK_HOWTO_DETAILS - Consulta HOWTO
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ASK_HOWTO_DETAILS (PRIORIDAD=MEDIA)
   // ========================================
   ASK_HOWTO_DETAILS: {
     name: 'Detalles de Consulta',
     description: 'Usuario describe qué quiere aprender o configurar',
     
     onText: ({ text }) => {
+      const query = text || '';
+      const summary = query.length > 180 ? `${query.slice(0, 177)}...` : query;
+      const reply = {
+        'es-AR': summary
+          ? `Entendido: "${summary}". Preparando una guía corta.`
+          : 'Entendido. Preparando una guía corta.',
+        'en': summary
+          ? `Got it: "${summary}". I’ll prepare a short guide.`
+          : 'Got it. I’ll prepare a short guide.'
+      };
       return {
         action: 'GENERATE_HOWTO',
-        query: text,
+        query,
+        reply,
         nextStage: 'GENERATE_HOWTO'
       };
     },
@@ -480,6 +524,7 @@ export const FLOW = {
   
   // ========================================
   // 9. GENERATE_HOWTO - Generar guía
+  // PLANILLA_FLUJO_STI: ID_ESTADO=GENERATE_HOWTO (PRIORIDAD=MEDIA)
   // ========================================
   GENERATE_HOWTO: {
     name: 'Generar Guía',
@@ -487,8 +532,13 @@ export const FLOW = {
     
     onText: ({ text }) => {
       // Orchestrator llamará a AI para generar guía
+      const reply = {
+        'es-AR': 'Generando tu guía con pasos claros. Dame un momento…',
+        'en': 'Creating your guide now. One moment…'
+      };
       return {
         action: 'CREATE_HOWTO_GUIDE',
+        reply,
         nextStage: 'ENDED'
       };
     }
@@ -496,6 +546,7 @@ export const FLOW = {
   
   // ========================================
   // 10. BASIC_TESTS - Pruebas básicas
+  // PLANILLA_FLUJO_STI: ID_ESTADO=BASIC_TESTS (PRIORIDAD=ALTA)
   // ========================================
   BASIC_TESTS: {
     name: 'Pruebas Básicas',
@@ -517,8 +568,8 @@ export const FLOW = {
         return {
           action: 'PROBLEM_PERSISTS',
           reply: {
-            'es-AR': '💡 Entiendo. ¿Querés que te ayude con algo más?',
-            'en': '💡 I understand. Would you like me to help you with something else?'
+            'es-AR': '💡 Entiendo. ¿Querés más pruebas o hablar con un técnico?',
+            'en': '💡 Got it. More tests or talk with a technician?'
           },
           buttons: ['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'],
           nextStage: 'ESCALATE'
@@ -544,8 +595,8 @@ export const FLOW = {
       return {
         action: 'NOT_UNDERSTOOD',
         reply: {
-          'es-AR': 'No te entendí. Por favor elegí una opción de los botones.',
-          'en': 'I didn\'t understand. Please choose an option from the buttons.'
+          'es-AR': getNotUnderstoodReply('es-AR'),
+          'en': getNotUnderstoodReply('en')
         },
         nextStage: 'BASIC_TESTS'
       };
@@ -588,6 +639,7 @@ export const FLOW = {
   
   // ========================================
   // 11. ADVANCED_TESTS - Pruebas avanzadas
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ADVANCED_TESTS (PRIORIDAD=ALTA)
   // ========================================
   ADVANCED_TESTS: {
     name: 'Pruebas Avanzadas',
@@ -595,31 +647,50 @@ export const FLOW = {
     
     onText: ({ text }) => {
       const lower = text.toLowerCase().trim();
-      
-      if (/\b(s|si|sí|lo pude|solucion|resuelto)\b/i.test(lower)) {
+
+      // 1) Se solucionó
+      if (/\b(s|si|sí|ya anda|ya funciona|funciona|funcionó|funciono|arreglado|lo pude|lo solucion|solucionado|resuelto|fixed|solved)\b/i.test(lower)) {
         return {
           action: 'PROBLEM_SOLVED',
+          reply: {
+            'es-AR': '✅ Perfecto, las pruebas avanzadas parecen haber solucionado el problema. Si más adelante necesitás algo, podés volver a escribirme. 😊',
+            'en': '✅ Great, it looks like the advanced checks solved the issue. If you need anything else later, just write again. 😊'
+          },
           nextStage: 'ENDED'
         };
       }
-      
-      if (/\b(no|n|persiste|sigue|todavia)\b/i.test(lower)) {
-        return {
-          action: 'ESCALATE_TO_HUMAN',
-          buttons: ['BTN_CONNECT_TECH'],
-          nextStage: 'ESCALATE'
-        };
-      }
-      
-      if (/\b(tecnico|técnico|humano|persona)\b/i.test(lower)) {
+
+      // 2) Sigue el problema (sin pedir técnico directamente)
+      if (/\b(no|n|persiste|sigue|todavia|todavía|aun|aún|sigue igual|still)\b/i.test(lower)) {
         return {
           action: 'CREATE_TICKET',
+          reply: {
+            'es-AR': '💡 Sigue el problema. Lo mejor es hablar con un técnico con el botón "Hablar con técnico".',
+            'en': '💡 Issue persists. Best next step: use "Talk to a technician" button.'
+          },
           nextStage: 'CREATE_TICKET'
         };
       }
-      
+
+      // 3) Pide técnico / humano / visita directamente
+      if (/\b(tecnico|técnico|humano|persona|visita|a domicilio|a tu casa|technician|support agent)\b/i.test(lower)) {
+        return {
+          action: 'CREATE_TICKET',
+          reply: {
+            'es-AR': '📲 Para hablar con un técnico, usá el botón "Hablar con técnico" y escribinos por WhatsApp.',
+            'en': '📲 To talk with a technician, use the "Talk to a technician" button and write to us on WhatsApp.'
+          },
+          nextStage: 'CREATE_TICKET'
+        };
+      }
+
+      // No entendido dentro de ADVANCED_TESTS
       return {
         action: 'NOT_UNDERSTOOD',
+        reply: {
+          'es-AR': getNotUnderstoodReply('es-AR'),
+          'en': getNotUnderstoodReply('en')
+        },
         nextStage: 'ADVANCED_TESTS'
       };
     },
@@ -628,6 +699,10 @@ export const FLOW = {
       if (token === 'BTN_SOLVED') {
         return {
           action: 'PROBLEM_SOLVED',
+          reply: {
+            'es-AR': '✅ Genial, las pruebas avanzadas solucionaron el problema. Si necesitás algo más, escribime de nuevo. 😊',
+            'en': '✅ Great, the advanced checks solved the issue. If you need anything else, just write again. 😊'
+          },
           nextStage: 'ENDED'
         };
       }
@@ -635,6 +710,10 @@ export const FLOW = {
       if (token === 'BTN_PERSIST' || token === 'BTN_CONNECT_TECH') {
         return {
           action: 'CREATE_TICKET',
+          reply: {
+            'es-AR': '📲 Para seguir con un técnico, usá el botón "Hablar con técnico" y escribinos por WhatsApp.',
+            'en': '📲 To continue with a technician, use the "Talk to a technician" button and write to us on WhatsApp.'
+          },
           nextStage: 'CREATE_TICKET'
         };
       }
@@ -645,6 +724,7 @@ export const FLOW = {
   
   // ========================================
   // 12. ESCALATE - Escalamiento
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ESCALATE (PRIORIDAD=ALTA)
   // ========================================
   ESCALATE: {
     name: 'Escalamiento',
@@ -669,6 +749,10 @@ export const FLOW = {
       
       return {
         action: 'NOT_UNDERSTOOD',
+        reply: {
+          'es-AR': getNotUnderstoodReply('es-AR'),
+          'en': getNotUnderstoodReply('en')
+        },
         nextStage: 'ESCALATE'
       };
     },
@@ -701,6 +785,7 @@ export const FLOW = {
   
   // ========================================
   // 13. CREATE_TICKET - Crear ticket
+  // PLANILLA_FLUJO_STI: ID_ESTADO=CREATE_TICKET (PRIORIDAD=PENDIENTE)
   // ========================================
   CREATE_TICKET: {
     name: 'Crear Ticket',
@@ -708,8 +793,13 @@ export const FLOW = {
     
     onText: () => {
       // Orchestrator llamará a createTicket()
+      const reply = {
+        'es-AR': '✅ Registro este problema como ticket interno con el contexto que tenemos. Si querés hablar con un técnico ahora, usá el botón "Hablar con técnico" para escribirnos por WhatsApp.',
+        'en': '✅ I’m logging this issue as an internal ticket with the context we have. If you want to talk with a technician now, use the "Talk to a technician" button to write to us on WhatsApp.'
+      };
       return {
         action: 'GENERATE_TICKET',
+        reply,
         nextStage: 'TICKET_SENT'
       };
     }
@@ -717,6 +807,7 @@ export const FLOW = {
   
   // ========================================
   // 14. TICKET_SENT - Ticket enviado
+  // PLANILLA_FLUJO_STI: ID_ESTADO=TICKET_SENT (PRIORIDAD=MEDIA)
   // ========================================
   TICKET_SENT: {
     name: 'Ticket Enviado',
@@ -725,6 +816,10 @@ export const FLOW = {
     onText: () => {
       return {
         action: 'END_CONVERSATION',
+        reply: {
+          'es-AR': '✅ Ticket interno creado. Si querés hablar con un técnico, usá el botón "Hablar con técnico" y escribinos por WhatsApp con el contexto.',
+          'en': '✅ Internal ticket created. To talk with a technician, use the "Talk to a technician" button and write to us on WhatsApp with the context.'
+        },
         nextStage: 'ENDED'
       };
     }
@@ -732,6 +827,7 @@ export const FLOW = {
   
   // ========================================
   // 15. ENDED - Conversación finalizada
+  // PLANILLA_FLUJO_STI: ID_ESTADO=ENDED (PRIORIDAD=ALTA)
   // ========================================
   ENDED: {
     name: 'Conversación Finalizada',
@@ -745,8 +841,8 @@ export const FLOW = {
         return {
           action: 'RESTART',
           reply: {
-            'es-AR': '👋 ¡Hola de nuevo! ¿En qué puedo ayudarte?',
-            'en': '👋 Hello again! How can I help you?'
+            'es-AR': '👋 Hola de nuevo. ¿Problema o consulta?',
+            'en': '👋 Hello again. Problem or question?'
           },
           buttons: ['BTN_PROBLEMA', 'BTN_CONSULTA'],
           nextStage: 'ASK_NEED'
@@ -756,8 +852,8 @@ export const FLOW = {
       return {
         action: 'CONVERSATION_ENDED',
         reply: {
-          'es-AR': 'La conversación ya finalizó. Si necesitás ayuda, iniciá un nuevo chat.',
-          'en': 'The conversation has ended. If you need help, start a new chat.'
+          'es-AR': 'Chat finalizado. Escribí "hola" para reiniciar cuando quieras.',
+          'en': 'Chat ended. Say "hi" to restart anytime.'
         },
         nextStage: 'ENDED'
       };
