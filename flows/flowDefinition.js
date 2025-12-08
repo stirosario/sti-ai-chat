@@ -39,6 +39,24 @@ function getNotUnderstoodReply(locale) {
   return locale === 'en' ? NOT_UNDERSTOOD_REPLY['en'] : NOT_UNDERSTOOD_REPLY['es-AR'];
 }
 
+// Helper: detectar OS para consultas HOWTO
+function detectHowtoOS(text = '') {
+  const t = text.toLowerCase();
+  if (/\b(win(?:dows)?\s*10|w10|windows10|win10)\b/.test(t)) {
+    return { code: 'windows10', label: 'Windows 10' };
+  }
+  if (/\b(win(?:dows)?\s*11|w11|windows11|win11)\b/.test(t)) {
+    return { code: 'windows11', label: 'Windows 11' };
+  }
+  if (/\b(mac\s?os|macos|mac osx|osx)\b/.test(t)) {
+    return { code: 'macos', label: 'macOS' };
+  }
+  if (/\b(linux|ubuntu|debian|fedora|mint)\b/.test(t)) {
+    return { code: 'linux', label: 'Linux' };
+  }
+  return null;
+}
+
 /**
  * FLOW CONFIGURATION
  * 
@@ -489,9 +507,18 @@ export const FLOW = {
     name: 'Detalles de Consulta',
     description: 'Usuario describe qué quiere aprender o configurar',
     
-    onText: ({ text }) => {
+    onText: ({ text, session }) => {
       const query = text || '';
       const summary = query.length > 180 ? `${query.slice(0, 177)}...` : query;
+      const osInfo = detectHowtoOS(query);
+      if (session) {
+        session.howtoTopic = session.howtoTopic || query;
+        if (osInfo) {
+          session.howtoOS = osInfo.code;
+          session.howtoOSLabel = osInfo.label;
+        }
+        session.hasGreetedUser = true;
+      }
       const reply = {
         'es-AR': summary
           ? `Entendido: "${summary}". Preparando una guía corta.`
@@ -503,6 +530,9 @@ export const FLOW = {
       return {
         action: 'GENERATE_HOWTO',
         query,
+        howtoTopic: query,
+        howtoOS: osInfo?.code,
+        howtoOSLabel: osInfo?.label,
         reply,
         nextStage: 'GENERATE_HOWTO'
       };
@@ -530,14 +560,26 @@ export const FLOW = {
     name: 'Generar Guía',
     description: 'Generar pasos para consulta HOWTO',
     
-    onText: ({ text }) => {
+    onText: ({ text, session }) => {
       // Orchestrator llamará a AI para generar guía
       const reply = {
         'es-AR': 'Generando tu guía con pasos claros. Dame un momento…',
         'en': 'Creating your guide now. One moment…'
       };
+      const topic = (session?.howtoTopic || text || '').trim();
+      const osLabel = session?.howtoOSLabel;
+      const prompt = topic
+        ? osLabel ? `${topic} en ${osLabel}` : topic
+        : (osLabel ? `Guía en ${osLabel}` : '');
+      if (session) {
+        session.hasGreetedUser = true;
+      }
       return {
         action: 'CREATE_HOWTO_GUIDE',
+        howtoTopic: topic || undefined,
+        howtoOS: session?.howtoOS,
+        howtoOSLabel: osLabel,
+        prompt,
         reply,
         nextStage: 'ENDED'
       };

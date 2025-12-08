@@ -445,6 +445,12 @@ export const TYPO_TOKEN_MAP = {
   'windos': 'windows',
   'windws': 'windows',
   'androi': 'android',
+  'win10': 'windows 10',
+  'w10': 'windows 10',
+  'windows10': 'windows 10',
+  'windows-10': 'windows 10',
+  'windos10': 'windows 10',
+  'windos 10': 'windows 10',
 
   // SERVICIO / PERSONAS
   'tecnico': 'técnico',
@@ -472,7 +478,7 @@ export const DOMAIN_WORDS = [
 
   // MOVILES / SO
   'celular', 'telefono', 'tablet', 'android', 'iphone',
-  'windows', 'linux', 'macos',
+  'windows', 'windows 10', 'w10', 'linux', 'macos',
 
   // SERVICIO TECNICO
   'tecnico', 'técnico', 'visita', 'domicilio'
