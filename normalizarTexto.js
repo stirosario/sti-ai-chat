@@ -48,6 +48,9 @@ const TYPO_CORRECTIONS = {
   'internett': 'internet',
   'internt': 'internet',
   'rrred': 'red',
+  'wif': 'wifi',  // ✅ CORRECCIÓN: "wif" → "wifi" (error común)
+  'wi-fi': 'wifi',
+  'wi fi': 'wifi',
   'bluetut': 'bluetooth',
   'blutuz': 'bluetooth',
   'blutooth': 'bluetooth',

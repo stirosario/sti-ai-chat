@@ -4532,8 +4532,8 @@ async function createTicketAndRespond(session, sid, res) {
       replyLines.push('When you are ready, tap the green WhatsApp button and send the message without changing its text.');
     } else {
       replyLines.push('Listo, voy a generar un ticket con el resumen de esta conversación y los pasos que ya probamos.');
-      replyLines.push('Vas a poder enviarlo por WhatsApp a un técnico humano de STI para que siga ayudándote.');
-      replyLines.push('Cuando estés listo, tocá el botón verde de WhatsApp y enviá el mensaje sin modificar el texto.');
+      replyLines.push('Presioná el botón **Hablar con un Técnico** para continuar por WhatsApp. El técnico recibirá todo el contexto de nuestra conversación.');
+      replyLines.push('Cuando estés listo, tocá el botón verde y enviá el mensaje sin modificar el texto.');
       replyLines.push('Aviso: no compartas contraseñas ni datos bancarios. Yo ya enmascaré información sensible si la hubieras escrito.');
     }
 
@@ -5486,6 +5486,29 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
 
+    // ========================================================
+    // 🎯 DETECCIÓN DE HARD INTENT - INTENCIÓN FUERTE DE HABLAR CON TÉCNICO
+    // ========================================================
+    // Detecta cuando el usuario expresa claramente que quiere hablar con un técnico
+    // y ejecuta la acción inmediatamente sin preguntas adicionales
+    const hardIntentPatterns = [
+      /^\s*(quiero|necesito|dame|dame|quiero hablar|necesito hablar|hablar con un técnico|hablar con técnico|hablar con un tecnico|hablar con tecnico)\s*(con\s+)?(un\s+)?(técnico|tecnico|técnico humano|tecnico humano|especialista|soporte humano|atencion humana|atención humana|ayuda humana)\s*[!.]*\s*$/i,
+      /^\s*(hacelo|hazlo|hacelo ya|hazlo ya|conectame|conectame ya|conecta|conecta ya|dame un técnico|dame un tecnico|quiero un técnico|quiero un tecnico)\s*[!.]*\s*$/i,
+      /^\s*(hay\s+un\s+técnico|hay\s+un\s+tecnico|hay\s+técnico|hay\s+tecnico|disponible|puedo\s+hablar|puedo\s+hablar\s+con)\s*(con\s+)?(un\s+)?(técnico|tecnico)\s*[?]?\s*$/i,
+      /^\s*(sí|si|ok|dale|perfecto|bueno|vamos|adelante|claro|por supuesto|yes|okay|sure|alright)\s*(quiero|necesito|dame|hablar|conectar|conecta|técnico|tecnico)\s*(con\s+)?(un\s+)?(técnico|tecnico)\s*[!.]*\s*$/i
+    ];
+    
+    const hasHardIntent = hardIntentPatterns.some(pattern => pattern.test(t));
+    const isEscalateStage = session.stage === STATES.ESCALATE;
+    const isConnectTechButton = buttonToken === 'BTN_CONNECT_TECH' || buttonToken === 'BTN_WHATSAPP_TECNICO';
+    
+    // Si hay intención fuerte O está en stage ESCALATE y confirma, ejecutar inmediatamente
+    if (hasHardIntent || (isEscalateStage && /^\s*(sí|si|ok|dale|perfecto|bueno|vamos|adelante|claro|por supuesto|yes|okay|sure|alright|hacelo|hazlo)\s*$/i.test(t)) || isConnectTechButton) {
+      console.log('[HARD_INTENT] ✅ Intención fuerte detectada - escalando inmediatamente');
+      changeStage(session, STATES.ESCALATE);
+      return await createTicketAndRespond(session, sid, res);
+    }
+
     // ✅ CORRECCIÓN 4: Detectar confirmación "Sí" cuando hay pendingAction de tipo create_ticket
     if (session.pendingAction && session.pendingAction.type === 'create_ticket') {
       // Detectar confirmación por texto (sí, si, ok, dale, perfecto, etc.)
@@ -5942,17 +5965,30 @@ Respondé de forma directa, empática y técnica.`;
     }
 
     // Quick escalate via button or text (confirmation step)
+    // ✅ CORRECCIÓN: Si el usuario pide hablar con técnico, ejecutar directamente sin confirmación adicional
     if (buttonToken === 'BTN_WHATSAPP' || /^\s*(?:enviar\s+whats?app|hablar con un tecnico|enviar whatsapp)$/i.test(t)) {
+      // Si hay intención fuerte, ejecutar inmediatamente
+      const hasStrongIntent = /^\s*(hablar con un tecnico|hablar con técnico|quiero hablar|necesito hablar|dame un técnico|dame un tecnico)\s*$/i.test(t);
+      if (hasStrongIntent || buttonToken === 'BTN_WHATSAPP') {
+        changeStage(session, STATES.ESCALATE);
+        return await createTicketAndRespond(session, sid, res);
+      }
+      // Si no, pedir confirmación (comportamiento legacy para compatibilidad)
       session.pendingAction = { type: 'create_ticket' };
       await saveSessionAndTranscript(sid, session);
       const loc = session.userLocale || 'es-AR';
       const isEnCT = String(loc).toLowerCase().startsWith('en');
-      let replyCT;
-      if (isEnCT) {
-        replyCT = "I see you want to talk with a technician. Do you want me to create a ticket with this chat summary so you can send it by WhatsApp?";
-      } else {
-        replyCT = "Veo que querés hablar con un técnico. ¿Querés que genere un ticket con el resumen de esta conversación para enviarlo por WhatsApp?";
-      }
+      const replyVariations = isEnCT ? [
+        "I see you want to talk with a technician. Should I create a ticket with this chat summary?",
+        "I understand you'd like to speak with a technician. Would you like me to generate a ticket with our conversation summary?",
+        "You want to connect with a technician. Can I create a ticket with the chat summary for you?"
+      ] : [
+        "Veo que querés hablar con un técnico. ¿Querés que genere un ticket con el resumen de esta conversación?",
+        "Entiendo que querés hablar con un especialista. ¿Te genero un ticket con el resumen de nuestra charla?",
+        "Querés conectarte con un técnico. ¿Querés que prepare un ticket con el resumen de la conversación?"
+      ];
+      const variationIndex = (sid ? sid.charCodeAt(0) : 0) % replyVariations.length;
+      const replyCT = replyVariations[variationIndex];
       return res.json(withOptions({
         ok: true,
         reply: replyCT,
@@ -6240,6 +6276,48 @@ Respondé de forma directa, empática y técnica.`;
       return await sendResponseWithSave(res, sid, session, withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
 
+    // ✅ CORRECCIÓN 8: Manejo de "volver al menú principal" - mostrar botones claros
+    const menuRequestRx = /^\s*(volver\s+al\s+men[uú]\s+principal|men[uú]\s+principal|volver\s+al\s+inicio|volver\s+al\s+comienzo|empezar\s+de\s+nuevo|reiniciar|restart|main\s+menu|volver|inicio)\s*$/i;
+    if (menuRequestRx.test(t)) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+      
+      // Resetear sesión a estado inicial pero mantener nombre e idioma
+      const savedName = session.userName;
+      const savedLocale = session.userLocale;
+      const savedGdprConsent = session.gdprConsent;
+      
+      // Resetear todo excepto datos básicos
+      session.problem = null;
+      session.device = null;
+      session.issueKey = null;
+      session.tests = { basic: [], ai: [], advanced: [] };
+      session.lastHelpStep = null;
+      session.stepProgress = {};
+      session.stepsDone = [];
+      session.ticketOffered = false;
+      session.pendingAction = null;
+      
+      // Volver al stage de problema pero con saludo amigable
+      changeStage(session, STATES.ASK_PROBLEM);
+      
+      const menuReplies = isEn ? [
+        `Sure, ${whoName}! Let's start fresh. What problem are you having or what do you need help with?`,
+        `Of course, ${whoName}! Let's begin again. Tell me: what problem are you experiencing?`,
+        `No problem, ${whoName}! Starting over. What can I help you with today?`
+      ] : [
+        `¡Dale, ${whoName}! Empecemos de nuevo. ¿Qué problema estás teniendo o en qué necesitás ayuda?`,
+        `¡Por supuesto, ${whoName}! Volvamos al inicio. Contame: ¿qué problema tenés?`,
+        `¡Sin problema, ${whoName}! Reiniciemos. ¿En qué puedo ayudarte hoy?`
+      ];
+      const replyIndex = (sid ? sid.charCodeAt(0) : 0) % menuReplies.length;
+      const reply = menuReplies[replyIndex];
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      return await sendResponseWithSave(res, sid, session, withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    }
+
     // State machine core: ASK_PROBLEM -> ASK_DEVICE -> BASIC_TESTS -> ...
     let reply = '';
     let options = [];
@@ -6360,11 +6438,22 @@ Respondé de forma directa, empática y técnica.`;
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           
-          const escalationReply = isEn
-            ? `Perfect! I'll connect you with a human technician via WhatsApp.\n\n✅ I'll send them the complete conversation history so you don't have to explain everything again.\n\nClick the button below to continue on WhatsApp:`
-            : (locale === 'es-419'
-              ? `¡Perfecto! Te conecto con un técnico humano por WhatsApp.\n\n✅ Le voy a enviar el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nHacé clic en el botón de abajo para continuar por WhatsApp:`
-              : `¡Perfecto! Te conecto con un técnico humano por WhatsApp.\n\n✅ Le voy a enviar el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nHacé clic en el botón de abajo para continuar por WhatsApp:`);
+          // ✅ CORRECCIÓN: Variaciones de respuesta para evitar repetición
+          const escalationReplies = isEn ? [
+            `Perfect! I'll connect you with a human technician.\n\n✅ The technician will receive the complete conversation history so you don't have to explain everything again.\n\nPress the button below to continue:`,
+            `Great! I'll get you in touch with a specialist.\n\n✅ They'll have access to our full conversation history.\n\nUse the button below to continue:`,
+            `Excellent! I'll connect you with a technician.\n\n✅ All the context from our chat will be shared with them.\n\nTap the button below to continue:`
+          ] : (locale === 'es-419' ? [
+            `¡Perfecto! Te conecto con un técnico humano.\n\n✅ El técnico recibirá el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nHacé clic en el botón de abajo para continuar:`,
+            `¡Genial! Te voy a poner en contacto con un especialista.\n\n✅ Va a recibir todo el contexto de nuestra charla.\n\nUsá el botón de abajo para continuar:`,
+            `¡Excelente! Te conecto con un técnico.\n\n✅ Le comparto todo el historial de nuestra conversación.\n\nTocá el botón de abajo para continuar:`
+          ] : [
+            `¡Perfecto! Te conecto con un técnico humano.\n\n✅ El técnico recibirá el historial completo de nuestra conversación para que no tengas que volver a explicar todo.\n\nPresioná el botón de abajo para continuar:`,
+            `¡Genial! Te voy a poner en contacto con un especialista.\n\n✅ Va a recibir todo el contexto de nuestra charla.\n\nUsá el botón de abajo para continuar:`,
+            `¡Excelente! Te conecto con un técnico.\n\n✅ Le comparto todo el historial de nuestra conversación.\n\nTocá el botón de abajo para continuar:`
+          ]);
+          const replyIndex = (sid ? sid.charCodeAt(0) : 0) % escalationReplies.length;
+          const escalationReply = escalationReplies[replyIndex];
           
           session.transcript.push({ who: 'bot', text: escalationReply, ts: nowIso(), stage: session.stage });
           await saveSessionAndTranscript(sid, session);
@@ -7317,10 +7406,20 @@ La guía debe ser:
         return await generateAndShowSteps(session, sid, res);
       }
     } else if (session.stage === STATES.ESCALATE) {
+      // ✅ CORRECCIÓN: En ESCALATE, cualquier confirmación o solicitud de técnico debe ejecutar inmediatamente
+      // NO volver a diagnóstico ni hacer más preguntas
+      const confirmRx = /^\s*(sí|si|ok|dale|perfecto|bueno|vamos|adelante|claro|por supuesto|yes|okay|sure|alright|hacelo|hazlo|quiero|necesito|dame)\s*(hablar|conectar|técnico|tecnico)?\s*$/i;
+      const techRequestRx = /^\s*(conectar|hablar|técnico|tecnico|quiero hablar|necesito hablar|dame un técnico|dame un tecnico)\s*$/i;
+      const isOpt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i.test(t) || buttonToken === 'BTN_CONNECT_TECH' || buttonToken === 'BTN_WHATSAPP_TECNICO';
+      
+      // Si confirma o pide técnico, ejecutar inmediatamente
+      if (confirmRx.test(t) || techRequestRx.test(t) || isOpt2) {
+        console.log('[ESCALATE] ✅ Confirmación detectada - ejecutando escalado inmediatamente');
+        return await createTicketAndRespond(session, sid, res);
+      }
+      
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|pruebas avanzadas)/i;
-      const opt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i;
       const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS';
-      const isOpt2 = opt2.test(t) || buttonToken === 'BTN_CONNECT_TECH';
 
       if (isOpt1) {
         try {
@@ -7394,11 +7493,33 @@ La guía debe ser:
           await saveSessionAndTranscript(sid, session);
           return res.json(withOptions({ ok: false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
         }
-      } else if (isOpt2) {
-        return await createTicketAndRespond(session, sid, res);
       } else {
-        reply = 'Decime si querés probar más soluciones o conectar con un técnico.';
-        options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH']);
+        // ✅ CORRECCIÓN: Si no entendió en ESCALATE, ofrecer directamente el botón sin más preguntas
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const escalationVariations = [
+          isEn
+            ? "I'll connect you with a technician. Press the button below to continue on WhatsApp:"
+            : "Te conecto con un técnico. Presioná el botón de abajo para continuar por WhatsApp:",
+          isEn
+            ? "Let me connect you with a specialist. Use the WhatsApp button to continue:"
+            : "Déjame conectarte con un especialista. Usá el botón de WhatsApp para continuar:",
+          isEn
+            ? "I'll get you in touch with a technician. Tap the button below:"
+            : "Te voy a poner en contacto con un técnico. Tocá el botón de abajo:"
+        ];
+        const variationIndex = (sid ? sid.charCodeAt(0) : 0) % escalationVariations.length;
+        reply = escalationVariations[variationIndex];
+        
+        const whatsappButton = {
+          token: 'BTN_WHATSAPP_TECNICO',
+          label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
+          text: 'whatsapp técnico',
+          emoji: '💚',
+          action: 'external',
+          style: 'primary'
+        };
+        options = [whatsappButton];
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
       const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
@@ -7469,8 +7590,35 @@ La guía debe ser:
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       
-      // 🔧 INTERCEPTAR GUIDING_INSTALLATION ANTES DEL FALLBACK
-      if (session.stage === STATES.GUIDING_INSTALLATION) {
+      // 🔧 INTERCEPTAR ESCALATE ANTES DEL FALLBACK - NO debe dispararse fallback en ESCALATE
+      if (session.stage === STATES.ESCALATE) {
+        console.log('[FALLBACK] 🔧 Stage ESCALATE detectado - ofreciendo botón de WhatsApp directamente');
+        // Si está en ESCALATE y no entendió, ofrecer directamente el botón sin más preguntas
+        const escalationVariations = [
+          isEn 
+            ? "I'll connect you with a technician. Press the button below to continue on WhatsApp:"
+            : "Te conecto con un técnico. Presioná el botón de abajo para continuar por WhatsApp:",
+          isEn
+            ? "Let me connect you with a specialist. Use the WhatsApp button to continue:"
+            : "Déjame conectarte con un especialista. Usá el botón de WhatsApp para continuar:",
+          isEn
+            ? "I'll get you in touch with a technician. Tap the button below:"
+            : "Te voy a poner en contacto con un técnico. Tocá el botón de abajo:"
+        ];
+        // Usar variación basada en el hash de la sesión para evitar repetición
+        const variationIndex = (sid ? sid.charCodeAt(0) : 0) % escalationVariations.length;
+        reply = escalationVariations[variationIndex];
+        
+        const whatsappButton = {
+          token: 'BTN_WHATSAPP_TECNICO',
+          label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
+          text: 'whatsapp técnico',
+          emoji: '💚',
+          action: 'external',
+          style: 'primary'
+        };
+        options = [whatsappButton];
+      } else if (session.stage === STATES.GUIDING_INSTALLATION) {
         console.log('[FALLBACK] 🔧 Stage GUIDING_INSTALLATION detectado - usando handler especializado');
         const handled = handleGuidingInstallationOSReply(session, t, session.activeIntent, locale);
         if (handled) {
