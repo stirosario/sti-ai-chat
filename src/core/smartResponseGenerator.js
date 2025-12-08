@@ -9,7 +9,7 @@
  */
 
 import { getOpenAIClient } from '../services/aiService.js';
-import { INTENT_TYPES } from './intentEngine.js';
+import { INTENT_TYPES, detectOS } from './intentEngine.js';
 
 /**
  * 🧠 Genera una respuesta inteligente basada en intención y contexto
@@ -99,9 +99,12 @@ async function handleAuxiliaryResponse(intentAnalysis, userMessage, conversation
   
   // ✅ CASO ESPECÍFICO: INSTALLATION_HELP
   if (activeIntent.type === INTENT_TYPES.INSTALLATION_HELP) {
+    // Detectar OS del mensaje auxiliar y normalizarlo
+    const detectedOS = detectOS(intentAnalysis.auxiliaryData || userMessage);
+    const osInfo = detectedOS || intentAnalysis.auxiliaryData || 'tu sistema';
     return handleInstallationWithOS(
-      activeIntent.originalMessage,
-      intentAnalysis.auxiliaryData,
+      activeIntent.originalMessage || activeIntent.topic || 'el software',
+      osInfo,
       conversationContext,
       isEnglish,
       openai
@@ -423,7 +426,9 @@ function buildResponseSystemPrompt(intent, isEnglish) {
 - Use simple, friendly language
 - Never offer solutions that don't apply to the context
 - If unsure, ask for clarification
-- Focus on solving the user's actual problem`
+- Focus on solving the user's actual problem
+- NEVER repeat greetings like "Hello, [name]" more than once per conversation
+- If you already greeted the user, continue directly with the topic without repeating the greeting`
     : `Sos Tecnos, el asistente inteligente de STI — Servicio Técnico Inteligente. Sos útil, empático, claro y profesional.
 
 **TU ESTILO:**
@@ -431,6 +436,8 @@ function buildResponseSystemPrompt(intent, isEnglish) {
 - Sé conciso, claro y amable.
 - Usá 1-3 emojis discretos máximo.
 - Si corresponde, recordá: "Soy Tecnos de STI."
+- NUNCA repitas saludos como "Hola, [nombre]" más de una vez por conversación
+- Si ya saludaste al usuario, continuá directamente con el tema sin repetir el saludo
 
 **TUS PRINCIPIOS:**
 - Entendé la necesidad REAL antes de actuar
@@ -455,16 +462,16 @@ function buildResponseSystemPrompt(intent, isEnglish) {
 
     [INTENT_TYPES.INSTALLATION_HELP]: isEnglish
       ? `\n\n**FOR THIS INTENT (Installation Help):**
-- Confirm what the user wants to install
-- Ask about their operating system if not mentioned
+- If OS is already known, provide SPECIFIC installation steps immediately
+- If OS is NOT mentioned, ask ONLY about the operating system
+- NEVER say "if you don't have a specific problem" - this is an installation request, not a problem
 - Provide clear, step-by-step guidance
-- Offer to explain any technical terms
 - This is NOT a problem - it's a learning/setup request`
       : `\n\n**PARA ESTA INTENCIÓN (Ayuda de Instalación):**
-- Confirmá qué quiere instalar el usuario
-- Preguntá sobre su sistema operativo si no lo mencionó
+- Si ya conocés el SO, proporcioná pasos ESPECÍFICOS de instalación inmediatamente
+- Si NO se mencionó el SO, preguntá SOLO sobre el sistema operativo
+- NUNCA digas "si no tenés un problema específico" - esto es una solicitud de instalación, no un problema
 - Proporcioná guía clara, paso a paso
-- Ofrecé explicar cualquier término técnico
 - Esto NO es un problema - es una solicitud de aprendizaje/configuración`,
 
     [INTENT_TYPES.HOW_TO_QUESTION]: isEnglish
@@ -564,6 +571,13 @@ function buildResponseUserPrompt(intentAnalysis, userMessage, context, isEnglish
     prompt += isEnglish
       ? `\n**NOTE:** User already tried basic diagnostic steps.\n`
       : `\n**NOTA:** El usuario ya intentó pasos básicos de diagnóstico.\n`;
+  }
+  
+  // ✅ Evitar repetición de saludos
+  if (context.hasGreetedUser) {
+    prompt += isEnglish
+      ? `\n**IMPORTANT:** You already greeted the user earlier in this conversation. Do NOT repeat greetings like "Hello, [name]" - continue directly with the topic.\n`
+      : `\n**IMPORTANTE:** Ya saludaste al usuario antes en esta conversación. NO repitas saludos como "Hola, [nombre]" - continuá directamente con el tema.\n`;
   }
   
   // ✅ AGREGAR CONTEXTO DE INTENCIÓN ACTIVA si hay respuesta auxiliar

@@ -66,8 +66,8 @@ function isAuxiliaryResponse(userMessage) {
   
   // Respuestas muy cortas (< 10 caracteres)
   if (msg.length < 10) {
-    // Sistemas operativos (incluir variantes)
-    if (/^(windows|win|w10|w11|mac|macos|linux|ubuntu|android|ios)$/i.test(msg)) return true;
+    // Sistemas operativos (incluir variantes: win10, win11, w10, w11, etc.)
+    if (/^(windows|win|win10|win11|w10|w11|mac|macos|linux|ubuntu|android|ios)$/i.test(msg)) return true;
     
     // Confirmaciones
     if (/^(s[ií]|yes|ok|dale|claro|exacto|correcto|no)$/i.test(msg)) return true;
@@ -86,8 +86,8 @@ function isAuxiliaryResponse(userMessage) {
   
   // Frases que contienen sistema operativo (para respuestas a INSTALLATION_HELP o CONFIGURATION_HELP)
   // Incluir todas las variantes: win10, w10, w11, win 10, win 11, windows 10, etc.
-  if (/(windows\s*(11|10|8|7)?|win\s*(11|10)|w(10|11)|mac|macos|linux|ubuntu|android|ios)/i.test(msg)) {
-    // Frases como "windows 11", "tengo windows 11", "uso win 10", "w10", "w11", "es mac"
+  if (/(windows\s*(11|10|8|7)?|win\s*(11|10)|win(10|11)|w(10|11)|mac|macos|linux|ubuntu|android|ios)/i.test(msg)) {
+    // Frases como "windows 11", "tengo windows 11", "uso win 10", "w10", "w11", "win10", "es mac"
     if (msg.length < 40) return true;
   }
   
