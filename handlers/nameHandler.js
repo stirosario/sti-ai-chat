@@ -91,37 +91,186 @@ export const isValidHumanName = isValidName;
 /**
  * Extrae un nombre del texto del usuario
  */
-export function extractName(text) {
-  if (!text || typeof text !== 'string') return null;
-  const sRaw = String(text).trim();
-  if (!sRaw) return null;
-  const s = sRaw.replace(/[.,!?]+$/, '').trim();
+/**
+ * Preprocesa el texto para extracción de nombre
+ * - Convierte a minúsculas
+ * - Elimina espacios múltiples
+ * - Elimina emojis y símbolos no alfabéticos
+ * - Conserva letras, espacios, acentos y signos simples
+ */
+function preprocessNameText(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  // Convertir a minúsculas y trim
+  let processed = text.toLowerCase().trim();
+  
+  // Reemplazar múltiples espacios por uno solo
+  processed = processed.replace(/\s+/g, ' ');
+  
+  // Eliminar emojis y símbolos no alfabéticos
+  // Conservar: letras, espacios, acentos, y signos simples (.,!?;:)
+  processed = processed.replace(/[^\w\s\u00C0-\u017F.,!?;:]/g, '');
+  
+  // Limpiar signos de puntuación al inicio y final (pero conservarlos internos)
+  processed = processed.replace(/^[.,!?;:]+|[.,!?;:]+$/g, '');
+  
+  // Volver a trim
+  processed = processed.trim();
+  
+  return processed;
+}
 
-  // patterns: "me llamo X", "soy X", "mi nombre es X"
-  const patterns = [
-    /\b(?:me llamo|soy|mi nombre es|me presento como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
-    /^\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})\s*$/i
+/**
+ * Elimina saludos y frases de relleno del inicio del texto
+ */
+function removeGreetingsAndFiller(text) {
+  if (!text || typeof text !== 'string') return text;
+  
+  let cleaned = text.toLowerCase().trim();
+  
+  // Lista de saludos y expresiones a eliminar cuando aparecen al inicio
+  const greetingsAndFillers = [
+    // Saludos simples
+    /^hola+\s*,?\s*/i,
+    /^holis+\s*,?\s*/i,
+    /^oli+\s*,?\s*/i,
+    /^buenas+\s*,?\s*/i,
+    /^buenas\s+tardes\s*,?\s*/i,
+    /^buenas\s+noches\s*,?\s*/i,
+    /^buen\s+d[ií]a\s*,?\s*/i,
+    /^buenos\s+d[ií]as\s*,?\s*/i,
+    /^qu[ée]\s+tal\s*,?\s*/i,
+    /^como\s+va\s*,?\s*/i,
+    /^c[óo]mo\s+va\s*,?\s*/i,
+    /^todo\s+bien\s*,?\s*/i,
+    /^buenas\s+gente\s*,?\s*/i,
+    /^saludos?\s*,?\s*/i,
+    /^saludo\s*,?\s*/i,
+    
+    // Expresiones de presentación
+    /^soy\s+/i,
+    /^yo\s+soy\s+/i,
+    /^mi\s+nombre\s+es\s+/i,
+    /^me\s+llamo\s+/i,
+    /^el\s+que\s+te\s+escribi[óo]\s*,?\s*/i,
+    /^el\s+que\s+te\s+escribi[óo]\s+por\s+whatsapp\s*,?\s*/i,
+    /^ac[áa]\s+/i,
+    /^quien\s+te\s+habla\s+es\s+/i,
+    /^quien\s+te\s+habla\s+es\s+/i,
+    /^te\s+escribe\s+/i,
+    /^te\s+hablo\s+/i,
+    /^con\s+/i, // "con juan" -> "juan"
+    
+    // Combinaciones comunes
+    /^hola\s*,?\s*soy\s+/i,
+    /^hola\s*,?\s*mi\s+nombre\s+es\s+/i,
+    /^hola\s*,?\s*me\s+llamo\s+/i,
+    /^buenas\s*,?\s*soy\s+/i,
+    /^buenas\s*,?\s*mi\s+nombre\s+es\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*soy\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*ac[áa]\s+/i,
   ];
+  
+  // Aplicar cada patrón de eliminación
+  for (const pattern of greetingsAndFillers) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+  
+  // Limpiar comas y espacios sobrantes al inicio
+  cleaned = cleaned.replace(/^[,\s]+/, '').trim();
+  
+  return cleaned;
+}
 
+/**
+ * Extrae y valida un nombre del texto del usuario
+ * @param {string} text - Texto del usuario
+ * @returns {Object} - { name: string, valid: boolean, reason: string }
+ */
+export function extractName(text) {
+  // Inicializar resultado
+  const result = {
+    name: '',
+    valid: false,
+    reason: ''
+  };
+  
+  if (!text || typeof text !== 'string') {
+    result.reason = 'vacío';
+    return result;
+  }
+  
+  // 1. PREPROCESAMIENTO
+  let processed = preprocessNameText(text);
+  
+  if (!processed) {
+    result.reason = 'vacío';
+    return result;
+  }
+  
+  // 2. ELIMINACIÓN DE SALUDOS Y RELLENO
+  processed = removeGreetingsAndFiller(processed);
+  
+  if (!processed) {
+    result.reason = 'solo saludos';
+    return result;
+  }
+  
+  // 3. LIMPIAR SIGNOS DE PUNTUACIÓN AL FINAL
+  processed = processed.replace(/[.,!?;:]+$/, '').trim();
+  
+  if (!processed) {
+    result.reason = 'solo signos';
+    return result;
+  }
+  
+  // 4. EXTRAER CANDIDATO A NOMBRE
+  // Buscar patrones: "me llamo X", "soy X", "mi nombre es X", o simplemente "X"
+  const patterns = [
+    /\b(?:me\s+llamo|soy|mi\s+nombre\s+es|me\s+presento\s+como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i
+  ];
+  
+  let candidate = null;
+  
   for (const rx of patterns) {
-    const m = s.match(rx);
+    const m = processed.match(rx);
     if (m && m[1]) {
-      let candidate = m[1].trim().replace(/\s+/g, ' ');
-      // limit tokens to MAX_NAME_TOKENS
-      const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-      const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
-      if (isValidName(normalized)) return normalized;
+      candidate = m[1].trim().replace(/\s+/g, ' ');
+      break;
     }
   }
-
-  // fallback: if the whole short text looks like a name
-  const singleCandidate = s;
+  
+  // Si no se encontró con patrones, usar todo el texto procesado
+  if (!candidate) {
+    candidate = processed;
+  }
+  
+  // 5. VALIDAR Y NORMALIZAR
+  // Limitar tokens
+  const tokens = candidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
+  const normalized = tokens.map(t => capitalizeToken(t)).join(' ');
+  
+  if (isValidName(normalized)) {
+    result.name = normalized;
+    result.valid = true;
+    result.reason = 'ok';
+    return result;
+  }
+  
+  // 6. SI NO ES VÁLIDO, INTENTAR CON EL TEXTO COMPLETO (fallback)
+  const singleCandidate = processed;
   if (isValidName(singleCandidate)) {
     const tokens = singleCandidate.split(/\s+/).slice(0, MAX_NAME_TOKENS);
-    return tokens.map(capitalizeToken).join(' ');
+    result.name = tokens.map(capitalizeToken).join(' ');
+    result.valid = true;
+    result.reason = 'ok';
+    return result;
   }
-
-  return null;
+  
+  // 7. NO SE PUDO EXTRAER NOMBRE VÁLIDO
+  result.reason = 'no parece un nombre';
+  return result;
 }
 
 /**
@@ -290,10 +439,11 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
   }
 
   // ✅ DETECCIÓN AUTOMÁTICA: Si el usuario escribe una palabra que es claramente un nombre
-  const candidate = extractName(userText);
-  if (candidate && isValidName(candidate)) {
+  const nameResult = extractName(userText);
+  
+  if (nameResult.valid && nameResult.name) {
     // ✅ NOMBRE DETECTADO - Guardar y avanzar inmediatamente
-    session.userName = candidate;
+    session.userName = nameResult.name;
     session.stage = STATES.ASK_NEED;
     session.nameAttempts = 0;
 
@@ -307,6 +457,34 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     // 🔧 REFACTOR FASE 2: Guardado diferido (se guardará antes de enviar respuesta)
     markSessionDirty(sid, session);
+    
+    // Registrar éxito si no vino de calibración
+    if (!calibMatch || !calibMatch.matched) {
+      logCalibracionSuccess('ASK_NAME');
+    }
+    
+    console.log('[ASK_NAME] ✅ Nombre extraído:', nameResult.name, 'Motivo:', nameResult.reason);
+    
+    return {
+      ok: true,
+      reply,
+      stage: session.stage,
+      handled: true
+    };
+  } else if (nameResult.reason === 'vacío' || nameResult.reason === 'solo saludos' || nameResult.reason === 'solo signos') {
+    // Respuesta vacía o solo saludos - pedir nombre de forma amable
+    session.nameAttempts = (session.nameAttempts || 0) + 1;
+    
+    const reply = isEn
+      ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
+      : (locale === 'es-419'
+        ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\"."
+        : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".");
+
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    markSessionDirty(sid, session);
+    
+    console.log('[ASK_NAME] ⚠️ No se detectó nombre. Motivo:', nameResult.reason);
     
     return {
       ok: true,
@@ -366,16 +544,28 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
 
   // ✅ NO ES UN NOMBRE VÁLIDO - Fallback final por seguridad
   console.log('[ASK_NAME] ⚠️ Fallback final alcanzado');
+  console.log('[ASK_NAME] 📝 Motivo de rechazo:', nameResult.reason || 'no parece un nombre');
   session.nameAttempts = (session.nameAttempts || 0) + 1;
   
-  // Registrar fallo en calibración
-  logCalibracionFailure('ASK_NAME', userText, 'No se pudo extraer nombre válido');
+  // Registrar fallo en calibración con motivo detallado
+  const failureReason = nameResult.reason || 'No se pudo extraer nombre válido';
+  logCalibracionFailure('ASK_NAME', userText, failureReason);
 
-  const fallbackReply = isEn
-    ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
-    : (locale === 'es-419'
-      ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
-      : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
+  // Mensaje más amable basado en el motivo
+  let fallbackReply;
+  if (nameResult.reason === 'no parece un nombre') {
+    fallbackReply = isEn
+      ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
+      : (locale === 'es-419'
+        ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
+        : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
+  } else {
+    fallbackReply = isEn
+      ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
+      : (locale === 'es-419'
+        ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\"."
+        : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".");
+  }
 
   session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
   // 🔧 REFACTOR FASE 2: Guardado diferido

@@ -5388,27 +5388,33 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // Si no se activa o falla, continúa con la lógica legacy.
     // ========================================================
     
-    console.log('[api/chat] 🔍 Evaluando si usar sistema inteligente...');
-    
-    const intelligentResponse = await handleWithIntelligence(
-      req, 
-      res, 
-      session, 
-      t, 
-      buttonToken
-    );
+    // ✅ CRÍTICO: En ASK_NAME, la calibración debe ejecutarse ANTES del sistema inteligente
+    // Esto previene que el sistema inteligente interprete incorrectamente "con pedro" como escalación
+    if (session.stage === STATES.ASK_NAME) {
+      console.log('[api/chat] 🎯 ASK_NAME detectado - saltando sistema inteligente para usar calibración');
+      // NO llamar a handleWithIntelligence en ASK_NAME - dejar que nameHandler.js lo maneje con calibración
+    } else {
+      console.log('[api/chat] 🔍 Evaluando si usar sistema inteligente...');
+      
+      const intelligentResponse = await handleWithIntelligence(
+        req, 
+        res, 
+        session, 
+        t, 
+        buttonToken
+      );
 
-    if (intelligentResponse) {
-      // ✅ El sistema inteligente procesó exitosamente
-      console.log('[api/chat] ✅ Procesado con sistema inteligente');
-      console.log('[api/chat] 📊 Intent:', intelligentResponse.intentDetected);
-      console.log('[api/chat] 📊 Stage:', intelligentResponse.stage);
-      console.log('[api/chat] 📊 Options:', intelligentResponse.options?.length || 0);
-      
-      // NOTA: No registrar aquí - integrationPatch.js ya registró la respuesta en el transcript
-      
-      // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
-      markSessionDirty(sid, session);
+      if (intelligentResponse) {
+        // ✅ El sistema inteligente procesó exitosamente
+        console.log('[api/chat] ✅ Procesado con sistema inteligente');
+        console.log('[api/chat] 📊 Intent:', intelligentResponse.intentDetected);
+        console.log('[api/chat] 📊 Stage:', intelligentResponse.stage);
+        console.log('[api/chat] 📊 Options:', intelligentResponse.options?.length || 0);
+        
+        // NOTA: No registrar aquí - integrationPatch.js ya registró la respuesta en el transcript
+        
+        // 🔧 REFACTOR FASE 2: Marcar sesión como dirty (guardado diferido)
+        markSessionDirty(sid, session);
       
       // Log flow interaction
       flowLogData.currentStage = intelligentResponse.stage || session.stage;
@@ -5420,6 +5426,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       
       // 🔧 REFACTOR FASE 2: Enviar respuesta con guardado optimizado
       return await sendResponseWithSave(res, sid, session, intelligentResponse);
+      }
     }
 
     // ⏭️ Si llegó aquí, el sistema inteligente no se activó
