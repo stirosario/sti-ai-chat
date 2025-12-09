@@ -69,7 +69,6 @@ export async function handleIntelligentChat(userMessage, buttonToken, session, l
       recentMessages: session.transcript || [],
       lastDetectedIntent: session.lastDetectedIntent || null,
       hasAttemptedBasicTests: session.hasAttemptedBasicTests || false,
-      hasGreetedUser: session.hasGreetedUser || false,
       userLocale: locale,
       device: session.device || null,
       problem: session.problem || null,

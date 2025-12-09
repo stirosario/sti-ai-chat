@@ -4,6 +4,15 @@
  */
 
 import { nowIso } from '../utils/common.js';
+import {
+  normalizeWithCalibracion,
+  matchCalibracionPattern,
+  getCalibracionResponse,
+  extractCalibracionKeywords,
+  validateWithCalibracion,
+  logCalibracionFailure,
+  logCalibracionSuccess
+} from './calibracionHandler.js';
 
 // Constantes para validación de nombres
 const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
@@ -232,6 +241,54 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
     };
   }
 
+  // ✅ CALIBRACIÓN: Intentar primero con la configuración de calibración
+  const calibMatch = matchCalibracionPattern(userText, 'ASK_NAME');
+  if (calibMatch && calibMatch.matched) {
+    // Normalizar usando calibración
+    const normalized = normalizeWithCalibracion(userText, 'ASK_NAME');
+    
+    // Validar el nombre normalizado
+    if (isValidName(normalized)) {
+      // Capitalizar tokens del nombre
+      const tokens = normalized.split(/\s+/).slice(0, MAX_NAME_TOKENS);
+      const candidate = tokens.map(t => {
+        // Usar capitalizeToken local
+        return capitalizeToken(t);
+      }).join(' ');
+      
+      session.userName = candidate;
+      changeStage(session, STATES.ASK_NEED);
+      session.nameAttempts = 0;
+      
+      // Obtener respuesta de calibración o usar default
+      let reply = getCalibracionResponse('ASK_NAME');
+      if (reply) {
+        // Reemplazar placeholders
+        reply = reply.replace(/{name}/g, capToken(session.userName));
+      } else {
+        // Fallback a respuesta por defecto
+        reply = isEn
+          ? `Perfect, ${capToken(session.userName)} 😊 What can I help you with today?`
+          : (locale === 'es-419'
+            ? `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`
+            : `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`);
+      }
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      markSessionDirty(sid, session);
+      
+      // Registrar éxito
+      logCalibracionSuccess('ASK_NAME');
+      
+      return {
+        ok: true,
+        reply,
+        stage: session.stage,
+        handled: true
+      };
+    }
+  }
+
   // ✅ DETECCIÓN AUTOMÁTICA: Si el usuario escribe una palabra que es claramente un nombre
   const candidate = extractName(userText);
   if (candidate && isValidName(candidate)) {
@@ -310,6 +367,9 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
   // ✅ NO ES UN NOMBRE VÁLIDO - Fallback final por seguridad
   console.log('[ASK_NAME] ⚠️ Fallback final alcanzado');
   session.nameAttempts = (session.nameAttempts || 0) + 1;
+  
+  // Registrar fallo en calibración
+  logCalibracionFailure('ASK_NAME', userText, 'No se pudo extraer nombre válido');
 
   const fallbackReply = isEn
     ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."

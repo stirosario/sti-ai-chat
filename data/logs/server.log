@@ -6728,3 +6728,59 @@
 2025-12-05T23:05:41.618Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 1 mejoras aplicadas
 2025-12-05T23:06:44.560Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+2025-12-09T14:05:56.023Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-09T14:05:56.029Z [INFO] [CONCURRENT_USERS] ✅ Límite configurado: 10 usuarios simultáneos
+2025-12-09T14:05:56.139Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-09T14:05:56.140Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-09T14:05:56.140Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-09T14:05:56.140Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-09T14:05:56.140Z [INFO] [AUTO-LEARNING] 🧠 Sistema de auto-evolución ACTIVADO
+2025-12-09T14:05:56.144Z [INFO] [AUTO-LEARNING] 🚀 Ejecutando ciclo inicial...
+2025-12-09T14:05:56.144Z [INFO] [AUTO-LEARNING] ⏰ Scheduler configurado (intervalo: 24h)
+2025-12-09T14:06:26.154Z [INFO] [AUTO-LEARNING] 📊 Analyzing conversations...
+2025-12-09T14:06:26.167Z [INFO] [AUTO-LEARNING] 🔧 Applying 4 suggestions...
+2025-12-09T14:06:26.179Z [INFO] [ORCHESTRATOR] 🔄 Reloading configurations...
+2025-12-09T14:06:26.180Z [INFO] [ORCHESTRATOR] ✅ nlp-tuning.json loaded
+2025-12-09T14:06:26.181Z [INFO] [ORCHESTRATOR] ✅ device-detection.json loaded
+2025-12-09T14:06:26.181Z [INFO] [ORCHESTRATOR] ✅ phrases-training.json loaded
+2025-12-09T14:06:26.181Z [INFO] [AUTO-LEARNING] 🔄 Configurations reloaded in orchestrator
+2025-12-09T14:06:26.182Z [INFO] [AUTO-LEARNING] ✅ Cycle completed in 31ms - 3 improvements applied
+2025-12-09T14:06:26.182Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 3 mejoras aplicadas
+2025-12-09T14:26:21.150Z [INFO] [CONCURRENT_USERS] ✅ Límite configurado: 10 usuarios simultáneos
+2025-12-09T14:26:21.196Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-09T14:26:21.196Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-09T14:26:21.197Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-09T14:26:21.197Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-09T14:26:21.199Z [INFO] [AUTO-LEARNING] 🧠 Sistema de auto-evolución ACTIVADO
+2025-12-09T14:26:21.202Z [INFO] [AUTO-LEARNING] 🚀 Ejecutando ciclo inicial...
+2025-12-09T14:26:21.203Z [INFO] [AUTO-LEARNING] ⏰ Scheduler configurado (intervalo: 24h)
+2025-12-09T14:26:51.219Z [INFO] [AUTO-LEARNING] 📊 Analyzing conversations...
+2025-12-09T14:26:51.234Z [INFO] [AUTO-LEARNING] 🔧 Applying 4 suggestions...
+2025-12-09T14:26:51.244Z [INFO] [ORCHESTRATOR] 🔄 Reloading configurations...
+2025-12-09T14:26:51.245Z [INFO] [ORCHESTRATOR] ✅ nlp-tuning.json loaded
+2025-12-09T14:26:51.245Z [INFO] [ORCHESTRATOR] ✅ device-detection.json loaded
+2025-12-09T14:26:51.246Z [INFO] [ORCHESTRATOR] ✅ phrases-training.json loaded
+2025-12-09T14:26:51.247Z [INFO] [AUTO-LEARNING] 🔄 Configurations reloaded in orchestrator
+2025-12-09T14:26:51.247Z [INFO] [AUTO-LEARNING] ✅ Cycle completed in 34ms - 3 improvements applied
+2025-12-09T14:26:51.248Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 3 mejoras aplicadas
+2025-12-09T14:30:56.059Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-09T14:32:29.029Z [INFO] [CONCURRENT_USERS] ✅ Límite configurado: 10 usuarios simultáneos
+2025-12-09T14:32:29.065Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-09T14:32:29.066Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-09T14:32:29.066Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-09T14:32:29.067Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-09T14:32:29.068Z [INFO] [AUTO-LEARNING] 🧠 Sistema de auto-evolución ACTIVADO
+2025-12-09T14:32:29.072Z [INFO] [AUTO-LEARNING] 🚀 Ejecutando ciclo inicial...
+2025-12-09T14:32:29.072Z [INFO] [AUTO-LEARNING] ⏰ Scheduler configurado (intervalo: 24h)
+2025-12-09T14:32:59.079Z [INFO] [AUTO-LEARNING] 📊 Analyzing conversations...
+2025-12-09T14:32:59.088Z [INFO] [AUTO-LEARNING] 🔧 Applying 4 suggestions...
+2025-12-09T14:32:59.100Z [INFO] [ORCHESTRATOR] 🔄 Reloading configurations...
+2025-12-09T14:32:59.100Z [INFO] [ORCHESTRATOR] ✅ nlp-tuning.json loaded
+2025-12-09T14:32:59.101Z [INFO] [ORCHESTRATOR] ✅ device-detection.json loaded
+2025-12-09T14:32:59.101Z [INFO] [ORCHESTRATOR] ✅ phrases-training.json loaded
+2025-12-09T14:32:59.102Z [INFO] [AUTO-LEARNING] 🔄 Configurations reloaded in orchestrator
+2025-12-09T14:32:59.102Z [INFO] [AUTO-LEARNING] ✅ Cycle completed in 28ms - 3 improvements applied
+2025-12-09T14:32:59.103Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 3 mejoras aplicadas
+2025-12-09T14:42:56.084Z [INFO] 
+[SIGINT] Iniciando apagado graceful...

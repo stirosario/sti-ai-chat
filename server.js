@@ -61,6 +61,12 @@ import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, list
 import { markSessionDirty, saveSessionImmediate, flushPendingSaves } from './services/sessionSaver.js';
 import { processImages, analyzeImagesWithVision } from './services/imageProcessor.js';
 import { processMessage } from './services/messageProcessor.js';
+import {
+  isSupervisorActivationCommand,
+  isSupervisorModeActive,
+  authenticateSupervisor,
+  processSupervisorCommand
+} from './src/services/supervisorMode.js';
 
 // ========================================================
 // MÓDULOS INTERNOS - HANDLERS
@@ -4527,13 +4533,14 @@ async function createTicketAndRespond(session, sid, res) {
     const replyLines = [];
 
     if (isEn) {
-      replyLines.push('Creating a summary ticket with what we tried so far.');
-      replyLines.push('Use the green WhatsApp button to send it to a technician. Don’t change the text.');
-      replyLines.push('Reminder: don’t include passwords or banking data.');
+      replyLines.push('Perfect, I will generate a summary ticket with what we tried so far.');
+      replyLines.push('You can send it by WhatsApp to a human technician so they can continue helping you.');
+      replyLines.push('When you are ready, tap the green WhatsApp button and send the message without changing its text.');
     } else {
-      replyLines.push('Creando un ticket con el resumen y los pasos probados.');
-      replyLines.push('Usá el botón verde **Hablar con un Técnico** para enviarlo por WhatsApp. No modifiques el texto.');
-      replyLines.push('Recordá: no compartas contraseñas ni datos bancarios.');
+      replyLines.push('Listo, voy a generar un ticket con el resumen de esta conversación y los pasos que ya probamos.');
+      replyLines.push('Presioná el botón **Hablar con un Técnico** para continuar por WhatsApp. El técnico recibirá todo el contexto de nuestra conversación.');
+      replyLines.push('Cuando estés listo, tocá el botón verde y enviá el mensaje sin modificar el texto.');
+      replyLines.push('Aviso: no compartas contraseñas ni datos bancarios. Yo ya enmascaré información sensible si la hubieras escrito.');
     }
 
     const resp = withOptions({
@@ -5219,6 +5226,122 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     // ========================================================
+    // 🔧 MODO SUPERVISOR - Verificar comandos especiales
+    // ========================================================
+    // Permite corregir fallas en el flujo desde el mismo chat
+    // Solo accesible con autenticación especial
+    if (isSupervisorActivationCommand(t)) {
+      // Solicitar autenticación
+      const authPrompt = `🔐 **MODO SUPERVISOR**\n\nPara activar el modo supervisor, necesitás autenticarte.\n\n**Opciones:**\n1. Enviá tu token secreto\n2. O enviá tu contraseña\n\nEjemplo: \`token: TU_TOKEN_AQUI\` o \`password: TU_PASSWORD\``;
+      
+      session.transcript.push({
+        who: 'user',
+        text: t,
+        stage: session.stage,
+        ts: nowIso()
+      });
+      
+      session.transcript.push({
+        who: 'bot',
+        text: authPrompt,
+        ts: nowIso()
+      });
+      
+      markSessionDirty(sid, session);
+      
+      return res.json({
+        ok: true,
+        reply: authPrompt,
+        supervisorMode: false
+      });
+    }
+    
+    // Verificar si el mensaje contiene token o password
+    const tokenMatch = t.match(/token:\s*(.+)/i);
+    const passwordMatch = t.match(/password:\s*(.+)/i);
+    
+    if (tokenMatch || passwordMatch) {
+      const providedToken = tokenMatch ? tokenMatch[1].trim() : null;
+      const providedPassword = passwordMatch ? passwordMatch[1].trim() : null;
+      
+      const authResult = authenticateSupervisor(sid, providedToken, providedPassword);
+      
+      session.transcript.push({
+        who: 'user',
+        text: '[Autenticación supervisor]',
+        stage: session.stage,
+        ts: nowIso()
+      });
+      
+      if (authResult.success) {
+        session.transcript.push({
+          who: 'bot',
+          text: `✅ ${authResult.message}\n\n🔧 **MODO SUPERVISOR ACTIVADO**\n\nUsá /help para ver comandos disponibles.`,
+          ts: nowIso()
+        });
+        
+        markSessionDirty(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply: `✅ ${authResult.message}\n\n🔧 **MODO SUPERVISOR ACTIVADO**\n\nUsá /help para ver comandos disponibles.`,
+          supervisorMode: true
+        });
+      } else {
+        session.transcript.push({
+          who: 'bot',
+          text: `❌ ${authResult.message}\n\nIntentá de nuevo o usá /admin para ver las opciones.`,
+          ts: nowIso()
+        });
+        
+        markSessionDirty(sid, session);
+        
+        return res.json({
+          ok: true,
+          reply: `❌ ${authResult.message}\n\nIntentá de nuevo o usá /admin para ver las opciones.`,
+          supervisorMode: false
+        });
+      }
+    }
+    
+    // Si está en modo supervisor, procesar comandos
+    if (isSupervisorModeActive(sid)) {
+      const supervisorResponse = await processSupervisorCommand(
+        sid,
+        t,
+        session,
+        async (sessionId, sessionData) => {
+          await saveSessionAndTranscript(sessionId, sessionData);
+        }
+      );
+      
+      if (supervisorResponse) {
+        // Registrar mensaje del usuario
+        session.transcript.push({
+          who: 'user',
+          text: t,
+          stage: session.stage,
+          ts: nowIso()
+        });
+        
+        // Registrar respuesta del bot (si no fue inyectada)
+        if (!supervisorResponse.injected) {
+          session.transcript.push({
+            who: 'bot',
+            text: supervisorResponse.reply,
+            stage: session.stage,
+            ts: nowIso(),
+            supervisorCommand: true
+          });
+        }
+        
+        markSessionDirty(sid, session);
+        
+        return res.json(supervisorResponse);
+      }
+    }
+    
+    // ========================================================
     // 📝 REGISTRO UNIVERSAL DEL MENSAJE DEL USUARIO
     // ========================================================
     // Registrar SIEMPRE el mensaje del usuario en el transcript
@@ -5243,23 +5366,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // El guardado se hará al final del request antes de enviar la respuesta
     markSessionDirty(sid, session);
     console.log('[TRANSCRIPT] ✅ Mensaje del usuario registrado (guardado diferido)');
-
-    // ========================================================
-    // 🛟 Interceptar intención global de hablar con un técnico
-    // ========================================================
-    const locale = session.userLocale || 'es-AR';
-    const isEn = String(locale).toLowerCase().startsWith('en');
-    const wantsHumanRegex = /\b(tecnico|técnico|hablar con un tecnico|hablar con un técnico|quiero hablar con un tecnico|quiero hablar con un técnico|tecnico humano|humano|persona real|alguien de soporte|someone from support|talk to a human|talk to a technician)\b/i;
-    if (session.stage !== STATES.ENDED && !buttonToken && wantsHumanRegex.test(t)) {
-      const reply = isEn
-        ? '📲 To talk with a technician now, use the "Talk to a technician" button. It will open WhatsApp so you can write to us directly.'
-        : '📲 Para hablar con un técnico ahora, usá el botón "Hablar con técnico". Se va a abrir WhatsApp para que nos escribas directamente.';
-      const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
-      changeStage(session, STATES.ESCALATE);
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
-      await saveSessionAndTranscript(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-    }
 
     // ========================================================
     // 🧠 SISTEMA INTELIGENTE - PROCESAMIENTO PRIORITARIO
@@ -7515,14 +7621,14 @@ La guía debe ser:
         const isEn = String(locale).toLowerCase().startsWith('en');
         const escalationVariations = [
           isEn
-            ? "Connect with a technician. Tap the WhatsApp button below."
-            : "Conectate con un técnico. Tocá el botón de WhatsApp de abajo.",
+            ? "I'll connect you with a technician. Press the button below to continue on WhatsApp:"
+            : "Te conecto con un técnico. Presioná el botón de abajo para continuar por WhatsApp:",
           isEn
-            ? "Use the WhatsApp button to reach a technician."
-            : "Usá el botón de WhatsApp para hablar con un técnico.",
+            ? "Let me connect you with a specialist. Use the WhatsApp button to continue:"
+            : "Déjame conectarte con un especialista. Usá el botón de WhatsApp para continuar:",
           isEn
-            ? "Tap the WhatsApp button to continue with a technician."
-            : "Tocá el botón de WhatsApp para seguir con un técnico."
+            ? "I'll get you in touch with a technician. Tap the button below:"
+            : "Te voy a poner en contacto con un técnico. Tocá el botón de abajo:"
         ];
         const variationIndex = (sid ? sid.charCodeAt(0) : 0) % escalationVariations.length;
         reply = escalationVariations[variationIndex];
@@ -7643,13 +7749,13 @@ La guía debe ser:
         }
       } else {
         // Comportamiento original para otros contextos
-      reply = isEn
-        ? "I didn't get that. Please rephrase or choose an option."
-        : (locale === 'es-419'
-          ? 'No te entendí bien. Reformulá o elegí una opción.'
-          : 'No te entendí bien. Reformulá o elegí una opción.');
-      const reformBtn = isEn ? 'Rephrase' : 'Reformular';
-      options = [reformBtn];
+        reply = isEn
+          ? 'I\'m not sure how to respond to that now. You can restart or write "Rephrase Problem".'
+          : (locale === 'es-419'
+            ? 'No estoy seguro cómo responder eso ahora. Puedes reiniciar o escribir "Reformular Problema".'
+            : 'No estoy seguro cómo responder eso ahora. Podés reiniciar o escribir "Reformular Problema".');
+        const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
+        options = [reformBtn];
       }
     }
 
