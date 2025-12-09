@@ -5871,7 +5871,14 @@ Respondé de forma directa, empática y técnica.`;
     session.helpAttempts = session.helpAttempts || {};
     session.lastHelpStep = session.lastHelpStep || null;
     let helpRequestedIndex = null;
-    if (buttonToken && /^BTN_HELP_\d+$/.test(buttonToken)) {
+    if (buttonToken && /^BTN_HELP_STEP_\d+$/.test(buttonToken)) {
+      const m = buttonToken.match(/^BTN_HELP_STEP_(\d+)$/);
+      if (m) {
+        // El índice en el token es 0-based, convertirlo a 1-based
+        helpRequestedIndex = Number(m[1]) + 1;
+      }
+    } else if (buttonToken && /^BTN_HELP_\d+$/.test(buttonToken)) {
+      // Compatibilidad con formato antiguo
       const m = buttonToken.match(/^BTN_HELP_(\d+)$/);
       if (m) helpRequestedIndex = Number(m[1]);
     } else {
@@ -5949,7 +5956,12 @@ Respondé de forma directa, empática y técnica.`;
             : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
         };
         
-        const unifiedOpts = [solvedBtn, backToStepsBtn, connectTechBtn].filter(Boolean);
+        // Asegurar que backToStepsBtn siempre esté presente
+        const unifiedOpts = [];
+        if (solvedBtn) unifiedOpts.push(solvedBtn);
+        unifiedOpts.push(backToStepsBtn); // Siempre incluir este botón
+        if (connectTechBtn) unifiedOpts.push(connectTechBtn);
+        
         return res.json(withOptions({ ok: true, help: { stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
       } catch (err) {
         console.error('[help_step] Error generando ayuda:', err && err.message);

@@ -50,42 +50,65 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
   // 2. Manejo de Ayuda por Paso (BTN_HELP_STEP_X)
   if (buttonToken && buttonToken.startsWith('BTN_HELP_STEP_')) {
     const stepIdx = parseInt(buttonToken.replace('BTN_HELP_STEP_', ''), 10);
-    const stepText = session.basicTests[stepIdx];
-
-    if (stepText) {
+    // Convertir de 0-based a 1-based para el índice del paso
+    const stepNumber = stepIdx + 1;
+    
+    // Obtener los pasos desde la estructura correcta
+    const steps = Array.isArray(session.tests?.basic) ? session.tests.basic : [];
+    if (stepIdx < 0 || stepIdx >= steps.length) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-
-      // Generar explicación con IA
-      let explanation = '';
-      try {
-        explanation = await explainStepWithAI(stepText, stepIdx + 1, session.deviceLabel, session.problem, locale);
-      } catch (err) {
-        console.error('[BASIC_TESTS] Error generating help:', err);
-        explanation = isEn
-          ? "I couldn't generate a detailed explanation, but try to follow the step as best as you can."
-          : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.";
-      }
-
-      const reply = isEn
-        ? `**Help for Step ${stepIdx + 1}:**\n\n${explanation}`
-        : `**Ayuda para el Paso ${stepIdx + 1}:**\n\n${explanation}`;
-
-      const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
-      const backButton = {
-        token: 'BTN_BACK_TO_STEPS',
-        label: isEn 
-          ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
-          : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
-        text: isEn 
-          ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
-          : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
-      };
-
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      const msg = isEn 
+        ? `Invalid step number. Please select a step between 1 and ${steps.length}.`
+        : `Paso inválido. Elegí un paso entre 1 y ${steps.length}.`;
+      session.transcript.push({ who: 'bot', text: msg, ts: nowIso() });
       await saveSessionAndTranscript(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage }, [backButton]));
+      return res.json(withOptions({ ok: false, reply: msg, stage: session.stage }));
     }
+
+    const stepText = steps[stepIdx];
+    const locale = session.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+
+    // Generar explicación con IA
+    let explanation = '';
+    try {
+      explanation = await explainStepWithAI(stepText, stepNumber, session.device || '', session.problem || '', locale);
+    } catch (err) {
+      console.error('[BASIC_TESTS] Error generating help:', err);
+      explanation = isEn
+        ? "I couldn't generate a detailed explanation, but try to follow the step as best as you can."
+        : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.";
+    }
+
+    const reply = isEn
+      ? `**Help for Step ${stepNumber}:**\n\n${explanation}`
+      : `**Ayuda para el Paso ${stepNumber}:**\n\n${explanation}`;
+
+    const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
+    
+    // Construir todos los botones necesarios
+    const solvedBtn = buildUiButtonsFromTokens(['BTN_SOLVED'], locale)[0];
+    const connectTechBtn = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale)[0];
+    const backButton = {
+      token: 'BTN_BACK_TO_STEPS',
+      label: isEn 
+        ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
+        : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
+      text: isEn 
+        ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
+        : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
+    };
+
+    // Asegurar que backButton siempre esté presente
+    const unifiedOpts = [];
+    if (solvedBtn) unifiedOpts.push(solvedBtn);
+    unifiedOpts.push(backButton); // Siempre incluir este botón
+    if (connectTechBtn) unifiedOpts.push(connectTechBtn);
+
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    await saveSessionAndTranscript(sid, session);
+    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: unifiedOpts }));
   }
 
   const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
