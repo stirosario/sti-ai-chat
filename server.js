@@ -87,6 +87,7 @@ import { sanitizeInput, sanitizeFilePath } from './utils/sanitization.js';
 import { validateSessionId, getSessionId as getSessionIdUtil, generateSessionId, isPathSafe } from './utils/validation.js';
 import { nowIso, withOptions } from './utils/common.js';
 import { buildTimeGreeting, buildLanguagePrompt, buildNameGreeting } from './utils/helpers.js';
+import { validateCSRF, generateCSRFToken, cleanupExpiredCSRFTokens } from './utils/security.js';
 
 // ========================================================
 // MÓDULOS INTERNOS - HELPERS Y UTILIDADES
@@ -161,7 +162,7 @@ console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUAT
 // ========================================================
 // Security: CSRF Token Store (in-memory, production should use Redis)
 // ========================================================
-const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
+// 🔧 REFACTOR: csrfTokenStore y funciones CSRF movidas a utils/security.js
 const REQUEST_ID_HEADER = 'x-request-id';
 
 // PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
@@ -203,24 +204,16 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// 🔧 REFACTOR: generateCSRFToken y cleanup movidos a utils/security.js
 // Cleanup expired CSRF tokens every 30 minutes
 setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [sid, data] of csrfTokenStore.entries()) {
-    if (data.createdAt < oneHourAgo) {
-      csrfTokenStore.delete(sid);
-    }
-  }
+  cleanupExpiredCSRFTokens();
 }, 30 * 60 * 1000);
-
-function generateCSRFToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
 
 // ========================================================
 // 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
 // ========================================================
-// validateCSRF está declarado más abajo (línea ~1054) con implementación completa
+// 🔧 REFACTOR: validateCSRF movida a utils/security.js
 
 function generateRequestId() {
   return `req-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
@@ -2375,52 +2368,7 @@ const app = express();
 //    - Security: Protección contra ataques CSRF
 //    - Todos los endpoints POST dependen de esta validación
 //
-// ========================================================
-// CSRF Validation Middleware
-// ========================================================
-function validateCSRF(req, res, next) {
-  // Skip validación para métodos seguros (GET, HEAD, OPTIONS)
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    return next();
-  }
-
-  const sessionId = req.sessionId;
-  const csrfToken = req.headers['x-csrf-token'] || req.body?.csrfToken;
-
-  // Si no hay sesión aún, permitir (será creada en /api/greeting)
-  if (!sessionId) {
-    return next();
-  }
-
-  const stored = csrfTokenStore.get(sessionId);
-
-  // Token inválido o no existe
-  if (!stored || stored.token !== csrfToken) {
-    console.warn(`[CSRF] REJECTED - Invalid or missing token:`);
-    console.warn(`  Session: ${sessionId}`);
-    console.warn(`  IP: ${req.ip}`);
-    console.warn(`  Method: ${req.method}`);
-    console.warn(`  Path: ${req.path}`);
-    console.warn(`  Provided Token: ${csrfToken ? csrfToken.substring(0, 10) + '...' : 'NONE'}`);
-    return res.status(403).json({
-      ok: false,
-      error: 'CSRF token inválido o expirado. Por favor recargá la página.'
-    });
-  }
-
-  // Token expirado (1 hora de vida)
-  if (Date.now() - stored.createdAt > 60 * 60 * 1000) {
-    csrfTokenStore.delete(sessionId);
-    console.warn(`[CSRF] REJECTED - Expired token: session=${sessionId}, age=${Math.floor((Date.now() - stored.createdAt) / 1000)}s`);
-    return res.status(403).json({
-      ok: false,
-      error: 'CSRF token expirado. Por favor recargá la página.'
-    });
-  }
-
-  // Token válido
-  next();
-}
+// 🔧 REFACTOR: validateCSRF movida a utils/security.js
 
 // NOTA: validateCSRF se aplicará selectivamente en endpoints sensibles
 // No se aplica globalmente para no bloquear /api/greeting inicial
@@ -4070,8 +4018,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     }
 
     // Generar CSRF token para esta sesión
-    const csrfToken = generateCSRFToken();
-    csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
+    const csrfToken = generateCSRFToken(sid);
 
     const fresh = {
       id: sid,

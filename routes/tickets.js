@@ -9,7 +9,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { maskPII } from '../flowLogger.js';
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from '../ticketing.js';
-import { validateCSRF } from '../server.js';
+import { validateCSRF } from '../utils/security.js';
 
 const router = express.Router();
 
