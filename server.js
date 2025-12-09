@@ -74,6 +74,11 @@ import {
 import { handleAskNameStage, extractName, isValidName, isValidHumanName, looksClearlyNotName, capitalizeToken, analyzeNameWithOA } from './handlers/nameHandler.js';
 import { handleAskLanguageStage } from './handlers/stageHandlers.js';
 import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE } from './handlers/stateMachine.js';
+import { handleBasicTestsStage } from './handlers/basicTestsHandler.js';
+import { handleEscalateStage } from './handlers/escalateHandler.js';
+import { handleAdvancedTestsStage } from './handlers/advancedTestsHandler.js';
+import { handleDeviceStage } from './handlers/deviceHandler.js';
+import ticketsRouter from './routes/tickets.js';
 
 // ========================================================
 // MÓDULOS INTERNOS - UTILS
@@ -3387,6 +3392,11 @@ app.get('/api/historial/:conversationId', async (req, res) => {
   }
 });
 
+// ========================================================
+// RUTAS MODULARES
+// ========================================================
+app.use('/', ticketsRouter);
+
 // Logs SSE and plain endpoints
 app.get('/api/logs/stream', async (req, res) => {
   try {
@@ -3826,550 +3836,9 @@ app.delete('/api/ticket/:tid', async (req, res) => {
   }
 });
 
-app.get('/api/ticket/:tid', async (req, res) => {
-  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
-
-  const jsonFile = path.join(TICKETS_DIR, `${tid}.json`);
-  const txtFile = path.join(TICKETS_DIR, `${tid}.txt`);
-
-  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
-  try {
-    await fs.promises.access(txtFile);
-  } catch (e) {
-    try {
-      await fs.promises.access(jsonFile);
-    } catch (e2) {
-      return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
-    }
-  }
-
-  // Tickets son completamente públicos - cualquiera con el ID puede verlos
-  console.log(`[TICKET] Public access granted: ticket=${tid}`);
-
-  const raw = await fs.promises.readFile(txtFile, 'utf8');
-  const maskedRaw = maskPII(raw);
-
-  // parse lines into messages
-  const lines = maskedRaw.split(/\r?\n/);
-  const messages = [];
-  for (const ln of lines) {
-    if (!ln || /^\s*$/.test(ln)) continue;
-    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
-    if (m) {
-      messages.push({ ts: m[1], who: String(m[2]).trim(), text: String(m[3]).trim() });
-    } else {
-      messages.push({ ts: null, who: 'system', text: ln.trim() });
-    }
-  }
-
-  // ✅ DETECTAR SI ES PETICIÓN DE NAVEGADOR (HTML) O API (JSON)
-  const acceptHeader = req.headers.accept || '';
-  const isBrowserRequest = acceptHeader.includes('text/html') || 
-                          (!acceptHeader.includes('application/json') && 
-                           req.headers['user-agent'] && 
-                           !req.headers['user-agent'].includes('curl') &&
-                           !req.headers['user-agent'].includes('Postman'));
-
-  // Si es petición de navegador, devolver HTML formateado
-  if (isBrowserRequest) {
-    // Extraer información del ticket
-    let ticketName = null;
-    let ticketDate = null;
-    let ticketDevice = null;
-    let ticketSession = null;
-    let ticketLanguage = null;
-    let ticketProblem = null;
-    let ticketSteps = null;
-    let inProblemSection = false;
-    let inStepsSection = false;
-    const stepsLines = [];
-
-    // Buscar información en las líneas del sistema
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.who === 'system') {
-        const text = msg.text;
-        
-        // Extraer información básica
-        if (text.includes('Cliente:')) {
-          ticketName = text.replace(/Cliente:\s*/i, '').trim();
-        } else if (text.includes('Generado:')) {
-          ticketDate = text.replace(/Generado:\s*/i, '').trim();
-        } else if (text.includes('Equipo:')) {
-          ticketDevice = text.replace(/Equipo:\s*/i, '').trim();
-        } else if (text.includes('Sesión:')) {
-          ticketSession = text.replace(/Sesión:\s*/i, '').trim();
-        } else if (text.includes('Idioma:')) {
-          ticketLanguage = text.replace(/Idioma:\s*/i, '').trim();
-        } 
-        // Detectar sección de problema
-        else if (text === '=== RESUMEN DEL PROBLEMA ===') {
-          inProblemSection = true;
-          inStepsSection = false;
-        } 
-        // Detectar sección de pasos
-        else if (text === '=== PASOS PROBADOS / ESTADO ===') {
-          inProblemSection = false;
-          inStepsSection = true;
-        }
-        // Detectar fin de secciones
-        else if (text === '=== HISTORIAL DE CONVERSACIÓN ===') {
-          inProblemSection = false;
-          inStepsSection = false;
-        }
-        // Capturar problema
-        else if (inProblemSection && !text.includes('===')) {
-          if (!ticketProblem && text.trim() && !text.includes('sin descripción')) {
-            ticketProblem = text.trim();
-          }
-        }
-        // Capturar pasos
-        else if (inStepsSection && !text.includes('===')) {
-          if (text.trim() && !text.includes('aún sin pasos') && !text.includes('no se pudieron')) {
-            stepsLines.push(text.trim());
-          }
-        }
-      }
-    }
-    
-    // Unir pasos si hay múltiples líneas
-    if (stepsLines.length > 0) {
-      ticketSteps = stepsLines.join('\n');
-    } else if (!ticketSteps) {
-      ticketSteps = '(aún sin pasos registrados)';
-    }
-
-    // Generar HTML del chat
-    const chatLines = messages.map(msg => {
-      if (msg.who === 'system') {
-        // Saltar líneas de metadata que ya se muestran arriba
-        if (msg.text.includes('STI • Ticket') || 
-            msg.text.includes('Generado:') || 
-            msg.text.includes('Cliente:') || 
-            msg.text.includes('Equipo:') || 
-            msg.text.includes('Sesión:') || 
-            msg.text.includes('Idioma:') ||
-            msg.text === '=== RESUMEN DEL PROBLEMA ===' ||
-            msg.text === '=== PASOS PROBADOS / ESTADO ===' ||
-            msg.text === '=== HISTORIAL DE CONVERSACIÓN ===' ||
-            msg.text === ticketProblem ||
-            msg.text === '(aún sin pasos registrados)') {
-          return '';
-        }
-        // Filtrar líneas de pasos que ya se muestran arriba
-        if (stepsLines.length > 0 && stepsLines.includes(msg.text.trim())) {
-          return '';
-        }
-        return `<div class="sys-msg">${escapeHtml(msg.text)}</div>`;
-      }
-      
-      const side = (msg.who === 'user' || msg.who === 'usuario' || msg.who.toLowerCase().includes('user')) ? 'user' : 'bot';
-      const whoLabel = side === 'user' ? 'Usuario' : 'Tecnos';
-      const ts = msg.ts ? `<div class="msg-ts">${escapeHtml(msg.ts)}</div>` : '';
-      
-      // Procesar texto para mostrar botones y emojis
-      let processedText = escapeHtml(msg.text);
-      // Detectar botones [BTN] texto
-      processedText = processedText.replace(/\[BTN\]\s*(.+?)(?=\n|$)/g, '<span class="btn-tag">🔘 $1</span>');
-      // Convertir markdown básico
-      processedText = processedText.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      processedText = processedText.replace(/\*(.+?)\*/g, '<em>$1</em>');
-      
-      return `<div class="msg-bubble ${side}">
-        <div class="msg-inner">
-          <div class="msg-who">${escapeHtml(whoLabel)}</div>
-          <div class="msg-text">${processedText}</div>
-          ${ts}
-        </div>
-      </div>`;
-    }).filter(html => html !== '').join('\n');
-
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ticket ${escapeHtml(tid)} - STI Tecnos</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      padding: 20px;
-      color: #333;
-    }
-    .ticket-container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-    .ticket-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 30px;
-    }
-    .ticket-header h1 {
-      font-size: 28px;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .ticket-header h1::before {
-      content: '🎫';
-      font-size: 32px;
-    }
-    .ticket-info {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin-top: 20px;
-    }
-    .info-item {
-      background: rgba(255,255,255,0.15);
-      padding: 12px 16px;
-      border-radius: 8px;
-      backdrop-filter: blur(10px);
-    }
-    .info-label {
-      font-size: 12px;
-      opacity: 0.9;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
-    }
-    .info-value {
-      font-size: 16px;
-      font-weight: 600;
-    }
-    .ticket-problem {
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
-      padding: 20px 30px;
-      margin: 0;
-    }
-    .ticket-problem h2 {
-      font-size: 18px;
-      color: #856404;
-      margin-bottom: 10px;
-    }
-    .ticket-problem .problem-text {
-      font-size: 16px;
-      color: #856404;
-      font-weight: 500;
-    }
-    .ticket-steps {
-      background: #e7f3ff;
-      border-left: 4px solid #2196F3;
-      padding: 20px 30px;
-      margin: 0;
-    }
-    .ticket-steps h2 {
-      font-size: 18px;
-      color: #0d47a1;
-      margin-bottom: 10px;
-    }
-    .ticket-steps .steps-text {
-      font-size: 14px;
-      color: #0d47a1;
-    }
-    .chat-section {
-      background: #f5f7fb;
-      padding: 30px;
-    }
-    .chat-section h2 {
-      font-size: 20px;
-      margin-bottom: 20px;
-      color: #333;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .chat-section h2::before {
-      content: '💬';
-      font-size: 24px;
-    }
-    .chat-messages {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      max-height: 600px;
-      overflow-y: auto;
-      padding: 10px;
-    }
-    .msg-bubble {
-      max-width: 75%;
-      display: flex;
-      animation: fadeIn 0.3s ease-in;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .msg-bubble.user {
-      align-self: flex-end;
-      justify-content: flex-end;
-    }
-    .msg-bubble.bot {
-      align-self: flex-start;
-      justify-content: flex-start;
-    }
-    .msg-inner {
-      padding: 12px 16px;
-      border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .msg-bubble.user .msg-inner {
-      background: #dcf8c6;
-      border-bottom-right-radius: 4px;
-    }
-    .msg-bubble.bot .msg-inner {
-      background: #ffffff;
-      border-bottom-left-radius: 4px;
-      border: 1px solid #e0e0e0;
-    }
-    .msg-who {
-      font-size: 12px;
-      font-weight: 700;
-      color: #666;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .msg-bubble.user .msg-who {
-      color: #075e54;
-    }
-    .msg-bubble.bot .msg-who {
-      color: #128c7e;
-    }
-    .msg-text {
-      font-size: 15px;
-      line-height: 1.5;
-      color: #111;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
-    .msg-text strong {
-      font-weight: 600;
-    }
-    .msg-text .btn-tag {
-      display: inline-block;
-      background: rgba(0,0,0,0.05);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 13px;
-      margin: 2px;
-    }
-    .msg-ts {
-      font-size: 11px;
-      color: #999;
-      margin-top: 6px;
-      text-align: right;
-    }
-    .sys-msg {
-      align-self: center;
-      background: transparent;
-      color: #999;
-      font-size: 13px;
-      font-style: italic;
-      padding: 8px;
-      text-align: center;
-    }
-    .ticket-footer {
-      background: #f8f9fa;
-      padding: 20px 30px;
-      text-align: center;
-      color: #666;
-      font-size: 14px;
-      border-top: 1px solid #e0e0e0;
-    }
-    .ticket-footer a {
-      color: #667eea;
-      text-decoration: none;
-      margin: 0 10px;
-    }
-    .ticket-footer a:hover {
-      text-decoration: underline;
-    }
-    @media (max-width: 768px) {
-      .ticket-info {
-        grid-template-columns: 1fr;
-      }
-      .msg-bubble {
-        max-width: 90%;
-      }
-      .ticket-header, .ticket-problem, .ticket-steps, .chat-section {
-        padding: 20px;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="ticket-container">
-    <div class="ticket-header">
-      <h1>Ticket ${escapeHtml(tid)}</h1>
-      <div class="ticket-info">
-        ${ticketName ? `<div class="info-item">
-          <div class="info-label">👤 Cliente</div>
-          <div class="info-value">${escapeHtml(ticketName)}</div>
-        </div>` : ''}
-        ${ticketDate ? `<div class="info-item">
-          <div class="info-label">📅 Fecha</div>
-          <div class="info-value">${escapeHtml(ticketDate)}</div>
-        </div>` : ''}
-        ${ticketDevice ? `<div class="info-item">
-          <div class="info-label">💻 Equipo</div>
-          <div class="info-value">${escapeHtml(ticketDevice)}</div>
-        </div>` : ''}
-        ${ticketSession ? `<div class="info-item">
-          <div class="info-label">🔑 Sesión</div>
-          <div class="info-value">${escapeHtml(ticketSession)}</div>
-        </div>` : ''}
-        ${ticketLanguage ? `<div class="info-item">
-          <div class="info-label">🌍 Idioma</div>
-          <div class="info-value">${escapeHtml(ticketLanguage)}</div>
-        </div>` : ''}
-      </div>
-    </div>
-    
-    ${ticketProblem ? `<div class="ticket-problem">
-      <h2>⚠️ Problema Reportado</h2>
-      <div class="problem-text">${escapeHtml(ticketProblem)}</div>
-    </div>` : ''}
-    
-    ${ticketSteps && ticketSteps !== '(aún sin pasos registrados)' ? `<div class="ticket-steps">
-      <h2>🔧 Pasos Probados</h2>
-      <div class="steps-text">${escapeHtml(ticketSteps).replace(/\n/g, '<br>')}</div>
-    </div>` : ''}
-    
-    <div class="chat-section">
-      <h2>Historial de Conversación</h2>
-      <div class="chat-messages">
-        ${chatLines}
-      </div>
-    </div>
-    
-    <div class="ticket-footer">
-      <a href="/api/ticket/${encodeURIComponent(tid)}?format=json" target="_blank">Ver JSON</a>
-      <span>•</span>
-      <a href="/ticket/${encodeURIComponent(tid)}" target="_blank">Vista Alternativa</a>
-    </div>
-  </div>
-</body>
-</html>`;
-
-    return res.send(html);
-  }
-
-  // Si es petición de API, devolver JSON
-  res.json({ ok: true, ticketId: tid, content: maskedRaw, messages });
-});
-
-// Pretty ticket view
-app.get('/ticket/:tid', async (req, res) => {
-  const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
-  const file = path.join(TICKETS_DIR, `${tid}.txt`);
-  // ✅ ALTA PRIORIDAD-1: Migrado a fs.promises para evitar bloqueo del event loop
-  try {
-    await fs.promises.access(file);
-  } catch (e) {
-    return res.status(404).send('ticket no encontrado');
-  }
-
-  const raw = await fs.promises.readFile(file, 'utf8');
-  const safeRaw = escapeHtml(raw);
-
-  const lines = raw.split(/\r?\n/);
-  const messages = [];
-  for (const ln of lines) {
-    if (!ln || /^\s*$/.test(ln)) continue;
-    const m = ln.match(/^\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
-    if (m) {
-      messages.push({ ts: m[1], who: String(m[2]).trim().toLowerCase(), text: String(m[3]).trim() });
-    } else {
-      messages.push({ ts: null, who: 'system', text: ln.trim() });
-    }
-  }
-
-  const chatLines = messages.map(msg => {
-    if (msg.who === 'system') {
-      return `<div class="sys">${escapeHtml(msg.text)}</div>`;
-    }
-    const side = (msg.who === 'user' || msg.who === 'usuario') ? 'user' : 'bot';
-    const whoLabel = side === 'user' ? 'Vos' : 'Tecnos';
-    const ts = msg.ts ? `<div class="ts">${escapeHtml(msg.ts)}</div>` : '';
-    return `<div class="bubble ${side}">
-      <div class="bubble-inner">
-        <div class="who">${escapeHtml(whoLabel)}</div>
-        <div class="txt">${escapeHtml(msg.text)}</div>
-        ${ts}
-      </div>
-    </div>`;
-  }).join('\n');
-
-  const html = `<!doctype html>
-  <html>
-    <head>
-      <meta charset="utf-8"/>
-      <meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Ticket ${escapeHtml(tid)} — Conversación</title>
-      <style>
-      :root{--bg:#f5f7fb;--bot:#ffffff;--user:#dcf8c6;--accent:#0b7cff;--muted:#777;}
-      body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:12px; background:var(--bg); color:#222;}
-      .controls{display:flex;gap:12px;align-items:center;margin-bottom:10px;}
-      .btn{background:var(--accent);color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;}
-      .chat-wrap{max-width:860px;margin:0 auto;background:transparent;padding:8px;}
-      .chat{background:transparent;padding:10px;display:flex;flex-direction:column;gap:10px;}
-      .bubble{max-width:78%;display:flex;}
-      .bubble.user{align-self:flex-end;justify-content:flex-end;}
-      .bubble.bot{align-self:flex-start;justify-content:flex-start;}
-      .bubble-inner{background:var(--bot);padding:10px 12px;border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,0.05);}
-      .bubble.user .bubble-inner{background:var(--user);border-radius:12px;}
-      .bubble .who{font-weight:700;font-size:13px;margin-bottom:6px;color:#111;}
-      .bubble .txt{white-space:pre-wrap;font-size:15px;line-height:1.3;color:#111;}
-      .bubble .ts{font-size:12px;color:var(--muted);margin-top:6px;text-align:right;}
-      .sys{align-self:center;background:transparent;color:var(--muted);font-size:13px;padding:6px 10px;border-radius:8px;}
-      pre{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:8px;white-space:pre-wrap;}
-      @media (max-width:640px){ .bubble{max-width:92%;} }
-      </style>
-    </head>
-    <body>
-      <div class="controls">
-        <label><input id="fmt" type="checkbox"/> Ver vista cruda</label>
-        <a class="btn" href="/api/ticket/${encodeURIComponent(tid)}" target="_blank" rel="noopener">Ver JSON (API)</a>
-      </div>
-
-      <div class="chat-wrap">
-        <div class="chat" id="chatContent">
-          ${chatLines}
-        </div>
-
-        <div id="rawView" style="display:none;margin-top:12px;">
-          <pre>${safeRaw}</pre>
-        </div>
-      </div>
-
-      <script>
-        (function(){
-          const chk = document.getElementById('fmt');
-          const chat = document.getElementById('chatContent');
-          const raw = document.getElementById('rawView');
-          chk.addEventListener('change', ()=> {
-            if (chk.checked) { chat.style.display='none'; raw.style.display='block'; }
-            else { chat.style.display='flex'; raw.style.display='none'; }
-          });
-        })();
-      </script>
-    </body>
-  </html>`;
-
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
-});
+// ✅ RUTAS MOVIDAS A routes/tickets.js
+// app.get('/api/ticket/:tid', ...) - Ahora manejado por ticketsRouter
+// app.get('/ticket/:tid', ...) - Ahora manejado por ticketsRouter
 
 // Reset session
 app.post('/api/reset', async (req, res) => {
@@ -7561,75 +7030,14 @@ La guía debe ser:
       }
 
     } else if (session.stage === STATES.ASK_DEVICE) {
-      // Fallback handler for ASK_DEVICE
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      if (!buttonToken || !/^BTN_DEV_/.test(buttonToken)) {
-        const replyText = isEn
-          ? 'Please choose one of the options using the buttons I showed you.'
-          : (locale === 'es-419'
-            ? 'Por favor, elige una de las opciones con los botones que te mostré.'
-            : 'Por favor, elegí una de las opciones con los botones que te mostré.');
-        session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
-        return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
-      }
-
-      // If user clicked a device token
-      if (buttonToken && /^BTN_DEV_/.test(buttonToken)) {
-        const deviceMap = {
-          BTN_DEV_PC_DESKTOP: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' },
-          BTN_DEV_PC_ALLINONE: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' },
-          BTN_DEV_NOTEBOOK: { device: 'notebook', pcType: null, label: 'Notebook' }
-        };
-        const devCfg = deviceMap[buttonToken];
-        if (devCfg) {
-          session.device = devCfg.device;
-          if (devCfg.pcType) session.pcType = devCfg.pcType;
-          session.pendingDeviceGroup = null;
-
-          // IMPORTANT: do not re-ask the problem; proceed to generate steps using existing session.problem
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          if (!session.problem || String(session.problem || '').trim() === '') {
-            changeStage(session, STATES.ASK_PROBLEM);
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-            const replyText = isEn
-              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. Tell me, what problem does it have?`
-              : (locale === 'es-419'
-                ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Cuéntame, ¿qué problema presenta?`
-                : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Contame, ¿qué problema presenta?`);
-            session.transcript.push({ who: 'bot', text: replyText, ts: nowIso() });
-            await saveSessionAndTranscript(sid, session);
-            return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: [] }));
-          } else {
-            // Provide short confirmation then show steps
-            changeStage(session, STATES.ASK_PROBLEM);
-            const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-            const replyIntro = isEn
-              ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
-              : (locale === 'es-419'
-                ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
-                : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
-            const ts = nowIso();
-            session.transcript.push({ who: 'bot', text: replyIntro, ts });
-            await saveSessionAndTranscript(sid, session);
-            // proceed to generate steps
-            return await generateAndShowSteps(session, sid, res);
-          }
-        }
-      }
-
-      const fallbackMsg = isEn
-        ? 'I don\'t recognize that option. Please choose using the buttons.'
-        : (locale === 'es-419'
-          ? 'No reconozco esa opción. Elige por favor usando los botones.'
-          : 'No reconozco esa opción. Elegí por favor usando los botones.');
-      session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-      const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'];
-      return res.json(withOptions({ ok: true, reply: fallbackMsg, stage: session.stage, options: buildUiButtonsFromTokens(optionTokens, locale) }));
+      // Delegar al handler especializado
+      const deps = {
+        buildUiButtonsFromTokens,
+        saveSessionAndTranscript,
+        generateAndShowSteps,
+        capitalizeToken
+      };
+      return await handleDeviceStage(session, sid, res, t, buttonToken, deps);
 
       // ========================================================
       // 🎯 HANDLER: CONFIRM_DEVICE (Alta confianza - Confirmar dispositivo)
@@ -7784,196 +7192,32 @@ La guía debe ser:
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
 
     } else if (session.stage === STATES.BASIC_TESTS) {
-      // ✅ CRÍTICO: Si estamos en BASIC_TESTS pero no hay pasos generados, generarlos automáticamente
-      if ((!session.tests || !session.tests.basic || session.tests.basic.length === 0) && 
-          (!session.basicTests || session.basicTests.length === 0)) {
-        console.log('[BASIC_TESTS] ⚠️ No hay pasos generados - generando automáticamente...');
-        return await generateAndShowSteps(session, sid, res);
-      }
-      
-      // 1. Manejo de "Volver a los pasos"
-      if (buttonToken === 'BTN_BACK_TO_STEPS') {
-        return await generateAndShowSteps(session, sid, res);
-      }
-
-      // 2. Manejo de Ayuda por Paso (BTN_HELP_STEP_X)
-      if (buttonToken && buttonToken.startsWith('BTN_HELP_STEP_')) {
-        const stepIdx = parseInt(buttonToken.replace('BTN_HELP_STEP_', ''), 10);
-        const stepText = session.basicTests[stepIdx];
-
-        if (stepText) {
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-
-          // Generar explicación con IA
-          let explanation = '';
-          try {
-            explanation = await explainStepWithAI(stepText, stepIdx + 1, session.deviceLabel, session.problem, locale);
-          } catch (err) {
-            console.error('[BASIC_TESTS] Error generating help:', err);
-            explanation = isEn
-              ? "I couldn't generate a detailed explanation, but try to follow the step as best as you can."
-              : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.";
-          }
-
-          const reply = isEn
-            ? `**Help for Step ${stepIdx + 1}:**\n\n${explanation}`
-            : `**Ayuda para el Paso ${stepIdx + 1}:**\n\n${explanation}`;
-
-          const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
-          const backButton = {
-            token: 'BTN_BACK_TO_STEPS',
-            label: isEn 
-              ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
-              : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
-            text: isEn 
-              ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
-              : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
-          };
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage }, [backButton]));
-        }
-      }
-
-      const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
-      if (rxDontKnow.test(t)) {
-        const result = await handleDontUnderstand(session, sid, t);
-        return res.json(withOptions(result));
-      }
-
-      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
-      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌|BTN_PERSIST)\b/i;
-      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico|BTN_CONNECT_TECH)\b/i;
-      const rxAdvanced = /^\s*(pruebas avanzadas|más pruebas|BTN_ADVANCED_TESTS|BTN_MORE_TESTS)\b/i;
-      const rxShowSteps = /^\s*(volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)\b/i;
-
-      if (rxShowSteps.test(t)) {
-        return await generateAndShowSteps(session, sid, res);
-      }
-
-      // FIX: Atajo directo desde BASIC_TESTS a pruebas avanzadas
-      if (rxAdvanced.test(t) || buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
-        try {
-          const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          const device = session.device || '';
-          let aiSteps = [];
-          try {
-            aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []);
-          } catch (e) { aiSteps = []; }
-          let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
-
-          // Filtrar resultados avanzados que ya estén en pasos básicos
-          session.tests = session.tests || {};
-          const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
-          const basicSet = new Set((basicList || []).map(normalizeStepText));
-          limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
-          limited = limited.slice(0, 4);
-
-          if (!limited || limited.length === 0) {
-            const noMore = isEn
-              ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
-              : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
-            changeStage(session, STATES.ESCALATE);
-            session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
-            await saveSessionAndTranscript(sid, session);
-            return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
-          }
-
-          session.tests.advanced = limited;
-          session.stepProgress = session.stepProgress || {};
-          limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
-
-          const help = isEn
-            ? `💡 Try these more specific tests. If they don't work, I'll connect you with a technician.`
-            : `💡 Probá estas pruebas más específicas. Si no funcionan, te conecto con un técnico.`;
-
-          const formattedSteps = enumerateSteps(limited);
-          const stepBlock = formattedSteps.join('\n\n');
-          reply = `${help}\n\n**🔬 PRUEBAS AVANZADAS:**\n${stepBlock}\n\n`;
-
-          const prompt = isEn
-            ? `Did any of these tests solve the problem?`
-            : `¿Alguna de estas pruebas solucionó el problema?`;
-          reply += prompt;
-
-          changeStage(session, STATES.ADVANCED_TESTS);
-          options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
-
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-        } catch (err) {
-          console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
-          changeStage(session, STATES.ESCALATE);
-          await saveSessionAndTranscript(sid, session);
-          return await createTicketAndRespond(session, sid, res);
-        }
-      }
-
-      if (rxYes.test(t) || buttonToken === 'BTN_SOLVED') {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-        const empatia = addEmpatheticResponse('ENDED', locale);
-        const firstLine = whoLabel
-          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
-          : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
-
-        reply = isEn
-          ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-          : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
-
-        changeStage(session, STATES.ENDED);
-        session.waEligible = false;
-        options = [];
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-
-      } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const empatia = addEmpatheticResponse('ESCALATE', locale);
-        // Custom message
-        reply = isEn
-          ? `💡 I understand. ${empatia} What would you like to do?`
-          : `💡 Entiendo. ${empatia} ¿Querés que te ayude con algo más?`;
-        // Custom buttons (usar una sola opción para solicitar pruebas avanzadas)
-        options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
-        changeStage(session, STATES.ESCALATE);
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-      } else if (rxTech.test(t)) {
-        return await createTicketAndRespond(session, sid, res);
-      } else {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        reply = isEn
-          ? `I didn't understand. Please choose an option from the buttons.`
-          : (locale === 'es-419'
-            ? `No te entendí. Por favor elegí una opción de los botones.`
-            : `No te entendí. Por favor elegí una opción de los botones.`);
-        // Re-enviar botones originales si no entiende
-        return await generateAndShowSteps(session, sid, res);
-      }
+      // Delegar al handler especializado
+      const deps = {
+        generateAndShowSteps,
+        explainStepWithAI,
+        handleDontUnderstand,
+        createTicketAndRespond,
+        aiQuickTests,
+        buildUiButtonsFromTokens,
+        addEmpatheticResponse,
+        saveSessionAndTranscript,
+        capitalizeToken,
+        emojiForIndex
+      };
+      return await handleBasicTestsStage(session, sid, res, t, buttonToken, deps);
     } else if (session.stage === STATES.ESCALATE) {
-      // ✅ CORRECCIÓN: En ESCALATE, cualquier confirmación o solicitud de técnico debe ejecutar inmediatamente
-      // NO volver a diagnóstico ni hacer más preguntas
-      const confirmRx = /^\s*(sí|si|ok|dale|perfecto|bueno|vamos|adelante|claro|por supuesto|yes|okay|sure|alright|hacelo|hazlo|quiero|necesito|dame)\s*(hablar|conectar|técnico|tecnico)?\s*$/i;
-      const techRequestRx = /^\s*(conectar|hablar|técnico|tecnico|quiero hablar|necesito hablar|dame un técnico|dame un tecnico)\s*$/i;
-      const isOpt2 = /^\s*(?:2\b|2️⃣\b|dos|conectar con t[eé]cnico|conectar con tecnico)/i.test(t) || buttonToken === 'BTN_CONNECT_TECH' || buttonToken === 'BTN_WHATSAPP_TECNICO';
-      
-      // Si confirma o pide técnico, ejecutar inmediatamente
-      if (confirmRx.test(t) || techRequestRx.test(t) || isOpt2) {
-        console.log('[ESCALATE] ✅ Confirmación detectada - ejecutando escalado inmediatamente');
-        return await createTicketAndRespond(session, sid, res);
-      }
+      // Delegar al handler especializado
+      const deps = {
+        createTicketAndRespond,
+        aiQuickTests,
+        buildUiButtonsFromTokens,
+        addEmpatheticResponse,
+        saveSessionAndTranscript,
+        capitalizeToken,
+        emojiForIndex
+      };
+      return await handleEscalateStage(session, sid, res, t, buttonToken, deps);
       
       const opt1 = /^\s*(?:1\b|1️⃣\b|uno|mas pruebas|más pruebas|pruebas avanzadas)/i;
       const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS';
@@ -8079,83 +7323,17 @@ La guía debe ser:
         options = [whatsappButton];
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
-      // 1. Manejo de "Volver a los pasos"
-      if (buttonToken === 'BTN_BACK_TO_STEPS') {
-        const result = handleShowSteps(session, 'advanced');
-        if (result.error) {
-          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
-        }
-        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
-      }
-
-      const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
-      if (rxDontKnowAdv.test(t)) {
-        const result = await handleDontUnderstand(session, sid, t);
-        return res.json(withOptions(result));
-      }
-
-      const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️)/i;
-      const rxNo = /^\s*(no|n|el problema persiste|persiste|el problema persiste ❌)/i;
-      const rxTech = /^\s*(conectar con t[eé]cnico|conectar con tecnico|conectar con t[eé]cnico)$/i;
-      const rxShowSteps = /^\s*(volver a los pasos avanzados|volver a los pasos|volver a mostrar los pasos|volver a mostrar|mostrar pasos|⏪)/i;
-
-      if (rxShowSteps.test(t)) {
-        const result = handleShowSteps(session, 'advanced');
-        if (result.error) {
-          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-          await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
-        }
-        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
-      }
-
-      if (rxYes.test(t)) {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const idx = session.lastHelpStep;
-        if (typeof idx === 'number' && idx >= 1) {
-          session.stepProgress = session.stepProgress || {};
-          session.stepProgress[`adv_${idx}`] = 'done';
-          await saveSessionAndTranscript(sid, session);
-        }
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
-        const empatia = addEmpatheticResponse('ENDED', locale);
-        const firstLine = whoLabel
-          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
-          : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
-        reply = isEn
-          ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-          : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
-        changeStage(session, STATES.ENDED);
-        session.waEligible = false;
-        options = [];
-      } else if (rxNo.test(t)) {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        const empatia = addEmpatheticResponse('ESCALATE', locale);
-        reply = isEn
-          ? `I understand. ${empatia} Do you want me to connect you with a technician to look into it more deeply?`
-          : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
-        options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
-        changeStage(session, STATES.ESCALATE);
-      } else if (rxTech.test(t)) {
-        return await createTicketAndRespond(session, sid, res);
-      } else {
-        const locale = session.userLocale || 'es-AR';
-        const isEn = String(locale).toLowerCase().startsWith('en');
-        reply = isEn
-          ? `I didn't understand. You can say "I solved it" or "The problem persists", or ask to connect with a technician.`
-          : (locale === 'es-419'
-            ? `No te entendí. Puedes decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`
-            : `No te entendí. Podés decir "Lo pude solucionar" o "El problema persiste", o pedir conectar con técnico.`);
-        options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH']);
-      }
+      // Delegar al handler especializado
+      const deps = {
+        handleShowSteps,
+        handleDontUnderstand,
+        createTicketAndRespond,
+        buildUiButtonsFromTokens,
+        addEmpatheticResponse,
+        saveSessionAndTranscript,
+        capitalizeToken
+      };
+      return await handleAdvancedTestsStage(session, sid, res, t, buttonToken, deps);
     } else {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
