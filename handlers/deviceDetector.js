@@ -7,14 +7,15 @@
  * Detecta el tipo de dispositivo de forma inteligente
  * @param {string} userMessage - Mensaje del usuario
  * @param {Object} session - Sesión actual
- * @returns {Object} - { device: string|null, isExplicit: boolean, isAmbiguous: boolean, reason: string }
+ * @returns {Object} - { device: string|null, isExplicit: boolean, isAmbiguous: boolean, reason: string, originalWord: string }
  */
 export function detectDeviceIntelligently(userMessage, session = {}) {
   if (!userMessage || typeof userMessage !== 'string') {
-    return { device: null, isExplicit: false, isAmbiguous: false, reason: 'empty_message' };
+    return { device: null, isExplicit: false, isAmbiguous: false, reason: 'empty_message', originalWord: null };
   }
 
   const text = userMessage.toLowerCase().trim();
+  const originalText = userMessage.trim(); // Conservar original para extraer palabra exacta
   
   // Si ya hay un dispositivo detectado, no volver a preguntar
   if (session.device && ['desktop', 'notebook', 'all-in-one', 'tablet', 'printer', 'router', 'mobile'].includes(session.device)) {
@@ -22,7 +23,8 @@ export function detectDeviceIntelligently(userMessage, session = {}) {
       device: session.device, 
       isExplicit: true, 
       isAmbiguous: false, 
-      reason: 'already_detected' 
+      reason: 'already_detected',
+      originalWord: null
     };
   }
 
@@ -62,7 +64,8 @@ export function detectDeviceIntelligently(userMessage, session = {}) {
           device: deviceType, 
           isExplicit: true, 
           isAmbiguous: false, 
-          reason: `explicit_${deviceType}` 
+          reason: `explicit_${deviceType}`,
+          originalWord: null
         };
       }
     }
@@ -108,45 +111,52 @@ export function detectDeviceIntelligently(userMessage, session = {}) {
           device: deviceType, 
           isExplicit: false, 
           isAmbiguous: false, 
-          reason: `indirect_clue_${deviceType}` 
+          reason: `indirect_clue_${deviceType}`,
+          originalWord: null
         };
       }
     }
   }
 
   // 3. TÉRMINOS AMBIGUOS - Requieren aclaración
-  const ambiguousTerms = [
-    /\bcompu\b/i,
-    /\bcomputadora\b/i,
-    /\bcomputador\b/i,
-    /\bordenador\b/i,
-    /\bmi\s+m[áa]quina\b/i,
-    /\bel\s+equipo\b/i,
-    /\bmi\s+equipo\b/i,
-    /\bel\s+dispositivo\b/i,
-    /\bmi\s+dispositivo\b/i,
+  // Mapeo de patrones a palabras originales para extraer la palabra exacta
+  const ambiguousTermsMap = [
+    { pattern: /\bcompu\b/i, word: 'compu' },
+    { pattern: /\bcomputadora\b/i, word: 'computadora' },
+    { pattern: /\bcomputador\b/i, word: 'computador' },
+    { pattern: /\bordenador\b/i, word: 'ordenador' },
+    { pattern: /\bmi\s+m[áa]quina\b/i, word: 'máquina' },
+    { pattern: /\bel\s+equipo\b/i, word: 'equipo' },
+    { pattern: /\bmi\s+equipo\b/i, word: 'equipo' },
+    { pattern: /\bel\s+dispositivo\b/i, word: 'dispositivo' },
+    { pattern: /\bmi\s+dispositivo\b/i, word: 'dispositivo' },
     // "pc" solo cuando no está acompañado de especificaciones
-    /\b^pc\b/i,
-    /\b\spc\s/i,
-    /\b\spc[.,!?]?\s*$/i,
-    /\bmi\s+pc\b/i,
-    /\bla\s+pc\b/i,
-    /\bel\s+pc\b/i
+    { pattern: /\b^pc\b/i, word: 'pc' },
+    { pattern: /\b\spc\s/i, word: 'pc' },
+    { pattern: /\b\spc[.,!?]?\s*$/i, word: 'pc' },
+    { pattern: /\bmi\s+pc\b/i, word: 'pc' },
+    { pattern: /\bla\s+pc\b/i, word: 'pc' },
+    { pattern: /\bel\s+pc\b/i, word: 'pc' }
   ];
 
-  // Verificar si contiene términos ambiguos
-  for (const pattern of ambiguousTerms) {
-    if (pattern.test(text)) {
+  // Verificar si contiene términos ambiguos y extraer la palabra original
+  for (const { pattern, word } of ambiguousTermsMap) {
+    if (pattern.test(originalText)) {
       // Verificar que NO tenga especificaciones que lo hagan explícito
       const hasExplicitSpec = 
         /\b(notebook|laptop|portátil|portatil|escritorio|desktop|torre|all\s+in\s+one|todo\s+en\s+uno)\b/i.test(text);
       
       if (!hasExplicitSpec) {
+        // Extraer la palabra exacta del texto original (preservar mayúsculas/minúsculas)
+        const match = originalText.match(pattern);
+        const originalWord = match ? match[0].trim() : word;
+        
         return { 
           device: null, 
           isExplicit: false, 
           isAmbiguous: true, 
-          reason: 'ambiguous_term' 
+          reason: 'ambiguous_term',
+          originalWord: originalWord
         };
       }
     }
@@ -182,11 +192,14 @@ export function detectDeviceIntelligently(userMessage, session = {}) {
     
     // Si solo dice "pc" sin más contexto, es ambiguo
     if (/^pc[.,!?]?\s*$/i.test(text.trim()) || /\bmi\s+pc\b/i.test(text) || /\bla\s+pc\b/i.test(text) || /\bel\s+pc\b/i.test(text)) {
+      const match = originalText.match(/\bpc\b/i);
+      const originalWord = match ? match[0] : 'pc';
       return { 
         device: null, 
         isExplicit: false, 
         isAmbiguous: true, 
-        reason: 'pc_without_context' 
+        reason: 'pc_without_context',
+        originalWord: originalWord
       };
     }
   }
@@ -196,7 +209,8 @@ export function detectDeviceIntelligently(userMessage, session = {}) {
     device: null, 
     isExplicit: false, 
     isAmbiguous: false, 
-    reason: 'not_detected' 
+    reason: 'not_detected',
+    originalWord: null
   };
 }
 
@@ -244,16 +258,45 @@ export function getDeviceVocabulary(deviceType, locale = 'es-AR') {
 
 /**
  * Genera el mensaje de aclaración cuando el término es ambiguo
+ * @param {string} originalWord - Palabra original que usó el usuario (ej: "compu", "computadora", "pc")
  * @param {string} locale - Idioma
  * @returns {string} - Mensaje de aclaración
  */
-export function getAmbiguousDeviceMessage(locale = 'es-AR') {
+export function getAmbiguousDeviceMessage(originalWord, locale = 'es-AR') {
   const isEn = locale.toLowerCase().startsWith('en');
   
   if (isEn) {
-    return "When you say \"computer\", do you mean a desktop PC, a notebook, or an all-in-one? This will help me guide you better. 💻🖥️";
+    return `When you say "${originalWord}", do you mean a desktop PC, a notebook, or an all-in-one? This will help me guide you better. 💻🖥️`;
   }
   
-  return "Cuando me decís compu/computadora, ¿es una PC de escritorio, una notebook o una all-in-one? Así te guío mejor. 💻🖥️";
+  // Usar exactamente la palabra que usó el usuario
+  return `Cuando me decís ${originalWord}, ¿es una PC de escritorio, una notebook o una all-in-one? Así te guío mejor. 💻🖥️`;
+}
+
+/**
+ * Genera los botones de opción para seleccionar el tipo de dispositivo
+ * @param {string} locale - Idioma
+ * @returns {Array} - Array de botones con opciones
+ */
+export function getDeviceSelectionButtons(locale = 'es-AR') {
+  const isEn = locale.toLowerCase().startsWith('en');
+  
+  return [
+    {
+      text: isEn ? 'Desktop PC' : 'PC de escritorio',
+      value: 'BTN_DEVICE_DESKTOP',
+      description: isEn ? 'Desktop computer' : 'Computadora de escritorio'
+    },
+    {
+      text: isEn ? 'Notebook' : 'Notebook',
+      value: 'BTN_DEVICE_NOTEBOOK',
+      description: isEn ? 'Laptop computer' : 'Computadora portátil'
+    },
+    {
+      text: isEn ? 'All in one' : 'All in one',
+      value: 'BTN_DEVICE_ALLINONE',
+      description: isEn ? 'All-in-one computer' : 'Computadora todo en uno'
+    }
+  ];
 }
 

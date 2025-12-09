@@ -146,29 +146,122 @@ function removeGreetingsAndFiller(text) {
     /^buenas\s+gente\s*,?\s*/i,
     /^saludos?\s*,?\s*/i,
     /^saludo\s*,?\s*/i,
+    /^hi\s*,?\s*/i,
+    /^hello\s*,?\s*/i,
+    /^hey\s*,?\s*/i,
+    /^buen\s+d[ií]a\s+te\s+digo\s*,?\s*/i,
+    /^buenas\s+tardes\s+te\s+digo\s*,?\s*/i,
     
     // Expresiones de presentación
     /^soy\s+/i,
     /^yo\s+soy\s+/i,
     /^mi\s+nombre\s+es\s+/i,
+    /^mi\s+nombre\s+es\s+el\s+/i,
     /^me\s+llamo\s+/i,
+    /^me\s+llaman\s+/i,
+    /^me\s+dicen\s+/i,
+    /^me\s+dicen\s+que\s+/i,
+    /^me\s+llaman\s+que\s+/i,
+    /^puedes\s+llamarme\s+/i,
+    /^puede\s+llamarme\s+/i,
+    /^llamame\s+/i,
+    /^ll[áa]mame\s+/i,
+    /^me\s+puedes\s+llamar\s+/i,
+    /^me\s+puede\s+llamar\s+/i,
+    /^puedo\s+presentarme\s+como\s+/i,
+    /^me\s+presento\s+como\s+/i,
+    /^me\s+presento\s+/i,
+    /^te\s+presento\s+mi\s+nombre\s+es\s+/i,
+    /^mi\s+nombre\s+completo\s+es\s+/i,
     /^el\s+que\s+te\s+escribi[óo]\s*,?\s*/i,
     /^el\s+que\s+te\s+escribi[óo]\s+por\s+whatsapp\s*,?\s*/i,
+    /^el\s+que\s+te\s+habla\s+es\s+/i,
+    /^el\s+que\s+te\s+habla\s+se\s+llama\s+/i,
     /^ac[áa]\s+/i,
+    /^ac[áa]\s+estoy\s+/i,
     /^quien\s+te\s+habla\s+es\s+/i,
-    /^quien\s+te\s+habla\s+es\s+/i,
+    /^quien\s+te\s+escribe\s+es\s+/i,
+    /^quien\s+te\s+escribe\s+se\s+llama\s+/i,
     /^te\s+escribe\s+/i,
     /^te\s+hablo\s+/i,
+    /^te\s+habla\s+/i,
     /^con\s+/i, // "con juan" -> "juan"
+    /^es\s+/i, // "es juan" -> "juan"
+    /^es\s+el\s+/i,
+    /^es\s+la\s+/i,
+    /^es\s+un\s+/i,
+    /^es\s+una\s+/i,
+    /^s[oó]lo\s+soy\s+/i,
+    /^nada\s+m[áa]s\s+soy\s+/i,
+    /^simplemente\s+soy\s+/i,
+    /^tan\s+solo\s+soy\s+/i,
+    /^el\s+nombre\s+es\s+/i,
+    /^mi\s+nombre\s+es\s+el\s+/i,
+    /^el\s+nombre\s+que\s+uso\s+es\s+/i,
+    /^el\s+nombre\s+con\s+el\s+que\s+me\s+conocen\s+es\s+/i,
+    /^mi\s+apodo\s+es\s+/i,
+    /^mi\s+apodo\s+es\s+el\s+/i,
+    /^me\s+conocen\s+como\s+/i,
+    /^me\s+conocen\s+por\s+/i,
+    /^puedes\s+decirme\s+/i,
+    /^puede\s+decirme\s+/i,
+    /^y[oó]\s+soy\s+/i,
+    /^y[oó]\s+me\s+llamo\s+/i,
+    /^y[oó]\s+me\s+dicen\s+/i,
+    /^y[oó]\s+me\s+llaman\s+/i,
+    /^y[oó]\s+mi\s+nombre\s+es\s+/i,
+    /^aqu[ií]\s+soy\s+/i,
+    /^aqu[ií]\s+me\s+llamo\s+/i,
+    /^aqu[ií]\s+me\s+dicen\s+/i,
+    /^aqu[ií]\s+estoy\s+/i,
     
-    // Combinaciones comunes
+    // Combinaciones comunes con saludos
     /^hola\s*,?\s*soy\s+/i,
+    /^hola\s*,?\s*yo\s+soy\s+/i,
     /^hola\s*,?\s*mi\s+nombre\s+es\s+/i,
     /^hola\s*,?\s*me\s+llamo\s+/i,
+    /^hola\s*,?\s*me\s+dicen\s+/i,
+    /^hola\s*,?\s*me\s+llaman\s+/i,
+    /^hola\s*,?\s*me\s+llaman\s+que\s+/i,
+    /^hola\s*,?\s*puedes\s+llamarme\s+/i,
+    /^hola\s*,?\s*llamame\s+/i,
+    /^hola\s*,?\s*ac[áa]\s+/i,
+    /^hola\s*,?\s*con\s+/i,
+    /^hola\s*,?\s*es\s+/i,
+    /^hola\s*,?\s*quien\s+te\s+habla\s+es\s+/i,
+    /^hola\s*,?\s*el\s+que\s+te\s+habla\s+es\s+/i,
+    
     /^buenas\s*,?\s*soy\s+/i,
+    /^buenas\s*,?\s*yo\s+soy\s+/i,
     /^buenas\s*,?\s*mi\s+nombre\s+es\s+/i,
+    /^buenas\s*,?\s*me\s+llamo\s+/i,
+    /^buenas\s*,?\s*me\s+dicen\s+/i,
+    /^buenas\s*,?\s*me\s+llaman\s+/i,
+    /^buenas\s*,?\s*ac[áa]\s+/i,
+    /^buenas\s*,?\s*con\s+/i,
+    /^buenas\s*,?\s*quien\s+te\s+habla\s+es\s+/i,
+    
+    /^buen\s+d[ií]a\s*,?\s*soy\s+/i,
+    /^buen\s+d[ií]a\s*,?\s*me\s+llamo\s+/i,
+    /^buen\s+d[ií]a\s*,?\s*me\s+dicen\s+/i,
+    /^buenos\s+d[ií]as\s*,?\s*soy\s+/i,
+    /^buenos\s+d[ií]as\s*,?\s*me\s+llamo\s+/i,
+    
     /^qu[ée]\s+tal\s*,?\s*soy\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*yo\s+soy\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*me\s+llamo\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*me\s+dicen\s+/i,
     /^qu[ée]\s+tal\s*,?\s*ac[áa]\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*con\s+/i,
+    /^qu[ée]\s+tal\s*,?\s*mi\s+nombre\s+es\s+/i,
+    
+    /^como\s+va\s*,?\s*soy\s+/i,
+    /^como\s+va\s*,?\s*me\s+llamo\s+/i,
+    /^c[óo]mo\s+va\s*,?\s*soy\s+/i,
+    /^c[óo]mo\s+va\s*,?\s*me\s+llamo\s+/i,
+    
+    /^todo\s+bien\s*,?\s*soy\s+/i,
+    /^todo\s+bien\s*,?\s*me\s+llamo\s+/i,
   ];
   
   // Aplicar cada patrón de eliminación
@@ -225,10 +318,16 @@ export function extractName(text) {
   }
   
   // 4. EXTRAER CANDIDATO A NOMBRE
-  // Buscar patrones: "me llamo X", "soy X", "mi nombre es X", o simplemente "X"
+  // Buscar patrones: "me llamo X", "soy X", "mi nombre es X", "me dicen X", "me llaman X", "puedes llamarme X", o simplemente "X"
   const patterns = [
-    /\b(?:me\s+llamo|soy|mi\s+nombre\s+es|me\s+presento\s+como)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
-    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i
+    // Patrones con expresiones de presentación
+    /\b(?:me\s+llamo|soy|yo\s+soy|mi\s+nombre\s+es|mi\s+nombre\s+es\s+el|me\s+presento\s+como|me\s+dicen|me\s+llaman|me\s+llaman\s+que|me\s+dicen\s+que|puedes\s+llamarme|puede\s+llamarme|llamame|ll[áa]mame|me\s+puedes\s+llamar|me\s+puede\s+llamar|puedo\s+presentarme\s+como|me\s+presento|te\s+presento\s+mi\s+nombre\s+es|mi\s+nombre\s+completo\s+es|el\s+que\s+te\s+habla\s+es|el\s+que\s+te\s+habla\s+se\s+llama|quien\s+te\s+habla\s+es|quien\s+te\s+escribe\s+es|quien\s+te\s+escribe\s+se\s+llama|te\s+habla|te\s+hablo|te\s+escribe|el\s+nombre\s+es|el\s+nombre\s+que\s+uso\s+es|el\s+nombre\s+con\s+el\s+que\s+me\s+conocen\s+es|mi\s+apodo\s+es|mi\s+apodo\s+es\s+el|me\s+conocen\s+como|me\s+conocen\s+por|puedes\s+decirme|puede\s+decirme|y[oó]\s+soy|y[oó]\s+me\s+llamo|y[oó]\s+me\s+dicen|y[oó]\s+me\s+llaman|y[oó]\s+mi\s+nombre\s+es|aqu[ií]\s+soy|aqu[ií]\s+me\s+llamo|aqu[ií]\s+me\s+dicen)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
+    // Patrón simple: solo el nombre
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
+    // Patrón con "es" o "con" al inicio
+    /^(?:es|con|el|la|un|una)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i,
+    // Patrón con "solo soy" o "simplemente soy"
+    /\b(?:s[oó]lo\s+soy|nada\s+m[áa]s\s+soy|simplemente\s+soy|tan\s+solo\s+soy)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ''\-\s]{2,60})$/i
   ];
   
   let candidate = null;

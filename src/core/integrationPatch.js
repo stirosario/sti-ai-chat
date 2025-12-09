@@ -27,7 +27,8 @@ import {
 import {
   detectDeviceIntelligently,
   getDeviceVocabulary,
-  getAmbiguousDeviceMessage
+  getAmbiguousDeviceMessage,
+  getDeviceSelectionButtons
 } from '../../handlers/deviceDetector.js';
 
 let intelligentModeEnabled = false;
@@ -78,6 +79,55 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
   if (!intelligentModeEnabled) {
     console.log('[IntelligentSystem] ⏭️ Modo inteligente desactivado - usando legacy');
     return null; // Usar lógica legacy
+  }
+
+  // ✅ MANEJO DE BOTONES DE SELECCIÓN DE DISPOSITIVO
+  if (buttonToken && (buttonToken === 'BTN_DEVICE_DESKTOP' || buttonToken === 'BTN_DEVICE_NOTEBOOK' || buttonToken === 'BTN_DEVICE_ALLINONE')) {
+    const locale = session.userLocale || 'es-AR';
+    
+    if (buttonToken === 'BTN_DEVICE_DESKTOP') {
+      session.device = 'desktop';
+      const vocab = getDeviceVocabulary('desktop', locale);
+      session.deviceLabel = vocab.deviceLabel;
+      session.devicePronoun = vocab.devicePronoun;
+    } else if (buttonToken === 'BTN_DEVICE_NOTEBOOK') {
+      session.device = 'notebook';
+      const vocab = getDeviceVocabulary('notebook', locale);
+      session.deviceLabel = vocab.deviceLabel;
+      session.devicePronoun = vocab.devicePronoun;
+    } else if (buttonToken === 'BTN_DEVICE_ALLINONE') {
+      session.device = 'all-in-one';
+      const vocab = getDeviceVocabulary('all-in-one', locale);
+      session.deviceLabel = vocab.deviceLabel;
+      session.devicePronoun = vocab.devicePronoun;
+    }
+    
+    session.stage = 'ASK_PROBLEM';
+    
+    const isEn = locale.toLowerCase().startsWith('en');
+    const reply = isEn
+      ? `✅ Perfect. What problem are you having with ${session.devicePronoun}?`
+      : `✅ Perfecto. ¿Qué problema estás teniendo con ${session.devicePronoun}?`;
+    
+    const ts = new Date().toISOString();
+    session.transcript = session.transcript || [];
+    session.transcript.push({
+      who: 'bot',
+      text: reply,
+      ts,
+      deviceSelected: session.device
+    });
+    
+    logCalibracionSuccess('ASK_DEVICE');
+    
+    return {
+      ok: true,
+      reply: reply,
+      stage: session.stage,
+      options: [],
+      buttons: [],
+      deviceSelected: session.device
+    };
   }
 
   // ✅ DETECCIÓN INTELIGENTE DE DISPOSITIVO: Antes de calibración, verificar si el dispositivo está explícito
@@ -157,7 +207,12 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
       }
     } else if (deviceDetection.isAmbiguous) {
       // Si el término es ambiguo, preguntar antes de continuar
-      const reply = getAmbiguousDeviceMessage(locale);
+      // Usar la palabra original que usó el usuario
+      const originalWord = deviceDetection.originalWord || 'compu';
+      const reply = getAmbiguousDeviceMessage(originalWord, locale);
+      
+      // Generar botones de selección
+      const buttons = getDeviceSelectionButtons(locale);
       
       // Si estamos en ASK_NEED, cambiar a DETECT_DEVICE para esperar aclaración
       if (session.stage === 'ASK_NEED') {
@@ -167,22 +222,27 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
         session.stage = 'DETECT_DEVICE';
       }
       
+      // Guardar la palabra original en la sesión para referencia
+      session.ambiguousDeviceWord = originalWord;
+      
       const ts = new Date().toISOString();
       session.transcript = session.transcript || [];
       session.transcript.push({
         who: 'bot',
         text: reply,
         ts,
-        ambiguousDevice: true
+        ambiguousDevice: true,
+        originalWord: originalWord
       });
       
       return {
         ok: true,
         reply: reply,
         stage: session.stage,
-        options: [],
-        buttons: [],
-        ambiguousDevice: true
+        options: buttons, // También en options para compatibilidad
+        buttons: buttons, // En buttons para el frontend
+        ambiguousDevice: true,
+        originalWord: originalWord
       };
     }
   }
