@@ -28,6 +28,3 @@ export function normalizeStepText(s) {
   return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-// Exportar también para compatibilidad con server.js
-export { emojiForIndex, enumerateSteps, normalizeStepText };
-
