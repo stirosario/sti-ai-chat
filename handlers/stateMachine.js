@@ -10,6 +10,28 @@
  */
 
 /**
+ * Constantes de estados (STATES)
+ * Compatible con la definición en server.js
+ */
+export const STATES = {
+  ASK_LANGUAGE: 'ASK_LANGUAGE',
+  ASK_NAME: 'ASK_NAME',
+  ASK_NEED: 'ASK_NEED',
+  CLASSIFY_NEED: 'CLASSIFY_NEED',
+  ASK_DEVICE: 'ASK_DEVICE',
+  ASK_PROBLEM: 'ASK_PROBLEM',
+  DETECT_DEVICE: 'DETECT_DEVICE',
+  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
+  GENERATE_HOWTO: 'GENERATE_HOWTO',
+  BASIC_TESTS: 'BASIC_TESTS',
+  ADVANCED_TESTS: 'ADVANCED_TESTS',
+  ESCALATE: 'ESCALATE',
+  CREATE_TICKET: 'CREATE_TICKET',
+  TICKET_SENT: 'TICKET_SENT',
+  ENDED: 'ENDED'
+};
+
+/**
  * Definición de la máquina de estados
  */
 export const STATE_MACHINE = {
@@ -125,4 +147,66 @@ export function getStageInfo(stage) {
 export function getNextStages(currentStage) {
   const state = STATE_MACHINE[currentStage];
   return state ? state.transitions : [];
+}
+
+/**
+ * Cambia el stage de una sesión
+ * @param {Object} session - Sesión actual
+ * @param {string} newStage - Nuevo stage
+ * @param {boolean} force - Forzar transición sin validación
+ * @returns {Object} Resultado de la operación
+ */
+export function changeStage(session, newStage, force = false) {
+  if (!session) {
+    return { success: false, error: 'Session is required' };
+  }
+  
+  const oldStage = session.stage;
+  
+  // Validar transición con state machine (excepto si es forzada o es el stage inicial)
+  if (!force && oldStage && oldStage !== newStage) {
+    if (!isValidTransition(oldStage, newStage)) {
+      const validNext = getNextStages(oldStage);
+      console.error(`[STAGE] ❌ Transición inválida: ${oldStage} → ${newStage}. Válidas: ${validNext.join(', ')}`);
+      // En producción, permitir pero registrar error (no bloquear para evitar romper flujos existentes)
+      // TODO: Después de validación extensiva, cambiar a bloquear transiciones inválidas
+    } else {
+      console.log(`[STAGE] ✅ Transición válida: ${oldStage} → ${newStage}`);
+    }
+  }
+  
+  // Validar que el nuevo stage existe en el state machine
+  if (!force && !getStageInfo(newStage)) {
+    console.warn(`[STAGE] ⚠️ Stage desconocido en state machine: ${newStage}`);
+    // Permitir pero registrar advertencia
+  }
+  
+  // Solo trackear si hay un cambio real
+  if (oldStage && oldStage !== newStage) {
+    if (!session.stageTransitions) {
+      session.stageTransitions = [];
+    }
+    
+    session.stageTransitions.push({
+      from: oldStage,
+      to: newStage,
+      timestamp: new Date().toISOString(),
+      validated: !force && isValidTransition(oldStage, newStage)
+    });
+    
+    console.log(`[STAGE] 🔄 ${oldStage} → ${newStage}${force ? ' (forced)' : ''}`);
+  }
+  
+  // Guardar stage inicial si no existe
+  if (!session.initialStage) {
+    session.initialStage = oldStage || newStage;
+  }
+  
+  session.stage = newStage;
+  
+  return {
+    success: true,
+    oldStage,
+    newStage
+  };
 }

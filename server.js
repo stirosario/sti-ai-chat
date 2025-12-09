@@ -73,7 +73,7 @@ import {
 // ========================================================
 import { handleAskNameStage, extractName, isValidName, isValidHumanName, looksClearlyNotName, capitalizeToken, analyzeNameWithOA } from './handlers/nameHandler.js';
 import { handleAskLanguageStage } from './handlers/stageHandlers.js';
-import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE } from './handlers/stateMachine.js';
+import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE, STATES, changeStage } from './handlers/stateMachine.js';
 import { handleBasicTestsStage } from './handlers/basicTestsHandler.js';
 import { handleEscalateStage } from './handlers/escalateHandler.js';
 import { handleAdvancedTestsStage } from './handlers/advancedTestsHandler.js';
@@ -1636,72 +1636,7 @@ async function readHistorialChat(conversationId) {
 // ✅ BUG 1 FIX: Eliminada definición duplicada de readHistorialChat
 // La función ya está definida arriba (línea 1332) y es la versión completa y correcta
 
-/**
- * ✅ MEDIO-12: Cambia el stage de una sesión y trackea la transición
- * Integra validación del state machine para prevenir transiciones inválidas
- * 
- * ✅ BUG 2 FIX: Retorna objeto con información de la transición, pero los callers pueden ignorarlo
- * El retorno es útil para debugging y validación, pero no es obligatorio usarlo
- * 
- * @param {object} session - Objeto de sesión
- * @param {string} newStage - Nuevo stage (debe existir en STATE_MACHINE)
- * @param {boolean} [force=false] - Si true, fuerza la transición sin validar (solo para casos especiales)
- * @returns {object} { success: boolean, error?: string, oldStage: string, newStage: string } - Retorno opcional, puede ignorarse
- */
-function changeStage(session, newStage, force = false) {
-  if (!session) {
-    return { success: false, error: 'Session is required' };
-  }
-  
-  const oldStage = session.stage;
-  
-  // Validar transición con state machine (excepto si es forzada o es el stage inicial)
-  if (!force && oldStage && oldStage !== newStage) {
-    if (!isValidTransition(oldStage, newStage)) {
-      const validNext = getNextStages(oldStage);
-      console.error(`[STAGE] ❌ Transición inválida: ${oldStage} → ${newStage}. Válidas: ${validNext.join(', ')}`);
-      // En producción, permitir pero registrar error (no bloquear para evitar romper flujos existentes)
-      // TODO: Después de validación extensiva, cambiar a bloquear transiciones inválidas
-    } else {
-      console.log(`[STAGE] ✅ Transición válida: ${oldStage} → ${newStage}`);
-    }
-  }
-  
-  // Validar que el nuevo stage existe en el state machine
-  if (!force && !getStageInfo(newStage)) {
-    console.warn(`[STAGE] ⚠️ Stage desconocido en state machine: ${newStage}`);
-    // Permitir pero registrar advertencia
-  }
-  
-  // Solo trackear si hay un cambio real
-  if (oldStage && oldStage !== newStage) {
-    if (!session.stageTransitions) {
-      session.stageTransitions = [];
-    }
-    
-    session.stageTransitions.push({
-      from: oldStage,
-      to: newStage,
-      timestamp: new Date().toISOString(),
-      validated: !force && isValidTransition(oldStage, newStage)
-    });
-    
-    console.log(`[STAGE] 🔄 ${oldStage} → ${newStage}${force ? ' (forced)' : ''}`);
-  }
-  
-  // Guardar stage inicial si no existe
-  if (!session.initialStage) {
-    session.initialStage = oldStage || newStage;
-  }
-  
-  session.stage = newStage;
-  
-  return {
-    success: true,
-    oldStage,
-    newStage
-  };
-}
+// 🔧 REFACTOR: changeStage movida a handlers/stateMachine.js
 
 /**
  * Guarda transcript de sesión en formato JSON para análisis por Codex
@@ -3224,23 +3159,7 @@ app.post('/api/cleanup', async (req, res) => {
 });
 
 // Estados del flujo según Flujo.csv
-const STATES = {
-  ASK_LANGUAGE: 'ASK_LANGUAGE',
-  ASK_NAME: 'ASK_NAME',
-  ASK_NEED: 'ASK_NEED',
-  CLASSIFY_NEED: 'CLASSIFY_NEED',
-  ASK_DEVICE: 'ASK_DEVICE',
-  ASK_PROBLEM: 'ASK_PROBLEM',
-  DETECT_DEVICE: 'DETECT_DEVICE',
-  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
-  GENERATE_HOWTO: 'GENERATE_HOWTO',
-  BASIC_TESTS: 'BASIC_TESTS',
-  ADVANCED_TESTS: 'ADVANCED_TESTS',
-  ESCALATE: 'ESCALATE',
-  CREATE_TICKET: 'CREATE_TICKET',
-  TICKET_SENT: 'TICKET_SENT',
-  ENDED: 'ENDED'
-};
+// 🔧 REFACTOR: STATES movido a handlers/stateMachine.js
 
 // 🔧 REFACTOR: generateSessionId movida a utils/validation.js
 
