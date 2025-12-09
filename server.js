@@ -5021,9 +5021,9 @@ function handleShowSteps(session, stepsKey) {
     ? `Volvemos a las pruebas avanzadas, ${whoLabel}:`
     : `Volvemos a los pasos sugeridos:`;
   const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
-  const fullMsg = intro + '\n\n' + numbered + footer;
+  const fullMsg = intro + '\n\n' + numbered.join('\n\n') + footer;
 
-  const helpOptions = stepsAr.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+  const helpOptions = stepsAr.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
   const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
 
   return { error: false, msg: fullMsg, options: optionsResp, steps: stepsAr };
@@ -5159,8 +5159,8 @@ async function generateAndShowSteps(session, sid, res) {
       return list.map((s, idx) => {
         const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
         // Agregar saltos de línea adicionales entre pasos para mejor legibilidad
-        return `${emoji} ${s}\n`;
-      }).join('\n');
+        return `${emoji} ${s}`;
+      }).join('\n\n');
     }
 
     const stepsText = enumerateStepsWithEmojis(steps);
@@ -5201,7 +5201,7 @@ async function generateAndShowSteps(session, sid, res) {
     steps.forEach((step, idx) => {
       const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
       options.push({
-        text: isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
+        text: isEn ? `🆘🛠️ Help step ${emoji}` : `🆘🛠️ Ayuda paso ${emoji}`,
         value: `BTN_HELP_STEP_${idx}`,
         description: isEn ? `Explain step ${idx + 1} in detail` : `Explicar paso ${idx + 1} en detalle`
       });
@@ -8017,7 +8017,7 @@ La guía debe ser:
           const footer = isEn
             ? '\n\n🧩 If you need help with any step, tap on the number.\n\n🤔 Tell us how it went using the buttons:'
             : '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
-          const fullMsg = intro + '\n\n' + numbered.join('\n') + footer;
+          const fullMsg = intro + '\n\n' + numbered.join('\n\n') + footer;
           session.stepsDone = session.stepsDone || [];
           session.stepsDone.push('advanced_tests_shown');
           session.waEligible = false;
@@ -8025,7 +8025,7 @@ La guía debe ser:
           changeStage(session, STATES.ADVANCED_TESTS);
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSessionAndTranscript(sid, session);
-          const helpOptions = limited.map((_, i) => `${emojiForIndex(i)} Ayuda paso ${i + 1}`);
+          const helpOptions = limited.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
           const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
           const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
           const optionsResp = [...helpOptions, solvedBtn, persistBtn];
