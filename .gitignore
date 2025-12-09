@@ -1,5 +1,8 @@
 node_modules/ 
 .env 
+.env.local
+.env.production
+.env.development
 
 # Logs y transcripciones (pueden contener datos sensibles)
 logs/*.log
@@ -12,7 +15,4 @@ config/*.bak
 uploads/*
 !uploads/.gitkeep
 
-
 sync_config.jsonc
-
-!.env
