@@ -24,6 +24,11 @@ import {
   logCalibracionSuccess,
   logCalibracionFailure
 } from '../../handlers/calibracionHandler.js';
+import {
+  detectDeviceIntelligently,
+  getDeviceVocabulary,
+  getAmbiguousDeviceMessage
+} from '../../handlers/deviceDetector.js';
 
 let intelligentModeEnabled = false;
 
@@ -75,6 +80,113 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
+  // ✅ DETECCIÓN INTELIGENTE DE DISPOSITIVO: Antes de calibración, verificar si el dispositivo está explícito
+  // Esto se aplica cuando estamos en ASK_NEED (cuando el usuario menciona el problema) o ASK_DEVICE
+  if ((session.stage === 'ASK_NEED' || session.stage === 'ASK_DEVICE' || session.stage === 'DETECT_DEVICE') && userMessage && !buttonToken) {
+    const deviceDetection = detectDeviceIntelligently(userMessage, session);
+    const locale = session.userLocale || 'es-AR';
+    
+    console.log('[IntelligentSystem] 🔍 Detección de dispositivo:', deviceDetection);
+    
+    // Si el dispositivo está explícito, asignarlo directamente y avanzar
+    if (deviceDetection.isExplicit && deviceDetection.device) {
+      session.device = deviceDetection.device;
+      const vocab = getDeviceVocabulary(deviceDetection.device, locale);
+      session.deviceLabel = vocab.deviceLabel;
+      session.devicePronoun = vocab.devicePronoun;
+      
+      // Si estamos en ASK_NEED, avanzar a ASK_PROBLEM directamente
+      if (session.stage === 'ASK_NEED') {
+        session.needType = 'problema';
+        session.stage = 'ASK_PROBLEM';
+        
+        const isEn = locale.toLowerCase().startsWith('en');
+        const reply = isEn
+          ? `✅ Got it, ${vocab.devicePronoun}. What problem are you having with it?`
+          : `✅ Perfecto, ${vocab.devicePronoun}. ¿Qué problema estás teniendo con ${vocab.deviceArticle} ${vocab.deviceLabel}?`;
+        
+        const ts = new Date().toISOString();
+        session.transcript = session.transcript || [];
+        session.transcript.push({
+          who: 'bot',
+          text: reply,
+          ts,
+          deviceDetected: deviceDetection.device,
+          detectionReason: deviceDetection.reason
+        });
+        
+        logCalibracionSuccess('ASK_DEVICE');
+        
+        return {
+          ok: true,
+          reply: reply,
+          stage: session.stage,
+          options: [],
+          buttons: [],
+          deviceDetected: deviceDetection.device
+        };
+      } else if (session.stage === 'ASK_DEVICE' || session.stage === 'DETECT_DEVICE') {
+        // Si ya estábamos preguntando por el dispositivo, avanzar a ASK_PROBLEM
+        session.stage = 'ASK_PROBLEM';
+        
+        const isEn = locale.toLowerCase().startsWith('en');
+        const reply = isEn
+          ? `✅ Perfect. What problem are you having with ${vocab.devicePronoun}?`
+          : `✅ Perfecto. ¿Qué problema estás teniendo con ${vocab.devicePronoun}?`;
+        
+        const ts = new Date().toISOString();
+        session.transcript = session.transcript || [];
+        session.transcript.push({
+          who: 'bot',
+          text: reply,
+          ts,
+          deviceDetected: deviceDetection.device,
+          detectionReason: deviceDetection.reason
+        });
+        
+        logCalibracionSuccess('ASK_DEVICE');
+        
+        return {
+          ok: true,
+          reply: reply,
+          stage: session.stage,
+          options: [],
+          buttons: [],
+          deviceDetected: deviceDetection.device
+        };
+      }
+    } else if (deviceDetection.isAmbiguous) {
+      // Si el término es ambiguo, preguntar antes de continuar
+      const reply = getAmbiguousDeviceMessage(locale);
+      
+      // Si estamos en ASK_NEED, cambiar a DETECT_DEVICE para esperar aclaración
+      if (session.stage === 'ASK_NEED') {
+        session.needType = 'problema';
+        session.stage = 'DETECT_DEVICE';
+      } else if (session.stage === 'ASK_DEVICE') {
+        session.stage = 'DETECT_DEVICE';
+      }
+      
+      const ts = new Date().toISOString();
+      session.transcript = session.transcript || [];
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts,
+        ambiguousDevice: true
+      });
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: [],
+        buttons: [],
+        ambiguousDevice: true
+      };
+    }
+  }
+
   // ✅ CALIBRACIÓN: Intentar primero con calibración para stages específicos
   const calibrationStages = ['ASK_NEED', 'ASK_DEVICE', 'ASK_LANGUAGE', 'ASK_PROBLEM', 'ASK_HOWTO_DETAILS', 'DETECT_DEVICE'];
   if (calibrationStages.includes(session.stage) && userMessage && !buttonToken) {
@@ -117,7 +229,10 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
         // Determinar si es problema o consulta basado en keywords y contenido
         if (keywords.problema || normalized.includes('problema') || normalized.includes('falla') || normalized.includes('error') || normalized.includes('no funciona') || normalized.includes('no anda')) {
           session.needType = 'problema';
-          session.stage = 'ASK_DEVICE';
+          // NO cambiar automáticamente a ASK_DEVICE - la detección inteligente lo manejará
+          // Si el dispositivo está explícito, ya se habrá detectado arriba
+          // Si es ambiguo, se habrá preguntado arriba
+          // Si no se detectó nada, el sistema inteligente continuará
         } else if (keywords.consulta || normalized.includes('consulta') || normalized.includes('pregunta') || normalized.includes('como') || normalized.includes('cómo') || normalized.includes('duda')) {
           session.needType = 'consulta';
           session.stage = 'ASK_HOWTO_DETAILS';
@@ -125,23 +240,34 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
           // Si no se puede determinar, mantener en ASK_NEED para que el sistema inteligente lo procese
           console.log('[IntelligentSystem] ⚠️ No se pudo determinar needType - manteniendo en ASK_NEED');
         }
-      } else if (session.stage === 'ASK_DEVICE') {
+      } else if (session.stage === 'ASK_DEVICE' || session.stage === 'DETECT_DEVICE') {
         // Extraer keywords usando la función de calibración
         const keywords = extractCalibracionKeywords(normalized, 'ASK_DEVICE');
         
         // Determinar tipo de dispositivo basado en keywords y contenido
+        const locale = session.userLocale || 'es-AR';
         if (keywords.desktop || normalized.includes('pc') || normalized.includes('desktop') || normalized.includes('torre') || normalized.includes('computadora de escritorio')) {
           session.device = 'desktop';
+          const vocab = getDeviceVocabulary('desktop', locale);
+          session.deviceLabel = vocab.deviceLabel;
+          session.devicePronoun = vocab.devicePronoun;
           session.stage = 'ASK_PROBLEM';
         } else if (keywords['all-in-one'] || normalized.includes('all in one') || normalized.includes('todo en uno') || normalized.includes('pantalla con pc')) {
           session.device = 'all-in-one';
+          const vocab = getDeviceVocabulary('all-in-one', locale);
+          session.deviceLabel = vocab.deviceLabel;
+          session.devicePronoun = vocab.devicePronoun;
           session.stage = 'ASK_PROBLEM';
         } else if (keywords.notebook || normalized.includes('notebook') || normalized.includes('laptop') || normalized.includes('portátil')) {
           session.device = 'notebook';
+          const vocab = getDeviceVocabulary('notebook', locale);
+          session.deviceLabel = vocab.deviceLabel;
+          session.devicePronoun = vocab.devicePronoun;
           session.stage = 'ASK_PROBLEM';
         } else {
-          // Si no se puede determinar, mantener en ASK_DEVICE
-          console.log('[IntelligentSystem] ⚠️ No se pudo determinar device - manteniendo en ASK_DEVICE');
+          // Si no se puede determinar, mantener en DETECT_DEVICE para preguntar
+          console.log('[IntelligentSystem] ⚠️ No se pudo determinar device - manteniendo en DETECT_DEVICE');
+          session.stage = 'DETECT_DEVICE';
         }
       } else if (session.stage === 'ASK_LANGUAGE') {
         // Extraer keywords para GDPR e idioma
