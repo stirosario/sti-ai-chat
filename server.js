@@ -1451,7 +1451,8 @@ const EMBEDDED_CHAT = {
       // device tokens
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' }
+      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
+      { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos' }
     ],
     states: {}
   },
@@ -6598,13 +6599,21 @@ Respondé de forma directa, empática y técnica.`;
         const locale = session.userLocale || 'es-AR';
         const isEn = String(locale).toLowerCase().startsWith('en');
         const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
-        const unifiedOpts = isEn 
-          ? (isAdvanced 
-              ? ['I solved it ✔️', 'Show advanced steps again ⏪', 'Connect with Technician 🧑‍💻']
-              : ['I solved it ✔️', 'Show steps again ⏪', 'Connect with Technician 🧑‍💻'])
-          : (isAdvanced 
-              ? ['Lo pude solucionar ✔️', 'Volver a los pasos avanzados ⏪', 'Conectar con Técnico 🧑‍💻']
-              : ['Lo pude solucionar ✔️', 'Volver a los pasos ⏪', 'Conectar con Técnico 🧑‍💻']);
+        
+        // Construir botones con texto personalizado según contexto
+        const solvedBtn = buildUiButtonsFromTokens(['BTN_SOLVED'], locale)[0];
+        const connectTechBtn = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale)[0];
+        const backToStepsBtn = {
+          token: 'BTN_BACK_TO_STEPS',
+          label: isEn 
+            ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
+            : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
+          text: isEn 
+            ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
+            : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
+        };
+        
+        const unifiedOpts = [solvedBtn, backToStepsBtn, connectTechBtn].filter(Boolean);
         return res.json(withOptions({ ok: true, help: { stepIndex: idx, stepText, detail: helpDetail }, reply, stage: session.stage, options: unifiedOpts }));
       } catch (err) {
         console.error('[help_step] Error generando ayuda:', err && err.message);
@@ -7802,9 +7811,15 @@ La guía debe ser:
             ? `**Help for Step ${stepIdx + 1}:**\n\n${explanation}`
             : `**Ayuda para el Paso ${stepIdx + 1}:**\n\n${explanation}`;
 
+          const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
           const backButton = {
-            text: isEn ? '⏪ Back to steps' : '⏪ Volver a los pasos anteriores',
-            value: 'BTN_BACK_TO_STEPS'
+            token: 'BTN_BACK_TO_STEPS',
+            label: isEn 
+              ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
+              : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
+            text: isEn 
+              ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
+              : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
           };
 
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -8055,6 +8070,19 @@ La guía debe ser:
         options = [whatsappButton];
       }
     } else if (session.stage === STATES.ADVANCED_TESTS) {
+      // 1. Manejo de "Volver a los pasos"
+      if (buttonToken === 'BTN_BACK_TO_STEPS') {
+        const result = handleShowSteps(session, 'advanced');
+        if (result.error) {
+          session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
+          await saveSessionAndTranscript(sid, session);
+          return res.json(withOptions({ ok: false, reply: result.msg, stage: session.stage, options: [] }));
+        }
+        session.transcript.push({ who: 'bot', text: result.msg, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ ok: true, reply: result.msg, stage: session.stage, options: result.options, steps: result.steps }));
+      }
+
       const rxDontKnowAdv = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
       if (rxDontKnowAdv.test(t)) {
         const result = await handleDontUnderstand(session, sid, t);
