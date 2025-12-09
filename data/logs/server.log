@@ -6801,3 +6801,5 @@
 2025-12-09T14:47:03.250Z [INFO] [AUTO-LEARNING] 🔄 Configurations reloaded in orchestrator
 2025-12-09T14:47:03.251Z [INFO] [AUTO-LEARNING] ✅ Cycle completed in 33ms - 3 improvements applied
 2025-12-09T14:47:03.251Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 3 mejoras aplicadas
+2025-12-09T15:04:37.885Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
