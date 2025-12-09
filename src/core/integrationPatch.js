@@ -180,36 +180,101 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
       session.deviceLabel = vocab.deviceLabel;
       session.devicePronoun = vocab.devicePronoun;
       
-      // Si estamos en ASK_NEED, avanzar a ASK_PROBLEM directamente
+      // ✅ CRÍTICO: Extraer el problema del mensaje si está presente
+      if (session.stage === 'ASK_NEED' && userMessage) {
+        // Extraer el problema del mensaje original (remover palabras del dispositivo)
+        let problemText = userMessage;
+        
+        // Remover palabras del dispositivo explícito (ordenar de más largo a más corto para evitar conflictos)
+        const deviceWords = {
+          'notebook': ['notebooks', 'laptops', 'notebook', 'laptop', 'portátil', 'portatil'],
+          'desktop': ['computadora de escritorio', 'computador de escritorio', 'pc de escritorio', 'computadora torre', 'pc torre', 'desktop', 'torre'],
+          'all-in-one': ['all in one', 'all-in-one', 'todo en uno', 'pantalla con pc', 'monitor con pc']
+        };
+        
+        const wordsToRemove = deviceWords[deviceDetection.device] || [];
+        // Ordenar de más largo a más corto para evitar conflictos
+        wordsToRemove.sort((a, b) => b.length - a.length);
+        
+        for (const word of wordsToRemove) {
+          // Remover la palabra del dispositivo con contexto (mi, la, el, etc.)
+          const wordPattern = new RegExp(`\\b(mi|la|el|una|un|su|con|de)?\\s*${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'gi');
+          problemText = problemText.replace(wordPattern, ' ').trim();
+          // También remover solo la palabra si no tiene contexto
+          const simplePattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+          problemText = problemText.replace(simplePattern, '').trim();
+        }
+        
+        // Remover palabras comunes que no aportan al problema
+        problemText = problemText.replace(/\b(mi|la|el|una|un|su|con|de|y|o|a|en|por|para)\s+/gi, ' ').trim();
+        // Limpiar múltiples espacios
+        problemText = problemText.replace(/\s+/g, ' ').trim();
+        
+        // Si queda texto significativo, guardarlo como problema
+        if (problemText && problemText.length > 3) {
+          session.problem = problemText;
+          console.log('[IntelligentSystem] 💾 Problema extraído del mensaje:', session.problem);
+        }
+      }
+      
+      // Si estamos en ASK_NEED, verificar si ya tenemos el problema
       if (session.stage === 'ASK_NEED') {
         session.needType = 'problema';
-        session.stage = 'ASK_PROBLEM';
         
-        const isEn = locale.toLowerCase().startsWith('en');
-        const reply = isEn
-          ? `✅ Got it, ${vocab.devicePronoun}. What problem are you having with it?`
-          : `✅ Perfecto, ${vocab.devicePronoun}. ¿Qué problema estás teniendo con ${vocab.deviceArticle} ${vocab.deviceLabel}?`;
-        
-        const ts = new Date().toISOString();
-        session.transcript = session.transcript || [];
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts,
-          deviceDetected: deviceDetection.device,
-          detectionReason: deviceDetection.reason
-        });
-        
-        logCalibracionSuccess('ASK_DEVICE');
-        
-        return {
-          ok: true,
-          reply: reply,
-          stage: session.stage,
-          options: [],
-          buttons: [],
-          deviceDetected: deviceDetection.device
-        };
+        // Si ya tenemos el problema, avanzar directamente a BASIC_TESTS
+        if (session.problem && session.problem.trim()) {
+          session.stage = 'BASIC_TESTS';
+          
+          const isEn = locale.toLowerCase().startsWith('en');
+          const reply = isEn
+            ? `✅ Got it, ${vocab.devicePronoun}. I understand the problem: ${session.problem}. Let me help you diagnose it.`
+            : `✅ Perfecto, ${vocab.devicePronoun}. Entiendo el problema: ${session.problem}. Déjame ayudarte a diagnosticarlo.`;
+          
+          const ts = new Date().toISOString();
+          session.transcript = session.transcript || [];
+          session.transcript.push({
+            who: 'bot',
+            text: reply,
+            ts,
+            deviceDetected: deviceDetection.device,
+            detectionReason: deviceDetection.reason,
+            problemExtracted: session.problem
+          });
+          
+          logCalibracionSuccess('ASK_DEVICE');
+          
+          // Retornar null para que el sistema legacy genere los pasos automáticamente
+          return null; // El sistema legacy generará los pasos cuando detecte BASIC_TESTS
+        } else {
+          // Si no hay problema, preguntar por él
+          session.stage = 'ASK_PROBLEM';
+          
+          const isEn = locale.toLowerCase().startsWith('en');
+          const reply = isEn
+            ? `✅ Got it, ${vocab.devicePronoun}. What problem are you having with it?`
+            : `✅ Perfecto, ${vocab.devicePronoun}. ¿Qué problema estás teniendo con ${vocab.deviceArticle} ${vocab.deviceLabel}?`;
+          
+          const ts = new Date().toISOString();
+          session.transcript = session.transcript || [];
+          session.transcript.push({
+            who: 'bot',
+            text: reply,
+            ts,
+            deviceDetected: deviceDetection.device,
+            detectionReason: deviceDetection.reason
+          });
+          
+          logCalibracionSuccess('ASK_DEVICE');
+          
+          return {
+            ok: true,
+            reply: reply,
+            stage: session.stage,
+            options: [],
+            buttons: [],
+            deviceDetected: deviceDetection.device
+          };
+        }
       } else if (session.stage === 'ASK_DEVICE' || session.stage === 'DETECT_DEVICE') {
         // Si ya estábamos preguntando por el dispositivo, avanzar a ASK_PROBLEM
         session.stage = 'ASK_PROBLEM';

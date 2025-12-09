@@ -1438,6 +1438,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CLOSE', label: '🔚 Cerrar Chat', text: 'cerrar chat' },
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
       { token: 'BTN_CONNECT_TECH', label: '👨‍🏭 Conectar con Técnico', text: 'conectar con técnico' },
+      { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un técnico por WhatsApp', text: 'hablar con un técnico por whatsapp' },
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
       { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
@@ -4952,7 +4953,7 @@ async function createTicketAndRespond(session, sid, res) {
       ok: true,
       reply: replyLines.join('\n\n'),
       stage: session.stage,
-      options: [BUTTONS.CLOSE]
+      options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
     });
     resp.waUrl = waUrl;
     resp.waWebUrl = waWebUrl;
@@ -4974,7 +4975,7 @@ async function createTicketAndRespond(session, sid, res) {
       ok: false,
       reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
       stage: session.stage,
-      options: [BUTTONS.CLOSE]
+      options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
     }));
   }
 }
@@ -7069,7 +7070,7 @@ Respondé de forma directa, empática y técnica.`;
           session.transcript.push({ who: 'bot', text: confirmMsg, ts: nowIso(), stage: session.stage });
           await saveSessionAndTranscript(sid, session);
           
-          return res.json({
+          return res.json(withOptions({
             ok: true,
             reply: confirmMsg,
             stage: session.stage,
@@ -7077,8 +7078,9 @@ Respondé de forma directa, empática y técnica.`;
             metadata: {
               action: 'open_whatsapp',
               url: whatsappUrl
-            }
-          });
+            },
+            options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
+          }));
         }
         
         // 🚪 HANDLER: BTN_CLOSE desde ASK_PROBLEM
@@ -7782,6 +7784,13 @@ La guía debe ser:
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
 
     } else if (session.stage === STATES.BASIC_TESTS) {
+      // ✅ CRÍTICO: Si estamos en BASIC_TESTS pero no hay pasos generados, generarlos automáticamente
+      if ((!session.tests || !session.tests.basic || session.tests.basic.length === 0) && 
+          (!session.basicTests || session.basicTests.length === 0)) {
+        console.log('[BASIC_TESTS] ⚠️ No hay pasos generados - generando automáticamente...');
+        return await generateAndShowSteps(session, sid, res);
+      }
+      
       // 1. Manejo de "Volver a los pasos"
       if (buttonToken === 'BTN_BACK_TO_STEPS') {
         return await generateAndShowSteps(session, sid, res);
@@ -7915,7 +7924,7 @@ La guía debe ser:
 
         reply = isEn
           ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-          : `${firstLine}\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+          : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
 
         changeStage(session, STATES.ENDED);
         session.waEligible = false;
@@ -8118,11 +8127,11 @@ La guía debe ser:
         const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
         const empatia = addEmpatheticResponse('ENDED', locale);
         const firstLine = whoLabel
-          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Excelente, ${whoLabel}! 🙌`)
-          : (isEn ? `Excellent, I'm glad you were able to solve it! 🙌` : `¡Excelente, me alegra que lo hayas podido resolver! 🙌`);
+          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
+          : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
         reply = isEn
-          ? `${firstLine}\n\n${empatia}\n\nIf it fails again later, you can reopen the chat and we'll resume the diagnosis together.`
-          : `${firstLine}\n\n${empatia}\n\nSi más adelante vuelve a fallar, podés volver a abrir el chat y retomamos el diagnóstico juntos.`;
+          ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+          : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
         changeStage(session, STATES.ENDED);
         session.waEligible = false;
         options = [];
