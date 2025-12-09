@@ -81,6 +81,13 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
+  // ✅ CRÍTICO: Si estamos en ESCALATE y el usuario solicita pruebas avanzadas,
+  // dejar que el código legacy lo maneje (ya tiene la lógica correcta)
+  if (session.stage === 'ESCALATE' && (buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS' || /^\s*(pruebas avanzadas|más pruebas)\b/i.test(userMessage || ''))) {
+    console.log('[IntelligentSystem] ⏭️ ESCALATE + Pruebas Avanzadas - usando legacy');
+    return null; // Usar lógica legacy que ya maneja correctamente este caso
+  }
+
   // ✅ MANEJO DE BOTONES DE SELECCIÓN DE DISPOSITIVO
   if (buttonToken && (buttonToken === 'BTN_DEVICE_DESKTOP' || buttonToken === 'BTN_DEVICE_NOTEBOOK' || buttonToken === 'BTN_DEVICE_ALLINONE')) {
     const locale = session.userLocale || 'es-AR';
