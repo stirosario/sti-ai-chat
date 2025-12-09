@@ -16,6 +16,14 @@
 
 import { handleIntelligentChat, shouldUseIntelligentMode } from './intelligentChatHandler.js';
 import { initializeOpenAI } from '../services/aiService.js';
+import { 
+  matchCalibracionPattern, 
+  normalizeWithCalibracion, 
+  getCalibracionResponse,
+  extractCalibracionKeywords,
+  logCalibracionSuccess,
+  logCalibracionFailure
+} from '../../handlers/calibracionHandler.js';
 
 let intelligentModeEnabled = false;
 
@@ -67,6 +75,156 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
+  // ✅ CALIBRACIÓN: Intentar primero con calibración para stages específicos
+  const calibrationStages = ['ASK_NEED', 'ASK_DEVICE', 'ASK_LANGUAGE', 'ASK_PROBLEM', 'ASK_HOWTO_DETAILS', 'DETECT_DEVICE'];
+  if (calibrationStages.includes(session.stage) && userMessage && !buttonToken) {
+    console.log(`[IntelligentSystem] 🔧 Stage ${session.stage} - Intentando calibración primero...`);
+    
+    const calibMatch = matchCalibracionPattern(userMessage, session.stage);
+    if (calibMatch && calibMatch.matched) {
+      const normalized = normalizeWithCalibracion(userMessage, session.stage);
+      console.log(`[IntelligentSystem] ✅ Calibración encontrada para ${session.stage}:`, {
+        original: userMessage,
+        normalized: normalized,
+        pattern: calibMatch.pattern
+      });
+      
+      // Obtener respuesta de calibración
+      let reply = getCalibracionResponse(session.stage);
+      if (!reply) {
+        // Fallback a respuesta por defecto
+        const locale = session.userLocale || 'es-AR';
+        const isEn = locale.toLowerCase().startsWith('en');
+        if (session.stage === 'ASK_NEED') {
+          reply = isEn 
+            ? '📌 Understood. What type of device is giving you problems?'
+            : '📌 Entendido. ¿Qué tipo de dispositivo te está dando problemas?';
+        } else if (session.stage === 'ASK_DEVICE') {
+          reply = isEn
+            ? '✅ Perfect. What problem are you having with your device?'
+            : '✅ Perfecto. ¿Qué problema estás teniendo con tu dispositivo?';
+        }
+      }
+      
+      // Reemplazar placeholders si hay
+      reply = reply.replace(/{name}/g, session.userName || 'Usuario');
+      
+      // Actualizar sesión según el stage
+      if (session.stage === 'ASK_NEED') {
+        // Extraer keywords usando la función de calibración
+        const keywords = extractCalibracionKeywords(normalized, 'ASK_NEED');
+        
+        // Determinar si es problema o consulta basado en keywords y contenido
+        if (keywords.problema || normalized.includes('problema') || normalized.includes('falla') || normalized.includes('error') || normalized.includes('no funciona') || normalized.includes('no anda')) {
+          session.needType = 'problema';
+          session.stage = 'ASK_DEVICE';
+        } else if (keywords.consulta || normalized.includes('consulta') || normalized.includes('pregunta') || normalized.includes('como') || normalized.includes('cómo') || normalized.includes('duda')) {
+          session.needType = 'consulta';
+          session.stage = 'ASK_HOWTO_DETAILS';
+        } else {
+          // Si no se puede determinar, mantener en ASK_NEED para que el sistema inteligente lo procese
+          console.log('[IntelligentSystem] ⚠️ No se pudo determinar needType - manteniendo en ASK_NEED');
+        }
+      } else if (session.stage === 'ASK_DEVICE') {
+        // Extraer keywords usando la función de calibración
+        const keywords = extractCalibracionKeywords(normalized, 'ASK_DEVICE');
+        
+        // Determinar tipo de dispositivo basado en keywords y contenido
+        if (keywords.desktop || normalized.includes('pc') || normalized.includes('desktop') || normalized.includes('torre') || normalized.includes('computadora de escritorio')) {
+          session.device = 'desktop';
+          session.stage = 'ASK_PROBLEM';
+        } else if (keywords['all-in-one'] || normalized.includes('all in one') || normalized.includes('todo en uno') || normalized.includes('pantalla con pc')) {
+          session.device = 'all-in-one';
+          session.stage = 'ASK_PROBLEM';
+        } else if (keywords.notebook || normalized.includes('notebook') || normalized.includes('laptop') || normalized.includes('portátil')) {
+          session.device = 'notebook';
+          session.stage = 'ASK_PROBLEM';
+        } else {
+          // Si no se puede determinar, mantener en ASK_DEVICE
+          console.log('[IntelligentSystem] ⚠️ No se pudo determinar device - manteniendo en ASK_DEVICE');
+        }
+      } else if (session.stage === 'ASK_LANGUAGE') {
+        // Extraer keywords para GDPR e idioma
+        const keywords = extractCalibracionKeywords(normalized, 'ASK_LANGUAGE');
+        
+        // Manejar aceptación/rechazo GDPR
+        if (keywords.gdpr_accept || normalized.includes('si') || normalized.includes('sí') || normalized.includes('acepto') || normalized.includes('ok') || normalized.includes('yes')) {
+          session.gdprConsent = true;
+          // Mantener en ASK_LANGUAGE hasta que seleccione idioma
+        } else if (keywords.gdpr_reject || normalized.includes('no') || normalized.includes('rechazo')) {
+          session.gdprConsent = false;
+          session.stage = 'ENDED';
+        }
+        
+        // Si ya aceptó GDPR, manejar selección de idioma
+        if (session.gdprConsent) {
+          if (keywords.lang_es || normalized.includes('español') || normalized.includes('spanish') || normalized.includes('arg')) {
+            session.userLocale = 'es-AR';
+            session.stage = 'ASK_NAME';
+          } else if (keywords.lang_en || normalized.includes('english') || normalized.includes('inglés') || normalized.includes('en-')) {
+            session.userLocale = 'en';
+            session.stage = 'ASK_NAME';
+          }
+        }
+      } else if (session.stage === 'ASK_PROBLEM') {
+        // Guardar descripción del problema
+        session.problem = normalized;
+        // El sistema inteligente manejará la transición a BASIC_TESTS
+        // No cambiar stage aquí, dejar que el sistema inteligente lo haga
+      } else if (session.stage === 'ASK_HOWTO_DETAILS') {
+        // Guardar consulta
+        session.howtoQuery = normalized;
+        // El sistema inteligente manejará la transición a GENERATE_HOWTO
+        // No cambiar stage aquí, dejar que el sistema inteligente lo haga
+      } else if (session.stage === 'DETECT_DEVICE') {
+        // Extraer keywords para desambiguar dispositivo
+        const keywords = extractCalibracionKeywords(normalized, 'DETECT_DEVICE');
+        
+        // Determinar tipo de dispositivo
+        if (keywords.desktop || normalized.includes('pc') || normalized.includes('desktop') || normalized.includes('torre')) {
+          session.device = 'desktop';
+          session.stage = 'ASK_PROBLEM';
+        } else if (keywords['all-in-one'] || normalized.includes('all in one') || normalized.includes('todo en uno')) {
+          session.device = 'all-in-one';
+          session.stage = 'ASK_PROBLEM';
+        } else if (keywords.notebook || normalized.includes('notebook') || normalized.includes('laptop') || normalized.includes('portátil')) {
+          session.device = 'notebook';
+          session.stage = 'ASK_PROBLEM';
+        }
+        // Si no se puede determinar, mantener en DETECT_DEVICE
+      }
+      
+      // Registrar éxito
+      logCalibracionSuccess(session.stage);
+      
+      // Guardar en transcript
+      const ts = new Date().toISOString();
+      session.transcript = session.transcript || [];
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts,
+        calibrationMatch: true,
+        normalizedInput: normalized
+      });
+      
+      // Retornar respuesta de calibración
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: [],
+        buttons: [],
+        calibrationMatch: true,
+        normalizedInput: normalized
+      };
+    } else {
+      // No hay coincidencia en calibración, registrar fallo
+      logCalibracionFailure(session.stage, userMessage, 'No match found');
+      console.log(`[IntelligentSystem] ⚠️ Sin coincidencia en calibración para ${session.stage} - continuando con sistema inteligente`);
+    }
+  }
+  
   // ✅ FORZAR MODO INTELIGENTE si estamos en ASK_NEED (después de nombre)
   // Esto asegura que TODO mensaje después del nombre sea procesado inteligentemente
   if (session.stage === 'ASK_NEED') {
