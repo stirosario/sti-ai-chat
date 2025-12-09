@@ -102,32 +102,60 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
       session.devicePronoun = vocab.devicePronoun;
     }
     
-    session.stage = 'ASK_PROBLEM';
-    
-    const isEn = locale.toLowerCase().startsWith('en');
-    const reply = isEn
-      ? `✅ Perfect. What problem are you having with ${session.devicePronoun}?`
-      : `✅ Perfecto. ¿Qué problema estás teniendo con ${session.devicePronoun}?`;
-    
-    const ts = new Date().toISOString();
-    session.transcript = session.transcript || [];
-    session.transcript.push({
-      who: 'bot',
-      text: reply,
-      ts,
-      deviceSelected: session.device
-    });
-    
-    logCalibracionSuccess('ASK_DEVICE');
-    
-    return {
-      ok: true,
-      reply: reply,
-      stage: session.stage,
-      options: [],
-      buttons: [],
-      deviceSelected: session.device
-    };
+    // ✅ CRÍTICO: Si el usuario ya mencionó el problema antes de seleccionar el dispositivo,
+    // avanzar directamente a diagnosticar en lugar de preguntar de nuevo
+    if (session.problem && session.problem.trim()) {
+      // Ya hay un problema guardado, avanzar directamente a BASIC_TESTS o al sistema inteligente
+      session.stage = 'BASIC_TESTS';
+      
+      const isEn = locale.toLowerCase().startsWith('en');
+      const reply = isEn
+        ? `✅ Got it, ${session.devicePronoun}. I understand the problem: ${session.problem}. Let me help you diagnose it.`
+        : `✅ Perfecto, ${session.devicePronoun}. Entiendo el problema: ${session.problem}. Déjame ayudarte a diagnosticarlo.`;
+      
+      const ts = new Date().toISOString();
+      session.transcript = session.transcript || [];
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts,
+        deviceSelected: session.device,
+        problemAlreadyMentioned: true
+      });
+      
+      logCalibracionSuccess('ASK_DEVICE');
+      
+      // Retornar null para que el sistema inteligente o legacy continúe con el diagnóstico
+      return null; // Dejar que el flujo normal continúe con BASIC_TESTS
+    } else {
+      // No hay problema guardado, preguntar normalmente
+      session.stage = 'ASK_PROBLEM';
+      
+      const isEn = locale.toLowerCase().startsWith('en');
+      const reply = isEn
+        ? `✅ Perfect. What problem are you having with ${session.devicePronoun}?`
+        : `✅ Perfecto. ¿Qué problema estás teniendo con ${session.devicePronoun}?`;
+      
+      const ts = new Date().toISOString();
+      session.transcript = session.transcript || [];
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts,
+        deviceSelected: session.device
+      });
+      
+      logCalibracionSuccess('ASK_DEVICE');
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: [],
+        buttons: [],
+        deviceSelected: session.device
+      };
+    }
   }
 
   // ✅ DETECCIÓN INTELIGENTE DE DISPOSITIVO: Antes de calibración, verificar si el dispositivo está explícito
@@ -218,6 +246,20 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
       if (session.stage === 'ASK_NEED') {
         session.needType = 'problema';
         session.stage = 'DETECT_DEVICE';
+        
+        // ✅ CRÍTICO: Guardar el problema mencionado por el usuario antes de preguntar por el dispositivo
+        // Extraer el problema del mensaje original (remover la palabra del dispositivo)
+        let problemText = userMessage;
+        // Remover la palabra ambigua del dispositivo del texto del problema
+        const ambiguousWordPattern = new RegExp(`\\b${originalWord}\\b`, 'gi');
+        problemText = problemText.replace(ambiguousWordPattern, '').trim();
+        // Remover palabras comunes que no aportan al problema
+        problemText = problemText.replace(/\b(mi|la|el|una|un|mi|su)\s+/gi, '').trim();
+        // Si queda texto, guardarlo como problema
+        if (problemText && problemText.length > 3) {
+          session.problem = problemText;
+          console.log('[IntelligentSystem] 💾 Problema guardado antes de preguntar dispositivo:', session.problem);
+        }
       } else if (session.stage === 'ASK_DEVICE') {
         session.stage = 'DETECT_DEVICE';
       }
