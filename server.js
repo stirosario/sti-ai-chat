@@ -1436,7 +1436,7 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_CLOSE', label: '🔚 Cerrar Chat', text: 'cerrar chat' },
       { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
       { token: 'BTN_CONNECT_TECH', label: '👨‍🏭 Conectar con Técnico', text: 'conectar con técnico' },
-      { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un técnico por WhatsApp', text: 'hablar con un técnico por whatsapp' },
+      { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un Técnico', text: 'hablar con un técnico' },
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
       { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
@@ -4288,7 +4288,7 @@ async function createTicketAndRespond(session, sid, res) {
       ok: true,
       reply: replyLines.join('\n\n'),
       stage: session.stage,
-      options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
+      options: buildUiButtonsFromTokens(['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE], locale)
     });
     resp.waUrl = waUrl;
     resp.waWebUrl = waWebUrl;
@@ -4310,7 +4310,7 @@ async function createTicketAndRespond(session, sid, res) {
       ok: false,
       reply: '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.',
       stage: session.stage,
-      options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
+      options: buildUiButtonsFromTokens(['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE], locale)
     }));
   }
 }
@@ -6351,8 +6351,8 @@ Respondé de forma directa, empática y técnica.`;
           // Crear botón de WhatsApp personalizado
           const whatsappButton = {
             token: 'BTN_WHATSAPP_TECNICO',
-            label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
-            text: 'whatsapp técnico',
+            label: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
+            text: 'hablar con un técnico',
             emoji: '💚',
             action: 'external',
             style: 'primary'
@@ -6426,7 +6426,7 @@ Respondé de forma directa, empática y técnica.`;
               action: 'open_whatsapp',
               url: whatsappUrl
             },
-            options: ['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE]
+            options: buildUiButtonsFromTokens(['BTN_WHATSAPP_TECNICO', BUTTONS.CLOSE], locale)
           }));
         }
         
@@ -7192,8 +7192,8 @@ La guía debe ser:
         
         const whatsappButton = {
           token: 'BTN_WHATSAPP_TECNICO',
-          label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
-          text: 'whatsapp técnico',
+          label: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
+          text: 'hablar con un técnico',
           emoji: '💚',
           action: 'external',
           style: 'primary'
@@ -7237,8 +7237,8 @@ La guía debe ser:
         
         const whatsappButton = {
           token: 'BTN_WHATSAPP_TECNICO',
-          label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
-          text: 'whatsapp técnico',
+          label: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
+          text: 'hablar con un técnico',
           emoji: '💚',
           action: 'external',
           style: 'primary'

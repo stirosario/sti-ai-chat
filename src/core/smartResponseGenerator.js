@@ -667,7 +667,7 @@ function determineOptions(intentAnalysis, context, isEnglish) {
     case INTENT_TYPES.ESCALATION_REQUEST:
       // Ofrecer WhatsApp con historial completo
       options.push({
-        text: isEnglish ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
+        text: isEnglish ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
         value: 'BTN_WHATSAPP_TECNICO',
         description: isEnglish ? 'Send conversation history' : 'Enviar historial de conversación',
         style: 'primary'

@@ -117,8 +117,8 @@ export async function handleEscalateStage(session, sid, res, t, buttonToken, dep
     
     const whatsappButton = {
       token: 'BTN_WHATSAPP_TECNICO',
-      label: isEn ? '💚 Talk to a technician on WhatsApp' : '💚 Hablar con un técnico por WhatsApp',
-      text: 'whatsapp técnico',
+      label: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
+      text: 'hablar con un técnico',
       emoji: '💚',
       action: 'external',
       style: 'primary'
