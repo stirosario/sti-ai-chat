@@ -82,8 +82,9 @@ export async function handleEscalateStage(session, sid, res, t, buttonToken, dep
       session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
       await saveSessionAndTranscript(sid, session);
       const helpOptions = limited.map((_, i) => `🆘🛠️ Ayuda paso ${deps.emojiForIndex(i)}`);
-      const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
-      const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
+      // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+      const solvedBtn = isEn ? '✔️ I solved it' : '✔️ Lo pude solucionar';
+      const persistBtn = isEn ? '❌ Still not working' : '❌ El problema persiste';
       const optionsResp = [...helpOptions, solvedBtn, persistBtn];
       return res.json(withOptions({ ok: true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
     } catch (errOpt1) {

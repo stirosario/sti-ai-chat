@@ -18,6 +18,7 @@ import sessionService from '../services/sessionService.js';
 import nlpService from '../services/nlpService.js';
 import openaiService from '../services/openaiService.js';
 import responseTemplates from '../templates/responseTemplates.js';
+import { emojiForIndex, enumerateSteps } from '../../utils/stepsUtils.js';
 
 // ========== CONFIGURACIÓN DE STAGES (100% COMPATIBLE CON server.js) ==========
 // Estos stages son IDÉNTICOS a los STATES del server.js (línea 2442-2458)
@@ -672,10 +673,10 @@ class ConversationOrchestrator {
     
     // Mostrar pasos avanzados
     const steps = session.tests?.advanced || ['Paso avanzado 1', 'Paso avanzado 2', 'Paso avanzado 3'];
-    const numbered = steps.map((s, i) => `${i + 1}. ${s}`);
+    const numbered = enumerateSteps(steps);
     
     return {
-      text: `${isEn ? "Let's try these more advanced tests:" : "Probemos con estas pruebas más avanzadas:"}\n\n${numbered.join('\n')}\n\n${isEn ? '🤔 How did it go?' : '🤔 ¿Cómo te fue?'}`,
+      text: `${isEn ? "Let's try these more advanced tests:" : "Probemos con estas pruebas más avanzadas:"}\n\n${numbered.join('\n\n')}\n\n${isEn ? '🤔 How did it go?' : '🤔 ¿Cómo te fue?'}`,
       steps,
       buttons: [
         { type: 'button', label: isEn ? '👍 I solved it' : '👍 Ya lo solucioné', value: 'BTN_SOLVED' },

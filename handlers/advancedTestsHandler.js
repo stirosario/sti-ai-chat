@@ -5,6 +5,8 @@
 
 import { nowIso, withOptions } from '../utils/common.js';
 import { changeStage, STATES } from './stateMachine.js';
+import { getCelebrationMessage } from '../utils/uxHelpers.js';
+import { detectAchievements, getAchievementMessage, updateSessionAchievements } from '../utils/gamification.js';
 
 /**
  * Maneja el stage ADVANCED_TESTS
@@ -62,17 +64,35 @@ export async function handleAdvancedTestsStage(session, sid, res, t, buttonToken
     const idx = session.lastHelpStep;
     if (typeof idx === 'number' && idx >= 1) {
       session.stepProgress = session.stepProgress || {};
-      session.stepProgress[`adv_${idx}`] = 'done';
+      session.stepProgress[`adv_${idx}`] = 'completed';
       await saveSessionAndTranscript(sid, session);
     }
+    
+    // ✅ MEJORA UX FASE 2: Mensaje de celebración
+    const totalSteps = (session.tests?.basic?.length || 0) + (session.tests?.advanced?.length || 0);
+    const completedSteps = Object.values(session.stepProgress || {}).filter(s => s === 'completed' || s === 'done').length;
+    const celebration = getCelebrationMessage(
+      totalSteps > 0 && completedSteps >= totalSteps ? 'all_steps_completed' : 'problem_solved',
+      { step: completedSteps, totalSteps },
+      locale
+    );
+    
+    // ✅ FASE 3: Detectar y mostrar logros
+    const achievements = detectAchievements(session);
+    let achievementsMsg = '';
+    if (achievements.length > 0) {
+      updateSessionAchievements(session, achievements);
+      achievementsMsg = '\n\n' + achievements.map(a => getAchievementMessage(a, locale)).join('\n');
+    }
+    
     const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
     const empatia = addEmpatheticResponse('ENDED', locale);
     const firstLine = whoLabel
       ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
       : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
     const reply = isEn
-      ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-      : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+      ? `${firstLine}\n\n${celebration}${achievementsMsg}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+      : `${firstLine}\n\n${celebration}${achievementsMsg}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
     changeStage(session, STATES.ENDED);
     session.waEligible = false;
     const options = [];

@@ -88,6 +88,40 @@ import { validateSessionId, getSessionId as getSessionIdUtil, generateSessionId,
 import { nowIso, withOptions } from './utils/common.js';
 import { buildTimeGreeting, buildLanguagePrompt, buildNameGreeting } from './utils/helpers.js';
 import { validateCSRF, generateCSRFToken, cleanupExpiredCSRFTokens } from './utils/security.js';
+import { 
+  getPersonalizedGreeting, 
+  getProgressIndicator, 
+  getConfirmationMessage, 
+  getFriendlyErrorMessage,
+  getProgressSummary,
+  getProactiveTip,
+  getCelebrationMessage
+} from './utils/uxHelpers.js';
+import { emojiForIndex, enumerateSteps, normalizeStepText } from './utils/stepsUtils.js';
+import { 
+  validateBeforeAdvancing, 
+  getConfirmationPrompt, 
+  detectInconsistency 
+} from './utils/validationHelpers.js';
+import { 
+  detectReturnAfterInactivity, 
+  getWelcomeBackMessage, 
+  updateLastActivity 
+} from './utils/sessionHelpers.js';
+import { 
+  estimateResolutionTime, 
+  estimateStepTime, 
+  estimateTotalTime 
+} from './utils/timeEstimates.js';
+import { 
+  calculateProgressPercentage, 
+  generateProgressBar, 
+  detectAchievements, 
+  getAchievementMessage, 
+  getMotivationalMessage, 
+  updateSessionAchievements 
+} from './utils/gamification.js';
+import { runRobotFix, getRobotFixStats } from './services/robotFix.js';
 
 // ========================================================
 // MÓDULOS INTERNOS - HELPERS Y UTILIDADES
@@ -1219,9 +1253,29 @@ function handleGuidingInstallationOSReply(session, userMessage, activeIntent, lo
                         'el software que necesitás';
     
     // Generar guía de instalación específica
+    const installationSteps = isEn
+      ? [
+          'Download the installer from the official website',
+          'Run the downloaded file (double-click)',
+          'Follow the installation wizard',
+          'Accept the license agreement',
+          'Choose installation folder (default is fine)',
+          'Click "Install" and wait',
+          'Restart if prompted'
+        ]
+      : [
+          'Descargá el instalador desde el sitio oficial',
+          'Ejecutá el archivo descargado (doble clic)',
+          'Seguí el asistente de instalación',
+          'Aceptá el acuerdo de licencia',
+          'Elegí la carpeta de instalación (la predeterminada está bien)',
+          'Hacé clic en "Instalar" y esperá',
+          'Reiniciá si te lo pide'
+        ];
+    const numberedSteps = enumerateSteps(installationSteps).join('\n\n');
     const reply = isEn
-      ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n1. Download the installer from the official website\n2. Run the downloaded file (double-click)\n3. Follow the installation wizard\n4. Accept the license agreement\n5. Choose installation folder (default is fine)\n6. Click "Install" and wait\n7. Restart if prompted\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
-      : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n1. Descargá el instalador desde el sitio oficial\n2. Ejecutá el archivo descargado (doble clic)\n3. Seguí el asistente de instalación\n4. Aceptá el acuerdo de licencia\n5. Elegí la carpeta de instalación (la predeterminada está bien)\n6. Hacé clic en "Instalar" y esperá\n7. Reiniciá si te lo pide\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?`;
+      ? `Perfect! I'll guide you through installing ${softwareName} on ${detectedOS}.\n\n**Installation Steps:**\n\n${numberedSteps}\n\n✅ Once installed, you can launch it from the Start menu.\n\nDid this help you?\n\n— I'm Tecnos, from STI — Intelligent Technical Service 🛠️`
+      : `¡Perfecto! Te guío para instalar ${softwareName} en ${detectedOS}.\n\n**Pasos de Instalación:**\n\n${numberedSteps}\n\n✅ Una vez instalado, lo podés abrir desde el menú Inicio.\n\n¿Te sirvió esta guía?`;
     
     const options = buildUiButtonsFromTokens(['BTN_SUCCESS', 'BTN_NEED_HELP'], locale);
     
@@ -1424,6 +1478,8 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
       { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
+      { token: 'BTN_CONFIRM', label: '✅ Confirmar', text: 'confirmar' },
+      { token: 'BTN_EDIT', label: '✏️ Editar', text: 'editar' },
       { token: 'BTN_ADVANCED_TESTS', label: '🔬 Pruebas Avanzadas', text: 'pruebas avanzadas' },
       { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
@@ -1451,7 +1507,15 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
       { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
-      { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos' }
+      { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos' },
+      { token: 'BTN_BACK', label: '⏪ Volver atrás', text: 'volver atrás' },
+      { token: 'BTN_CHANGE_TOPIC', label: '🔄 Cambiar de tema', text: 'cambiar de tema' },
+      { token: 'BTN_MORE_INFO', label: 'ℹ️ Más información', text: 'más información' },
+      // Botones para instalaciones y guías
+      { token: 'BTN_SUCCESS', label: '✅ Funcionó', text: 'funcionó' },
+      { token: 'BTN_NEED_HELP', label: '❓ Necesito ayuda', text: 'necesito ayuda' },
+      { token: 'BTN_YES', label: '✅ Sí', text: 'sí' },
+      { token: 'BTN_NO', label: '❌ No', text: 'no' }
     ],
     states: {}
   },
@@ -1529,10 +1593,7 @@ function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
 // ========================================================
 // NLP & Name utilities
 // ========================================================
-const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-function emojiForIndex(i) { const n = i + 1; return NUM_EMOJIS[n] || `${n}.`; }
-function enumerateSteps(arr) { if (!Array.isArray(arr)) return []; return arr.map((s, i) => `${emojiForIndex(i)} ${s}`); }
-function normalizeStepText(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
+// ✅ REFACTOR: emojiForIndex, enumerateSteps, normalizeStepText ahora se importan de utils/stepsUtils.js
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
 
 const IT_HEURISTIC_RX = /\b(pc|computadora|compu|notebook|laptop|router|modem|wi[-\s]*fi|wifi|impresora|printer|tv\s*stick|stick\s*tv|amazon\s*stick|fire\s*stick|magistv|magis\s*tv|windows|android|correo|email|outlook|office|word|excel)\b/i;
@@ -1625,9 +1686,6 @@ async function readHistorialChat(conversationId) {
     return null;
   }
 }
-
-// ✅ BUG 1 FIX: Eliminada definición duplicada de readHistorialChat
-// La función ya está definida arriba (línea 1332) y es la versión completa y correcta
 
 // 🔧 REFACTOR: changeStage movida a handlers/stateMachine.js
 
@@ -1804,32 +1862,8 @@ async function sendResponseWithSave(res, sessionId, session, payload) {
   return res.json(payload);
 }
 
-/**
- * Helper function: Add bot message to transcript with optional buttons/options
- * @param {object} session - Session object
- * @param {string} text - Message text
- * @param {Array} options - Optional array of button objects with {text, value}
- * @param {string} stage - Optional stage override
- */
-function addBotMessageToTranscript(session, text, options = null, stage = null) {
-  const entry = {
-    who: 'bot',
-    text: text,
-    ts: nowIso(),
-    stage: stage || session.stage
-  };
-  
-  // Add options if provided (buttons offered to user)
-  if (options && Array.isArray(options) && options.length > 0) {
-    entry.opciones = options.map(opt => ({
-      texto: opt.text || opt.label || opt.value,
-      valor: opt.value,
-      emoji: opt.emoji || null
-    }));
-  }
-  
-  session.transcript.push(entry);
-}
+// ✅ REFACTOR: addBotMessageToTranscript eliminada - no se usaba en ningún lugar
+// Los mensajes del bot se agregan directamente con session.transcript.push()
 
 // ========================================================
 // OpenAI problem/steps helpers
@@ -4141,6 +4175,21 @@ async function createTicketAndRespond(session, sid, res) {
   }
   ticketCreationLocks.set(sid, Date.now());
 
+  // ✅ MEJORA UX FASE 2: Validación proactiva antes de crear ticket
+  const locale = session.userLocale || 'es-AR';
+  const validation = validateBeforeAdvancing(session, STATES.CREATE_TICKET, locale);
+  if (validation && validation.needsConfirmation) {
+    session.transcript.push({ who: 'bot', text: validation.message, ts: nowIso() });
+    await saveSessionAndTranscript(sid, session);
+    ticketCreationLocks.delete(sid); // Liberar lock
+    return res.json(withOptions({
+      ok: false,
+      reply: validation.message,
+      stage: session.stage,
+      options: validation.options || buildUiButtonsFromTokens(['BTN_BACK'], locale)
+    }));
+  }
+
   const ts = nowIso();
   try {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -4331,13 +4380,15 @@ async function handleDontUnderstand(session, sid, t) {
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
     markSessionDirty(sid, session);
-    return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
+    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+    return { ok: true, reply: replyTxt, stage: session.stage, options: ['✔️ Lo pude solucionar', '❌ El problema persiste'] };
   } else {
     const replyTxt = `${prefix} 😊.\n\nDecime sobre qué paso querés ayuda (1, 2, 3, ...) o tocá el botón del número y te lo explico con más calma.`;
     const ts = nowIso();
     session.transcript.push({ who: 'bot', text: replyTxt, ts });
     markSessionDirty(sid, session);
-    return { ok: true, reply: replyTxt, stage: session.stage, options: ['Lo pude solucionar ✔️', 'El problema persiste ❌'] };
+    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+    return { ok: true, reply: replyTxt, stage: session.stage, options: ['✔️ Lo pude solucionar', '❌ El problema persiste'] };
   }
 }
 
@@ -4360,7 +4411,8 @@ function handleShowSteps(session, stepsKey) {
   const fullMsg = intro + '\n\n' + numbered.join('\n\n') + footer;
 
   const helpOptions = stepsAr.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
-  const optionsResp = [...helpOptions, 'Lo pude solucionar ✔️', 'El problema persiste ❌'];
+  // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+  const optionsResp = [...helpOptions, '✔️ Lo pude solucionar', '❌ El problema persiste'];
 
   return { error: false, msg: fullMsg, options: optionsResp, steps: stepsAr };
 }
@@ -4460,6 +4512,19 @@ async function generateAndShowSteps(session, sid, res) {
       steps = steps.filter(s => !basicSet.has(normalizeStepText(s)));
     }
 
+    // ✅ MEJORA UX FASE 2: Validación proactiva antes de avanzar
+    const validation = validateBeforeAdvancing(session, STATES.BASIC_TESTS, locale);
+    if (validation && validation.needsConfirmation) {
+      session.transcript.push({ who: 'bot', text: validation.message, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      return res.json(withOptions({
+        ok: false,
+        reply: validation.message,
+        stage: session.stage,
+        options: validation.options || buildUiButtonsFromTokens(['BTN_BACK'], locale)
+      }));
+    }
+    
     changeStage(session, STATES.BASIC_TESTS);
     session.basicTests = steps;
     // Mantener compatibilidad con estructuras que usan session.tests
@@ -4467,39 +4532,52 @@ async function generateAndShowSteps(session, sid, res) {
     session.tests.basic = Array.isArray(steps) ? steps : [];
     session.currentTestIndex = 0;
 
-    const who = session.userName ? capitalizeToken(session.userName) : null;
+    // ✅ MEJORA UX: Personalización consistente con nombre del usuario
+    const who = session.userName ? getPersonalizedGreeting(session.userName, locale, Math.floor(Math.random() * 5)) : null;
     // Usar deviceLabel (label legible) en lugar de device (ID)
     const deviceLabel = session.deviceLabel || device || (isEn ? 'device' : 'equipo');
     const pSummary = (session.problem || '').trim().slice(0, 200);
 
-    // Emojis numerados para los pasos
-    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+    // ✅ MEJORA UX: Confirmación del problema
+    const problemConfirmation = getConfirmationMessage('problem', { problem: pSummary }, locale);
+    
+    // ✅ MEJORA UX: Tip proactivo relacionado con el problema
+    const proactiveTip = getProactiveTip(pSummary, deviceLabel, locale);
 
     let intro;
     if (isEn) {
       intro = who
-        ? `Perfect, ${who}.\nSo, with your ${deviceLabel}, the problem we see is:\n"${pSummary}".\n\nLet's try a few quick steps together 🔧⚡:`
-        : `Perfect.\nSo, with your ${deviceLabel}, the problem we see is:\n"${pSummary}".\n\nLet's try a few quick steps together 🔧⚡:`;
+        ? `${who}.\n\n${problemConfirmation}\n\nSo, with your ${deviceLabel}, let's try a few quick steps together 🔧⚡:`
+        : `${problemConfirmation}\n\nSo, with your ${deviceLabel}, let's try a few quick steps together 🔧⚡:`;
     } else if (isEsLatam) {
       intro = who
-        ? `Perfecto, ${who}.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`
-        : `Perfecto.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`;
+        ? `${who}.\n\n${problemConfirmation}\n\nEntonces, con tu ${deviceLabel}, vamos a probar unos pasos rápidos juntos 🔧⚡:`
+        : `${problemConfirmation}\n\nEntonces, con tu ${deviceLabel}, vamos a probar unos pasos rápidos juntos 🔧⚡:`;
     } else {
       intro = who
-        ? `Perfecto, ${who}.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`
-        : `Perfecto.\nEntonces, con tu ${deviceLabel}, el problema que vemos es:\n"${pSummary}".\n\nVamos a probar unos pasos rápidos juntos 🔧⚡:`;
+        ? `${who}.\n\n${problemConfirmation}\n\nEntonces, con tu ${deviceLabel}, vamos a probar unos pasos rápidos juntos 🔧⚡:`
+        : `${problemConfirmation}\n\nEntonces, con tu ${deviceLabel}, vamos a probar unos pasos rápidos juntos 🔧⚡:`;
+    }
+    
+    // Agregar tip proactivo si existe
+    if (proactiveTip) {
+      intro += `\n\n${proactiveTip}`;
     }
 
     // Formatear pasos con emojis y saltos de línea visuales
-    function enumerateStepsWithEmojis(list) {
-      return list.map((s, idx) => {
-        const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
-        // Agregar saltos de línea adicionales entre pasos para mejor legibilidad
-        return `${emoji} ${s}`;
-      }).join('\n\n');
-    }
-
-    const stepsText = enumerateStepsWithEmojis(steps);
+    // ✅ REFACTOR: Usar enumerateSteps importado de utils/stepsUtils.js
+    const stepsText = enumerateSteps(steps).join('\n\n');
+    
+    // ✅ MEJORA UX: Agregar indicador de progreso
+    const progressIndicator = getProgressIndicator(0, steps.length, locale);
+    
+    // ✅ FASE 3: Tiempo estimado de resolución
+    const timeEstimate = estimateResolutionTime(pSummary, deviceLabel, locale);
+    
+    // ✅ FASE 3: Gamificación - Barra de progreso visual
+    const progressPercentage = calculateProgressPercentage(0, steps.length);
+    const progressBar = generateProgressBar(progressPercentage);
+    const motivationalMsg = getMotivationalMessage(progressPercentage, locale);
 
     let footer;
     if (isEn) {
@@ -4514,12 +4592,21 @@ async function generateAndShowSteps(session, sid, res) {
         'Cuando termines, avisame seleccionando una opción abajo:';
     }
 
-    const reply = `${intro}\n\n${stepsText}${footer}`;
+    // ✅ MEJORA UX: Agregar resumen de progreso y indicador
+    const progressSummary = getProgressSummary(session, locale);
+    
+    // ✅ FASE 3: Agregar tiempo estimado y gamificación
+    const timeEstimateMsg = `\n\n${timeEstimate.message}`;
+    const progressBarMsg = `\n\n📊 Progreso: ${progressBar} ${progressPercentage}%`;
+    const motivationalMsgLine = motivationalMsg ? `\n${motivationalMsg}` : '';
+    
+    const reply = `${intro}\n\n${stepsText}${progressIndicator}${progressSummary}${timeEstimateMsg}${progressBarMsg}${motivationalMsgLine}${footer}`;
 
     // Generar botones dinámicos
     const options = [];
 
     // 1. Botón Solucionado
+    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
     options.push({
       text: isEn ? '✔️ I solved it' : '✔️ Lo pude solucionar',
       value: 'BTN_SOLVED',
@@ -4527,15 +4614,18 @@ async function generateAndShowSteps(session, sid, res) {
     });
 
     // 2. Botón Persiste
+    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
     options.push({
-      text: isEn ? '❌ The problem persists' : '❌ El problema persiste',
+      text: isEn ? '❌ Still not working' : '❌ El problema persiste',
       value: 'BTN_PERSIST',
       description: isEn ? 'I still have the issue' : 'Sigo con el inconveniente'
     });
 
     // 3. Botones de Ayuda por cada paso
     steps.forEach((step, idx) => {
-      const emoji = numberEmojis[idx] || `${idx + 1}️⃣`;
+      const emoji = emojiForIndex(idx);
+      // ✅ FASE 3: Tiempo estimado se muestra en el mensaje de ayuda, no en el botón
+      // El formato del botón debe ser consistente: 🆘🛠️ Ayuda paso {emoji}
       options.push({
         text: isEn ? `🆘🛠️ Help step ${emoji}` : `🆘🛠️ Ayuda paso ${emoji}`,
         value: `BTN_HELP_STEP_${idx}`,
@@ -4548,9 +4638,13 @@ async function generateAndShowSteps(session, sid, res) {
     return await sendResponseWithSave(res, sid, session, payload);
   } catch (err) {
     console.error('[generateAndShowSteps] error:', err?.message || err);
+    const locale = session?.userLocale || 'es-AR';
+    const friendlyError = getFriendlyErrorMessage(err, locale, 'preparing diagnostic steps');
     return res.status(200).json(withOptions({
       ok: true,
-      reply: '😅 Tuve un problema al preparar los pasos. Probá de nuevo o contame si querés que conecte con un técnico.'
+      reply: friendlyError,
+      stage: session?.stage,
+      options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale)
     }));
   }
 }
@@ -4918,6 +5012,41 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     let session = await getSession(sid);
     console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
+    
+    // ✅ FASE 3: Detección de retorno después de inactividad
+    if (session && session.transcript && session.transcript.length > 0) {
+      const returnInfo = detectReturnAfterInactivity(session, 5 * 60 * 1000); // 5 minutos
+      if (returnInfo && returnInfo.isReturning && !buttonToken) {
+        console.log('[FASE3] 🔄 Usuario volviendo después de inactividad:', returnInfo.minutesAway, 'minutos');
+        const welcomeMessage = getWelcomeBackMessage(returnInfo, session.userLocale || 'es-AR', session);
+        
+        // Actualizar última actividad
+        updateLastActivity(session);
+        
+        session.transcript.push({ 
+          who: 'user', 
+          text: t || (session.userLocale?.startsWith('en') ? 'Continue' : 'Continuar'), 
+          ts: nowIso() 
+        });
+        session.transcript.push({ who: 'bot', text: welcomeMessage, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        
+        const locale = session.userLocale || 'es-AR';
+        const options = buildUiButtonsFromTokens(['BTN_BACK_TO_STEPS', 'BTN_CHANGE_TOPIC', 'BTN_CONNECT_TECH'], locale);
+        
+        return res.json(withOptions({
+          ok: true,
+          reply: welcomeMessage,
+          stage: session.stage,
+          options,
+          session,
+          locale
+        }));
+      }
+      
+      // Actualizar última actividad en cada interacción
+      updateLastActivity(session);
+    }
     
     // 🆕 Si no existe sesión, crear y retornar mensaje de GDPR inicial
     if (!session) {
@@ -5495,6 +5624,315 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // ========================================================
     // ✅ CORRECCIÓN B: Manejar botones de sistema operativo
     // ========================================================
+    // ========================================================
+    // 🔄 SISTEMA DE CONVERSACIÓN FLEXIBLE
+    // Detección de cambio de tema, retroceso, y solicitudes de información adicional
+    // ========================================================
+    const locale = session.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    
+    // Detectar intenciones de navegación conversacional
+    const topicChangePatterns = isEn
+      ? [
+          /^(change|switch|new|different|otra|otro|diferente|nuevo|nueva)\s+(topic|subject|question|problem|issue|tema|problema|pregunta|consulta)/i,
+          /^(let'?s?\s+)?(talk|speak|discuss|hablar|hablamos|hablemos)\s+(about|de|sobre)\s+(something|algo|otra|otro)/i,
+          /^(i\s+)?(want|need|quiero|necesito)\s+(to\s+)?(ask|preguntar|consultar)\s+(about|sobre|de)\s+(something|algo|otra|otro)/i,
+          /^(can|could|puedo|podr[ií]a)\s+(we|i|yo|nosotros)\s+(talk|speak|discuss|hablar|hablamos)\s+(about|de|sobre)\s+(something|algo|otra|otro)/i,
+          /^(forget|olvid[ae]|dej[ae])\s+(that|this|eso|esto|lo)/i,
+          /^(instead|en\s+vez|mejor)\s+(let'?s?\s+)?(talk|speak|discuss|hablar|hablamos)/i
+        ]
+      : [
+          /^(cambiar|nuevo|nueva|otro|otra|diferente)\s+(tema|problema|pregunta|consulta|asunto)/i,
+          /^(hablar|hablamos|hablemos|quiero\s+hablar|necesito\s+hablar)\s+(de|sobre|acerca\s+de)\s+(otro|otra|algo|algo\s+m[aá]s|nuevo|nueva)/i,
+          /^(quiero|necesito)\s+(preguntar|consultar)\s+(sobre|de|acerca\s+de)\s+(otro|otra|algo|algo\s+m[aá]s)/i,
+          /^(puedo|podr[ií]a)\s+(preguntar|consultar|hablar)\s+(sobre|de|acerca\s+de)\s+(otro|otra|algo)/i,
+          /^(olvid[ae]|dej[ae])\s+(eso|esto|lo|ese|este)/i,
+          /^(en\s+vez|mejor)\s+(hablar|hablamos|hablemos|preguntar)/i,
+          /^(tengo\s+)?(otra|otro)\s+(pregunta|consulta|duda|problema)/i
+        ];
+    
+    const moreInfoPatterns = isEn
+      ? [
+          /^(tell|explain|give|dame|decime|explicame)\s+(me\s+)?(more|m[aá]s|m[aá]s\s+info|m[aá]s\s+informaci[oó]n)/i,
+          /^(i\s+)?(want|need|quiero|necesito)\s+(more|m[aá]s)\s+(information|info|details|detalles|informaci[oó]n)/i,
+          /^(can|could|puedo|podr[ií]a)\s+(you|tu)\s+(explain|tell|explicar|decir)\s+(more|m[aá]s)/i,
+          /^(what|qu[eé])\s+(else|m[aá]s)\s+(can|should|puedo|debo)\s+(i|yo)\s+(know|saber|hacer)/i,
+          /^(any|alguna|algún)\s+(other|otra|otro)\s+(way|way|forma|manera|opci[oó]n)/i
+        ]
+      : [
+          /^(decime|dame|explicame|cuentame)\s+(m[aá]s|m[aá]s\s+info|m[aá]s\s+informaci[oó]n|m[aá]s\s+detalles)/i,
+          /^(quiero|necesito)\s+(m[aá]s|m[aá]s\s+info|m[aá]s\s+informaci[oó]n|m[aá]s\s+detalles)/i,
+          /^(puedo|podr[ií]a)\s+(saber|conocer|obtener)\s+(m[aá]s|m[aá]s\s+info|m[aá]s\s+informaci[oó]n)/i,
+          /^(hay|existe)\s+(otra|otro|alguna|algún)\s+(forma|manera|opci[oó]n|alternativa)/i,
+          /^(qu[eé])\s+(m[aá]s|otra|otro)\s+(puedo|debo|deber[ií]a)\s+(saber|hacer|probar)/i
+        ];
+    
+    const goBackPatterns = isEn
+      ? [
+          /^(go|volver|regresar)\s+(back|atr[aá]s|anterior)/i,
+          /^(let'?s?\s+)?(go|volver|regresar)\s+(to|a)\s+(the\s+)?(previous|last|anterior|último)/i,
+          /^(i\s+)?(want|quiero)\s+(to\s+)?(go|volver|regresar)\s+(back|atr[aá]s)/i,
+          /^(can|puedo)\s+(we|i|yo)\s+(go|volver|regresar)\s+(back|atr[aá]s)/i,
+          /^(return|volver|regresar)\s+(to|a)\s+(the\s+)?(previous|last|anterior|último)/i
+        ]
+      : [
+          /^(volver|regresar|ir)\s+(atr[aá]s|anterior|a\s+lo\s+anterior)/i,
+          /^(quiero|necesito)\s+(volver|regresar|ir)\s+(atr[aá]s|anterior)/i,
+          /^(puedo|podr[ií]a)\s+(volver|regresar|ir)\s+(atr[aá]s|anterior)/i,
+          /^(volver|regresar)\s+(a|al|a\s+la)\s+(anterior|último|pasado)/i,
+          /^(dame|mu[eé]strame)\s+(lo\s+)?(anterior|último|pasado)/i
+        ];
+    
+    // Detectar intenciones de navegación conversacional
+    const wantsTopicChange = !buttonToken && topicChangePatterns.some(pattern => pattern.test(t));
+    const wantsMoreInfo = !buttonToken && moreInfoPatterns.some(pattern => pattern.test(t));
+    const wantsGoBack = !buttonToken && goBackPatterns.some(pattern => pattern.test(t));
+    
+    // ========================================================
+    // 🔙 HANDLER: BTN_BACK - Volver atrás (mostrar respuesta anterior del bot)
+    // ========================================================
+    if (buttonToken === 'BTN_BACK' || wantsGoBack) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // Buscar la última respuesta del bot en el transcript (excluyendo la actual si existe)
+      const transcript = session.transcript || [];
+      let previousBotMessage = null;
+      let previousStage = null;
+      let messageIndex = -1;
+      
+      // Buscar desde el final hacia atrás, saltando mensajes del usuario y el mensaje actual
+      for (let i = transcript.length - 1; i >= 0; i--) {
+        const msg = transcript[i];
+        if (msg.who === 'bot' && msg.text && msg.text.trim()) {
+          // Saltar si es el mismo mensaje que acabamos de mostrar (último mensaje del bot)
+          if (i === transcript.length - 1 && transcript[transcript.length - 1].who === 'bot') {
+            // Buscar el mensaje anterior del bot
+            continue;
+          }
+          previousBotMessage = msg.text;
+          previousStage = msg.stage || session.stage;
+          messageIndex = i;
+          break;
+        }
+      }
+      
+      if (previousBotMessage && messageIndex >= 0) {
+        // Si hay una respuesta anterior, mostrarla
+        const reply = previousBotMessage;
+        
+        // Reconstruir opciones según el stage que tenía ese mensaje
+        let options = [];
+        const stageToUse = previousStage || session.stage;
+        
+        if (stageToUse === STATES.BASIC_TESTS) {
+          // Si hay pasos básicos, mostrar botones de ayuda + solucionado/persiste
+          if (session.tests && session.tests.basic && session.tests.basic.length > 0) {
+            const helpOptions = session.tests.basic.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
+            options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST'], locale);
+            options = [...helpOptions, ...options];
+          } else {
+            options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
+          }
+        } else if (stageToUse === STATES.ADVANCED_TESTS) {
+          // Si hay pasos avanzados, mostrar botones de ayuda + solucionado/persiste
+          if (session.tests && session.tests.advanced && session.tests.advanced.length > 0) {
+            const helpOptions = session.tests.advanced.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
+            options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST'], locale);
+            options = [...helpOptions, ...options];
+          } else {
+            options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
+          }
+        } else if (stageToUse === STATES.ESCALATE) {
+          options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+        } else if (stageToUse === STATES.ASK_DEVICE) {
+          options = buildUiButtonsFromTokens(['BTN_DEV_PC_DESKTOP', 'BTN_DEV_NOTEBOOK', 'BTN_DEV_PC_ALLINONE'], locale);
+        } else if (stageToUse === STATES.ASK_LANGUAGE) {
+          options = buildUiButtonsFromTokens(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], locale);
+        } else {
+          // Opciones por defecto: volver atrás y cerrar
+          options = buildUiButtonsFromTokens(['BTN_BACK', 'BTN_CLOSE'], locale);
+        }
+        
+        // Restaurar el stage anterior si es diferente
+        if (previousStage && previousStage !== session.stage) {
+          changeStage(session, previousStage);
+        }
+        
+        session.transcript.push({ 
+          who: 'user', 
+          text: isEn ? 'Go back' : 'Volver atrás', 
+          ts: nowIso() 
+        });
+        session.transcript.push({ 
+          who: 'bot', 
+          text: reply, 
+          ts: nowIso(),
+          stage: stageToUse
+        });
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ 
+          ok: true, 
+          reply, 
+          stage: stageToUse, 
+          options,
+          session,
+          locale
+        }));
+      } else {
+        // No hay respuesta anterior, mostrar mensaje de error amigable
+        const errorMsg = isEn
+          ? "I don't have a previous message to show. This is the beginning of our conversation."
+          : "No tengo un mensaje anterior para mostrar. Este es el inicio de nuestra conversación.";
+        const options = buildUiButtonsFromTokens(['BTN_CLOSE'], locale);
+        session.transcript.push({ 
+          who: 'user', 
+          text: isEn ? 'Go back' : 'Volver atrás', 
+          ts: nowIso() 
+        });
+        session.transcript.push({ 
+          who: 'bot', 
+          text: errorMsg, 
+          ts: nowIso() 
+        });
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ 
+          ok: false, 
+          reply: errorMsg, 
+          stage: session.stage, 
+          options 
+        }));
+      }
+    }
+
+    // ========================================================
+    // 🔄 HANDLER: BTN_CHANGE_TOPIC - Cambiar de tema
+    // ========================================================
+    if (buttonToken === 'BTN_CHANGE_TOPIC' || wantsTopicChange) {
+      console.log('[FLEXIBLE_CONVERSATION] 🔄 Cambio de tema solicitado');
+      
+      // Guardar el contexto actual como "punto de conversación"
+      if (!session.conversationPoints) {
+        session.conversationPoints = [];
+      }
+      
+      const currentPoint = {
+        stage: session.stage,
+        problem: session.problem,
+        device: session.device,
+        timestamp: nowIso(),
+        summary: session.transcript.slice(-5).filter(m => m.who === 'bot').map(m => m.text).join(' ').slice(0, 200)
+      };
+      
+      if (currentPoint.stage && currentPoint.stage !== STATES.ASK_LANGUAGE && currentPoint.stage !== STATES.ASK_NAME) {
+        session.conversationPoints.push(currentPoint);
+      }
+      
+      // Limpiar contexto actual para nuevo tema
+      session.problem = null;
+      session.device = null;
+      session.issueKey = null;
+      session.tests = { basic: [], ai: [], advanced: [] };
+      session.stepsDone = [];
+      changeStage(session, STATES.ASK_NEED);
+      
+      const reply = isEn
+        ? "No problem! Let's talk about something else. What do you need help with?"
+        : "¡No hay problema! Hablemos de otra cosa. ¿Con qué necesitás ayuda?";
+      
+      session.transcript.push({ 
+        who: 'user', 
+        text: buttonToken === 'BTN_CHANGE_TOPIC' ? (isEn ? 'Change topic' : 'Cambiar de tema') : t, 
+        ts: nowIso() 
+      });
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      
+      return res.json(withOptions({
+        ok: true,
+        reply,
+        stage: session.stage,
+        options: buildUiButtonsFromTokens(['BTN_BACK'], locale)
+      }));
+    }
+
+    // ========================================================
+    // ℹ️ HANDLER: BTN_MORE_INFO - Más información
+    // ========================================================
+    if (buttonToken === 'BTN_MORE_INFO' || wantsMoreInfo) {
+      console.log('[FLEXIBLE_CONVERSATION] ℹ️ Solicitud de más información');
+      
+      // Buscar el último mensaje del bot para expandir
+      const lastBotMessages = session.transcript
+        .filter(msg => msg.who === 'bot')
+        .slice(-3);
+      
+      if (lastBotMessages.length > 0 && SMART_MODE_ENABLED && openai) {
+        const lastBotMessage = lastBotMessages[lastBotMessages.length - 1];
+        
+        // Generar información adicional usando IA
+        try {
+          const contextPrompt = isEn
+            ? `The user asked for more information about this: "${lastBotMessage.text}". Provide detailed, helpful additional information that expands on this topic. Be specific and actionable.`
+            : `El usuario pidió más información sobre esto: "${lastBotMessage.text}". Proporcioná información adicional detallada y útil que amplíe este tema. Sé específico y accionable.`;
+          
+          const expandedInfo = await generateSmartResponse(
+            { analyzed: true, needsMoreInfo: true, problem: { detected: true, summary: lastBotMessage.text } },
+            session,
+            { 
+              expandLastMessage: true,
+              lastMessage: lastBotMessage.text,
+              includeNextSteps: true,
+              specificPrompt: contextPrompt
+            }
+          );
+          
+          if (expandedInfo) {
+            const reply = isEn
+              ? `Here's more detailed information:\n\n${expandedInfo}`
+              : `Acá tenés información más detallada:\n\n${expandedInfo}`;
+            
+            session.transcript.push({ 
+              who: 'user', 
+              text: buttonToken === 'BTN_MORE_INFO' ? (isEn ? 'More information' : 'Más información') : t, 
+              ts: nowIso() 
+            });
+            session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+            await saveSessionAndTranscript(sid, session);
+            
+            return res.json(withOptions({
+              ok: true,
+              reply,
+              stage: session.stage,
+              options: buildUiButtonsFromTokens(['BTN_BACK', 'BTN_MORE_INFO', 'BTN_CLOSE'], locale)
+            }));
+          }
+        } catch (error) {
+          console.error('[FLEXIBLE_CONVERSATION] Error generando más información:', error);
+        }
+      }
+      
+      // Fallback: ofrecer opciones de ayuda
+      const reply = isEn
+        ? "I can help you with more details. What specifically would you like to know more about? You can ask me questions or I can provide more information about what we were discussing."
+        : "Te puedo ayudar con más detalles. ¿Qué específicamente querés saber más? Podés hacerme preguntas o puedo darte más información sobre lo que estábamos hablando.";
+      
+      session.transcript.push({ 
+        who: 'user', 
+        text: buttonToken === 'BTN_MORE_INFO' ? (isEn ? 'More information' : 'Más información') : t, 
+        ts: nowIso() 
+      });
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      
+      return res.json(withOptions({
+        ok: true,
+        reply,
+        stage: session.stage,
+        options: buildUiButtonsFromTokens(['BTN_BACK', 'BTN_MORE_INFO', 'BTN_CLOSE'], locale)
+      }));
+    }
+
     if (buttonToken && (buttonToken === 'BTN_OS_WINDOWS' || buttonToken === 'BTN_OS_MACOS' || buttonToken === 'BTN_OS_LINUX')) {
       const osMap = {
         'BTN_OS_WINDOWS': 'Windows',
@@ -5527,6 +5965,47 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         stage: session.stage,
         options: options
       }));
+    }
+
+    // ✅ HANDLER: BTN_SUCCESS y BTN_NEED_HELP para instalaciones
+    const isInstallationContext = session.stage === STATES.GUIDING_INSTALLATION || 
+                                   session.operatingSystem || 
+                                   (session.activeIntent && (session.activeIntent.type === 'install' || session.activeIntent.type === 'setup'));
+    
+    if (isInstallationContext && (buttonToken === 'BTN_SUCCESS' || buttonToken === 'BTN_NEED_HELP')) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+      
+      if (buttonToken === 'BTN_SUCCESS') {
+        // Usuario confirma que la instalación funcionó
+        const celebration = getCelebrationMessage('installation_success', {}, locale);
+        const firstLine = whoLabel
+          ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
+          : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
+        
+        const deviceName = session.device || session.activeIntent?.software || 'dispositivo';
+        const reply = isEn
+          ? `${firstLine}\n\n${celebration}\n\nI'm glad the installation worked! Your ${deviceName} should be ready to use now. 💻✨\n\nIf you need help with anything else, or want to install/configure something else, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+          : `${firstLine}\n\n${celebration}\n\nMe alegra que la instalación haya funcionado! Tu ${deviceName} debería estar listo para usar ahora. 💻✨\n\nSi necesitás ayuda con otra cosa, o querés instalar/configurar algo más, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+        
+        changeStage(session, STATES.ENDED);
+        session.waEligible = false;
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+      } else if (buttonToken === 'BTN_NEED_HELP') {
+        // Usuario necesita más ayuda con la instalación
+        const reply = isEn
+          ? `No problem! Let me help you troubleshoot the installation. What specific issue are you encountering? You can describe the error message, what step you're stuck on, or any other details that might help.`
+          : `¡No hay problema! Dejame ayudarte a resolver el problema de instalación. ¿Qué problema específico estás teniendo? Podés describir el mensaje de error, en qué paso te quedaste trabado, o cualquier otro detalle que pueda ayudar.`;
+        
+        const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+        changeStage(session, STATES.ESCALATE);
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        await saveSessionAndTranscript(sid, session);
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+      }
     }
 
     // ========================================================
@@ -5715,8 +6194,8 @@ Respondé de forma directa, empática y técnica.`;
               
               // Agregar mensaje ofreciendo opciones
               const ticketOffer = isEn
-                ? `\n\nWould you like me to:\n• Review your ${smartAnalysis.problem?.summary || 'problem'}?\n• Run advanced tests?\n• Create a ticket with a technician?`
-                : `\n\n¿Querés que:\n• Revise tu ${smartAnalysis.problem?.summary || 'problema'}?\n• Haga pruebas avanzadas?\n• Genere un ticket con un técnico?`;
+                ? `\n\nWould you like me to:\n\n1️⃣ Review your ${smartAnalysis.problem?.summary || 'problem'}\n\n2️⃣ Run advanced tests\n\n3️⃣ Create a ticket with a technician?`
+                : `\n\n¿Querés que:\n\n1️⃣ Revise tu ${smartAnalysis.problem?.summary || 'problema'}\n\n2️⃣ Haga pruebas avanzadas\n\n3️⃣ Genere un ticket con un técnico?`;
               
               // Agregar al reply
               const enhancedReply = smartReply + ticketOffer;
@@ -6218,7 +6697,46 @@ Respondé de forma directa, empática y técnica.`;
       if (!stageInfo) {
         console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
       }
-      session.problem = t || session.problem;
+      // ✅ MEJORA UX FASE 2: Validación proactiva - detectar inconsistencias
+      const newProblem = t || session.problem;
+      if (session.problem && session.problem !== newProblem) {
+        const inconsistency = detectInconsistency(session, newProblem, 'problem', session.userLocale || 'es-AR');
+        if (inconsistency && inconsistency.hasInconsistency) {
+          session.transcript.push({ who: 'bot', text: inconsistency.message, ts: nowIso() });
+          await saveSessionAndTranscript(sid, session);
+          return res.json(withOptions({
+            ok: false,
+            reply: inconsistency.message,
+            stage: session.stage,
+            options: buildUiButtonsFromTokens(inconsistency.options || ['BTN_BACK'], session.userLocale || 'es-AR')
+          }));
+        }
+      }
+      session.problem = newProblem;
+      
+      // ✅ FASE 3: Confirmación proactiva del problema (solo si es muy diferente del anterior)
+      if (session.problem && session.problem.trim() && session.problem.length > 10) {
+        const previousProblem = session.previousProblem;
+        if (previousProblem && previousProblem !== session.problem) {
+          const inconsistency = detectInconsistency(session, session.problem, 'problem', session.userLocale || 'es-AR');
+          if (inconsistency && inconsistency.hasInconsistency) {
+            session.previousProblem = session.problem; // Guardar para no repetir
+            session.transcript.push({ who: 'bot', text: inconsistency.message, ts: nowIso() });
+            await saveSessionAndTranscript(sid, session);
+            const locale = session.userLocale || 'es-AR';
+            return res.json(withOptions({
+              ok: false,
+              reply: inconsistency.message,
+              stage: session.stage,
+              options: buildUiButtonsFromTokens(['BTN_BACK', 'BTN_CLOSE'], locale),
+              session,
+              locale
+            }));
+          }
+        }
+        // Guardar problema actual como anterior para próximas comparaciones
+        session.previousProblem = session.problem;
+      }
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
 
@@ -6866,7 +7384,9 @@ La guía debe ser:
             : `Perfecto, ${whoLabel}! Acá tenés la guía para ${deviceName} en ${session.userOS}:\n\n`);
 
         if (guideData.steps && guideData.steps.length > 0) {
-          replyText += guideData.steps.join('\n\n');
+          // ✅ FORMATO UNIFICADO: Usar enumerateSteps para consistencia visual
+          const formattedSteps = enumerateSteps(guideData.steps).join('\n\n');
+          replyText += formattedSteps;
         } else {
           replyText += isEn
             ? 'I could not generate the specific steps, but I recommend visiting the manufacturer official website to download drivers and instructions.'
@@ -7136,6 +7656,19 @@ La guía debe ser:
             return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
           }
 
+          // ✅ MEJORA UX FASE 2: Validación proactiva antes de avanzar a ADVANCED_TESTS
+          const validation = validateBeforeAdvancing(session, STATES.ADVANCED_TESTS, locale);
+          if (validation && validation.needsConfirmation) {
+            session.transcript.push({ who: 'bot', text: validation.message, ts: nowIso() });
+            await saveSessionAndTranscript(sid, session);
+            return res.json(withOptions({
+              ok: false,
+              reply: validation.message,
+              stage: session.stage,
+              options: validation.options || buildUiButtonsFromTokens(['BTN_BACK'], locale)
+            }));
+          }
+          
           session.tests.advanced = limited;
           session.stepProgress = session.stepProgress || {};
           limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
@@ -7157,20 +7690,18 @@ La guía debe ser:
           session.transcript.push({ who: 'bot', text: fullMsg, ts: nowIso() });
           await saveSessionAndTranscript(sid, session);
           const helpOptions = limited.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
-          const solvedBtn = isEn ? '✔️ I solved it' : 'Lo pude solucionar ✔️';
-          const persistBtn = isEn ? '❌ Still not working' : 'El problema persiste ❌';
+          // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+          const solvedBtn = isEn ? '✔️ I solved it' : '✔️ Lo pude solucionar';
+          const persistBtn = isEn ? '❌ Still not working' : '❌ El problema persiste';
           const optionsResp = [...helpOptions, solvedBtn, persistBtn];
           return res.json(withOptions({ ok: true, reply: fullMsg, stage: session.stage, options: optionsResp, steps: limited }));
         } catch (errOpt1) {
           console.error('[ESCALATE][more_tests] Error', errOpt1 && errOpt1.message);
           const locale = session.userLocale || 'es-AR';
-          const isEn = String(locale).toLowerCase().startsWith('en');
-          reply = isEn
-            ? 'An error occurred generating more tests. Try again or ask me to connect you with a technician.'
-            : 'Ocurrió un error generando más pruebas. Probá de nuevo o pedime que te conecte con un técnico.';
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          const friendlyError = getFriendlyErrorMessage(errOpt1, locale, 'generating more tests');
+          session.transcript.push({ who: 'bot', text: friendlyError, ts: nowIso() });
           await saveSessionAndTranscript(sid, session);
-          return res.json(withOptions({ ok: false, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale) }));
+          return res.json(withOptions({ ok: false, reply: friendlyError, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale) }));
         }
       } else {
         // ✅ CORRECCIÓN: Si no entendió en ESCALATE, ofrecer directamente el botón sin más preguntas
@@ -7749,6 +8280,98 @@ const server = app.listen(PORT, async () => {
 // PERFORMANCE: Enable HTTP keep-alive
 server.keepAliveTimeout = 65000; // 65 segundos
 server.headersTimeout = 66000; // Ligeramente mayor que keepAlive
+
+// ========================================================
+// ROBOT FIX - Sistema Automático de Corrección
+// ========================================================
+const ENABLE_ROBOT_FIX = process.env.ENABLE_ROBOT_FIX !== 'false'; // Habilitado por defecto
+
+if (ENABLE_ROBOT_FIX) {
+  console.log('[RobotFix] 🤖 Sistema de corrección automática ACTIVADO');
+  
+  // Ejecutar inmediatamente al iniciar (solo si hay problemas pendientes)
+  setTimeout(async () => {
+    try {
+      const stats = await getRobotFixStats();
+      if (stats && stats.pending > 0) {
+        console.log(`[RobotFix] 🔍 Detectados ${stats.pending} problemas pendientes - ejecutando análisis inicial`);
+        await runRobotFix();
+      }
+    } catch (error) {
+      console.error('[RobotFix] Error en ejecución inicial:', error.message);
+    }
+  }, 30000); // Esperar 30 segundos después del inicio
+  
+  // Configurar ejecución automática cada 30 minutos
+  // Cron: cada 30 minutos = '*/30 * * * *'
+  cron.schedule('*/30 * * * *', async () => {
+    console.log('[RobotFix] ⏰ Ejecución programada iniciada');
+    try {
+      const result = await runRobotFix();
+      if (result.success) {
+        console.log(`[RobotFix] ✅ Ejecución completada: ${result.resolved} resueltos, ${result.errors} errores`);
+      } else {
+        console.error(`[RobotFix] ❌ Error en ejecución: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[RobotFix] ❌ Error crítico en ejecución programada:', error.message);
+    }
+  });
+  
+  console.log('[RobotFix] ⏰ Programado para ejecutarse cada 30 minutos');
+  
+  // Endpoint manual para ejecutar Robot Fix
+  app.post('/api/robot-fix/run', async (req, res) => {
+    const token = req.headers.authorization || req.query.token;
+    
+    // Verificar autenticación (usar LOG_TOKEN)
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(401).json({ ok: false, error: 'No autorizado' });
+    }
+    
+    try {
+      const result = await runRobotFix();
+      return res.json({
+        ok: true,
+        success: result.success,
+        processed: result.processed,
+        resolved: result.resolved,
+        errors: result.errors,
+        duration: result.duration
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error.message
+      });
+    }
+  });
+  
+  // Endpoint para obtener estadísticas
+  app.get('/api/robot-fix/stats', async (req, res) => {
+    const token = req.headers.authorization || req.query.token;
+    
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(401).json({ ok: false, error: 'No autorizado' });
+    }
+    
+    try {
+      const stats = await getRobotFixStats();
+      return res.json({
+        ok: true,
+        stats
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error.message
+      });
+    }
+  });
+  
+} else {
+  console.log('[RobotFix] 📦 Sistema de corrección automática DESACTIVADO');
+}
 
 // Graceful shutdown
 function gracefulShutdown(signal) {

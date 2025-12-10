@@ -14,6 +14,9 @@ import { nowIso, withOptions } from '../utils/common.js';
 import { enumerateSteps, normalizeStepText } from '../utils/stepsUtils.js';
 import { capitalizeToken } from './nameHandler.js';
 import { changeStage, STATES } from './stateMachine.js';
+import { getFriendlyErrorMessage, getCelebrationMessage, getProgressIndicator } from '../utils/uxHelpers.js';
+import { detectAchievements, getAchievementMessage, updateSessionAchievements, calculateProgressPercentage, generateProgressBar } from '../utils/gamification.js';
+import { estimateTotalTime, estimateStepTime } from '../utils/timeEstimates.js';
 
 /**
  * Maneja el stage BASIC_TESTS
@@ -70,20 +73,28 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
 
+    // ✅ FASE 3: Tiempo estimado para este paso
+    const stepTime = estimateStepTime(stepText, stepIdx, locale);
+    
+    // ✅ FASE 3: Marcar paso como en progreso
+    session.stepProgress = session.stepProgress || {};
+    session.stepProgress[`basic_${stepIdx + 1}`] = 'in_progress';
+
     // Generar explicación con IA
     let explanation = '';
     try {
       explanation = await explainStepWithAI(stepText, stepNumber, session.device || '', session.problem || '', locale);
     } catch (err) {
       console.error('[BASIC_TESTS] Error generating help:', err);
-      explanation = isEn
+      const friendlyError = getFriendlyErrorMessage(err, locale, 'generating step explanation');
+      explanation = friendlyError || (isEn
         ? "I couldn't generate a detailed explanation, but try to follow the step as best as you can."
-        : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.";
+        : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.");
     }
 
     const reply = isEn
-      ? `**Help for Step ${stepNumber}:**\n\n${explanation}`
-      : `**Ayuda para el Paso ${stepNumber}:**\n\n${explanation}`;
+      ? `**Help for Step ${stepNumber}:** ${stepTime}\n\n${explanation}`
+      : `**Ayuda para el Paso ${stepNumber}:** ${stepTime}\n\n${explanation}`;
 
     const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
     
@@ -106,15 +117,71 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     unifiedOpts.push(backButton); // Siempre incluir este botón
     if (connectTechBtn) unifiedOpts.push(connectTechBtn);
 
-    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    // ✅ FASE 3: Calcular tiempo total restante y mostrar progreso
+    const remainingSteps = steps.length - (stepNumber);
+    const totalTimeRemaining = estimateTotalTime(remainingSteps, 5, locale);
+    
+    // ✅ FASE 3: Actualizar progreso visual
+    const completedSteps = Object.values(session.stepProgress || {}).filter(s => s === 'completed' || s === 'done').length;
+    const totalSteps = steps.length;
+    const progressPercentage = calculateProgressPercentage(completedSteps, totalSteps);
+    const progressBar = generateProgressBar(progressPercentage);
+    const progressMsg = `\n\n📊 Progreso: ${progressBar} ${progressPercentage}%`;
+    
+    const finalReply = totalTimeRemaining 
+      ? `${reply}${progressMsg}\n\n${totalTimeRemaining}` 
+      : `${reply}${progressMsg}`;
+    
+    session.transcript.push({ who: 'bot', text: finalReply, ts: nowIso() });
     await saveSessionAndTranscript(sid, session);
-    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: unifiedOpts }));
+    return res.json(withOptions({ ok: true, reply: finalReply, stage: session.stage, options: unifiedOpts }));
   }
 
   const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
   if (rxDontKnow.test(t)) {
     const result = await handleDontUnderstand(session, sid, t);
     return res.json(withOptions(result));
+  }
+
+  // ✅ HANDLER: BTN_YES y BTN_NO para guías de instalación (ASK_HOWTO_DETAILS)
+  // Verificar si viene de una guía de instalación (ASK_HOWTO_DETAILS cambia a BASIC_TESTS)
+  const isInstallationGuide = (session.tests?.howto && session.tests.howto.length > 0) || 
+                               session.userOS || 
+                               (session.activeIntent && (session.activeIntent.type === 'install' || session.activeIntent.type === 'setup'));
+  
+  if (isInstallationGuide && (buttonToken === 'BTN_YES' || buttonToken === 'BTN_NO' || /^\s*(s|si|sí|yes|y)\b/i.test(t) || /^\s*(no|n)\b/i.test(t))) {
+    const locale = session.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+    
+    if (buttonToken === 'BTN_YES' || /^\s*(s|si|sí|yes|y)\b/i.test(t)) {
+      // Usuario confirma que la instalación funcionó
+      const celebration = getCelebrationMessage('installation_success', {}, locale);
+      const firstLine = whoLabel
+        ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
+        : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
+      
+      const reply = isEn
+        ? `${firstLine}\n\n${celebration}\n\nI'm glad the installation worked! Your ${session.device || 'device'} should be ready to use now. 💻✨\n\nIf you need help with anything else, or want to install/configure something else, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+        : `${firstLine}\n\n${celebration}\n\nMe alegra que la instalación haya funcionado! Tu ${session.device || 'dispositivo'} debería estar listo para usar ahora. 💻✨\n\nSi necesitás ayuda con otra cosa, o querés instalar/configurar algo más, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+      
+      changeStage(session, STATES.ENDED);
+      session.waEligible = false;
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+    } else if (buttonToken === 'BTN_NO' || /^\s*(no|n)\b/i.test(t)) {
+      // Usuario necesita más ayuda con la instalación
+      const reply = isEn
+        ? `No problem! Let me help you troubleshoot the installation. What specific issue are you encountering?`
+        : `¡No hay problema! Dejame ayudarte a resolver el problema de instalación. ¿Qué problema específico estás teniendo?`;
+      
+      const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+      changeStage(session, STATES.ESCALATE);
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSessionAndTranscript(sid, session);
+      return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
+    }
   }
 
   const rxYes = /^\s*(s|si|sí|lo pude|lo pude solucionar|lo pude solucionar ✔️|BTN_SOLVED)\b/i;
@@ -179,9 +246,13 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
       return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
     } catch (err) {
       console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
-      changeStage(session, STATES.ESCALATE);
+      const locale = session.userLocale || 'es-AR';
+      const friendlyError = getFriendlyErrorMessage(err, locale, 'generating advanced tests');
+      session.transcript.push({ who: 'bot', text: friendlyError, ts: nowIso() });
       await saveSessionAndTranscript(sid, session);
-      return await createTicketAndRespond(session, sid, res);
+      changeStage(session, STATES.ESCALATE);
+      const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+      return res.json(withOptions({ ok: false, reply: friendlyError, stage: session.stage, options }));
     }
   }
 
@@ -189,14 +260,32 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
     const whoLabel = session.userName ? capitalizeToken(session.userName) : null;
+    
+    // ✅ MEJORA UX FASE 2: Mensaje de celebración
+    const totalSteps = (session.tests?.basic?.length || 0) + (session.tests?.advanced?.length || 0);
+    const completedSteps = Object.values(session.stepProgress || {}).filter(s => s === 'completed').length;
+    const celebration = getCelebrationMessage(
+      totalSteps > 0 && completedSteps >= totalSteps ? 'all_steps_completed' : 'problem_solved',
+      { step: completedSteps, totalSteps },
+      locale
+    );
+    
+    // ✅ FASE 3: Detectar y mostrar logros
+    const achievements = detectAchievements(session);
+    let achievementsMsg = '';
+    if (achievements.length > 0) {
+      updateSessionAchievements(session, achievements);
+      achievementsMsg = '\n\n' + achievements.map(a => getAchievementMessage(a, locale)).join('\n');
+    }
+    
     const empatia = addEmpatheticResponse('ENDED', locale);
     const firstLine = whoLabel
       ? (isEn ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
       : (isEn ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
 
     const reply = isEn
-      ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-      : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+      ? `${firstLine}\n\n${celebration}${achievementsMsg}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
+      : `${firstLine}\n\n${celebration}${achievementsMsg}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
 
     changeStage(session, STATES.ENDED);
     session.waEligible = false;
