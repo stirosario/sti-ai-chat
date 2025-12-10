@@ -103,9 +103,39 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
       
       console.log('[IntelligentSystem] ✅ Problema seleccionado desde botón:', session.problem);
       
-      // El sistema inteligente continuará procesando el problema y detectando el dispositivo
-      // Retornar null para que el flujo normal continúe
-      return null;
+      // Cambiar el stage a DETECT_DEVICE para preguntar por el dispositivo
+      session.stage = 'DETECT_DEVICE';
+      
+      // Generar mensaje pidiendo el dispositivo
+      const reply = isEn
+        ? `✅ Got it! I understand the problem: ${session.problem}. What type of device is it? A desktop PC, a notebook, or an all-in-one? This will help me guide you better. 💻🖥️`
+        : `✅ Perfecto! Entiendo el problema: ${session.problem}. ¿Qué tipo de dispositivo es? ¿Una PC de escritorio, una notebook o una all-in-one? Así te guío mejor. 💻🖥️`;
+      
+      // Generar botones de selección de dispositivo
+      const buttons = getDeviceSelectionButtons(locale);
+      
+      const ts = new Date().toISOString();
+      session.transcript = session.transcript || [];
+      session.transcript.push({
+        who: 'user',
+        text: buttonToken,
+        ts
+      });
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts,
+        problemSelected: session.problem
+      });
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage,
+        options: buttons, // También en options para compatibilidad
+        buttons: buttons, // En buttons para el frontend
+        problemSelected: session.problem
+      };
     }
   }
 
