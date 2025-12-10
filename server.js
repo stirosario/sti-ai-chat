@@ -98,7 +98,7 @@ import {
   getProactiveTip,
   getCelebrationMessage
 } from './utils/uxHelpers.js';
-import { emojiForIndex, enumerateSteps, normalizeStepText } from './utils/stepsUtils.js';
+import { emojiForIndex, enumerateSteps, enumerateStepsWithDifficulty, normalizeStepText, getDifficultyForStep } from './utils/stepsUtils.js';
 import { 
   validateBeforeAdvancing, 
   getConfirmationPrompt, 
@@ -2215,17 +2215,27 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
   ].join('\n') : '';
 
   const prompt = [
-    'Generá una lista corta de pasos numerados para ayudar a un usuario final a diagnosticar y resolver un problema técnico.',
+    'Generá una lista de 15 pasos numerados para ayudar a un usuario final a diagnosticar y resolver un problema técnico.',
     `El usuario habla en el idioma: ${profile.languageTag}.`,
     `Dispositivo (si se conoce): ${deviceLabel}.`,
     imageContext, // Incluir análisis de imagen aquí
     notebookKeyboardContext, // ✅ CORRECCIÓN 2 y 3: Contexto específico para teclado de notebook
     '',
+    'ESTRUCTURA DE DIFICULTAD:',
+    '- Pasos 1-3: Muy fáciles (ej: reiniciar, verificar conexiones básicas)',
+    '- Pasos 4-6: Fáciles (ej: revisar configuraciones simples, limpiar caché)',
+    '- Pasos 7-9: Intermedios (ej: actualizar drivers, verificar logs)',
+    '- Pasos 10-12: Difíciles (ej: modificar configuraciones avanzadas, usar herramientas del sistema)',
+    '- Pasos 13-15: Muy difíciles (ej: análisis profundo, comandos técnicos avanzados)',
+    '',
     'IMPORTANTE:',
     '- Respondé SOLO en el idioma del usuario.',
     '- Devolvé la respuesta SOLO como un array JSON de strings (sin explicación extra).',
     '- Cada string debe describir un paso concreto, simple y seguro.',
-    '- Evitá cualquier acción peligrosa o avanzada (no tocar BIOS, no usar comandos destructivos).',
+    '- Los primeros pasos deben ser muy simples y seguros.',
+    '- La complejidad debe aumentar gradualmente.',
+    '- Evitá cualquier acción peligrosa o destructiva.',
+    '- NO incluyas el nivel de dificultad en el texto del paso (se agregará automáticamente).',
     imageAnalysis ? '- Los pasos deben ser RELEVANTES al error específico mostrado en la imagen.' : '',
     isNotebookKeyboard ? '- Los pasos deben ser ESPECÍFICOS para teclado de notebook (no teclado externo).' : '',
     '',
@@ -2233,7 +2243,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
     (Array.isArray(avoidSteps) && avoidSteps.length) ? (`- NO repitas los siguientes pasos ya probados por el usuario: ${avoidSteps.map(s => '"' + String(s).replace(/\s+/g,' ').trim().slice(0,80) + '"').join(', ')}`) : '',
     '',
     'Ejemplo de formato de salida:',
-    '["Paso 1: ...", "Paso 2: ...", "Paso 3: ..."]',
+    '["Reiniciar el equipo completamente", "Verificar conexiones de cables", "Revisar indicadores LED", ...]',
     '',
     'Texto del usuario (descripción del problema):',
     userText
@@ -2250,7 +2260,7 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
         { role: 'user', content: prompt }
       ],
       temperature: 0.2,
-      max_tokens: 400
+      max_tokens: 1200
     });
     clearTimeout(timeoutId);
 
@@ -2283,7 +2293,29 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
     if (!Array.isArray(parsed) || !parsed.length) {
       return [];
     }
-    return parsed.map(s => String(s)).slice(0, 6);
+    // Retornar hasta 15 pasos, rellenar si hay menos
+    const steps = parsed.map(s => String(s)).slice(0, 15);
+    // Si hay menos de 15 pasos, generar pasos genéricos adicionales
+    if (steps.length < 15) {
+      const isEn = profile.code === 'en';
+      const genericSteps = isEn ? [
+        'Check for software updates',
+        'Review system logs for errors',
+        'Test in safe mode',
+        'Perform a system restore',
+        'Contact technical support with detailed information'
+      ] : [
+        'Verificar actualizaciones de software',
+        'Revisar registros del sistema en busca de errores',
+        'Probar en modo seguro',
+        'Realizar una restauración del sistema',
+        'Contactar soporte técnico con información detallada'
+      ];
+      while (steps.length < 15 && genericSteps.length > 0) {
+        steps.push(genericSteps.shift());
+      }
+    }
+    return steps;
   } catch (err) {
     console.error('[aiQuickTests] error:', err?.message || err);
     const isEn = getLocaleProfile(locale).code === 'en';
@@ -4448,14 +4480,20 @@ async function generateAndShowSteps(session, sid, res) {
       }
     }
 
-    // Playbook local para dispositivos de streaming / SmartTV (prioridad en español)
-    let steps;
+    // Generar 15 pasos con niveles de dificultad
+    let steps = [];
     const playbookForDevice = device && issueKey && DEVICE_PLAYBOOKS?.[device]?.[issueKey];
+    
     if (!isEn && playbookForDevice && Array.isArray(playbookForDevice.es) && playbookForDevice.es.length > 0) {
-      steps = playbookForDevice.es.slice(0, 4);
+      // Si hay playbook, usarlo como base pero generar 15 pasos
+      steps = playbookForDevice.es.slice(0, 15);
     } else if (hasConfiguredSteps) {
-      steps = CHAT.nlp.advanced_steps[issueKey].slice(0, 4);
-    } else {
+      // Si hay pasos configurados, usarlos como base pero generar 15 pasos
+      steps = CHAT.nlp.advanced_steps[issueKey].slice(0, 15);
+    }
+    
+    // Si no hay suficientes pasos o no hay playbook/configurados, generar con IA
+    if (steps.length < 15) {
       let aiSteps = [];
       try {
         const problemWithContext = (session.problem || '') + imageContext;
@@ -4467,13 +4505,6 @@ async function generateAndShowSteps(session, sid, res) {
           if (latestImage.analysis && latestImage.analysis.problemDetected) {
             imageAnalysisText = latestImage.analysis.problemDetected;
           }
-        }
-        
-        // DEBUG: mostrar pasos básicos antes de pedir pruebas avanzadas a OpenAI
-        try {
-          console.log('[DEBUG aiQuickTests] session.tests.basic before call (generateAndShowSteps):', JSON.stringify(Array.isArray(session.tests?.basic) ? session.tests.basic : []));
-        } catch (e) {
-          console.log('[DEBUG aiQuickTests] error serializing session.tests.basic', e && e.message);
         }
         
         // Incluir sistema operativo en el contexto del problema si está disponible
@@ -4488,35 +4519,64 @@ async function generateAndShowSteps(session, sid, res) {
           problemWithOS, 
           device || '', 
           locale, 
-          Array.isArray(session.tests?.basic) ? session.tests.basic : [],
-          imageAnalysisText // <-- AGREGAR ANÁLISIS DE IMAGEN
+          [], // Ya no usamos avoidSteps
+          imageAnalysisText
         );
       } catch (e) {
         aiSteps = [];
       }
-      if (Array.isArray(aiSteps) && aiSteps.length > 0) steps = aiSteps.slice(0, 4);
-      else {
-        if (isEn) {
-          steps = [
-            'Complete shutdown\n\nUnplug the device from the wall, wait 30 seconds and plug it back in.',
-            'Check connections\n\nPower cable firmly connected.\n\nMonitor connected (HDMI / VGA / DP).\n\nTry turning it on again.',
-            'If nothing changes\n\nDon\'t worry, we\'ve covered the basics.\nWith this you can contact a technician indicating everything you tried.'
-          ];
-        } else {
-          steps = [
-            'Apagado completo\n\nDesenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
-            'Revisá las conexiones\n\nCable de corriente bien firme.\n\nMonitor conectado (HDMI / VGA / DP).\n\nProbá encender nuevamente.',
-            'Si nada cambia\n\nTranquil@, ya hicimos lo básico.\nCon esto ya podés contactar a un técnico indicando todo lo que probaste.'
-          ];
-        }
+      
+      if (Array.isArray(aiSteps) && aiSteps.length > 0) {
+        // Combinar pasos existentes con los generados por IA
+        const existingSet = new Set(steps.map(normalizeStepText));
+        const newSteps = aiSteps.filter(s => !existingSet.has(normalizeStepText(s)));
+        steps = [...steps, ...newSteps].slice(0, 15);
       }
     }
-
-    // Filtrar pasos avanzados para que no repitan los básicos (comparación normalizada)
-    if (session.tests && Array.isArray(session.tests.basic) && Array.isArray(steps)) {
-      const basicSet = new Set((session.tests.basic || []).map(normalizeStepText));
-      steps = steps.filter(s => !basicSet.has(normalizeStepText(s)));
+    
+    // Si aún no hay 15 pasos, rellenar con pasos genéricos
+    if (steps.length < 15) {
+      const genericSteps = isEn ? [
+        'Complete shutdown: Unplug the device from the wall, wait 30 seconds and plug it back in.',
+        'Check connections: Power cable firmly connected. Monitor connected (HDMI / VGA / DP). Try turning it on again.',
+        'Check for software updates and install any pending updates.',
+        'Review system logs for errors or warnings.',
+        'Test the device in safe mode to isolate software issues.',
+        'Perform a system restore to a previous working state.',
+        'Check device manager for hardware conflicts or driver issues.',
+        'Run system diagnostics tools provided by the manufacturer.',
+        'Verify BIOS/UEFI settings are correct for your hardware.',
+        'Test individual components (RAM, hard drive, etc.) using diagnostic tools.',
+        'Review and modify advanced system settings if necessary.',
+        'Contact technical support with detailed information about the problem and steps already tried.'
+      ] : [
+        'Apagado completo: Desenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
+        'Revisá las conexiones: Cable de corriente bien firme. Monitor conectado (HDMI / VGA / DP). Probá encender nuevamente.',
+        'Verificá actualizaciones de software e instalá las pendientes.',
+        'Revisá los registros del sistema en busca de errores o advertencias.',
+        'Probá el equipo en modo seguro para aislar problemas de software.',
+        'Realizá una restauración del sistema a un estado anterior que funcionaba.',
+        'Revisá el administrador de dispositivos en busca de conflictos de hardware o problemas de drivers.',
+        'Ejecutá herramientas de diagnóstico del sistema proporcionadas por el fabricante.',
+        'Verificá que la configuración del BIOS/UEFI sea correcta para tu hardware.',
+        'Probá componentes individuales (RAM, disco duro, etc.) usando herramientas de diagnóstico.',
+        'Revisá y modificá configuraciones avanzadas del sistema si es necesario.',
+        'Contactá soporte técnico con información detallada sobre el problema y los pasos que ya probaste.'
+      ];
+      
+      const existingSet = new Set(steps.map(normalizeStepText));
+      const newGeneric = genericSteps.filter(s => !existingSet.has(normalizeStepText(s)));
+      steps = [...steps, ...newGeneric].slice(0, 15);
     }
+    
+    // Asegurar exactamente 15 pasos
+    while (steps.length < 15) {
+      const fallback = isEn 
+        ? `Additional diagnostic step ${steps.length + 1}: Review and document any error messages or unusual behavior.`
+        : `Paso de diagnóstico adicional ${steps.length + 1}: Revisá y documentá cualquier mensaje de error o comportamiento inusual.`;
+      steps.push(fallback);
+    }
+    steps = steps.slice(0, 15);
 
     // ✅ MEJORA UX FASE 2: Validación proactiva antes de avanzar
     const validation = validateBeforeAdvancing(session, STATES.BASIC_TESTS, locale);
@@ -4570,73 +4630,61 @@ async function generateAndShowSteps(session, sid, res) {
       intro += `\n\n${proactiveTip}`;
     }
 
-    // Formatear pasos con emojis y saltos de línea visuales
-    // ✅ REFACTOR: Usar enumerateSteps importado de utils/stepsUtils.js
-    const stepsText = enumerateSteps(steps).join('\n\n');
-    
-    // ✅ MEJORA UX: Agregar indicador de progreso
-    const progressIndicator = getProgressIndicator(0, steps.length, locale);
-    
-    // ✅ FASE 3: Tiempo estimado de resolución
-    const timeEstimate = estimateResolutionTime(pSummary, deviceLabel, locale);
-    
-    // ✅ FASE 3: Gamificación - Barra de progreso visual
-    const progressPercentage = calculateProgressPercentage(0, steps.length);
-    const progressBar = generateProgressBar(progressPercentage);
-    const motivationalMsg = getMotivationalMessage(progressPercentage, locale);
+    // Formatear pasos con emojis, niveles de dificultad, tiempo estimado y botones de ayuda
+    // ✅ NUEVO SISTEMA: Mostrar 15 pasos con niveles, tiempo estimado y botón de ayuda debajo de cada uno
+    const stepsWithHelp = steps.map((step, idx) => {
+      const emoji = emojiForIndex(idx);
+      const difficulty = getDifficultyForStep(idx);
+      const estimatedTime = estimateStepTime(step, idx, locale);
+      const timeLabel = isEn ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
+      const helpButtonText = isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`;
+      return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n${helpButtonText}`;
+    });
+    const stepsText = stepsWithHelp.join('\n\n');
 
     let footer;
     if (isEn) {
-      footer = '\nIf nothing changes…\n\n' +
-        'Don\'t worry, we\'ve done the basics.\n' +
-        'With this you can contact a technician indicating everything you tried.\n\n' +
-        'When you\'re done, let me know by clicking an option below:';
+      footer = '\n\nWhen you finish trying these steps, let me know the result by selecting one of the options below:';
     } else {
-      footer = '\nSi nada cambia…\n\n' +
-        'Tranquil@, ya hicimos lo básico.\n' +
-        'Con esto ya podés contactar a un técnico indicando todo lo que probaste.\n\n' +
-        'Cuando termines, avisame seleccionando una opción abajo:';
+      footer = '\n\nCuando termines de probar estos pasos, avisame el resultado seleccionando una de las opciones abajo:';
     }
-
-    // ✅ MEJORA UX: Agregar resumen de progreso y indicador
-    const progressSummary = getProgressSummary(session, locale);
     
-    // ✅ FASE 3: Agregar tiempo estimado y gamificación
-    const timeEstimateMsg = `\n\n${timeEstimate.message}`;
-    const progressBarMsg = `\n\n📊 Progreso: ${progressBar} ${progressPercentage}%`;
-    const motivationalMsgLine = motivationalMsg ? `\n${motivationalMsg}` : '';
-    
-    const reply = `${intro}\n\n${stepsText}${progressIndicator}${progressSummary}${timeEstimateMsg}${progressBarMsg}${motivationalMsgLine}${footer}`;
+    // ✅ NUEVO SISTEMA: Solo mostrar los pasos con sus tiempos individuales, sin progreso general
+    const reply = `${intro}\n\n${stepsText}${footer}`;
 
-    // Generar botones dinámicos
+    // Generar botones: ayuda para cada paso + botones finales
     const options = [];
 
-    // 1. Botón Solucionado
-    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
-    options.push({
-      text: isEn ? '✔️ I solved it' : '✔️ Lo pude solucionar',
-      value: 'BTN_SOLVED',
-      description: isEn ? 'The problem is gone' : 'El problema desapareció'
+    // Botones de ayuda para cada paso (debajo de cada paso)
+    steps.forEach((step, idx) => {
+      const emoji = emojiForIndex(idx);
+      options.push({
+        text: isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
+        value: `BTN_HELP_STEP_${idx}`,
+        description: isEn ? `Get detailed help for step ${idx + 1}` : `Obtener ayuda detallada para el paso ${idx + 1}`
+      });
     });
 
-    // 2. Botón Persiste
-    // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
+    // Botones finales (3 botones principales)
+    // 1. Botón El Problema Persiste
     options.push({
-      text: isEn ? '❌ Still not working' : '❌ El problema persiste',
+      text: isEn ? '❌ The Problem Persists' : '❌ El Problema Persiste',
       value: 'BTN_PERSIST',
       description: isEn ? 'I still have the issue' : 'Sigo con el inconveniente'
     });
 
-    // 3. Botones de Ayuda por cada paso
-    steps.forEach((step, idx) => {
-      const emoji = emojiForIndex(idx);
-      // ✅ FASE 3: Tiempo estimado se muestra en el mensaje de ayuda, no en el botón
-      // El formato del botón debe ser consistente: 🆘🛠️ Ayuda paso {emoji}
-      options.push({
-        text: isEn ? `🆘🛠️ Help step ${emoji}` : `🆘🛠️ Ayuda paso ${emoji}`,
-        value: `BTN_HELP_STEP_${idx}`,
-        description: isEn ? `Explain step ${idx + 1} in detail` : `Explicar paso ${idx + 1} en detalle`
-      });
+    // 2. Botón Lo pude Solucionar
+    options.push({
+      text: isEn ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
+      value: 'BTN_SOLVED',
+      description: isEn ? 'The problem is gone' : 'El problema desapareció'
+    });
+
+    // 3. Botón Hablar con un Técnico
+    options.push({
+      text: isEn ? '🧑‍🔧 Talk to a Technician' : '🧑‍🔧 Hablar con un Técnico',
+      value: 'BTN_CONNECT_TECH',
+      description: isEn ? 'Connect with a human technician' : 'Conectar con un técnico humano'
     });
 
     const payload = withOptions({ ok: true, reply, options });

@@ -106,26 +106,24 @@ export function estimateResolutionTime(problem = '', device = '', locale = 'es-A
 export function estimateStepTime(stepText = '', stepIndex = 0, locale = 'es-AR') {
   const isEn = String(locale).toLowerCase().startsWith('en');
   
-  // Pasos simples (verificaciones rápidas)
-  const quickSteps = /verificar|revisar|comprobar|check|verify|revis/i;
-  if (quickSteps.test(stepText)) {
-    return isEn ? '⏱️ ~2 minutes' : '⏱️ ~2 minutos';
-  }
+  // Determinar tiempo estimado basado en el índice del paso y su dificultad
+  // Pasos 1-3 (Muy fácil): 2-5 minutos
+  // Pasos 4-6 (Fácil): 3-6 minutos
+  // Pasos 7-9 (Intermedio): 5-10 minutos
+  // Pasos 10-12 (Difícil): 10-20 minutos
+  // Pasos 13-15 (Muy difícil): 15-30 minutos
   
-  // Pasos de reinicio
-  const restartSteps = /reiniciar|restart|apagar|encender|turn/i;
-  if (restartSteps.test(stepText)) {
-    return isEn ? '⏱️ ~5 minutes' : '⏱️ ~5 minutos';
+  if (stepIndex < 3) {
+    return isEn ? '2-5 minutes' : '2-5 minutos';
+  } else if (stepIndex < 6) {
+    return isEn ? '3-6 minutes' : '3-6 minutos';
+  } else if (stepIndex < 9) {
+    return isEn ? '5-10 minutes' : '5-10 minutos';
+  } else if (stepIndex < 12) {
+    return isEn ? '10-20 minutes' : '10-20 minutos';
+  } else {
+    return isEn ? '15-30 minutes' : '15-30 minutos';
   }
-  
-  // Pasos de conexión/desconexión
-  const connectionSteps = /conectar|desconectar|connect|disconnect|cable/i;
-  if (connectionSteps.test(stepText)) {
-    return isEn ? '⏱️ ~3 minutes' : '⏱️ ~3 minutos';
-  }
-  
-  // Pasos complejos (por defecto)
-  return isEn ? '⏱️ ~5-10 minutes' : '⏱️ ~5-10 minutos';
 }
 
 /**

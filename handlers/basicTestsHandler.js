@@ -11,7 +11,7 @@
  */
 
 import { nowIso, withOptions } from '../utils/common.js';
-import { enumerateSteps, normalizeStepText } from '../utils/stepsUtils.js';
+import { enumerateSteps, normalizeStepText, formatExplanationWithNumberedSteps } from '../utils/stepsUtils.js';
 import { capitalizeToken } from './nameHandler.js';
 import { changeStage, STATES } from './stateMachine.js';
 import { getFriendlyErrorMessage, getCelebrationMessage, getProgressIndicator } from '../utils/uxHelpers.js';
@@ -92,49 +92,28 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
         : "No pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas.");
     }
 
-    const reply = isEn
-      ? `**Help for Step ${stepNumber}:** ${stepTime}\n\n${explanation}`
-      : `**Ayuda para el Paso ${stepNumber}:** ${stepTime}\n\n${explanation}`;
+    // ✅ NUEVO: Formatear pasos numerados en la explicación con emojis
+    // Detectar patrones como "1.", "2.", "1)", "2)", "1-", "2-", etc. y reemplazarlos con emojis
+    const formattedExplanation = formatExplanationWithNumberedSteps(explanation, locale);
 
-    const isAdvanced = session.stage === STATES.ADVANCED_TESTS;
-    
-    // Construir todos los botones necesarios
-    const solvedBtn = buildUiButtonsFromTokens(['BTN_SOLVED'], locale)[0];
-    const connectTechBtn = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale)[0];
+    const reply = isEn
+      ? `**Help for Step ${stepNumber}:** ${stepTime}\n\n${formattedExplanation}`
+      : `**Ayuda para el Paso ${stepNumber}:** ${stepTime}\n\n${formattedExplanation}`;
+
+    // Construir botón "Volver Atrás"
     const backButton = {
       token: 'BTN_BACK_TO_STEPS',
-      label: isEn 
-        ? (isAdvanced ? '⏪ Back to advanced steps' : '⏪ Back to steps')
-        : (isAdvanced ? '⏪ Volver a los pasos avanzados' : '⏪ Volver a los pasos'),
-      text: isEn 
-        ? (isAdvanced ? 'back to advanced steps' : 'back to steps')
-        : (isAdvanced ? 'volver a los pasos avanzados' : 'volver a los pasos')
+      label: isEn ? '🔙 Go Back' : '🔙 Volver Atrás',
+      text: isEn ? 'go back' : 'volver atrás'
     };
 
-    // Asegurar que backButton siempre esté presente
-    const unifiedOpts = [];
-    if (solvedBtn) unifiedOpts.push(solvedBtn);
-    unifiedOpts.push(backButton); // Siempre incluir este botón
-    if (connectTechBtn) unifiedOpts.push(connectTechBtn);
+    // Solo mostrar botón "Volver Atrás"
+    const unifiedOpts = [backButton];
 
-    // ✅ FASE 3: Calcular tiempo total restante y mostrar progreso
-    const remainingSteps = steps.length - (stepNumber);
-    const totalTimeRemaining = estimateTotalTime(remainingSteps, 5, locale);
-    
-    // ✅ FASE 3: Actualizar progreso visual
-    const completedSteps = Object.values(session.stepProgress || {}).filter(s => s === 'completed' || s === 'done').length;
-    const totalSteps = steps.length;
-    const progressPercentage = calculateProgressPercentage(completedSteps, totalSteps);
-    const progressBar = generateProgressBar(progressPercentage);
-    const progressMsg = `\n\n📊 Progreso: ${progressBar} ${progressPercentage}%`;
-    
-    const finalReply = totalTimeRemaining 
-      ? `${reply}${progressMsg}\n\n${totalTimeRemaining}` 
-      : `${reply}${progressMsg}`;
-    
-    session.transcript.push({ who: 'bot', text: finalReply, ts: nowIso() });
+    // ✅ NUEVO: Solo mostrar la explicación formateada y el botón "Volver Atrás"
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSessionAndTranscript(sid, session);
-    return res.json(withOptions({ ok: true, reply: finalReply, stage: session.stage, options: unifiedOpts }));
+    return res.json(withOptions({ ok: true, reply, stage: session.stage, options: unifiedOpts }));
   }
 
   const rxDontKnow = /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendi|no\s+entendí|no\s+comprendo)\b/i;
@@ -194,66 +173,19 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     return await generateAndShowSteps(session, sid, res);
   }
 
-  // FIX: Atajo directo desde BASIC_TESTS a pruebas avanzadas
+  // ✅ ELIMINADO: Sistema de pruebas avanzadas - ahora se ofrece directamente conectar con técnico
+  // Si el usuario pide pruebas avanzadas, redirigir a conectar con técnico
   if (rxAdvanced.test(t) || buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
-    try {
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const device = session.device || '';
-      let aiSteps = [];
-      try {
-        aiSteps = await aiQuickTests(session.problem || '', device || '', session.userLocale || 'es-AR', Array.isArray(session.tests?.basic) ? session.tests.basic : []);
-      } catch (e) { aiSteps = []; }
-      let limited = Array.isArray(aiSteps) ? aiSteps.slice(0, 8) : [];
-
-      // Filtrar resultados avanzados que ya estén en pasos básicos
-      session.tests = session.tests || {};
-      const basicList = Array.isArray(session.tests.basic) ? session.tests.basic : [];
-      const basicSet = new Set((basicList || []).map(normalizeStepText));
-      limited = limited.filter(s => !basicSet.has(normalizeStepText(s)));
-      limited = limited.slice(0, 4);
-
-      if (!limited || limited.length === 0) {
-        const noMore = isEn
-          ? "I don't have more advanced tests that are different from the ones you already tried. I can connect you with a technician if you want."
-          : 'No tengo más pruebas avanzadas distintas a las que ya probaste. ¿Querés que te conecte con un técnico?';
-        changeStage(session, STATES.ESCALATE);
-        session.transcript.push({ who: 'bot', text: noMore, ts: nowIso() });
-        await saveSessionAndTranscript(sid, session);
-        return res.json(withOptions({ ok: true, reply: noMore, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_CONNECT_TECH','BTN_CLOSE'], locale) }));
-      }
-
-      session.tests.advanced = limited;
-      session.stepProgress = session.stepProgress || {};
-      limited.forEach((_, i) => session.stepProgress[`adv_${i + 1}`] = 'pending');
-      const formattedSteps = enumerateSteps(limited);
-      const stepBlock = formattedSteps.join('\n\n');
-      const help = isEn
-        ? `💡 Try these more specific tests. If they don't work, I'll connect you with a technician.`
-        : `💡 Probá estas pruebas más específicas. Si no funcionan, te conecto con un técnico.`;
-      let reply = `${help}\n\n**🔬 PRUEBAS AVANZADAS:**\n${stepBlock}\n\n`;
-
-      const prompt = isEn
-        ? `Did any of these tests solve the problem?`
-        : `¿Alguna de estas pruebas solucionó el problema?`;
-      reply += prompt;
-
-      changeStage(session, STATES.ADVANCED_TESTS);
-      const options = buildUiButtonsFromTokens(['BTN_SOLVED', 'BTN_PERSIST', 'BTN_CONNECT_TECH'], locale);
-
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-      return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-    } catch (err) {
-      console.error('[BASIC_TESTS → ADVANCED] Error generating advanced tests:', err);
-      const locale = session.userLocale || 'es-AR';
-      const friendlyError = getFriendlyErrorMessage(err, locale, 'generating advanced tests');
-      session.transcript.push({ who: 'bot', text: friendlyError, ts: nowIso() });
-      await saveSessionAndTranscript(sid, session);
-      changeStage(session, STATES.ESCALATE);
-      const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
-      return res.json(withOptions({ ok: false, reply: friendlyError, stage: session.stage, options }));
-    }
+    const locale = session.userLocale || 'es-AR';
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    const reply = isEn
+      ? `I understand you need more help. Let me connect you with a technician who can provide specialized assistance.`
+      : `Entiendo que necesitás más ayuda. Dejame conectarte con un técnico que te pueda brindar asistencia especializada.`;
+    const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+    changeStage(session, STATES.ESCALATE);
+    session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+    await saveSessionAndTranscript(sid, session);
+    return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
   }
 
   if (rxYes.test(t) || buttonToken === 'BTN_SOLVED') {
@@ -296,13 +228,14 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
 
   } else if (rxNo.test(t) || buttonToken === 'BTN_PERSIST') {
+    // ✅ NUEVO SISTEMA: Cuando el problema persiste, ofrecer directamente conectar con técnico
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
     const empatia = addEmpatheticResponse('ESCALATE', locale);
     const reply = isEn
-      ? `💡 I understand. ${empatia} What would you like to do?`
-      : `💡 Entiendo. ${empatia} ¿Querés que te ayude con algo más?`;
-    const options = buildUiButtonsFromTokens(['BTN_ADVANCED_TESTS', 'BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
+      ? `💡 I understand. ${empatia} Let me connect you with a technician who can help you further.`
+      : `💡 Entiendo. ${empatia} Dejame conectarte con un técnico que te pueda ayudar mejor.`;
+    const options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH', 'BTN_CLOSE'], locale);
     changeStage(session, STATES.ESCALATE);
 
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
