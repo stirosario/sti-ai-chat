@@ -59,6 +59,7 @@ export async function handleOSStage(session, sid, res, t, buttonToken, deps) {
           ? `Perfecto, ${whoLabel}! Entiendo que te refieres a ${deviceLabel} con ${osCfg.label} y el problema es lentitud del sistema. Voy a generar algunos pasos específicos para esta configuración:`
           : `Perfecto, ${whoLabel}! Tomo que te referís a ${deviceLabel} con ${osCfg.label} y el problema es lentitud del sistema. Voy a generar algunos pasos específicos para esta configuración:`);
       
+      changeStage(session, STATES.BASIC_TESTS);
       const ts = nowIso();
       session.transcript.push({ who: 'bot', text: replyIntro, ts });
       await saveSessionAndTranscript(sid, session);

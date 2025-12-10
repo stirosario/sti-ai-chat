@@ -82,7 +82,7 @@ export async function handleDeviceStage(session, sid, res, t, buttonToken, deps)
           return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: osButtons }));
         } else {
           // Provide short confirmation then show steps
-          changeStage(session, STATES.ASK_PROBLEM);
+          changeStage(session, STATES.BASIC_TESTS);
           const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
           const replyIntro = isEn
             ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`

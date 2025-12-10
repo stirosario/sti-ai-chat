@@ -275,6 +275,26 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
         }
       }
       
+      // ✅ DETECCIÓN DE SISTEMA OPERATIVO: Detectar OS en el mensaje si está presente
+      if (userMessage && !session.operatingSystem && !session.userOS) {
+        const osPatterns = {
+          'Windows 11': /windows\s*11|win\s*11/gi,
+          'Windows 10': /windows\s*10|win\s*10/gi,
+          'Windows': /windows|win\b/gi,
+          'macOS': /macos|mac\s*os|os\s*x/gi,
+          'Linux': /linux|ubuntu|debian/gi
+        };
+        
+        for (const [os, pattern] of Object.entries(osPatterns)) {
+          if (pattern.test(userMessage)) {
+            session.operatingSystem = os;
+            session.userOS = os;
+            console.log('[IntelligentSystem] 💾 Sistema operativo detectado:', os);
+            break;
+          }
+        }
+      }
+      
       // Si estamos en ASK_NEED, verificar si ya tenemos el problema
       if (session.stage === 'ASK_NEED') {
         session.needType = 'problema';
