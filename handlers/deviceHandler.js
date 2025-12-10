@@ -58,19 +58,43 @@ export async function handleDeviceStage(session, sid, res, t, buttonToken, deps)
         await saveSessionAndTranscript(sid, session);
         return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: [] }));
       } else {
-        // Provide short confirmation then show steps
-        changeStage(session, STATES.ASK_PROBLEM);
-        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-        const replyIntro = isEn
-          ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
-          : (locale === 'es-419'
-            ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
-            : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
-        const ts = nowIso();
-        session.transcript.push({ who: 'bot', text: replyIntro, ts });
-        await saveSessionAndTranscript(sid, session);
-        // proceed to generate steps
-        return await generateAndShowSteps(session, sid, res);
+        // Check if the problem is "lentitud del sistema operativo o del equipo"
+        const problemLower = String(session.problem || '').toLowerCase();
+        const isSlownessProblem = problemLower.includes('lentitud') || 
+                                  problemLower.includes('system slowness') ||
+                                  problemLower.includes('lentitud del sistema');
+        
+        if (isSlownessProblem) {
+          // Ask for operating system
+          changeStage(session, STATES.ASK_OS);
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+          const replyText = isEn
+            ? `Perfect, ${whoLabel}! I understand you're referring to ${devCfg.label} and the problem is system slowness. To give you the most accurate steps, I need to know what operating system you're using.`
+            : (locale === 'es-419'
+              ? `Perfecto, ${whoLabel}! Entiendo que te refieres a ${devCfg.label} y el problema es lentitud del sistema. Para darte los pasos más precisos, necesito saber qué sistema operativo estás usando.`
+              : `Perfecto, ${whoLabel}! Tomo que te referís a ${devCfg.label} y el problema es lentitud del sistema. Para darte los pasos más precisos, necesito saber qué sistema operativo estás usando.`);
+          const ts = nowIso();
+          session.transcript.push({ who: 'bot', text: replyText, ts });
+          await saveSessionAndTranscript(sid, session);
+          
+          // Show OS selection buttons
+          const osButtons = buildUiButtonsFromTokens(['BTN_OS_WINDOWS', 'BTN_OS_MACOS', 'BTN_OS_LINUX'], locale);
+          return res.json(withOptions({ ok: true, reply: replyText, stage: session.stage, options: osButtons }));
+        } else {
+          // Provide short confirmation then show steps
+          changeStage(session, STATES.ASK_PROBLEM);
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+          const replyIntro = isEn
+            ? `Perfect, ${whoLabel}. I understand you're referring to ${devCfg.label}. I'll generate some steps for this problem:`
+            : (locale === 'es-419'
+              ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${devCfg.label}. Voy a generar algunos pasos para este problema:`
+              : `Perfecto, ${whoLabel}. Tomo que te referís a ${devCfg.label}. Voy a generar algunos pasos para este problema:`);
+          const ts = nowIso();
+          session.transcript.push({ who: 'bot', text: replyIntro, ts });
+          await saveSessionAndTranscript(sid, session);
+          // proceed to generate steps
+          return await generateAndShowSteps(session, sid, res);
+        }
       }
     }
   }

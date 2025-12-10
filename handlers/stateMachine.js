@@ -19,6 +19,7 @@ export const STATES = {
   ASK_NEED: 'ASK_NEED',
   CLASSIFY_NEED: 'CLASSIFY_NEED',
   ASK_DEVICE: 'ASK_DEVICE',
+  ASK_OS: 'ASK_OS',
   ASK_PROBLEM: 'ASK_PROBLEM',
   DETECT_DEVICE: 'DETECT_DEVICE',
   ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
@@ -66,7 +67,14 @@ export const STATE_MACHINE = {
   ASK_DEVICE: {
     name: 'ASK_DEVICE',
     description: 'Identificar dispositivo afectado',
-    transitions: ['BASIC_TESTS', 'ASK_PROBLEM'],
+    transitions: ['BASIC_TESTS', 'ASK_PROBLEM', 'ASK_OS'],
+    handler: null,
+    validations: []
+  },
+  ASK_OS: {
+    name: 'ASK_OS',
+    description: 'Solicitar sistema operativo',
+    transitions: ['BASIC_TESTS'],
     handler: null,
     validations: []
   },

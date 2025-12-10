@@ -78,6 +78,7 @@ import { handleBasicTestsStage } from './handlers/basicTestsHandler.js';
 import { handleEscalateStage } from './handlers/escalateHandler.js';
 import { handleAdvancedTestsStage } from './handlers/advancedTestsHandler.js';
 import { handleDeviceStage } from './handlers/deviceHandler.js';
+import { handleOSStage } from './handlers/osHandler.js';
 import ticketsRouter from './routes/tickets.js';
 
 // ========================================================
@@ -1502,6 +1503,10 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
       { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
       { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
+      // operating system tokens
+      { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', text: 'Windows' },
+      { token: 'BTN_OS_MACOS', label: '🍏 macOS', text: 'macOS' },
+      { token: 'BTN_OS_LINUX', label: '🐧 Linux', text: 'Linux' },
       { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos' },
       { token: 'BTN_BACK', label: '⏪ Volver atrás', text: 'volver atrás' },
       { token: 'BTN_CHANGE_TOPIC', label: '🔄 Cambiar de tema', text: 'cambiar de tema' },
@@ -4471,9 +4476,16 @@ async function generateAndShowSteps(session, sid, res) {
           console.log('[DEBUG aiQuickTests] error serializing session.tests.basic', e && e.message);
         }
         
+        // Incluir sistema operativo en el contexto del problema si está disponible
+        let problemWithOS = problemWithContext;
+        if (session.userOS || session.operatingSystem) {
+          const os = session.userOS || session.operatingSystem;
+          problemWithOS = `${problemWithContext}\n\nSistema operativo: ${os}`;
+        }
+        
         // Pasar imageAnalysis como parámetro adicional
         aiSteps = await aiQuickTests(
-          problemWithContext, 
+          problemWithOS, 
           device || '', 
           locale, 
           Array.isArray(session.tests?.basic) ? session.tests.basic : [],
@@ -7432,6 +7444,18 @@ La guía debe ser:
         capitalizeToken
       };
       return await handleDeviceStage(session, sid, res, t, buttonToken, deps);
+
+      // ========================================================
+      // 🎯 HANDLER: ASK_OS (Preguntar sistema operativo)
+      // ========================================================
+    } else if (session.stage === STATES.ASK_OS) {
+      const deps = {
+        buildUiButtonsFromTokens,
+        saveSessionAndTranscript,
+        generateAndShowSteps,
+        capitalizeToken
+      };
+      return await handleOSStage(session, sid, res, t, buttonToken, deps);
 
       // ========================================================
       // 🎯 HANDLER: CONFIRM_DEVICE (Alta confianza - Confirmar dispositivo)
