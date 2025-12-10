@@ -4683,7 +4683,7 @@ async function generateAndShowSteps(session, sid, res) {
     // 3. Botón Hablar con un Técnico
     options.push({
       text: isEn ? '🧑‍🔧 Talk to a Technician' : '🧑‍🔧 Hablar con un Técnico',
-      value: 'BTN_CONNECT_TECH',
+      value: 'BTN_WHATSAPP_TECNICO',
       description: isEn ? 'Connect with a human technician' : 'Conectar con un técnico humano'
     });
 

@@ -46,8 +46,6 @@ export async function handleEscalateStage(session, sid, res, t, buttonToken, dep
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSessionAndTranscript(sid, session);
     return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-  }
-  
   } else {
     // ✅ CORRECCIÓN: Si no entendió en ESCALATE, ofrecer directamente el botón sin más preguntas
     const locale = session.userLocale || 'es-AR';

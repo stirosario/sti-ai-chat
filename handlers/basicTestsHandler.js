@@ -241,8 +241,70 @@ export async function handleBasicTestsStage(session, sid, res, t, buttonToken, d
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     await saveSessionAndTranscript(sid, session);
     return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-  } else if (rxTech.test(t)) {
-    return await createTicketAndRespond(session, sid, res);
+  } else if (rxTech.test(t) || buttonToken === 'BTN_CONNECT_TECH' || buttonToken === 'BTN_WHATSAPP_TECNICO') {
+    // Si es BTN_WHATSAPP_TECNICO, usar el handler específico de WhatsApp
+    if (buttonToken === 'BTN_WHATSAPP_TECNICO') {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // Preparar historial de conversación
+      const transcriptText = session.transcript
+        .map((msg, idx) => {
+          const time = msg.ts ? new Date(msg.ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+          const who = msg.who === 'user' ? '👤 Cliente' : '🤖 Tecnos';
+          const stage = msg.stage ? ` [${msg.stage}]` : '';
+          return `${idx + 1}. ${who} ${time}${stage}:\n   ${msg.text}`;
+        })
+        .join('\n\n');
+      
+      // Información técnica recopilada
+      const technicalInfo = [
+        `📱 *Información Técnica:*`,
+        session.operatingSystem ? `• OS: ${session.operatingSystem}` : null,
+        session.device ? `• Dispositivo: ${session.device}` : null,
+        session.deviceBrand ? `• Marca: ${session.deviceBrand}` : null,
+        session.problemCategory ? `• Categoría: ${session.problemCategory}` : null,
+        session.activeIntent ? `• Intent: ${session.activeIntent.type} (${Math.round(session.activeIntent.confidence * 100)}%)` : null
+      ].filter(Boolean).join('\n');
+      
+      // Preparar mensaje completo para WhatsApp
+      const whatsappMessage = encodeURIComponent(
+        `🆘 *Solicitud de Soporte Técnico*\n\n` +
+        `📋 *ID Sesión:* ${sid}\n\n` +
+        `${technicalInfo}\n\n` +
+        `📝 *Historial de Conversación:*\n\n` +
+        `${transcriptText}\n\n` +
+        `⏰ *Hora de solicitud:* ${new Date().toLocaleString('es-AR')}`
+      );
+      
+      // Número de WhatsApp del soporte (ajustar según configuración)
+      const whatsappNumber = process.env.WHATSAPP_SUPPORT_NUMBER || '5492323569443'; // STI Support
+      const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
+      
+      const confirmMsg = isEn
+        ? `Perfect! Click the link below to open WhatsApp with all the conversation history ready to send:\n\n${whatsappUrl}\n\n✅ The technician will receive all the context and will be able to help you quickly.`
+        : (locale === 'es-419'
+          ? `¡Perfecto! Hacé clic en el enlace de abajo para abrir WhatsApp con todo el historial de conversación listo para enviar:\n\n${whatsappUrl}\n\n✅ El técnico va a recibir todo el contexto y va a poder ayudarte rápidamente.`
+          : `¡Perfecto! Hacé clic en el enlace de abajo para abrir WhatsApp con todo el historial de conversación listo para enviar:\n\n${whatsappUrl}\n\n✅ El técnico va a recibir todo el contexto y va a poder ayudarte rápidamente.`);
+      
+      session.transcript.push({ who: 'bot', text: confirmMsg, ts: nowIso(), stage: session.stage });
+      await saveSessionAndTranscript(sid, session);
+      
+      return res.json(withOptions({
+        ok: true,
+        reply: confirmMsg,
+        stage: session.stage,
+        whatsappUrl: whatsappUrl,
+        metadata: {
+          action: 'open_whatsapp',
+          url: whatsappUrl
+        },
+        options: buildUiButtonsFromTokens(['BTN_WHATSAPP_TECNICO', 'BTN_CLOSE'], locale)
+      }));
+    } else {
+      // BTN_CONNECT_TECH: crear ticket y responder
+      return await createTicketAndRespond(session, sid, res);
+    }
   } else {
     const locale = session.userLocale || 'es-AR';
     const isEn = String(locale).toLowerCase().startsWith('en');
