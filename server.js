@@ -1458,7 +1458,6 @@ const EMBEDDED_CHAT = {
     buttons: [
       // Botones del flujo según Flujo.csv
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
       // ✅ LÍNEA ELIMINADA: BTN_NO_NAME ya no se usa
 
@@ -1478,12 +1477,9 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
       { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
       { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_CONFIRM', label: '✅ Confirmar', text: 'confirmar' },
-      { token: 'BTN_EDIT', label: '✏️ Editar', text: 'editar' },
       { token: 'BTN_ADVANCED_TESTS', label: '🔬 Pruebas Avanzadas', text: 'pruebas avanzadas' },
       { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
-      { token: 'BTN_MORE', label: '🔍 Más pruebas', text: 'más pruebas' },
       { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
       { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
       { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
@@ -1495,7 +1491,6 @@ const EMBEDDED_CHAT = {
       { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un Técnico', text: 'hablar con un técnico' },
       { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
       { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
-      { token: 'BTN_MORE_SIMPLE', label: 'Explicar más simple', text: 'explicalo más simple' },
       // Botones de problemas frecuentes
       { token: 'BTN_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende' },
       { token: 'BTN_NO_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet' },
@@ -3780,8 +3775,7 @@ const BUTTONS = {
   CLOSE: 'BTN_CLOSE',
   REPHRASE: 'BTN_REPHRASE',
   CONFIRM_TICKET: 'BTN_CONFIRM_TICKET',
-  CANCEL: 'BTN_CANCEL',
-  MORE_SIMPLE: 'BTN_MORE_SIMPLE'
+  CANCEL: 'BTN_CANCEL'
 };
 
 // ========================================================
@@ -6588,7 +6582,8 @@ Respondé de forma directa, empática y técnica.`;
             saveSessionAndTranscript,
             markSessionDirty,
             capitalizeToken,
-            changeStage
+            changeStage,
+            buildUiButtonsFromTokens
           }
         );
         
@@ -6597,7 +6592,8 @@ Respondé de forma directa, empática y técnica.`;
           return await sendResponseWithSave(res, sid, session, {
             ok: result.ok,
             reply: result.reply,
-            stage: result.stage
+            stage: result.stage,
+            options: result.options || []
           });
         }
       } catch (nameHandlerError) {

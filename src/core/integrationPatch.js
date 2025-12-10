@@ -81,6 +81,34 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
+  // ✅ HANDLER: Botones de problemas frecuentes en ASK_NEED
+  if (session.stage === 'ASK_NEED' && buttonToken) {
+    const problemButtonMap = {
+      'BTN_NO_ENCIENDE': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' },
+      'BTN_NO_INTERNET': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems' },
+      'BTN_LENTITUD': { problem: 'lentitud del sistema', problemEn: 'system slowness' },
+      'BTN_BLOQUEO': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing' },
+      'BTN_PERIFERICOS': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems' },
+      'BTN_VIRUS': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections' }
+    };
+    
+    if (problemButtonMap[buttonToken]) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const problemInfo = problemButtonMap[buttonToken];
+      
+      // Guardar el problema en la sesión
+      session.problem = isEn ? problemInfo.problemEn : problemInfo.problem;
+      session.needType = 'problema';
+      
+      console.log('[IntelligentSystem] ✅ Problema seleccionado desde botón:', session.problem);
+      
+      // El sistema inteligente continuará procesando el problema y detectando el dispositivo
+      // Retornar null para que el flujo normal continúe
+      return null;
+    }
+  }
+
   // ✅ CRÍTICO: Si estamos en ESCALATE y el usuario solicita pruebas avanzadas,
   // dejar que el código legacy lo maneje (ya tiene la lógica correcta)
   if (session.stage === 'ESCALATE' && (buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS' || /^\s*(pruebas avanzadas|más pruebas)\b/i.test(userMessage || ''))) {

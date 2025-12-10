@@ -14,6 +14,8 @@ import {
   logCalibracionSuccess
 } from './calibracionHandler.js';
 
+// buildUiButtonsFromTokens se pasa como dependencia desde server.js
+
 // Constantes para validación de nombres
 const NUM_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const TECH_WORDS = /^(pc|notebook|laptop|monitor|teclado|mouse|impresora|router|modem|telefono|celular|tablet|android|iphone|windows|linux|macos|ssd|hdd|fuente|mother|gpu|ram|disco|usb|wifi|bluetooth|red)$/i;
@@ -514,12 +516,12 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
         // Reemplazar placeholders
         reply = reply.replace(/{name}/g, capToken(session.userName));
       } else {
-        // Fallback a respuesta por defecto
+        // Fallback a respuesta por defecto con botones de problemas frecuentes
         reply = isEn
-          ? `Perfect, ${capToken(session.userName)} 😊 What can I help you with today?`
+          ? `Perfect, ${capToken(session.userName)} 😊 What can I help you with today? Or if you prefer, you can select 🔘 one of the following common problems 🚩:`
           : (locale === 'es-419'
-            ? `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`
-            : `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`);
+            ? `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
+            : `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
       }
       
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
@@ -528,10 +530,22 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
       // Registrar éxito
       logCalibracionSuccess('ASK_NAME');
       
+      // Agregar botones de problemas frecuentes
+      const { buildUiButtonsFromTokens } = dependencies;
+      const problemButtons = buildUiButtonsFromTokens ? buildUiButtonsFromTokens([
+        'BTN_NO_ENCIENDE',
+        'BTN_NO_INTERNET',
+        'BTN_LENTITUD',
+        'BTN_BLOQUEO',
+        'BTN_PERIFERICOS',
+        'BTN_VIRUS'
+      ], locale) : [];
+      
       return {
         ok: true,
         reply,
         stage: session.stage,
+        options: problemButtons,
         handled: true
       };
     }
@@ -546,12 +560,12 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
     session.stage = STATES.ASK_NEED;
     session.nameAttempts = 0;
 
-    // ✅ RESPUESTA OBLIGATORIA: Bienvenida personalizada
+    // ✅ RESPUESTA OBLIGATORIA: Bienvenida personalizada con botones de problemas frecuentes
     const reply = isEn
-      ? `Perfect, ${capToken(session.userName)} 😊 What can I help you with today?`
+      ? `Perfect, ${capToken(session.userName)} 😊 What can I help you with today? Or if you prefer, you can select 🔘 one of the following common problems 🚩:`
       : (locale === 'es-419'
-        ? `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`
-        : `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy?`);
+        ? `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
+        : `Perfecto, ${capToken(session.userName)} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
 
     session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
     // 🔧 REFACTOR FASE 2: Guardado diferido (se guardará antes de enviar respuesta)
@@ -564,10 +578,22 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
     
     console.log('[ASK_NAME] ✅ Nombre extraído:', nameResult.name, 'Motivo:', nameResult.reason);
     
+    // Agregar botones de problemas frecuentes
+    const { buildUiButtonsFromTokens } = dependencies;
+    const problemButtons = buildUiButtonsFromTokens ? buildUiButtonsFromTokens([
+      'BTN_NO_ENCIENDE',
+      'BTN_NO_INTERNET',
+      'BTN_LENTITUD',
+      'BTN_BLOQUEO',
+      'BTN_PERIFERICOS',
+      'BTN_VIRUS'
+    ], locale) : [];
+    
     return {
       ok: true,
       reply,
       stage: session.stage,
+      options: problemButtons,
       handled: true
     };
   } else if (nameResult.reason === 'vacío' || nameResult.reason === 'solo saludos' || nameResult.reason === 'solo signos') {
