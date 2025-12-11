@@ -629,7 +629,14 @@ Entonces DEBÉS detectar:
       analysis.problem = forcedProblemDetection;
       analysis.confidence = Math.max(analysis.confidence || 0.5, forcedProblemDetection.confidence);
       analysis.clarificationNeeded = false; // NO pedir aclaración genérica
-      analysis.useStructuredFlow = false; // Usar respuesta IA directa
+      
+      // ✅ CORRECCIÓN: NO forzar useStructuredFlow = false si estamos en ASK_PROBLEM
+      // En ASK_PROBLEM queremos SIEMPRE usar el flujo estructurado con 15 pasos
+      if (session.stage !== 'ASK_PROBLEM') {
+        analysis.useStructuredFlow = false; // Usar respuesta IA directa solo si NO estamos en ASK_PROBLEM
+      } else {
+        console.log('[PATTERN_DETECTION] ⚠️ Patrón detectado pero estamos en ASK_PROBLEM - manteniendo flujo estructurado para 15 pasos');
+      }
       
       // Si el patrón detectó un dispositivo específico, actualizar device
       if (patternDetection.category === 'keyboard' || patternDetection.category === 'mouse') {
@@ -869,19 +876,22 @@ ${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", 
  */
 function shouldUseStructuredFlow(analysis, session) {
   // ========================================
+  // ✅ PRIORIDAD ABSOLUTA: ASK_PROBLEM con problema técnico
+  // DEBE evaluarse ANTES de cualquier otra condición
+  // para garantizar que siempre se muestren los 15 pasos con dificultad y tiempo
+  // ========================================
+  if (session.stage === 'ASK_PROBLEM' && analysis.problem?.detected) {
+    console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM con problema técnico detectado, mostrar 15 pasos');
+    return true; // RETORNAR INMEDIATAMENTE, sin evaluar otras condiciones
+  }
+  
+  // ========================================
   // SIEMPRE FLUJO ESTRUCTURADO (crítico)
   // ========================================
   if (!analysis.analyzed) return true; // Fallback si no hay análisis
   if (session.stage === 'ASK_LANGUAGE') return true; // Inicio siempre estructurado
   if (session.stage === 'ASK_NAME') return true; // Recolección de nombre
   if (analysis.intent === 'confirm' || analysis.intent === 'cancel') return true; // Confirmaciones
-  
-  // ✅ CORRECCIÓN: En ASK_PROBLEM con problema técnico detectado, SIEMPRE usar flujo estructurado
-  // para mostrar los 15 pasos con dificultad y tiempo estimado
-  if (session.stage === 'ASK_PROBLEM' && analysis.problem?.detected) {
-    console.log('[DECISION] 📋 Usando flujo estructurado - Problema técnico detectado, mostrar 15 pasos');
-    return true;
-  }
   
   // ========================================
   // PRIORIZAR IA (mejor experiencia) - Solo para casos especiales
