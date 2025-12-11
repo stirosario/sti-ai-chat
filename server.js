@@ -3573,7 +3573,8 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
  */
 async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', problem = '', locale = 'es-AR') {
   const isEn = String(locale).toLowerCase().startsWith('en');
-  const stepNumber = stepIndex + 1; // Convertir a 1-based para mostrar al usuario
+  // stepIndex ya es 1-based (como en el código antiguo), usarlo directamente
+  const stepNumber = stepIndex;
   
   // Normalizar el texto del paso para buscar explicaciones específicas
   const stepLower = stepText.toLowerCase();
@@ -3792,11 +3793,13 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       const stepNumber = stepIdx + 1; // Convertir a 1-based para mostrar
       
       // Generar explicación detallada del paso
+      // IMPORTANTE: explainStepWithAI espera un índice 1-based (como en el código antiguo)
+      // Por lo tanto, debemos pasar stepNumber (1-based), no stepIdx (0-based)
       let explanation = '';
       try {
         explanation = await explainStepWithAI(
           stepText,
-          stepIdx,
+          stepNumber, // Pasar stepNumber (1-based) - la función espera índice 1-based
           session.device || '',
           session.problem || '',
           locale
