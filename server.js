@@ -1163,7 +1163,15 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     //    Ejemplo: /\b(si|sí|acepto|ok|dale|de acuerdo|claro|perfecto|agree|accept|yes|yep)\b/i
     // ❌ NO MODIFICAR: Debe establecer session.gdprConsent = true
     //
-    if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|claro|perfecto|agree|accept|yes|yep)\b/i.test(lowerMsg)) {
+    // Verificar primero si el buttonToken es 'si' o 'yes' (detección directa del botón)
+    // Esto asegura que los clics en botones se detecten correctamente
+    const isAcceptButton = buttonToken && (
+      String(buttonToken).toLowerCase() === 'si' || 
+      String(buttonToken).toLowerCase() === 'yes' ||
+      String(buttonToken).toLowerCase() === 'sí'
+    );
+    
+    if (isAcceptButton || /\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|claro|perfecto|agree|accept|yes|yep)\b/i.test(lowerMsg)) {
       // Marcar que el usuario aceptó GDPR
       session.gdprConsent = true;
       session.gdprConsentDate = nowIso(); // Guardar fecha/hora del consentimiento
@@ -1207,7 +1215,10 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     // ✅ SE PUEDE MODIFICAR: El mensaje de despedida o agregar más palabras al regex
     // ❌ NO MODIFICAR: No debe avanzar a otra etapa (la conversación termina aquí)
     //
-    if (/\b(no|no acepto|no quiero|rechazo|rechazar|cancel|cancelar|decline|nope)\b/i.test(lowerMsg)) {
+    // Verificar primero si el buttonToken es 'no' (detección directa del botón)
+    const isDeclineButton = buttonToken && String(buttonToken).toLowerCase() === 'no';
+    
+    if (isDeclineButton || /\b(no|no acepto|no quiero|rechazo|rechazar|cancel|cancelar|decline|nope)\b/i.test(lowerMsg)) {
       // Mensaje de despedida bilingüe
       const reply = `😔 **Entiendo / I understand**
 
