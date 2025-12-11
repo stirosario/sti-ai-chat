@@ -880,11 +880,11 @@ function shouldUseStructuredFlow(analysis, session) {
   // DEBE evaluarse ANTES de cualquier otra condición
   // para garantizar que siempre se muestren los 15 pasos con dificultad y tiempo
   // ========================================
-  if (session.stage === 'ASK_PROBLEM') {
+  if (session.stage === 'ASK_PROBLEM' || session.stage === 'DIAGNOSING_PROBLEM') {
     // ✅ CORRECCIÓN CRÍTICA DEFINITIVA: En ASK_PROBLEM, SIEMPRE usar flujo estructurado
     // No importa si hay análisis, problema detectado, o cualquier otra condición
     // El nuevo formato de 15 pasos DEBE mostrarse cuando el usuario escribe el problema
-    console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM detectado, SIEMPRE mostrar 15 pasos');
+    console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM/DIAGNOSING_PROBLEM detectado, SIEMPRE mostrar 15 pasos');
     
     // Forzar detección de problema si no está detectado (para que el resto del flujo funcione)
     if (!analysis.problem || !analysis.problem.detected) {
@@ -6361,7 +6361,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
       // ✅ CORRECCIÓN CRÍTICA: NO interceptar el flujo si estamos en ASK_PROBLEM
       // En ASK_PROBLEM queremos SIEMPRE usar el flujo estructurado con 15 pasos
-      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session) && session.stage !== 'ASK_PROBLEM') {
+      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session) && session.stage !== 'ASK_PROBLEM' && session.stage !== 'DIAGNOSING_PROBLEM') {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
         
         // ✅ CORRECCIÓN 3 y 4: Generar respuesta específica para teclado
@@ -6943,6 +6943,13 @@ Respondé de forma directa, empática y técnica.`;
     // State machine core: ASK_PROBLEM -> ASK_DEVICE -> BASIC_TESTS -> ...
     let reply = '';
     let options = [];
+
+  // ✅ CORRECCIÓN: Tratar DIAGNOSING_PROBLEM como ASK_PROBLEM para mostrar pasos
+  if (session.stage === 'DIAGNOSING_PROBLEM') {
+    console.log('[STAGE] 🔄 Convirtiendo DIAGNOSING_PROBLEM → ASK_PROBLEM para forzar pasos estructurados');
+    session.stage = STATES.ASK_PROBLEM;
+    markSessionDirty(sid, session);
+  }
 
     // ✅ MEDIO-9: Validar stage antes de procesar
     if (session.stage === STATES.ASK_PROBLEM) {
