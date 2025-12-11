@@ -876,12 +876,19 @@ function shouldUseStructuredFlow(analysis, session) {
   if (session.stage === 'ASK_NAME') return true; // Recolección de nombre
   if (analysis.intent === 'confirm' || analysis.intent === 'cancel') return true; // Confirmaciones
   
+  // ✅ CORRECCIÓN: En ASK_PROBLEM con problema técnico detectado, SIEMPRE usar flujo estructurado
+  // para mostrar los 15 pasos con dificultad y tiempo estimado
+  if (session.stage === 'ASK_PROBLEM' && analysis.problem?.detected) {
+    console.log('[DECISION] 📋 Usando flujo estructurado - Problema técnico detectado, mostrar 15 pasos');
+    return true;
+  }
+  
   // ========================================
-  // PRIORIZAR IA (mejor experiencia)
+  // PRIORIZAR IA (mejor experiencia) - Solo para casos especiales
   // ========================================
   
-  // ✅ DETECCIÓN DE PATRONES: Si se detectó un patrón de problema, SIEMPRE usar IA directa
-  if (analysis.patternDetected || analysis.useStructuredFlow === false) {
+  // ✅ DETECCIÓN DE PATRONES: Si se detectó un patrón de problema (pero NO en ASK_PROBLEM), usar IA directa
+  if ((analysis.patternDetected || analysis.useStructuredFlow === false) && session.stage !== 'ASK_PROBLEM') {
     console.log('[DECISION] 🎯 Usando IA - Patrón de problema detectado (1000 expresiones)');
     return false;
   }
@@ -2274,24 +2281,80 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
       parsed = JSON.parse(cleaned);
     } catch (e) {
       const isEn = profile.code === 'en';
-      if (isEn) {
-        return [
-          'Restart the device and check if the problem persists.',
-          'Verify cables and connections and check for visible damage.',
-          'If possible, test the device on another TV, monitor or power outlet.',
-          'If the problem persists, contact a technician with details.'
-        ];
-      }
-      return [
+      const fallbackSteps = isEn ? [
+        'Restart the device and check if the problem persists.',
+        'Verify cables and connections and check for visible damage.',
+        'If possible, test the device on another TV, monitor or power outlet.',
+        'Check for software updates and install any pending updates.',
+        'Review system logs for errors or warnings.',
+        'Test the device in safe mode to isolate software issues.',
+        'Perform a system restore to a previous working state.',
+        'Check device manager for hardware conflicts or driver issues.',
+        'Run system diagnostics tools provided by the manufacturer.',
+        'Verify BIOS/UEFI settings are correct for your hardware.',
+        'Test individual components (RAM, hard drive, etc.) using diagnostic tools.',
+        'Review and modify advanced system settings if necessary.',
+        'Clear temporary files and cache to free up system resources.',
+        'Update or reinstall device drivers from the manufacturer\'s website.',
+        'If the problem persists, contact a technician with details.'
+      ] : [
         'Reiniciá el equipo y fijate si el problema sigue.',
         'Revisá cables y conexiones y verificá que no haya daño visible.',
         'Si podés, probá el equipo en otro televisor, monitor o enchufe.',
+        'Verificá actualizaciones de software e instalá las pendientes.',
+        'Revisá los registros del sistema en busca de errores o advertencias.',
+        'Probá el equipo en modo seguro para aislar problemas de software.',
+        'Realizá una restauración del sistema a un estado anterior que funcionaba.',
+        'Revisá el administrador de dispositivos en busca de conflictos de hardware o problemas de drivers.',
+        'Ejecutá herramientas de diagnóstico del sistema proporcionadas por el fabricante.',
+        'Verificá que la configuración del BIOS/UEFI sea correcta para tu hardware.',
+        'Probá componentes individuales (RAM, disco duro, etc.) usando herramientas de diagnóstico.',
+        'Revisá y modificá configuraciones avanzadas del sistema si es necesario.',
+        'Limpiá archivos temporales y caché para liberar recursos del sistema.',
+        'Actualizá o reinstalá los drivers del dispositivo desde el sitio web del fabricante.',
         'Si el problema continúa, contactá a un técnico y comentale estos pasos que ya probaste.'
       ];
+      // Asegurar exactamente 15 pasos
+      return fallbackSteps.slice(0, 15);
     }
 
     if (!Array.isArray(parsed) || !parsed.length) {
-      return [];
+      // Si no hay pasos parseados, devolver 15 pasos genéricos
+      const isEn = profile.code === 'en';
+      const genericSteps = isEn ? [
+        'Restart the device and check if the problem persists.',
+        'Verify cables and connections and check for visible damage.',
+        'If possible, test the device on another TV, monitor or power outlet.',
+        'Check for software updates and install any pending updates.',
+        'Review system logs for errors or warnings.',
+        'Test the device in safe mode to isolate software issues.',
+        'Perform a system restore to a previous working state.',
+        'Check device manager for hardware conflicts or driver issues.',
+        'Run system diagnostics tools provided by the manufacturer.',
+        'Verify BIOS/UEFI settings are correct for your hardware.',
+        'Test individual components (RAM, hard drive, etc.) using diagnostic tools.',
+        'Review and modify advanced system settings if necessary.',
+        'Clear temporary files and cache to free up system resources.',
+        'Update or reinstall device drivers from the manufacturer\'s website.',
+        'If the problem persists, contact a technician with details.'
+      ] : [
+        'Reiniciá el equipo y fijate si el problema sigue.',
+        'Revisá cables y conexiones y verificá que no haya daño visible.',
+        'Si podés, probá el equipo en otro televisor, monitor o enchufe.',
+        'Verificá actualizaciones de software e instalá las pendientes.',
+        'Revisá los registros del sistema en busca de errores o advertencias.',
+        'Probá el equipo en modo seguro para aislar problemas de software.',
+        'Realizá una restauración del sistema a un estado anterior que funcionaba.',
+        'Revisá el administrador de dispositivos en busca de conflictos de hardware o problemas de drivers.',
+        'Ejecutá herramientas de diagnóstico del sistema proporcionadas por el fabricante.',
+        'Verificá que la configuración del BIOS/UEFI sea correcta para tu hardware.',
+        'Probá componentes individuales (RAM, disco duro, etc.) usando herramientas de diagnóstico.',
+        'Revisá y modificá configuraciones avanzadas del sistema si es necesario.',
+        'Limpiá archivos temporales y caché para liberar recursos del sistema.',
+        'Actualizá o reinstalá los drivers del dispositivo desde el sitio web del fabricante.',
+        'Si el problema continúa, contactá a un técnico y comentale estos pasos que ya probaste.'
+      ];
+      return genericSteps.slice(0, 15);
     }
     // Retornar hasta 15 pasos, rellenar si hay menos
     const steps = parsed.map(s => String(s)).slice(0, 15);
@@ -2303,34 +2366,87 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
         'Review system logs for errors',
         'Test in safe mode',
         'Perform a system restore',
-        'Contact technical support with detailed information'
+        'Check device manager for hardware conflicts',
+        'Run system diagnostics tools',
+        'Verify BIOS/UEFI settings',
+        'Test individual components',
+        'Review and modify advanced system settings',
+        'Clear temporary files and cache',
+        'Update or reinstall device drivers',
+        'Contact technical support with detailed information',
+        'Verify all external connections',
+        'Check for malware or virus infections',
+        'If the problem persists, contact a technician with details'
       ] : [
         'Verificar actualizaciones de software',
         'Revisar registros del sistema en busca de errores',
         'Probar en modo seguro',
         'Realizar una restauración del sistema',
-        'Contactar soporte técnico con información detallada'
+        'Revisar administrador de dispositivos por conflictos de hardware',
+        'Ejecutar herramientas de diagnóstico del sistema',
+        'Verificar configuración del BIOS/UEFI',
+        'Probar componentes individuales',
+        'Revisar y modificar configuraciones avanzadas del sistema',
+        'Limpiar archivos temporales y caché',
+        'Actualizar o reinstalar drivers del dispositivo',
+        'Contactar soporte técnico con información detallada',
+        'Verificar todas las conexiones externas',
+        'Verificar infecciones de malware o virus',
+        'Si el problema continúa, contactar a un técnico con detalles'
       ];
-      while (steps.length < 15 && genericSteps.length > 0) {
-        steps.push(genericSteps.shift());
+      const existingSet = new Set(steps.map(normalizeStepText));
+      const newGeneric = genericSteps.filter(s => !existingSet.has(normalizeStepText(s)));
+      while (steps.length < 15 && newGeneric.length > 0) {
+        steps.push(newGeneric.shift());
+      }
+      // Si aún faltan pasos, completar con pasos genéricos repetidos pero variados
+      while (steps.length < 15) {
+        const fallback = isEn 
+          ? `Additional diagnostic step ${steps.length + 1}: Review and document any error messages or unusual behavior.`
+          : `Paso de diagnóstico adicional ${steps.length + 1}: Revisá y documentá cualquier mensaje de error o comportamiento inusual.`;
+        steps.push(fallback);
       }
     }
-    return steps;
+    // Asegurar exactamente 15 pasos
+    return steps.slice(0, 15);
   } catch (err) {
     console.error('[aiQuickTests] error:', err?.message || err);
     const isEn = getLocaleProfile(locale).code === 'en';
-    if (isEn) {
-      return [
-        'Restart the device completely (turn it off and unplug it for 30 seconds).',
-        'Check connections (power, HDMI, network) and try again.',
-        'If the problem persists, contact a technician with details of what you already tried.'
-      ];
-    }
-    return [
+    const errorFallbackSteps = isEn ? [
+      'Restart the device completely (turn it off and unplug it for 30 seconds).',
+      'Check connections (power, HDMI, network) and try again.',
+      'Check for software updates and install any pending updates.',
+      'Review system logs for errors or warnings.',
+      'Test the device in safe mode to isolate software issues.',
+      'Perform a system restore to a previous working state.',
+      'Check device manager for hardware conflicts or driver issues.',
+      'Run system diagnostics tools provided by the manufacturer.',
+      'Verify BIOS/UEFI settings are correct for your hardware.',
+      'Test individual components (RAM, hard drive, etc.) using diagnostic tools.',
+      'Review and modify advanced system settings if necessary.',
+      'Clear temporary files and cache to free up system resources.',
+      'Update or reinstall device drivers from the manufacturer\'s website.',
+      'Contact technical support with detailed information about the problem and steps already tried.',
+      'If the problem persists, contact a technician with details of what you already tried.'
+    ] : [
       'Reiniciá el equipo por completo (apagalo y desenchufalo 30 segundos).',
       'Revisá conexiones (corriente, HDMI, red) y probá de nuevo.',
+      'Verificá actualizaciones de software e instalá las pendientes.',
+      'Revisá los registros del sistema en busca de errores o advertencias.',
+      'Probá el equipo en modo seguro para aislar problemas de software.',
+      'Realizá una restauración del sistema a un estado anterior que funcionaba.',
+      'Revisá el administrador de dispositivos en busca de conflictos de hardware o problemas de drivers.',
+      'Ejecutá herramientas de diagnóstico del sistema proporcionadas por el fabricante.',
+      'Verificá que la configuración del BIOS/UEFI sea correcta para tu hardware.',
+      'Probá componentes individuales (RAM, disco duro, etc.) usando herramientas de diagnóstico.',
+      'Revisá y modificá configuraciones avanzadas del sistema si es necesario.',
+      'Limpiá archivos temporales y caché para liberar recursos del sistema.',
+      'Actualizá o reinstalá los drivers del dispositivo desde el sitio web del fabricante.',
+      'Contactá soporte técnico con información detallada sobre el problema y los pasos que ya probaste.',
       'Si el problema continúa, contactá a un técnico con el detalle de lo que ya probaste.'
     ];
+    // Asegurar exactamente 15 pasos
+    return errorFallbackSteps.slice(0, 15);
   }
 }
 
@@ -4433,19 +4549,66 @@ function handleShowSteps(session, stepsKey) {
     return { error: true, msg };
   }
 
-  const numbered = enumerateSteps(stepsAr);
+  const locale = session.userLocale || 'es-AR';
+  const isEn = String(locale).toLowerCase().startsWith('en');
+  
+  // ✅ NUEVO SISTEMA: Mostrar pasos con dificultad, tiempo estimado y botón de ayuda
+  const stepsWithHelp = stepsAr.map((step, idx) => {
+    const emoji = emojiForIndex(idx);
+    const difficulty = getDifficultyForStep(idx);
+    const estimatedTime = estimateStepTime(step, idx, locale);
+    const timeLabel = isEn ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
+    const helpButtonText = isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`;
+    return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n${helpButtonText}`;
+  });
+  const stepsText = stepsWithHelp.join('\n\n');
+
   const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
   const intro = stepsKey === 'advanced'
-    ? `Volvemos a las pruebas avanzadas, ${whoLabel}:`
-    : `Volvemos a los pasos sugeridos:`;
-  const footer = '\n\n🧩 Si necesitás ayuda para realizar algún paso, tocá en el número.\n\n🤔 Contanos cómo te fue utilizando los botones:';
-  const fullMsg = intro + '\n\n' + numbered.join('\n\n') + footer;
+    ? (isEn 
+        ? `Let's return to the advanced tests, ${whoLabel}:`
+        : `Volvemos a las pruebas avanzadas, ${whoLabel}:`)
+    : (isEn
+        ? `Let's return to the suggested steps:`
+        : `Volvemos a los pasos sugeridos:`);
+  const footer = isEn
+    ? '\n\nWhen you finish trying these steps, let me know the result by selecting one of the options below:'
+    : '\n\nCuando termines de probar estos pasos, avisame el resultado seleccionando una de las opciones abajo:';
+  const fullMsg = intro + '\n\n' + stepsText + footer;
 
-  const helpOptions = stepsAr.map((_, i) => `🆘🛠️ Ayuda paso ${emojiForIndex(i)}`);
-  // ✅ FORMATO UNIFICADO: Emojis al inicio para consistencia visual
-  const optionsResp = [...helpOptions, '✔️ Lo pude solucionar', '❌ El problema persiste'];
+  // Generar botones: ayuda para cada paso + botones finales
+  const options = [];
+  
+  // Botones de ayuda para cada paso
+  stepsAr.forEach((step, idx) => {
+    const emoji = emojiForIndex(idx);
+    options.push({
+      text: isEn ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
+      value: `BTN_HELP_STEP_${idx}`,
+      description: isEn ? `Get detailed help for step ${idx + 1}` : `Obtener ayuda detallada para el paso ${idx + 1}`
+    });
+  });
 
-  return { error: false, msg: fullMsg, options: optionsResp, steps: stepsAr };
+  // Botones finales
+  options.push({
+    text: isEn ? '❌ The Problem Persists' : '❌ El Problema Persiste',
+    value: 'BTN_PERSIST',
+    description: isEn ? 'I still have the issue' : 'Sigo con el inconveniente'
+  });
+  
+  options.push({
+    text: isEn ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
+    value: 'BTN_SOLVED',
+    description: isEn ? 'The problem is gone' : 'El problema desapareció'
+  });
+  
+  options.push({
+    text: isEn ? '🧑‍🔧 Talk to a Technician' : '🧑‍🔧 Hablar con un Técnico',
+    value: 'BTN_WHATSAPP_TECNICO',
+    description: isEn ? 'Connect with a human technician' : 'Conectar con un técnico humano'
+  });
+
+  return { error: false, msg: fullMsg, options, steps: stepsAr };
 }
 
 // ========================================================
