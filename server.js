@@ -4958,10 +4958,22 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
           changeStage(session, STATES.BASIC_TESTS);
           
           // Llamar a handleAskDeviceStage para regenerar los pasos
-          return await handleAskDeviceStage(session, '', 
+          // ⚠️ IMPORTANTE: handleAskDeviceStage retorna un objeto, no envía res.json()
+          // Necesitamos procesar su resultado y retornarlo correctamente
+          const result = await handleAskDeviceStage(session, '', 
             deviceCfg.device === 'pc' && deviceCfg.pcType === 'desktop' ? 'BTN_DEV_PC_DESKTOP' :
             deviceCfg.device === 'pc' && deviceCfg.pcType === 'all_in_one' ? 'BTN_DEV_PC_ALLINONE' :
             'BTN_DEV_NOTEBOOK', sessionId);
+          
+          // ⚠️ CRÍTICO: handleAskDeviceStage retorna un objeto, no usa res.json()
+          // Necesitamos retornar el resultado para que /api/chat lo procese
+          if (result && result.handled) {
+            // Guardar la sesión actualizada (handleAskDeviceStage ya la guardó, pero por seguridad)
+            await saveSessionAndTranscript(sessionId, session);
+            
+            // Retornar el resultado para que /api/chat lo procese y envíe al frontend
+            return result;
+          }
         }
       }
       
@@ -4973,12 +4985,15 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
       session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
-      return res.json({
+      // ⚠️ IMPORTANTE: Retornar objeto en lugar de usar res.json() directamente
+      // Esto permite que /api/chat procese el resultado correctamente
+      return {
         ok: false,
         reply: errorReply,
         stage: session.stage,
-        buttons: []
-      });
+        buttons: [],
+        handled: true
+      };
     }
     
     // ========================================
@@ -6187,10 +6202,30 @@ app.post('/api/chat', async (req, res) => {
         res
       );
       
-      // Si el handler procesó la request, retornar su respuesta
-      // (handleEscalateStage ya envía la respuesta con res.json, así que retornamos)
+      // Si el handler procesó la request, verificar cómo retornó la respuesta
+      // handleEscalateStage puede:
+      // 1. Usar res.json() directamente (cuando llama a createTicketAndRespond) → result es undefined
+      // 2. Retornar un objeto con handled: true (cuando llama a handleAskDeviceStage) → necesita enviarse
       if (result && result.handled) {
-        return; // Ya se envió la respuesta
+        // ⚠️ IMPORTANTE: Si result tiene propiedades, significa que NO se envió con res.json()
+        // Necesitamos enviarlo ahora al frontend
+        if (result.ok !== undefined || result.reply !== undefined) {
+          // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
+          await saveSessionAndTranscript(sessionId, session);
+          
+          // Enviar la respuesta al frontend
+          return res.json({
+            ok: result.ok !== undefined ? result.ok : true,
+            reply: result.reply || '',
+            stage: result.stage || session.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || [],
+            allowWhatsapp: result.allowWhatsapp || false
+          });
+        } else {
+          // Si no tiene propiedades, significa que ya se envió con res.json()
+          return; // Ya se envió la respuesta
+        }
       }
     }
     
