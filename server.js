@@ -876,29 +876,30 @@ ${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", 
  */
 function shouldUseStructuredFlow(analysis, session) {
   // ========================================
-  // ✅ PRIORIDAD ABSOLUTA: ASK_PROBLEM con problema técnico
+  // ✅ PRIORIDAD ABSOLUTA: ASK_PROBLEM SIEMPRE usa flujo estructurado
   // DEBE evaluarse ANTES de cualquier otra condición
   // para garantizar que siempre se muestren los 15 pasos con dificultad y tiempo
   // ========================================
   if (session.stage === 'ASK_PROBLEM') {
-    // Si hay problema detectado, SIEMPRE usar flujo estructurado
-    if (analysis.problem?.detected) {
-      console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM con problema técnico detectado, mostrar 15 pasos');
-      return true; // RETORNAR INMEDIATAMENTE, sin evaluar otras condiciones
+    // ✅ CORRECCIÓN CRÍTICA DEFINITIVA: En ASK_PROBLEM, SIEMPRE usar flujo estructurado
+    // No importa si hay análisis, problema detectado, o cualquier otra condición
+    // El nuevo formato de 15 pasos DEBE mostrarse cuando el usuario escribe el problema
+    console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM detectado, SIEMPRE mostrar 15 pasos');
+    
+    // Forzar detección de problema si no está detectado (para que el resto del flujo funcione)
+    if (!analysis.problem || !analysis.problem.detected) {
+      const problemText = analysis.originalText || analysis.normalizedText || session.problem || 'problema técnico';
+      analysis.problem = {
+        detected: true,
+        summary: problemText,
+        category: 'other',
+        urgency: 'medium',
+        keywords: []
+      };
+      console.log('[DECISION] 📋 Problema forzado en ASK_PROBLEM:', problemText);
     }
-    // ✅ CORRECCIÓN CRÍTICA: Si estamos en ASK_PROBLEM y hay texto del usuario (no botón),
-    // SIEMPRE asumir que es un problema técnico y usar flujo estructurado
-    // Esto garantiza que el nuevo formato de 15 pasos se muestre cuando el usuario escribe el problema manualmente
-    if (analysis.analyzed && analysis.originalText && analysis.originalText.trim().length > 0) {
-      console.log('[DECISION] 📋 FORZANDO flujo estructurado - ASK_PROBLEM con texto libre del usuario, asumiendo problema técnico, mostrar 15 pasos');
-      // Forzar detección de problema si no está detectado
-      if (!analysis.problem) {
-        analysis.problem = { detected: true, summary: analysis.originalText, category: 'other', urgency: 'medium' };
-      } else if (!analysis.problem.detected) {
-        analysis.problem.detected = true;
-      }
-      return true; // RETORNAR INMEDIATAMENTE, sin evaluar otras condiciones
-    }
+    
+    return true; // RETORNAR INMEDIATAMENTE, sin evaluar otras condiciones
   }
   
   // ========================================
