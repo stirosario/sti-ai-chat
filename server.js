@@ -245,6 +245,7 @@ if (!IS_PRODUCTION) {
   ALLOWED_ORIGINS.push('http://127.0.0.1:3000', 'http://127.0.0.1:5500');
 }
 
+
 // Configuración de CORS para Express
 // origin: Función que decide si un origen está permitido
 //   - callback(null, true) = permitir
@@ -253,24 +254,33 @@ if (!IS_PRODUCTION) {
 // optionsSuccessStatus: Código HTTP para respuestas OPTIONS exitosas (algunos navegadores antiguos usan 200)
 const corsOptions = {
   origin: function (origin, callback) {
+    // Log para depuración
+    logger.info(`[CORS] Request desde origen: ${origin || '(sin origin)'}`);
+    logger.info(`[CORS] Orígenes permitidos: ${ALLOWED_ORIGINS.join(', ')}`);
+    
     // Permitir requests sin origin (aplicaciones móviles, Postman, curl, etc.)
     // Las aplicaciones nativas o herramientas de testing no envían header Origin
     if (!origin) {
+      logger.info(`[CORS] ✅ Permitiendo request sin origin`);
       return callback(null, true);
     }
 
     // Verificar si el origen está en la lista de permitidos
     if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {
       // Origen permitido: continuar con la request
+      logger.info(`[CORS] ✅ Origen permitido: ${origin}`);
       callback(null, true);
     } else {
       // Origen NO permitido: bloquear la request
-      console.warn(`[SECURITY] 🚫 CORS bloqueó origen: ${origin}`);
+      logger.warn(`[SECURITY] 🚫 CORS bloqueó origen: ${origin}`);
+      logger.warn(`[SECURITY] Orígenes permitidos: ${ALLOWED_ORIGINS.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,        // Permite cookies y autenticación en requests CORS
-  optionsSuccessStatus: 200 // Algunos navegadores antiguos requieren código 200 para OPTIONS
+  optionsSuccessStatus: 200, // Algunos navegadores antiguos requieren código 200 para OPTIONS
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Métodos HTTP permitidos
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id', 'x-locale', 'x-lang'] // Headers permitidos
 };
 
 // ========================================================
@@ -306,6 +316,14 @@ try {
 } catch (error) {
   // Si no se puede crear el stream de logs, usar solo consola
   logger.error(`[INIT] ❌ Error creando stream de logs: ${error.message}`);
+}
+
+// Log de orígenes permitidos después de definir logger
+logger.info(`[CORS] Orígenes permitidos configurados: ${ALLOWED_ORIGINS.join(', ')}`);
+if (process.env.ALLOWED_ORIGINS) {
+  logger.info(`[CORS] Configurado desde variable de entorno ALLOWED_ORIGINS`);
+} else {
+  logger.info(`[CORS] Usando valores por defecto (no se encontró ALLOWED_ORIGINS en .env)`);
 }
 
 // ========================================================
@@ -3838,12 +3856,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         description: isEnglish ? 'Go back to see all steps' : 'Volver a ver todos los pasos'
       });
       
-      // Botón "Conectar con Técnico"
-      buttons.push({
-        text: isEnglish ? '👨‍🏭 Connect with Technician' : '👨‍🏭 Conectar con Técnico',
-        value: 'BTN_WHATSAPP_TECNICO',
-        description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
-      });
+      // NO incluir botón de técnico aquí - el frontend lo creará automáticamente
+      // con appendWAButton() cuando detecte allowWhatsapp: true
       
       // Guardar el paso de ayuda actual en la sesión para referencia
       session.lastHelpStep = stepNumber;
@@ -3942,14 +3956,24 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Cambiar a estado ESCALATE
       changeStage(session, STATES.ESCALATE);
       
-      // Generar botones para conectar con técnico
-      // ⚠️ CRÍTICO: Solo mostrar BTN_WHATSAPP_TECNICO y BTN_BACK según lo solicitado
+      // ========================================
+      // GENERAR BOTONES PARA LA RESPUESTA
+      // ========================================
+      // 
+      // ⚠️ IMPORTANTE: NO incluir botones de WhatsApp aquí
+      // 
+      // El botón verde "📲 Hablar con un Técnico" se crea automáticamente en el frontend
+      // cuando detecta `allowWhatsapp: true` en la respuesta (ver línea 3991).
+      // 
+      // ✅ SE PUEDE MODIFICAR:
+      //    - Agregar más botones adicionales si es necesario
+      //    - Cambiar el texto o emoji del botón "Volver atrás"
+      // 
+      // ❌ NO MODIFICAR:
+      //    - NO agregar botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+      //    - NO eliminar `allowWhatsapp: true` de la respuesta (línea 3991)
+      // 
       const buttons = [
-        {
-          text: isEnglish ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-          value: 'BTN_WHATSAPP_TECNICO',
-          description: isEnglish ? 'Continue on WhatsApp with a technician' : 'Continuar por WhatsApp con un técnico'
-        },
         {
           text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
           value: 'BTN_BACK',
@@ -3972,13 +3996,36 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
+      // ========================================
+      // RETORNAR RESPUESTA AL HANDLER PRINCIPAL
+      // ========================================
+      // 
+      // Esta función retorna un objeto (no res.json directamente) porque el handler principal
+      // en /api/chat procesa este resultado y luego envía la respuesta final al frontend.
+      // 
+      // ⚠️ PROPIEDADES CRÍTICAS:
+      // 
+      // - `allowWhatsapp: true` (línea 3991):
+      //   ✅ OBLIGATORIO: Indica al frontend que debe crear el botón verde de WhatsApp
+      //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá
+      //   📍 El handler principal (línea ~5904) incluye esta propiedad en la respuesta final
+      // 
+      // - `handled: true` (línea 3992):
+      //   ✅ OBLIGATORIO: Indica al handler principal que esta función procesó la request
+      //   ❌ NO CAMBIAR A false: Si es false, el handler principal intentará procesar la request de nuevo
+      // 
+      // - `buttons: buttons` (línea 3990):
+      //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
+      //   ❌ NO INCLUIR: Botones de WhatsApp (se crean automáticamente en el frontend)
+      // 
       // Retornar respuesta exitosa
       return {
-        ok: true,
-        reply: reply,
-        stage: session.stage, // Ahora es ESCALATE
-        buttons: buttons,
-        handled: true
+        ok: true,                    // Indica que la operación fue exitosa
+        reply: reply,                 // Mensaje de respuesta al usuario
+        stage: session.stage,        // Estado actual: ESCALATE
+        buttons: buttons,            // Solo BTN_BACK - NO incluir botones de WhatsApp
+        allowWhatsapp: true,         // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
+        handled: true                // Indica que este handler procesó la request
       };
     }
     
@@ -4302,6 +4349,43 @@ setInterval(() => {
  * @param {object} res - Objeto de respuesta de Express
  * @returns {Promise<object>} Respuesta JSON con ticket y botón de WhatsApp
  */
+/**
+ * createTicketAndRespond - Genera un ticket de soporte y prepara la respuesta para el frontend
+ * 
+ * ⚠️ SISTEMA DE BOTONES DE WHATSAPP - IMPORTANTE ENTENDER:
+ * 
+ * Esta función NO envía botones de WhatsApp en el array `buttons`. En su lugar, envía
+ * la propiedad `allowWhatsapp: true` en la respuesta JSON. El frontend (index.php y
+ * chat-fullscreen.html) detecta esta propiedad y automáticamente crea el botón verde
+ * "📲 Hablar con un Técnico" usando la función `appendWAButton()`.
+ * 
+ * ✅ VENTAJAS DE ESTE SISTEMA:
+ *    - El botón verde funciona sin problemas de CORS
+ *    - El botón se crea automáticamente cuando es necesario
+ *    - El diseño y comportamiento están centralizados en el frontend
+ *    - No hay duplicación de botones (azul y verde)
+ * 
+ * ❌ NO MODIFICAR EN ESTA FUNCIÓN:
+ *    - NO agregar botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+ *    - NO eliminar `allowWhatsapp: true` de la respuesta (línea ~4695)
+ *    - NO cambiar el nombre de la propiedad `allowWhatsapp` sin actualizar el frontend
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - El mensaje de confirmación del ticket (líneas ~4560-4590)
+ *    - El formato de las URLs de WhatsApp (líneas ~4541-4547)
+ *    - El contenido del ticket generado (líneas ~4430-4510)
+ *    - El texto del botón "Volver atrás" (líneas ~4577-4582)
+ * 
+ * 📍 DÓNDE SE CREA EL BOTÓN VERDE:
+ *    - Frontend: public_html/index.php (función appendWAButton, línea ~1490)
+ *    - Frontend: public_html/chat-fullscreen.html (función appendWAButton, línea ~1490)
+ *    - El frontend detecta `allowWhatsapp: true` y llama automáticamente a appendWAButton()
+ * 
+ * @param {Object} session - Objeto de sesión del usuario
+ * @param {string} sessionId - ID único de la sesión
+ * @param {Object} res - Objeto de respuesta de Express
+ * @returns {Promise<void>} - No retorna nada, envía la respuesta directamente con res.json()
+ */
 async function createTicketAndRespond(session, sessionId, res) {
   // ========================================
   // PREVENIR RACE CONDITION
@@ -4557,19 +4641,44 @@ async function createTicketAndRespond(session, sessionId, res) {
     // ========================================
     // GENERAR BOTONES
     // ========================================
-    // Solo mostrar BTN_WHATSAPP_TECNICO (botón verde) y BTN_BACK
-    // según lo solicitado por el usuario
-    //
+    // 
+    // ⚠️ SISTEMA DE BOTONES DE WHATSAPP - IMPORTANTE ENTENDER:
+    // 
+    // ANTES: El backend enviaba un botón azul "💚 Hablar con un Técnico" (BTN_WHATSAPP_TECNICO)
+    //        que causaba problemas de CORS y no funcionaba correctamente.
+    // 
+    // AHORA: El backend NO envía ningún botón de WhatsApp. En su lugar, envía la propiedad
+    //        `allowWhatsapp: true` en la respuesta JSON. El frontend (index.php y chat-fullscreen.html)
+    //        detecta esta propiedad y automáticamente crea el botón verde "📲 Hablar con un Técnico"
+    //        usando la función `appendWAButton()`. Este botón verde funciona correctamente porque
+    //        llama directamente a `openTicket()` sin pasar por el servidor.
+    // 
+    // ✅ VENTAJAS DE ESTE SISTEMA:
+    //    - El botón verde funciona sin problemas de CORS
+    //    - El botón se crea automáticamente cuando es necesario
+    //    - El diseño y comportamiento del botón están centralizados en el frontend
+    //    - No hay duplicación de botones (azul y verde)
+    // 
+    // ❌ NO MODIFICAR: 
+    //    - NO agregar botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH' aquí
+    //    - NO eliminar `allowWhatsapp: true` de la respuesta (línea 4610)
+    //    - NO cambiar el nombre de la propiedad `allowWhatsapp` sin actualizar el frontend
+    // 
+    // ✅ SE PUEDE MODIFICAR:
+    //    - El texto del botón "Volver atrás" (línea 4579-4582)
+    //    - Agregar más botones adicionales si es necesario (pero NO botones de WhatsApp)
+    //    - El diseño del botón verde se modifica en el frontend (función appendWAButton)
+    // 
+    // 📍 DÓNDE SE CREA EL BOTÓN VERDE:
+    //    - Frontend: public_html/index.php (función appendWAButton, línea ~1490)
+    //    - Frontend: public_html/chat-fullscreen.html (función appendWAButton, línea ~1490)
+    //    - El frontend detecta `allowWhatsapp: true` y llama automáticamente a appendWAButton()
+    // 
     const buttons = [];
     
-    // Botón principal: Hablar con un Técnico (botón verde cuadrangular)
-    buttons.push({
-      text: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-      value: 'BTN_WHATSAPP_TECNICO',
-      description: isEn ? 'Continue on WhatsApp with a technician' : 'Continuar por WhatsApp con un técnico'
-    });
-    
     // Botón secundario: Volver atrás
+    // ✅ SE PUEDE MODIFICAR: El texto, emoji, o descripción de este botón
+    // ❌ NO MODIFICAR: El value: 'BTN_BACK' - es usado por el frontend para navegación
     buttons.push({
       text: isEn ? '⏪ Go Back' : '⏪ Volver atrás',
       value: 'BTN_BACK',
@@ -4589,20 +4698,51 @@ async function createTicketAndRespond(session, sessionId, res) {
     // Liberar lock de creación de ticket
     ticketCreationLocks.delete(sessionId);
     
+    // ========================================
+    // RETORNAR RESPUESTA AL FRONTEND
+    // ========================================
+    // 
+    // Esta respuesta contiene toda la información necesaria para que el frontend:
+    // 1. Muestre el mensaje de confirmación del ticket
+    // 2. Cree automáticamente el botón verde de WhatsApp
+    // 3. Permita al usuario volver atrás si lo desea
+    // 
+    // ⚠️ PROPIEDADES CRÍTICAS DE LA RESPUESTA:
+    // 
+    // - `allowWhatsapp: true` (línea 4610):
+    //   ✅ OBLIGATORIO: El frontend usa esta propiedad para saber que debe crear el botón verde
+    //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá
+    //   ❌ NO CAMBIAR EL NOMBRE: Si cambias el nombre, debes actualizar el frontend también
+    //   📍 Frontend busca esta propiedad en: index.php línea ~1822 y chat-fullscreen.html línea ~1822
+    // 
+    // - `buttons: buttons` (línea 4602):
+    //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
+    //   ❌ NO INCLUIR: Botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+    //   ✅ SE PUEDE AGREGAR: Otros botones adicionales si es necesario (pero NO de WhatsApp)
+    // 
+    // - `whatsappUrl`, `waWebUrl`, `waAppUrl`, `waIntentUrl` (líneas 4603-4606):
+    //   ✅ OPCIONAL: Estas URLs se usan por el botón verde para abrir WhatsApp
+    //   ✅ SE PUEDE MODIFICAR: El formato de las URLs si cambia el sistema de WhatsApp
+    //   📍 El frontend las usa en: función openTicket() en index.php y chat-fullscreen.html
+    // 
+    // - `ticketId`, `publicUrl`, `apiPublicUrl` (líneas 4607-4609):
+    //   ✅ OPCIONAL: Información del ticket generado (para debugging o logs)
+    //   ✅ SE PUEDE MODIFICAR: El formato o contenido de estas propiedades
+    // 
     // Retornar respuesta con ticket y botones
     return res.json({
-      ok: true,
-      reply: replyLines.join('\n\n'),
-      stage: session.stage, // Sigue siendo ESCALATE o CREATE_TICKET
-      buttons: buttons, // ⚠️ CRÍTICO: Incluir solo BTN_WHATSAPP_TECNICO y BTN_BACK
-      whatsappUrl: waUrl,
-      waWebUrl: waWebUrl,
-      waAppUrl: waAppUrl,
-      waIntentUrl: waIntentUrl,
-      ticketId: ticketId,
-      publicUrl: publicUrl,
-      apiPublicUrl: apiPublicUrl,
-      allowWhatsapp: true
+      ok: true,                                    // Indica que la operación fue exitosa
+      reply: replyLines.join('\n\n'),              // Mensaje de confirmación del ticket
+      stage: session.stage,                        // Estado actual: ESCALATE o CREATE_TICKET
+      buttons: buttons,                            // Solo BTN_BACK - NO incluir botones de WhatsApp aquí
+      whatsappUrl: waUrl,                          // URL de WhatsApp (wa.me)
+      waWebUrl: waWebUrl,                          // URL de WhatsApp Web
+      waAppUrl: waAppUrl,                          // URL de WhatsApp App
+      waIntentUrl: waIntentUrl,                    // URL de intent de WhatsApp (para móviles)
+      ticketId: ticketId,                          // ID del ticket generado (para referencia)
+      publicUrl: publicUrl,                         // URL pública del ticket (opcional)
+      apiPublicUrl: apiPublicUrl,                  // URL de API del ticket (opcional)
+      allowWhatsapp: true                          // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
     });
     
   } catch (err) {
@@ -4625,13 +4765,27 @@ async function createTicketAndRespond(session, sessionId, res) {
       ? '❗ An error occurred while generating the ticket. If you want, you can try again in a few minutes or contact STI directly via WhatsApp.'
       : '❗ Ocurrió un error al generar el ticket. Si querés, podés intentar de nuevo en unos minutos o contactar directamente a STI por WhatsApp.';
     
-    // Botones de error (solo BTN_WHATSAPP_TECNICO y BTN_BACK)
+    // ========================================
+    // GENERAR BOTONES DE ERROR
+    // ========================================
+    // 
+    // Cuando ocurre un error al generar el ticket, aún queremos permitir al usuario
+    // contactar por WhatsApp. Por eso incluimos `allowWhatsapp: true` en la respuesta.
+    // 
+    // ⚠️ IMPORTANTE: NO incluir botones de WhatsApp aquí
+    // 
+    // El botón verde se crea automáticamente en el frontend cuando detecta `allowWhatsapp: true`.
+    // Esto permite al usuario contactar por WhatsApp incluso si hubo un error al generar el ticket.
+    // 
+    // ✅ SE PUEDE MODIFICAR:
+    //    - El mensaje de error (líneas 4629-4631)
+    //    - Agregar más botones adicionales si es necesario
+    // 
+    // ❌ NO MODIFICAR:
+    //    - NO eliminar `allowWhatsapp: true` (línea 4648)
+    //    - NO agregar botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+    // 
     const errorButtons = [
-      {
-        text: isEn ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-        value: 'BTN_WHATSAPP_TECNICO',
-        description: isEn ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
-      },
       {
         text: isEn ? '⏪ Go Back' : '⏪ Volver atrás',
         value: 'BTN_BACK',
@@ -4639,11 +4793,13 @@ async function createTicketAndRespond(session, sessionId, res) {
       }
     ];
     
+    // Retornar respuesta de error con opción de WhatsApp
     return res.json({
-      ok: false,
-      reply: errorReply,
-      stage: session.stage,
-      buttons: errorButtons
+      ok: false,                     // Indica que hubo un error
+      reply: errorReply,             // Mensaje de error al usuario
+      stage: session.stage,          // Estado actual de la sesión
+      buttons: errorButtons,         // Solo BTN_BACK - NO incluir botones de WhatsApp
+      allowWhatsapp: true            // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
     });
   }
 }
@@ -4683,6 +4839,41 @@ async function createTicketAndRespond(session, sessionId, res) {
  * @param {string} sessionId - ID de la sesión
  * @param {object} res - Objeto de respuesta de Express
  * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons?, handled }
+ */
+/**
+ * handleEscalateStage - Procesa las interacciones del usuario en la etapa ESCALATE
+ * 
+ * ⚠️ SISTEMA DE BOTONES DE WHATSAPP - IMPORTANTE ENTENDER:
+ * 
+ * Esta función NO envía botones de WhatsApp en el array `buttons`. En su lugar, retorna
+ * (o envía con res.json) la propiedad `allowWhatsapp: true` en la respuesta. El frontend
+ * detecta esta propiedad y automáticamente crea el botón verde "📲 Hablar con un Técnico".
+ * 
+ * ✅ VENTAJAS DE ESTE SISTEMA:
+ *    - El botón verde funciona sin problemas de CORS
+ *    - El botón se crea automáticamente cuando es necesario
+ *    - No hay duplicación de botones (azul y verde)
+ * 
+ * ❌ NO MODIFICAR EN ESTA FUNCIÓN:
+ *    - NO agregar botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+ *    - NO eliminar `allowWhatsapp: true` de las respuestas
+ *    - NO cambiar el nombre de la propiedad `allowWhatsapp` sin actualizar el frontend
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - Los mensajes de respuesta al usuario (diferentes casos)
+ *    - El texto del botón "Volver atrás"
+ *    - La lógica de detección de intenciones del usuario
+ * 
+ * 📍 DÓNDE SE CREA EL BOTÓN VERDE:
+ *    - Frontend: public_html/index.php (función appendWAButton, línea ~1490)
+ *    - Frontend: public_html/chat-fullscreen.html (función appendWAButton, línea ~1490)
+ * 
+ * @param {Object} session - Objeto de sesión del usuario
+ * @param {string} userText - Texto escrito por el usuario
+ * @param {string} buttonToken - Token del botón presionado (ej: 'BTN_BACK')
+ * @param {string} sessionId - ID único de la sesión
+ * @param {Object} res - Objeto de respuesta de Express (opcional, solo si se envía respuesta directa)
+ * @returns {Promise<Object|void>} - Retorna objeto con {ok, reply, stage, buttons, allowWhatsapp, handled} o void si usa res.json()
  */
 async function handleEscalateStage(session, userText, buttonToken, sessionId, res) {
   // Validar parámetros esenciales con validación de tipos
@@ -4831,13 +5022,9 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     const variationIndex = (sessionId ? sessionId.charCodeAt(0) : 0) % escalationVariations.length;
     const reply = escalationVariations[variationIndex];
     
-    // Generar botones (solo BTN_WHATSAPP_TECNICO y BTN_BACK según lo solicitado)
+    // Generar botones (NO incluir BTN_WHATSAPP_TECNICO - el frontend lo creará automáticamente)
+    // Solo mostrar BTN_BACK - el botón verde se crea con appendWAButton()
     const buttons = [
-      {
-        text: isEnglish ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-        value: 'BTN_WHATSAPP_TECNICO',
-        description: isEnglish ? 'Continue on WhatsApp with a technician' : 'Continuar por WhatsApp con un técnico'
-      },
       {
         text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
         value: 'BTN_BACK',
@@ -4860,13 +5047,35 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
     
+    // ========================================
+    // RETORNAR RESPUESTA AL FRONTEND
+    // ========================================
+    // 
+    // Esta es la respuesta del caso FALLBACK cuando el usuario escribe algo que no se reconoce
+    // en la etapa ESCALATE. Aún así, ofrecemos la opción de contactar por WhatsApp.
+    // 
+    // ⚠️ PROPIEDADES CRÍTICAS:
+    // 
+    // - `allowWhatsapp: true` (línea 4868):
+    //   ✅ OBLIGATORIO: El frontend usa esta propiedad para crear el botón verde
+    //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá
+    // 
+    // - `buttons: buttons` (línea 4867):
+    //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
+    //   ❌ NO INCLUIR: Botones de WhatsApp (se crean automáticamente)
+    // 
+    // - `handled: true` (línea 4869):
+    //   ✅ OBLIGATORIO: Indica que este handler procesó la request
+    //   ❌ NO CAMBIAR A false: Causaría que el handler principal intente procesar de nuevo
+    // 
     // Retornar respuesta con botones
     return res.json({
-      ok: true,
-      reply: reply,
-      stage: session.stage, // Sigue siendo ESCALATE
-      buttons: buttons, // ⚠️ CRÍTICO: Solo BTN_WHATSAPP_TECNICO y BTN_BACK
-      handled: true
+      ok: true,                      // Indica que la operación fue exitosa
+      reply: reply,                  // Mensaje de respuesta al usuario
+      stage: session.stage,          // Estado actual: ESCALATE
+      buttons: buttons,              // Solo BTN_BACK - NO incluir botones de WhatsApp
+      allowWhatsapp: true,           // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
+      handled: true                  // Indica que este handler procesó la request
     });
     
   } catch (error) {
@@ -4887,20 +5096,38 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
       session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
     }
     
-    return res.json({
-      ok: false,
-      reply: errorReply,
-      stage: session?.stage || STATES.ESCALATE,
-      buttons: [
-        {
-          text: session?.userLocale === 'en-US' ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-          value: 'BTN_WHATSAPP_TECNICO'
-        },
-        {
-          text: session?.userLocale === 'en-US' ? '⏪ Go Back' : '⏪ Volver atrás',
-          value: 'BTN_BACK'
-        }
-      ],
+      // ========================================
+      // RETORNAR RESPUESTA DE ERROR
+      // ========================================
+      // 
+      // Este es el caso de error cuando no se puede volver a los pasos anteriores.
+      // Aún así, ofrecemos la opción de contactar por WhatsApp.
+      // 
+      // ⚠️ PROPIEDADES CRÍTICAS:
+      // 
+      // - `allowWhatsapp: true` (línea 4910):
+      //   ✅ OBLIGATORIO: El frontend usa esta propiedad para crear el botón verde
+      //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá
+      // 
+      // - `buttons` (líneas 4905-4909):
+      //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
+      //   ❌ NO INCLUIR: Botones de WhatsApp (se crean automáticamente)
+      // 
+      // ✅ SE PUEDE MODIFICAR:
+      //    - El mensaje de error (líneas 4897-4899)
+      //    - Agregar más botones adicionales si es necesario
+      // 
+      return res.json({
+        ok: false,                     // Indica que hubo un error
+        reply: errorReply,             // Mensaje de error al usuario
+        stage: session?.stage || STATES.ESCALATE,  // Estado actual o ESCALATE por defecto
+        buttons: [
+          {
+            text: session?.userLocale === 'en-US' ? '⏪ Go Back' : '⏪ Volver atrás',
+            value: 'BTN_BACK'
+          }
+        ],
+        allowWhatsapp: true,           // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
       handled: true,
       error: error.message
     });
@@ -5891,17 +6118,46 @@ app.post('/api/chat', async (req, res) => {
         sessionId
       );
       
+      // ========================================
+      // PROCESAR RESULTADO DEL HANDLER
+      // ========================================
+      // 
+      // Si handleEscalateStage procesó la request exitosamente, retornamos su resultado
+      // al frontend. Es importante incluir todas las propiedades del resultado, especialmente
+      // `allowWhatsapp` que indica al frontend que debe crear el botón verde.
+      // 
+      // ⚠️ PROPIEDADES CRÍTICAS:
+      // 
+      // - `allowWhatsapp: result.allowWhatsapp || false` (línea 5911):
+      //   ✅ OBLIGATORIO: Incluir esta propiedad para que el frontend sepa si debe crear el botón verde
+      //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá cuando sea necesario
+      //   ✅ LÓGICA: Si result.allowWhatsapp es true, se incluye; si no existe, se usa false
+      // 
+      // - `buttons: result.buttons || []` (línea 5910):
+      //   ✅ CONTIENE: Los botones retornados por handleEscalateStage (solo BTN_BACK)
+      //   ❌ NO MODIFICAR: No agregar botones de WhatsApp aquí (se crean automáticamente)
+      // 
+      // ✅ SE PUEDE MODIFICAR:
+      //    - Agregar más propiedades al objeto de respuesta si es necesario
+      //    - Modificar el mensaje o stage si es necesario
+      // 
+      // ❌ NO MODIFICAR:
+      //    - NO eliminar `allowWhatsapp: result.allowWhatsapp || false`
+      //    - NO agregar botones de WhatsApp en result.buttons
+      // 
       // Si el handler procesó la request, retornar su respuesta
       if (result && result.handled) {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
+        // Retornar respuesta al frontend con todas las propiedades del resultado
         return res.json({
-          ok: result.ok,
-          reply: result.reply,
-          stage: result.stage,
-          sessionId: sessionId,
-          buttons: result.buttons || []
+          ok: result.ok,                              // Estado de la operación (true/false)
+          reply: result.reply,                        // Mensaje de respuesta al usuario
+          stage: result.stage,                         // Estado actual de la sesión
+          sessionId: sessionId,                       // ID de la sesión (para futuras requests)
+          buttons: result.buttons || [],              // Botones (solo BTN_BACK - NO incluir botones de WhatsApp)
+          allowWhatsapp: result.allowWhatsapp || false // ⚠️ CRÍTICO: Frontend creará botón verde si es true
         });
       }
       
