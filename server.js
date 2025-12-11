@@ -6946,6 +6946,17 @@ Respondé de forma directa, empática y técnica.`;
 
     // ✅ MEDIO-9: Validar stage antes de procesar
     if (session.stage === STATES.ASK_PROBLEM) {
+      // ✅ CORRECCIÓN CRÍTICA DEFINITIVA: Si estamos en ASK_PROBLEM con texto libre del usuario,
+      // saltar DIRECTAMENTE a generateAndShowSteps sin pasar por ninguna otra lógica
+      // Esto garantiza que el nuevo formato de 15 pasos SIEMPRE se muestre cuando el usuario escribe el problema
+      if (!buttonToken && t && t.trim().length > 0) {
+        console.log('[ASK_PROBLEM] 🚀 Texto libre detectado - saltando directamente a generateAndShowSteps');
+        session.problem = t || session.problem;
+        // Asegurar que tenemos un dispositivo (si no, se pedirá en generateAndShowSteps)
+        // Continuar directamente a generar pasos
+        return await generateAndShowSteps(session, sid, res);
+      }
+      
       const stageInfo = getStageInfo(session.stage);
       if (!stageInfo) {
         console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
