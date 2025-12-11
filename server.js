@@ -3366,14 +3366,15 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           intro += `\n\n${proactiveTip}`;
         }
         
-        // Formatear pasos con emojis, niveles de dificultad, tiempo estimado y botones de ayuda
+        // Formatear pasos con emojis, niveles de dificultad, tiempo estimado
+        // Usar marcadores especiales [BTN_HELP_STEP_X] para que el frontend sepa dónde insertar cada botón
         const stepsWithHelp = steps.map((step, idx) => {
           const emoji = emojiForIndex(idx);
           const difficulty = getDifficultyForStep(idx);
           const estimatedTime = estimateStepTime(step, idx, locale);
           const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
-          const helpButtonText = isEnglish ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`;
-          return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n${helpButtonText}`;
+          // Agregar marcador especial para el botón de ayuda después de cada paso
+          return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n[BTN_HELP_STEP_${idx}]`;
         });
         const stepsText = stepsWithHelp.join('\n\n');
         
@@ -3387,13 +3388,17 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         // Generar botones: ayuda para cada paso + botones finales
         const buttons = [];
         
-        // Botones de ayuda para cada paso (debajo de cada paso)
+        // Botones de ayuda para cada paso (el frontend debe insertarlos donde encuentre [BTN_HELP_STEP_X])
         steps.forEach((step, idx) => {
           const emoji = emojiForIndex(idx);
           buttons.push({
             text: isEnglish ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
             value: `BTN_HELP_STEP_${idx}`,
-            description: isEnglish ? `Get detailed help for step ${idx + 1}` : `Obtener ayuda detallada para el paso ${idx + 1}`
+            description: isEnglish ? `Get detailed help for step ${idx + 1}` : `Obtener ayuda detallada para el paso ${idx + 1}`,
+            // Metadata para que el frontend sepa dónde colocar este botón
+            stepIndex: idx,
+            marker: `[BTN_HELP_STEP_${idx}]`, // Marcador en el texto que debe reemplazarse
+            size: 'small' // Indicar que debe ser más pequeño (mitad del alto)
           });
         });
         
