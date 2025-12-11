@@ -6358,7 +6358,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
       
       // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
-      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
+      // ✅ CORRECCIÓN CRÍTICA: NO interceptar el flujo si estamos en ASK_PROBLEM
+      // En ASK_PROBLEM queremos SIEMPRE usar el flujo estructurado con 15 pasos
+      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session) && session.stage !== 'ASK_PROBLEM') {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
         
         // ✅ CORRECCIÓN 3 y 4: Generar respuesta específica para teclado
