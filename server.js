@@ -3983,7 +3983,28 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     }
     
     // ========================================
-    // CASO 5: FALLBACK - NO SE RECONOCIÓ LA ACCIÓN
+    // CASO 5: USUARIO HACE CLIC EN "HABLAR CON UN TÉCNICO" DESDE BASIC_TESTS
+    // ========================================
+    // Si el usuario quiere conectar con un técnico desde BASIC_TESTS
+    // Cambiar a ESCALATE y retornar handled: false para que el código en /api/chat lo procese
+    //
+    // ⚠️ CRÍTICO: Este caso debe ir ANTES del fallback
+    // ✅ SE PUEDE MODIFICAR: El mensaje (pero debe cambiar a ESCALATE)
+    // ❌ NO MODIFICAR: Debe retornar handled: false para que /api/chat lo procese
+    //
+    if (buttonToken === 'BTN_WHATSAPP_TECNICO' || buttonToken === 'BTN_CONNECT_TECH') {
+      // Retornar handled: false para que el código en /api/chat cambie a ESCALATE
+      // y llame a handleEscalateStage
+      logger.info(`[BASIC_TESTS] Botón de técnico detectado (token: ${buttonToken}), retornando handled: false para procesar en /api/chat`);
+      return {
+        ok: false,
+        handled: false, // ⚠️ CRÍTICO: Debe ser false para que /api/chat lo procese
+        stage: session.stage
+      };
+    }
+    
+    // ========================================
+    // CASO 6: FALLBACK - NO SE RECONOCIÓ LA ACCIÓN
     // ========================================
     // Si el usuario escribió algo que no se reconoce, pedir que use los botones
     //
@@ -4715,9 +4736,10 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     //    - Debe llamar a createTicketAndRespond()
     //    - Debe mostrar el botón BTN_WHATSAPP_TECNICO
     //
-    if (buttonToken === 'BTN_WHATSAPP_TECNICO') {
+    if (buttonToken === 'BTN_WHATSAPP_TECNICO' || buttonToken === 'BTN_CONNECT_TECH') {
       // Generar ticket y preparar respuesta con botón de WhatsApp
       // Esta función ya maneja todo: creación del ticket, mensaje, botones, etc.
+      logger.info(`[ESCALATE] Usuario solicita conectar con técnico (token: ${buttonToken})`);
       return await createTicketAndRespond(session, sessionId, res);
     }
     
@@ -5884,12 +5906,13 @@ app.post('/api/chat', async (req, res) => {
       }
       
       // ========================================
-      // MANEJO ESPECIAL: BTN_WHATSAPP_TECNICO desde BASIC_TESTS
+      // MANEJO ESPECIAL: BTN_WHATSAPP_TECNICO o BTN_CONNECT_TECH desde BASIC_TESTS
       // ========================================
-      // Si el usuario hace clic en "Hablar con un Técnico" desde BASIC_TESTS
+      // Si el usuario hace clic en "Hablar con un Técnico" o "Conectar con Técnico" desde BASIC_TESTS
       // Cambiar a ESCALATE y generar el ticket
       //
-      if (buttonToken === 'BTN_WHATSAPP_TECNICO') {
+      if (buttonToken === 'BTN_WHATSAPP_TECNICO' || buttonToken === 'BTN_CONNECT_TECH') {
+        logger.info(`[BASIC_TESTS] Usuario solicita conectar con técnico (token: ${buttonToken}), cambiando a ESCALATE`);
         changeStage(session, STATES.ESCALATE);
         return await handleEscalateStage(session, incomingText, buttonToken, sessionId, res);
       }
