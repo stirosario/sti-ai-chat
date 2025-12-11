@@ -6330,10 +6330,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
       
       // ✅ INTEGRACIÓN: Si se detectó un patrón de problema, forzar respuesta directa sin mensajes genéricos
+      // ✅ CORRECCIÓN: NO forzar useStructuredFlow = false si estamos en ASK_PROBLEM
+      // En ASK_PROBLEM queremos SIEMPRE usar el flujo estructurado con 15 pasos
       if (smartAnalysis.patternDetected) {
         console.log('[PATTERN_DETECTION] ⚡ Patrón detectado - activando flujo directo sin mensajes genéricos');
         smartAnalysis.clarificationNeeded = false;
-        smartAnalysis.useStructuredFlow = false;
+        // Solo forzar respuesta IA directa si NO estamos en ASK_PROBLEM
+        if (session.stage !== 'ASK_PROBLEM') {
+          smartAnalysis.useStructuredFlow = false;
+        }
       }
       
       // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
