@@ -4730,12 +4730,14 @@ async function createTicketAndRespond(session, sessionId, res) {
     //   ✅ SE PUEDE MODIFICAR: El formato o contenido de estas propiedades
     // 
     // Retornar respuesta con ticket y botones
+    // ⚠️ IMPORTANTE: Incluir tanto whatsappUrl como waUrl para compatibilidad con el frontend
     return res.json({
       ok: true,                                    // Indica que la operación fue exitosa
       reply: replyLines.join('\n\n'),              // Mensaje de confirmación del ticket
       stage: session.stage,                        // Estado actual: ESCALATE o CREATE_TICKET
       buttons: buttons,                            // Solo BTN_BACK - NO incluir botones de WhatsApp aquí
-      whatsappUrl: waUrl,                          // URL de WhatsApp (wa.me)
+      whatsappUrl: waUrl,                          // URL de WhatsApp (wa.me) - nombre alternativo
+      waUrl: waUrl,                                // URL de WhatsApp (wa.me) - nombre principal que busca el frontend
       waWebUrl: waWebUrl,                          // URL de WhatsApp Web
       waAppUrl: waAppUrl,                          // URL de WhatsApp App
       waIntentUrl: waIntentUrl,                    // URL de intent de WhatsApp (para móviles)
