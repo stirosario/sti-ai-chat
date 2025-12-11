@@ -1031,17 +1031,34 @@ function changeStage(session, newStage) {
  * @returns {object} Objeto con { text: string, buttons: Array }
  */
 function buildLanguageSelectionGreeting(locale = 'es-AR') {
-  // Detectar si el usuario prefiere inglés
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  if (isEnglish) {
-    // ========================================
-    // VERSIÓN EN INGLÉS
-    // ========================================
-    return {
-      // Texto del mensaje de política de privacidad
-      // Markdown es soportado por la mayoría de frontends de chat
-      text: `📋 **Privacy Policy and Consent**
+  // ========================================
+  // VERSIÓN BILINGÜE (Español + Inglés)
+  // ========================================
+  // Siempre mostrar en ambos idiomas para que el usuario pueda elegir
+  return {
+    // Texto del mensaje de política de privacidad en ambos idiomas
+    // Markdown es soportado por la mayoría de frontends de chat
+    text: `📋 **Política de Privacidad y Consentimiento / Privacy Policy and Consent**
+
+---
+
+**🇦🇷 Español:**
+
+Antes de continuar, quiero informarte:
+
+✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Los datos se usarán **solo para brindarte soporte técnico**
+✅ Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **No compartimos** tu información con terceros
+✅ Cumplimos con **GDPR y normativas de privacidad**
+
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+
+**¿Aceptás estos términos?**
+
+---
+
+**🇺🇸 English:**
 
 Before continuing, I want to inform you:
 
@@ -1054,39 +1071,13 @@ Before continuing, I want to inform you:
 🔗 Full policy: https://stia.com.ar/politica-privacidad.html
 
 **Do you accept these terms?**`,
-      
-      // Botones que el usuario puede presionar
-      // IMPORTANTE: Los valores 'si' y 'no' se usan en el handler para detectar la respuesta
-      // Si cambias estos valores, debes actualizar handleAskLanguageStage()
-      buttons: [
-        { text: 'Yes, I Accept ✔️', value: 'si' },  // value: 'si' es intencional (compatibilidad)
-        { text: 'No, I Decline ❌', value: 'no' }
-      ]
-    };
-  }
-  
-  // ========================================
-  // VERSIÓN EN ESPAÑOL (Argentina)
-  // ========================================
-  // Esta es la versión por defecto
-  return {
-    text: `📋 **Política de Privacidad y Consentimiento**
-
-Antes de continuar, quiero informarte:
-
-✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
-✅ Los datos se usarán **solo para brindarte soporte técnico**
-✅ Podés solicitar **eliminación de tus datos** en cualquier momento
-✅ **No compartimos** tu información con terceros
-✅ Cumplimos con **GDPR y normativas de privacidad**
-
-🔗 Política completa: https://stia.com.ar/politica-privacidad.html
-
-**¿Aceptás estos términos?**`,
     
+    // Botones bilingües que el usuario puede presionar
+    // IMPORTANTE: Los valores 'si' y 'no' se usan en el handler para detectar la respuesta
+    // Si cambias estos valores, debes actualizar handleAskLanguageStage()
     buttons: [
-      { text: 'Sí Acepto ✔️', value: 'si' },
-      { text: 'No Acepto ❌', value: 'no' }
+      { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
+      { text: 'No Acepto / No, I Decline ❌', value: 'no' }
     ]
   };
 }
@@ -1217,9 +1208,24 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     // ❌ NO MODIFICAR: No debe avanzar a otra etapa (la conversación termina aquí)
     //
     if (/\b(no|no acepto|no quiero|rechazo|rechazar|cancel|cancelar|decline|nope)\b/i.test(lowerMsg)) {
-      // Mensaje de despedida (solo en español por ahora, ya que es el idioma por defecto)
-      // TODO: Agregar versión en inglés si se detecta que el usuario prefiere inglés
-      const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
+      // Mensaje de despedida bilingüe
+      const reply = `😔 **Entiendo / I understand**
+
+**🇦🇷 Español:**
+Sin tu consentimiento no puedo continuar.
+
+Si cambiás de opinión, podés volver a iniciar el chat.
+
+📧 Para consultas sin registro, escribinos a: web@stia.com.ar
+
+---
+
+**🇺🇸 English:**
+I cannot continue without your consent.
+
+If you change your mind, you can restart the chat.
+
+📧 For inquiries without registration, write to us at: web@stia.com.ar`;
       
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
@@ -1322,9 +1328,9 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
             { text: '(🇺🇸) English 🌎', value: 'english' }
           ]
         : [
-            // Botones de aceptación/rechazo (si aún no aceptó GDPR)
-            { text: 'Sí Acepto ✔️', value: 'si' },
-            { text: 'No Acepto ❌', value: 'no' }
+            // Botones de aceptación/rechazo bilingües (si aún no aceptó GDPR)
+            { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
+            { text: 'No Acepto / No, I Decline ❌', value: 'no' }
           ],
       handled: true
     };
