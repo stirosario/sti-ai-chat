@@ -3750,6 +3750,9 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Extraer el índice del paso del token (ej: "BTN_HELP_STEP_0" → 0)
       const stepIdx = parseInt(buttonToken.replace('BTN_HELP_STEP_', ''), 10);
       
+      logger.info(`[BASIC_TESTS] Botón de ayuda detectado: ${buttonToken}, stepIdx: ${stepIdx}`);
+      console.log(`[DEBUG] Procesando botón de ayuda - buttonToken: "${buttonToken}", stepIdx: ${stepIdx}, session.stage: ${session.stage}`);
+      
       // Validar que el índice sea válido
       if (isNaN(stepIdx) || stepIdx < 0) {
         const errorReply = isEnglish
@@ -5677,6 +5680,7 @@ app.post('/api/chat', async (req, res) => {
       buttonLabel = body.label || buttonToken;
       
       logger.info(`[BUTTON] Botón clickeado: ${buttonToken} (${buttonLabel})`);
+      console.log(`[DEBUG] Botón recibido - buttonToken: "${buttonToken}", buttonLabel: "${buttonLabel}", body completo:`, JSON.stringify(body, null, 2));
       
       // ========================================
       // MAPEO DE VALORES DE BOTONES A TEXTO
