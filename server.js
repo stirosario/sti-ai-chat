@@ -6358,10 +6358,12 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         }
       }
       
-      // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
-      // ✅ CORRECCIÓN CRÍTICA: NO interceptar el flujo si estamos en ASK_PROBLEM
-      // En ASK_PROBLEM queremos SIEMPRE usar el flujo estructurado con 15 pasos
-      if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session) && session.stage !== 'ASK_PROBLEM' && session.stage !== 'DIAGNOSING_PROBLEM') {
+      // Si estamos en ASK_PROBLEM / DIAGNOSING_PROBLEM, nunca usar smartReply: forzar flujo estructurado
+      if (session.stage === 'ASK_PROBLEM' || session.stage === 'DIAGNOSING_PROBLEM') {
+        console.log('[SMART_MODE] ⛔ Saltando smartReply en ASK_PROBLEM/DIAGNOSING_PROBLEM - se usará flujo estructurado');
+      }
+      // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA (solo fuera de ASK_PROBLEM/DIAGNOSING_PROBLEM)
+      else if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
         
         // ✅ CORRECCIÓN 3 y 4: Generar respuesta específica para teclado
