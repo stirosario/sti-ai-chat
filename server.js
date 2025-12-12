@@ -125,6 +125,10 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
 // Todos los logs del servidor se escriben aquí en formato texto
 // Se puede rotar (log rotation) para evitar que el archivo crezca demasiado
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
+const TELEMETRY_LOG = path.join(LOGS_DIR, 'telemetry.log');
+// Métricas en memoria (reinician al restart)
+const PROBLEM_METRICS = {};   // { token: { solved: n, persist: n } }
+const STEP_INEFFECTIVE = {};  // { token: { stepIndex: count } }
 
 // Crear todos los directorios necesarios si no existen
 // fs.mkdirSync crea las carpetas de forma recursiva (incluye las carpetas padre si faltan)
@@ -216,6 +220,32 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // ========================================================
+// 📊 CONFIGURACIÓN DE LOGGING (se declara antes de CORS para evitar ReferenceError)
+// ========================================================
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: IS_PRODUCTION
+    ? undefined
+    : {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname'
+        }
+      }
+});
+
+let logStream = null;
+try {
+  logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+  logger.info(`[INIT] ✅ Stream de logs inicializado: ${LOG_FILE}`);
+} catch (error) {
+  logger.error(`[INIT] ❌ Error creando stream de logs: ${error.message}`);
+}
+
+// ========================================================
 // 🌐 CONFIGURACIÓN CORS (Cross-Origin Resource Sharing)
 // ========================================================
 
@@ -282,41 +312,6 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Métodos HTTP permitidos
   allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id', 'x-locale', 'x-lang'] // Headers permitidos
 };
-
-// ========================================================
-// 📊 CONFIGURACIÓN DE LOGGING
-// ========================================================
-
-// Configurar logger principal usando pino
-// pino es un logger de alto rendimiento que es mucho más rápido que console.log
-// En producción, los logs se pueden enviar a archivos, servicios externos (Elasticsearch, etc.)
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',  // Nivel de log: 'debug', 'info', 'warn', 'error'
-  transport: IS_PRODUCTION
-    ? undefined  // En producción, usar salida estándar (stdout) para captura por sistemas de log
-    : {
-        // En desarrollo, usar formato bonito y coloreado para leer en consola
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname'
-        }
-      }
-});
-
-// Stream para escribir logs a archivo
-// createWriteStream crea un stream que escribe datos de forma eficiente
-// flags: 'a' = append (agregar al final del archivo, no sobrescribir)
-// encoding: 'utf8' = codificación de caracteres UTF-8 (soporta acentos, emojis, etc.)
-let logStream = null;
-try {
-  logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
-  logger.info(`[INIT] ✅ Stream de logs inicializado: ${LOG_FILE}`);
-} catch (error) {
-  // Si no se puede crear el stream de logs, usar solo consola
-  logger.error(`[INIT] ❌ Error creando stream de logs: ${error.message}`);
-}
 
 // Log de orígenes permitidos después de definir logger
 logger.info(`[CORS] Orígenes permitidos configurados: ${ALLOWED_ORIGINS.join(', ')}`);
@@ -651,32 +646,170 @@ function nowIso() {
 }
 
 /**
+ * Genera un ID único unificado para sesiones y tickets
+ * Formato: A0000 hasta Z9999 (excluyendo la letra Ñ)
+ * 
+ * ⚠️ IMPORTANTE: Este ID se usa tanto para sesiones como para tickets
+ * - Sesiones: Se guardan como {id}.json en TRANSCRIPTS_DIR
+ * - Tickets: Se guardan como {id}.txt y {id}.json en TICKETS_DIR
+ * 
+ * Formato del ID:
+ * - Letra: A-Z (excepto Ñ) = 25 letras posibles
+ * - Números: 0000-9999 = 10,000 números posibles
+ * - Total: 25 × 10,000 = 250,000 IDs únicos posibles
+ * 
+ * Ejemplos válidos: A0000, A0001, ..., A9999, B0000, ..., Z9999
+ * Ejemplos inválidos: Ñ0000 (contiene Ñ)
+ * 
+ * ✅ SE PUEDE MODIFICAR: El rango de letras o números (pero mantener unicidad)
+ * ❌ NO MODIFICAR: Debe retornar un string único que no exista en archivos
+ * 
+ * @returns {Promise<string>} ID único en formato A0000-Z9999 (sin Ñ)
+ */
+async function generateUnifiedId() {
+  // Letras permitidas: A-Z excepto Ñ (25 letras)
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').filter(l => l !== 'Ñ');
+  
+  // Función para verificar si un ID ya existe
+  const idExists = async (id) => {
+    try {
+      // Verificar en TRANSCRIPTS_DIR (archivos de sesión: {id}.json)
+      const sessionFile = path.join(TRANSCRIPTS_DIR, `${id}.json`);
+      if (await fs.promises.access(sessionFile).then(() => true).catch(() => false)) {
+        return true;
+      }
+      
+      // Verificar en TICKETS_DIR (archivos de ticket: {id}.txt o {id}.json)
+      const ticketFileTxt = path.join(TICKETS_DIR, `${id}.txt`);
+      const ticketFileJson = path.join(TICKETS_DIR, `${id}.json`);
+      if (await fs.promises.access(ticketFileTxt).then(() => true).catch(() => false)) {
+        return true;
+      }
+      if (await fs.promises.access(ticketFileJson).then(() => true).catch(() => false)) {
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      // Si hay error al verificar, asumir que no existe (más seguro)
+      return false;
+    }
+  };
+  
+  // Intentar generar un ID único (máximo 100 intentos para evitar loops infinitos)
+  const maxAttempts = 100;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Seleccionar letra aleatoria
+    const letter = letters[Math.floor(Math.random() * letters.length)];
+    
+    // Generar número aleatorio de 4 dígitos (0000-9999)
+    const number = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    
+    // Construir ID: letra + número (ej: A0000, B1234, Z9999)
+    const id = letter + number;
+    
+    // Verificar si el ID ya existe
+    const exists = await idExists(id);
+    if (!exists) {
+      return id; // ID único encontrado
+    }
+    
+    // Si existe, intentar de nuevo
+    logger.debug(`[ID_GEN] ID ${id} ya existe, intentando otro...`);
+  }
+  
+  // Si después de 100 intentos no se encontró un ID único, usar timestamp como fallback
+  // Esto es extremadamente raro (probabilidad < 0.0004% con 250,000 IDs disponibles)
+  logger.warn('[ID_GEN] ⚠️ No se pudo generar ID único después de 100 intentos, usando fallback');
+  const timestamp = Date.now().toString().slice(-5); // Últimos 5 dígitos del timestamp
+  const letter = letters[Math.floor(Math.random() * letters.length)];
+  return letter + timestamp.padStart(4, '0');
+}
+
+/**
  * Genera un ID único para cada sesión de chat
- * Cada usuario que abre el chat tiene su propia sesión con un ID único
+ * Usa el formato unificado A0000-Z9999 (sin Ñ)
+ * 
+ * ⚠️ IMPORTANTE: Este ID se comparte con los tickets
+ * - Formato: A0000 hasta Z9999 (sin Ñ)
+ * - Aleatorio y único sin repetición
  * 
  * ✅ SE PUEDE MODIFICAR: El formato del ID (pero mantenerlo único y seguro)
  * ❌ NO MODIFICAR: Debe retornar un string único cada vez que se llama
  * 
- * @returns {string} ID de sesión único (ej: "sess_abc123xyz")
+ * @returns {Promise<string>} ID de sesión único (ej: "A0000", "B1234", "Z9999")
  */
-function generateSessionId() {
-  // crypto.randomBytes genera bytes aleatorios seguros
-  // toString('hex') los convierte a hexadecimal legible
-  // Prefijo "sess_" para identificar fácilmente que es un ID de sesión
-  return 'sess_' + crypto.randomBytes(16).toString('hex');
+async function generateSessionId() {
+  return await generateUnifiedId();
+}
+
+/**
+ * Valida el formato de sessionId/ticketId unificado
+ * Formato: A0000-Z9999 (sin Ñ)
+ * @param {string} sessionId
+ * @returns {boolean}
+ */
+function isValidSessionId(sessionId) {
+  const sid = String(sessionId || '').toUpperCase();
+  return /^[A-Z][0-9]{4}$/.test(sid) && !sid.includes('Ñ');
+}
+
+/**
+ * Guarda telemetría en memoria de sesión y la exporta a log JSONL
+ */
+async function logTelemetry(entry = {}) {
+  const line = JSON.stringify(entry) + '\n';
+  try {
+    await fs.promises.appendFile(TELEMETRY_LOG, line, 'utf8');
+  } catch (err) {
+    logger.warn('[TELEMETRY] No se pudo escribir en telemetry.log:', err.message);
+  }
+}
+
+/**
+ * Telemetría básica para BASIC_TESTS
+ * Guarda en session.telemetry.basicTests con metadata estandarizada
+ */
+function pushBasicTestTelemetry(session, entry = {}, sessionId = null) {
+  if (!session || typeof session !== 'object') return;
+  session.telemetry = session.telemetry || {};
+  session.telemetry.basicTests = session.telemetry.basicTests || [];
+  const evt = {
+    ts: nowIso(),
+    sessionId: sessionId || null,
+    problemToken: session.problemToken || getProblemTokenFromSession(session, session.problem) || null,
+    device: session.device || null,
+    stage: session.stage || null,
+    ...entry
+  };
+  session.telemetry.basicTests.push(evt);
+  // Exportar también a log (JSONL) para análisis
+  logTelemetry({ type: 'basicTests', ...evt }).catch(() => {});
+
+  // Métricas agregadas en memoria
+  const p = evt.problemToken || 'UNKNOWN';
+  if (!PROBLEM_METRICS[p]) PROBLEM_METRICS[p] = { solved: 0, persist: 0 };
+  if (entry.action === 'solved') PROBLEM_METRICS[p].solved += 1;
+  if (entry.action === 'persist') PROBLEM_METRICS[p].persist += 1;
+  if (entry.action === 'ineffective_help' && typeof evt.stepIndex === 'number') {
+    if (!STEP_INEFFECTIVE[p]) STEP_INEFFECTIVE[p] = {};
+    STEP_INEFFECTIVE[p][evt.stepIndex] = (STEP_INEFFECTIVE[p][evt.stepIndex] || 0) + 1;
+  }
 }
 
 /**
  * Obtiene el ID de sesión desde el request HTTP
  * Busca en múltiples lugares: header, cookie, body, o genera uno nuevo
  * 
+ * ⚠️ IMPORTANTE: Ahora es async porque generateSessionId() es async
+ * 
  * ✅ SE PUEDE MODIFICAR: Los lugares donde busca el sessionId
  * ❌ NO MODIFICAR: Debe retornar siempre un string (nunca null/undefined)
  * 
  * @param {object} req - Request object de Express
- * @returns {string} ID de sesión
+ * @returns {Promise<string>} ID de sesión en formato A0000-Z9999 (sin Ñ)
  */
-function getSessionId(req) {
+async function getSessionId(req) {
   // Buscar en header personalizado (más común en APIs REST)
   if (req.headers['x-session-id']) {
     return String(req.headers['x-session-id']);
@@ -694,7 +827,8 @@ function getSessionId(req) {
   
   // Si no se encuentra, generar uno nuevo
   // Esto crea una nueva sesión para el usuario
-  return generateSessionId();
+  // ⚠️ IMPORTANTE: generateSessionId() ahora es async
+  return await generateSessionId();
 }
 
 /**
@@ -863,9 +997,9 @@ async function saveSessionAndTranscript(sessionId, session) {
       }
     }
     
-    // Guardar el transcript (usar fs.promises.appendFile para async)
+    // Guardar el transcript completo (writeFile para evitar duplicados acumulados)
     if (transcriptText) {
-      await fs.promises.appendFile(transcriptFile, transcriptText, 'utf8');
+      await fs.promises.writeFile(transcriptFile, transcriptText, 'utf8');
     }
   } catch (error) {
     // Si falla el transcript, no es crítico, solo loguear
@@ -1154,8 +1288,9 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     };
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[ASK_LANGUAGE] ❌ sessionId inválido');
+  // Validar sessionId con la función unificada (formato A0000-Z9999)
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ASK_LANGUAGE] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -2042,8 +2177,8 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[ASK_NAME] ❌ sessionId inválido');
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ASK_NAME] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -2167,14 +2302,14 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       // 3. Agrega el mapeo en /api/chat (línea ~1400)
       // 4. Crea el handler que procese ese problema
       //
-      const problemButtons = buildUiButtonsFromTokens([
-        'BTN_NO_ENCIENDE',      // 🔌 El equipo no enciende
-        'BTN_NO_INTERNET',      // 📡 Problemas de conexión a Internet
-        'BTN_LENTITUD',         // 🐢 Lentitud del sistema operativo o del equipo
-        'BTN_BLOQUEO',          // ❄️ Bloqueo o cuelgue de programas
-        'BTN_PERIFERICOS',      // 🖨️ Problemas con periféricos externos
-        'BTN_VIRUS'             // 🛡️ Infecciones de malware o virus
-      ], locale);
+      const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
+        'BTN_NO_ENCIENDE',
+        'BTN_NO_INTERNET',
+        'BTN_LENTITUD',
+        'BTN_BLOQUEO',
+        'BTN_PERIFERICOS',
+        'BTN_VIRUS'
+      ], locale));
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
@@ -2473,6 +2608,22 @@ function getProblemFromButton(buttonToken) {
   return problemButtonMap[buttonToken] || null;
 }
 
+// Ordenar botones de problema por tasa de éxito histórica (solved vs persist)
+function sortProblemButtons(buttons = []) {
+  const scored = buttons.map((b, idx) => {
+    const token = b.token || b.value || '';
+    const m = PROBLEM_METRICS[token] || { solved: 0, persist: 0 };
+    const total = m.solved + m.persist;
+    const successRate = total > 0 ? m.solved / total : 0;
+    return { b, idx, successRate };
+  });
+  scored.sort((a, b) => {
+    if (b.successRate !== a.successRate) return b.successRate - a.successRate;
+    return a.idx - b.idx; // estable en ausencia de datos
+  });
+  return scored.map(x => x.b);
+}
+
 // ========================================================
 // 🎯 HANDLER: handleAskNeedStage
 // ========================================================
@@ -2527,8 +2678,8 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[ASK_NEED] ❌ sessionId inválido');
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ASK_NEED] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -2567,6 +2718,7 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         // ✅ BOTÓN DE PROBLEMA DETECTADO
         // Guardar el problema en la sesión según el idioma del usuario
         session.problem = isEnglish ? problemInfo.problemEn : problemInfo.problem;
+        session.problemToken = buttonToken; // guardar token para playbooks/métricas
         session.needType = 'problema'; // Marcar que es un problema (no una consulta)
         
         logger.info(`[ASK_NEED] ✅ Problema seleccionado desde botón: ${session.problem}`);
@@ -2654,6 +2806,10 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         // ✅ PROBLEMA DETECTADO EN TEXTO
         // Guardar el problema en la sesión según el idioma del usuario
         session.problem = isEnglish ? problemInfo.problemEn : problemInfo.problem;
+        // Intentar mapear token aproximado para playbooks/métricas
+        if (!session.problemToken) {
+          session.problemToken = getProblemTokenFromSession(session, session.problem) || null;
+        }
         session.needType = 'problema';
         
         logger.info(`[ASK_NEED] ✅ Problema detectado en texto: ${session.problem}`);
@@ -2714,14 +2870,14 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         : "No entendí bien. ¿Podrías seleccionar uno de los problemas comunes usando los botones de arriba? O describí tu problema con más detalle.");
     
     // Generar botones de problemas frecuentes para que el usuario pueda seleccionar
-    const problemButtons = buildUiButtonsFromTokens([
+    const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
       'BTN_NO_ENCIENDE',
       'BTN_NO_INTERNET',
       'BTN_LENTITUD',
       'BTN_BLOQUEO',
       'BTN_PERIFERICOS',
       'BTN_VIRUS'
-    ], locale);
+    ], locale));
     
     // Agregar mensajes al transcript
     session.transcript.push({
@@ -2850,18 +3006,15 @@ function emojiForIndex(i) {
  * @param {number} stepIndex - Índice del paso (0-based, 0-14)
  * @returns {object} { level: 1-5, stars: string, label: string }
  */
-function getDifficultyForStep(stepIndex) {
-  if (stepIndex < 3) {
-    return { level: 1, stars: '⭐', label: 'Muy fácil' };
-  } else if (stepIndex < 6) {
-    return { level: 2, stars: '⭐⭐', label: 'Fácil' };
-  } else if (stepIndex < 9) {
-    return { level: 3, stars: '⭐⭐⭐', label: 'Intermedio' };
-  } else if (stepIndex < 12) {
-    return { level: 4, stars: '⭐⭐⭐⭐', label: 'Difícil' };
-  } else {
-    return { level: 5, stars: '⭐⭐⭐⭐⭐', label: 'Muy difícil' };
-  }
+function getDifficultyForStep(stepIndex, totalSteps = 8) {
+  // Reescala a 5 niveles en base a totalSteps (default 8 pasos)
+  const n = Math.max(1, totalSteps);
+  const ratio = (stepIndex) / Math.max(n - 1, 1);
+  if (ratio <= 0.25) return { level: 1, stars: '⭐', label: 'Muy fácil' };
+  if (ratio <= 0.45) return { level: 2, stars: '⭐⭐', label: 'Fácil' };
+  if (ratio <= 0.7)  return { level: 3, stars: '⭐⭐⭐', label: 'Intermedio' };
+  if (ratio <= 0.9)  return { level: 4, stars: '⭐⭐⭐⭐', label: 'Difícil' };
+  return { level: 5, stars: '⭐⭐⭐⭐⭐', label: 'Muy difícil' };
 }
 
 /**
@@ -3111,101 +3264,160 @@ function getDeviceFromButton(buttonToken) {
   return deviceMap[buttonToken] || null;
 }
 
-/**
- * Genera pasos de diagnóstico básicos para un problema
- * 
- * Esta función genera 15 pasos de diagnóstico según el problema y dispositivo
- * Por ahora, genera pasos genéricos. En el futuro, puede usar IA o playbooks
- * 
- * ⚠️ CRÍTICO: Esta función determina qué pasos ve el usuario
- * ✅ SE PUEDE MODIFICAR:
-//    - Agregar más pasos específicos según problema/dispositivo
-//    - Integrar con IA para generar pasos personalizados
-//    - Usar playbooks predefinidos
-// ❌ NO MODIFICAR:
-//    - Debe retornar un array de exactamente 15 pasos
-//    - Cada paso debe ser un string descriptivo
-// 
- * @param {string} problem - Descripción del problema
- * @param {string} device - Tipo de dispositivo ('pc', 'notebook', etc.)
- * @param {string} locale - Idioma del usuario ('es-AR' o 'en-US')
- * @returns {Array<string>} Array de 15 pasos de diagnóstico
- */
-function generateDiagnosticSteps(problem = '', device = '', locale = 'es-AR') {
-  const isEn = String(locale).toLowerCase().startsWith('en');
-  const problemLower = problem.toLowerCase();
-  
-  // Pasos específicos para "el equipo no enciende"
-  if (problemLower.includes('no enciende') || problemLower.includes('no prende') || problemLower.includes('no arranca')) {
-    return isEn ? [
-      'Make sure the device is connected to power.',
-      'Verify that the outlet works by testing with another device.',
-      'Check that the power supply switch is turned on.',
-      'Check that all cables are properly connected at the back of the device.',
-      'Try pressing the power button for a few seconds.',
-      'Listen for any sounds when turning on, such as fans or beeps.',
-      'Check that there are no lights on the device when trying to turn it on.',
-      'If the device has a battery, try removing it and putting it back.',
-      'Connect the device to another monitor to rule out display problems.',
-      'Access the BIOS by pressing the corresponding key when turning on the device.',
-      'Check the boot configuration in the BIOS to make sure the hard drive is detected.',
-      'Update the motherboard firmware if necessary from the manufacturer\'s website.',
-      'Use a hardware diagnostic tool to check the status of components.',
-      'Review system event logs to identify critical errors.',
-      'If everything fails, consider taking the device to a specialized technical service.'
-    ] : [
-      'Asegurarte de que el equipo esté conectado a la corriente.',
-      'Verificar que el enchufe funcione probando con otro dispositivo.',
-      'Comprobar que el interruptor de la fuente de alimentación esté encendido.',
-      'Revisar que todos los cables estén bien conectados en la parte trasera del equipo.',
-      'Probar presionar el botón de encendido durante unos segundos.',
-      'Escuchar si hay algún sonido al encender, como ventiladores o pitidos.',
-      'Verificar que no haya luces encendidas en el equipo al intentar encenderlo.',
-      'Si el equipo tiene una batería, intentar quitarla y volver a colocarla.',
-      'Conectar el equipo a otro monitor para descartar problemas de visualización.',
-      'Acceder a la BIOS presionando la tecla correspondiente al encender el equipo.',
-      'Revisar la configuración de arranque en la BIOS para asegurarte de que el disco duro esté detectado.',
-      'Actualizar el firmware de la placa madre si es necesario desde el sitio del fabricante.',
-      'Utilizar una herramienta de diagnóstico de hardware para verificar el estado de los componentes.',
-      'Revisar los registros de eventos del sistema para identificar errores críticos.',
-      'Si todo falla, considerar llevar el equipo a un servicio técnico especializado.'
-    ];
+// ========================================================
+// 🧭 PLAYBOOKS POR PROBLEMA (6-8 pasos)
+// ========================================================
+const PLAYBOOKS = {
+  GENERICO: {
+    pasos: [
+      'Revisá que el equipo/dispositivo esté alimentado y encendido.',
+      'Reiniciá el equipo/dispositivo y probá nuevamente.',
+      'Verificá cables y conexiones visibles (firmes, sin daño).',
+      'Actualizá sistema/firmware básico y reiniciá.',
+      'Probá en modo seguro/arranque limpio para descartar software.',
+      'Ejecutá un diagnóstico breve (memoria/disco/red) y guardá resultados.',
+      'Revisá registros/eventos por errores repetidos.',
+      'Si sigue igual, avisame y te conecto con un técnico de STI.'
+    ]
+  },
+  BTN_NO_ENCIENDE: {
+    pasos: [
+      'Confirmá cable de alimentación/cargador bien enchufado y toma con energía.',
+      'Revisá interruptor de la fuente (si tiene) en posición encendido (I).',
+      'Mantené presionado power 10s, soltá y probá de nuevo.',
+      'Quita batería (notebook/AIO si aplica), espera 1 minuto, reconecta y probá.',
+      'Verificá LEDs/sonidos (beeps/ventiladores); anotá cualquier código.',
+      'Prueba con otro cable/cargador y otra toma; si desktop, otra bajada eléctrica.',
+      'Reseteá CMOS/BIOS (quitar batería 1-2 min) solo si sabes hacerlo.',
+      'Si sigue sin encender, avisame y te conecto con un técnico de STI.'
+    ]
+  },
+  BTN_NO_INTERNET: {
+    pasos: [
+      'Revisá ONT/router: LEDs de power/Internet/WiFi encendidos y estables.',
+      'Reiniciá router/ONT: apagá 30s, encendé y esperá 2-3 minutos.',
+      'Prueba cableada directa al router para descartar WiFi.',
+      'Renová IP/DHCP (ipconfig /renew) y prueba navegación.',
+      'Cambiá DNS a 8.8.8.8 / 1.1.1.1 y testea.',
+      'Ping a gateway y a 8.8.8.8; anotá pérdidas/latencia.',
+      'Traceroute a un sitio (ej. 8.8.8.8) y guarda saltos si falla.',
+      'Si sigue, avisame y te conecto con un técnico de STI para revisar línea/equipo.'
+    ]
+  },
+  BTN_LENTITUD: {
+    pasos: [
+      'Cerrá apps pesadas, reiniciá y liberá espacio (mín 10-15%).',
+      'Arranque limpio: desactivá programas de inicio innecesarios.',
+      'Revisá CPU/RAM/disk en el Administrador de tareas y cierra lo que satura.',
+      'Desinstalá bloatware/soft reciente sospechoso.',
+      'Chequeá disco (SMART/health) y ejecutá un scan rápido (chkdsk /f o similar).',
+      'Pasá un malware/AV scan rápido y eliminá PUPs.',
+      'Actualizá drivers clave (chipset/almacenamiento/GPU) y SO.',
+      'Si sigue lento, avisame y te conecto con STI para revisión más profunda.'
+    ]
+  },
+  BTN_BLOQUEO: {
+    pasos: [
+      'Probá en modo seguro/arranque limpio para descartar conflictos.',
+      'Reinstalá la app y quita plugins/extensiones sospechosas.',
+      'Revisá visor de eventos/Console para ver errores al momento del cuelgue.',
+      'Actualizá drivers de GPU/chipset si la app es gráfica/intensiva.',
+      'Verificá límites térmicos: temperaturas y ventilación.',
+      'Test de memoria (MemTest) y disco (SMART) para descartar hardware.',
+      'Arranque limpio habilitando servicios en tandas para aislar culpable.',
+      'Si persiste, avisame y te conecto con STI para análisis avanzado.'
+    ]
+  },
+  BTN_PERIFERICOS: {
+    pasos: [
+      'Conectá directo a puerto (sin hubs) y asegurá que el periférico esté encendido.',
+      'Probá otro puerto (o USB-C con/ sin power delivery según el caso).',
+      'Reinstalá driver automático: desconectá 10s, reconectá y dejá que el SO lo instale.',
+      'Prueba cruzada: conectá el periférico en otro equipo para descartar fallo de origen.',
+      'Reinstalá driver/firmware del fabricante y reiniciá.',
+      'Revisá energía USB y desconectá otros periféricos que consuman.',
+      'Cambiá cable/dongle si está disponible.',
+      'Si sigue, avisame y te conecto con STI para revisión avanzada.'
+    ]
+  },
+  BTN_VIRUS: {
+    pasos: [
+      'Aislá: desconectá internet y corré un scan rápido con el AV integrado; reiniciá.',
+      'Modo seguro + AV completo; elimina PUPs/adware y restaura navegador.',
+      'Scan offline/bootable para rootkits.',
+      'Deshabilitá arranques/tareas sospechosas que reinstalen malware.',
+      'Revisá hosts/DNS/Proxy para que no estén secuestrados.',
+      'Chequeá servicios/controladores sospechosos y repará sistema (SFC/DISM).',
+      'Backup de datos; si persiste, plan de reinstalación limpia y cambio de contraseñas desde equipo limpio.',
+      'Si sigue, avisame y te conecto con un técnico de STI para saneo avanzado.'
+    ]
   }
-  
-  // Pasos genéricos para otros problemas
-  return isEn ? [
-    'Complete shutdown: Unplug the device from the wall, wait 30 seconds and plug it back in.',
-    'Check connections: Power cable firmly connected. Monitor connected (HDMI / VGA / DP). Try turning it on again.',
-    'Check for software updates and install any pending updates.',
-    'Review system logs for errors or warnings.',
-    'Test the device in safe mode to isolate software issues.',
-    'Perform a system restore to a previous working state.',
-    'Check device manager for hardware conflicts or driver issues.',
-    'Run system diagnostics tools provided by the manufacturer.',
-    'Verify BIOS/UEFI settings are correct for your hardware.',
-    'Test individual components (RAM, hard drive, etc.) using diagnostic tools.',
-    'Review and modify advanced system settings if necessary.',
-    'Contact technical support with detailed information about the problem and steps already tried.',
-    'Additional diagnostic step 13: Review and document any error messages or unusual behavior.',
-    'Additional diagnostic step 14: Review and document any error messages or unusual behavior.',
-    'Additional diagnostic step 15: Review and document any error messages or unusual behavior.'
-  ] : [
-    'Apagado completo: Desenchufá el equipo de la pared, esperá 30 segundos y volvé a conectarlo.',
-    'Revisá las conexiones: Cable de corriente bien firme. Monitor conectado (HDMI / VGA / DP). Probá encender nuevamente.',
-    'Verificá actualizaciones de software e instalá las pendientes.',
-    'Revisá los registros del sistema en busca de errores o advertencias.',
-    'Probá el equipo en modo seguro para aislar problemas de software.',
-    'Realizá una restauración del sistema a un estado anterior que funcionaba.',
-    'Revisá el administrador de dispositivos en busca de conflictos de hardware o problemas de drivers.',
-    'Ejecutá herramientas de diagnóstico del sistema proporcionadas por el fabricante.',
-    'Verificá que la configuración del BIOS/UEFI sea correcta para tu hardware.',
-    'Probá componentes individuales (RAM, disco duro, etc.) usando herramientas de diagnóstico.',
-    'Revisá y modificá configuraciones avanzadas del sistema si es necesario.',
-    'Contactá soporte técnico con información detallada sobre el problema y los pasos que ya probaste.',
-    'Paso de diagnóstico adicional 13: Revisá y documentá cualquier mensaje de error o comportamiento inusual.',
-    'Paso de diagnóstico adicional 14: Revisá y documentá cualquier mensaje de error o comportamiento inusual.',
-    'Paso de diagnóstico adicional 15: Revisá y documentá cualquier mensaje de error o comportamiento inusual.'
-  ];
+};
+
+// Helper para obtener token de problema desde texto o session
+function getProblemTokenFromSession(session = {}, problemText = '') {
+  if (session.problemToken) return session.problemToken;
+  const txt = String(problemText || session.problem || '').toLowerCase();
+  if (txt.includes('no enciende') || txt.includes('no prende') || txt.includes('no arranca')) return 'BTN_NO_ENCIENDE';
+  if (txt.includes('internet')) return 'BTN_NO_INTERNET';
+  if (txt.includes('lento') || txt.includes('lentitud')) return 'BTN_LENTITUD';
+  if (txt.includes('bloqueo') || txt.includes('cuelg') || txt.includes('freeze')) return 'BTN_BLOQUEO';
+  if (txt.includes('perif')) return 'BTN_PERIFERICOS';
+  if (txt.includes('virus') || txt.includes('malware')) return 'BTN_VIRUS';
+  return null;
+}
+
+/**
+ * Genera pasos de diagnóstico por problema/dispositivo (6-8 pasos)
+ * Usa playbook específico; fallback genérico si falta.
+ */
+function generateDiagnosticSteps(problem = '', device = '', locale = 'es-AR', session = {}) {
+  const problemToken = getProblemTokenFromSession(session, problem) || 'GENERICO';
+  const playbook = PLAYBOOKS[problemToken] || PLAYBOOKS.GENERICO;
+  const steps = Array.isArray(playbook.pasos) ? [...playbook.pasos] : [...PLAYBOOKS.GENERICO.pasos];
+  // Reordenar pasos según inefectividad histórica (menos inefectivos primero)
+  const ineffectiveMap = STEP_INEFFECTIVE[problemToken] || {};
+  const stepsScored = steps.map((s, i) => ({
+    text: s,
+    score: ineffectiveMap[i] || 0,
+    idx: i
+  }));
+  stepsScored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score; // menos inefectivos primero
+    return a.idx - b.idx; // estable
+  });
+  const reordered = stepsScored.map(x => x.text);
+
+  const isLaptop = String(device || '').toLowerCase().includes('note');
+  const isAio = String(device || '').toLowerCase().includes('all');
+  const isDesktop = String(device || '').toLowerCase().includes('pc');
+
+  return reordered.slice(0, 8).map((step, idx) => {
+    let out = step;
+    const low = step.toLowerCase();
+    // Ajustes por dispositivo
+    if (isLaptop) {
+      if (low.includes('cable de alimentación') || low.includes('fuente')) {
+        out = out.replace(/cable de alimentación|fuente/gi, 'cargador/batería');
+      }
+      if (low.includes('puerto usb')) {
+        out = out.replace(/puerto usb/gi, 'puerto USB/USB-C (revisá si tiene power delivery)');
+      }
+    }
+    if (isDesktop) {
+      if (low.includes('cargador') || low.includes('batería')) {
+        out = out.replace(/cargador|batería/gi, 'fuente de poder / cable de alimentación');
+      }
+      if (low.includes('ram')) {
+        out = out + ' (si sabes hacerlo, reinsertá módulos RAM uno a la vez).';
+      }
+    }
+    if (isAio && low.includes('cable de alimentación')) {
+      out = out.replace(/cable de alimentación/gi, 'cable de alimentación de la all-in-one');
+    }
+    // Evitar duplicar en pasos cortos
+    return out;
+  });
 }
 
 // ========================================================
@@ -3259,8 +3471,8 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     logger.warn('[ASK_DEVICE] ⚠️  userText inválido, pero puede continuar con buttonToken');
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[ASK_DEVICE] ❌ sessionId inválido');
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ASK_DEVICE] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -3339,7 +3551,7 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         changeStage(session, STATES.BASIC_TESTS);
         
         // Generar pasos de diagnóstico
-        const steps = generateDiagnosticSteps(session.problem, session.device, locale);
+        const steps = generateDiagnosticSteps(session.problem, session.device, locale, session);
         
         // Guardar los pasos en la sesión
         session.basicTests = steps;
@@ -3388,7 +3600,7 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         // Usar marcadores especiales [BTN_HELP_STEP_X] para que el frontend sepa dónde insertar cada botón
         const stepsWithHelp = steps.map((step, idx) => {
           const emoji = emojiForIndex(idx);
-          const difficulty = getDifficultyForStep(idx);
+          const difficulty = getDifficultyForStep(idx, steps.length);
           const estimatedTime = estimateStepTime(step, idx, locale);
           const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
           // Agregar marcador especial para el botón de ayuda después de cada paso
@@ -3594,49 +3806,180 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
   // stepIndex ya es 1-based (como en el código antiguo), usarlo directamente
   const stepNumber = stepIndex;
   
-  // Normalizar el texto del paso para buscar explicaciones específicas
-  const stepLower = stepText.toLowerCase();
-  const problemLower = (problem || '').toLowerCase();
-  
-  // ========================================
-  // EXPLICACIONES ESPECÍFICAS POR PASO
-  // ========================================
-  // Estas explicaciones son para pasos comunes del problema "el equipo no enciende"
-  // En el futuro, puedes expandir esto con más explicaciones o usar IA
-  //
-  // ✅ SE PUEDE MODIFICAR: Agregar más explicaciones específicas
-  // ❌ NO MODIFICAR: El formato de retorno debe ser consistente
-  //
-  
-  // Paso 1: Asegurarse de que el equipo esté conectado a la corriente
-  if (stepLower.includes('conectado') && stepLower.includes('corriente') || 
-      stepLower.includes('connected') && stepLower.includes('power')) {
-    return isEn
-      ? `**Help for Step ${stepNumber}:** ⏱️ 2-5 minutes\n\n**Of course!** Let's make sure your device is properly connected to power. Follow these steps:\n\n1. **Check the power cable:** Make sure the cable that goes from the wall to the computer is properly plugged in at both ends.\n\n2. **Verify the outlet:** Try plugging another device (like a lamp or charger) into the same outlet to make sure it's working.\n\n3. **Check the power supply switch:** If your computer has a switch on the back (near the power cable), make sure it's in the "on" position.\n\n4. **Look for lights:** Check if there are any lights on the computer or power supply. If there are lights, that's a good sign.\n\nIf everything is properly connected and it still doesn't turn on, let me know and we'll continue with the next step. Don't worry, we're in this together!`
-      : `**🛠️ Ayuda — Paso ${stepNumber}**\n\n**¡Claro!** Vamos a asegurarnos de que tu equipo esté bien conectado a la corriente. Seguí estos pasos:\n\n1. **Revisá el cable de alimentación:** Asegurate de que el cable que va desde la pared hasta la computadora esté bien enchufado en ambos extremos.\n\n2. **Verificá la toma de corriente:** Probá enchufar otro dispositivo (como una lámpara o un cargador) en la misma toma para asegurarte de que esté funcionando.\n\n3. **Controlá el interruptor de la fuente:** Si tu computadora tiene un interruptor en la parte trasera (cerca del cable de alimentación), asegurate de que esté en la posición de "on" (encendido).\n\n4. **Mirar las luces:** Fijate si hay alguna luz encendida en la computadora o en la fuente de alimentación. Si hay luces, eso es una buena señal.\n\nSi todo está bien conectado y no enciende, avísame y seguimos con el siguiente paso. ¡No te preocupes, estamos juntos en esto!`;
-  }
-  
-  // Paso 2: Verificar que el enchufe funcione
-  if (stepLower.includes('enchufe') && stepLower.includes('funcione') || 
-      stepLower.includes('outlet') && stepLower.includes('work')) {
-    return isEn
-      ? `**Help for Step ${stepNumber}:** ⏱️ 2-5 minutes\n\n**Perfect!** Let's verify that the outlet is working properly. Here's how:\n\n1. **Unplug your computer** from the current outlet.\n\n2. **Plug in another device** that you know works (like a phone charger, lamp, or another electronic device).\n\n3. **Check if the other device works** in that outlet. If it does, the outlet is fine and the problem might be with your computer's power supply.\n\n4. **If the other device doesn't work either**, try a different outlet in another room.\n\n5. **If it works in another outlet**, the original outlet might have a problem. In that case, you may need to call an electrician.\n\nLet me know what you find and we'll continue!`
-      : `**🛠️ Ayuda — Paso ${stepNumber}**\n\n**¡Perfecto!** Vamos a verificar que el enchufe funcione correctamente. Acá te explico:\n\n1. **Desenchufá tu computadora** del enchufe actual.\n\n2. **Enchufá otro dispositivo** que sepas que funciona (como un cargador de celular, una lámpara u otro dispositivo electrónico).\n\n3. **Verificá si el otro dispositivo funciona** en ese enchufe. Si funciona, el enchufe está bien y el problema podría ser con la fuente de alimentación de tu computadora.\n\n4. **Si el otro dispositivo tampoco funciona**, probá otro enchufe en otra habitación.\n\n5. **Si funciona en otro enchufe**, el enchufe original podría tener un problema. En ese caso, podrías necesitar llamar a un electricista.\n\nContame qué encontraste y seguimos!`;
-  }
-  
-  // Paso 3: Comprobar el interruptor de la fuente
-  if (stepLower.includes('interruptor') && stepLower.includes('fuente') || 
-      stepLower.includes('switch') && stepLower.includes('power supply')) {
-    return isEn
-      ? `**Help for Step ${stepNumber}:** ⏱️ 2-5 minutes\n\n**Great!** Let's check the power supply switch. This is important:\n\n1. **Locate the power supply switch** - It's usually on the back of the computer, near where the power cable connects.\n\n2. **Check the position** - The switch should be in the "I" (on) position, not "O" (off).\n\n3. **If it's off, turn it on** - Gently flip the switch to the "on" position.\n\n4. **Try turning on the computer** - Press the power button and see if it starts.\n\n5. **If it still doesn't work**, the switch might be broken, or there could be another issue. Let me know and we'll continue troubleshooting!`
-      : `**🛠️ Ayuda — Paso ${stepNumber}**\n\n**¡Genial!** Vamos a comprobar el interruptor de la fuente de alimentación. Esto es importante:\n\n1. **Ubicá el interruptor de la fuente** - Generalmente está en la parte trasera de la computadora, cerca de donde se conecta el cable de alimentación.\n\n2. **Verificá la posición** - El interruptor debería estar en la posición "I" (encendido), no "O" (apagado).\n\n3. **Si está apagado, encendelo** - Cambiá suavemente el interruptor a la posición "encendido".\n\n4. **Probá encender la computadora** - Presioná el botón de encendido y fijate si arranca.\n\n5. **Si todavía no funciona**, el interruptor podría estar roto, o podría haber otro problema. Avísame y seguimos diagnosticando!`;
-  }
-  
-  // Explicación genérica para otros pasos
-  // Esta se usa cuando no hay una explicación específica para el paso
+  // Plantillas por problema + índice (0-based) para los primeros 8 pasos
+  const stepTemplates = {
+    BTN_NO_INTERNET: {
+      1: { es: 'Reinicio de router/ONT: apagá 30s, encendé y esperá 2-3 min. Observá LEDs.', en: 'Router/ONT reboot: power off 30s, on, wait 2-3 min. Watch LEDs.' },
+      3: { es: 'Prueba cableada directa descarta WiFi: si cable funciona, es tema WiFi/cobertura.', en: 'Wired test bypasses WiFi: if wired works, it’s a WiFi/coverage issue.' },
+      5: { es: 'DNS/ping: cambiá a 8.8.8.8/1.1.1.1 y hacé ping a gateway y 8.8.8.8; anota pérdidas.', en: 'DNS/ping: set 8.8.8.8/1.1.1.1 and ping gateway/8.8.8.8; note loss.' },
+      7: { es: 'Traceroute: captura saltos donde se corta; útil para línea o ISP.', en: 'Traceroute: capture hops where it fails; useful for line/ISP.' }
+    },
+    BTN_LENTITUD: {
+      1: { es: 'Arranque limpio: desactiva inicio innecesario y reinicia; observa mejora.', en: 'Clean startup: disable unnecessary startup items, reboot; observe improvement.' },
+      3: { es: 'Uso CPU/RAM/disk: identifica app que satura y ciérrala o desinstala.', en: 'CPU/RAM/disk: identify the hogging app and close/uninstall it.' },
+      5: { es: 'SMART/scan rápido: revisa salud de disco; si hay sectores malos, respalda.', en: 'SMART/quick scan: check disk health; if bad sectors, back up.' },
+      6: { es: 'Malware scan rápido: limpia PUPs/adware; si detecta, ejecuta completo.', en: 'Quick malware scan: remove PUPs/adware; if hits found, run full scan.' }
+    },
+    BTN_BLOQUEO: {
+      1: { es: 'Modo seguro/arranque limpio: verifica si el cuelgue desaparece sin terceros.', en: 'Safe/clean boot: check if freezes stop without third-party services.' },
+      2: { es: 'Reinstala app y quita plugins/extensiones sospechosas.', en: 'Reinstall the app and remove suspicious plugins/extensions.' },
+      3: { es: 'Visor de eventos: toma nota de errores de la app/driver en el momento del cuelgue.', en: 'Event Viewer: note app/driver errors at freeze time.' },
+      4: { es: 'Drivers GPU/chipset: actualizar a versión estable; evita betas.', en: 'GPU/chipset drivers: update to stable version; avoid betas.' },
+      5: { es: 'Chequea temperaturas: si hay thermal throttling, mejora ventilación.', en: 'Check temps: if thermal throttling, improve airflow/cooling.' }
+    },
+    BTN_PERIFERICOS: {
+      1: { es: 'Conectá directo (sin hubs) y probá otro puerto; en notebook, probá USB-C/USB-A.', en: 'Plug direct (no hubs) and try another port; on laptops, test USB-C/USB-A.' },
+      3: { es: 'Prueba cruzada en otro equipo: si falla ahí, es el periférico; si no, es el puerto/driver.', en: 'Cross-test on another machine: if it fails there, it’s the device; else, host/driver.' },
+      5: { es: 'Driver/firmware del fabricante: reinstalar y reiniciar.', en: 'Vendor driver/firmware: reinstall and reboot.' },
+      6: { es: 'Energía USB: desconecta otros periféricos de alto consumo; prueba cable/dongle alterno.', en: 'USB power: unplug other high-draw devices; try alternate cable/dongle.' }
+    },
+    BTN_VIRUS: {
+      1: { es: 'Modo seguro + AV rápido: aislá (sin internet) y limpia lo visible.', en: 'Safe mode + quick AV: isolate (offline) and clean obvious threats.' },
+      2: { es: 'Scan offline/bootable para rootkits resistentes.', en: 'Offline/bootable scan for stubborn rootkits.' },
+      3: { es: 'Deshabilitá arranques/tareas sospechosas que reinstalan malware.', en: 'Disable startup/tasks that re-drop malware.' },
+      4: { es: 'Restaura navegador y revisa extensiones; limpia proxy/DNS secuestrados.', en: 'Reset browser, review extensions; clean hijacked proxy/DNS.' },
+      6: { es: 'Backup + plan de reinstalación limpia si persiste; luego cambia contraseñas desde equipo limpio.', en: 'Backup + clean reinstall if persists; change passwords from a clean machine.' }
+    },
+    BTN_NO_ENCIENDE: {
+      1: { es: 'Energía básica: cable/cargador y toma activa; si notebook, probá otro cargador si tenés.', en: 'Power basics: cable/charger and live outlet; laptop: try another charger if available.' },
+      2: { es: 'Interruptor de fuente (I/O) en ON; si hay selector de voltaje, debe ser 220/230V.', en: 'PSU switch (I/O) to ON; voltage selector to proper 220/230V if present.' },
+      3: { es: 'Power 10s y soltar; retry. Si hay LEDs/beeps, anotá patrón.', en: 'Hold power 10s, release, retry. If LEDs/beeps, note the pattern.' },
+      4: { es: 'Quita batería (notebook/AIO), espera 1 min y reconecta.', en: 'Remove battery (laptop/AIO), wait 1 min, reconnect.' },
+      6: { es: 'Reseteá CMOS/BIOS quitando batería 1-2 min (solo si sabes hacerlo).', en: 'Reset CMOS/BIOS by removing battery 1-2 min (only if you know how).' }
+    }
+  };
+
+  // Determinar nivel por índice de paso (0-14)
+  const levelByIndex = ['muy_fácil', 'muy_fácil', 'muy_fácil', 'fácil', 'fácil', 'fácil', 'intermedio', 'intermedio', 'intermedio', 'difícil', 'difícil', 'difícil', 'avanzado', 'avanzado', 'avanzado'];
+  const level = levelByIndex[Math.min(Math.max(stepNumber - 1, 0), 14)];
+
+  // Plantillas de ayuda por problema + nivel (ES/EN cortas y accionables)
+  const helpTemplates = {
+    GENERICO: {
+      es: {
+        'muy_fácil': 'Descartamos lo básico rápido. Seguí el paso y contame el resultado.',
+        'fácil': 'Chequeo simple. Si algo no podés, avisame y buscamos alternativa.',
+        'intermedio': 'Un poco más técnico. Si ves errores, anotá/capturá para seguir.',
+        'difícil': 'Avanzado: solo si te sentís cómod@. Si no, avisame y te conecto con STI.',
+        'avanzado': 'Crítico: si falla o dudas, avisame y te conecto con un técnico de STI.'
+      },
+      en: {
+        'muy_fácil': 'Quick basic check. Follow it and tell me the result.',
+        'fácil': 'Simple check. If you can’t do it, tell me and we’ll try another.',
+        'intermedio': 'More technical. If you see errors, note/screenshot them.',
+        'difícil': 'Advanced: only if you’re comfortable. Otherwise ping me to escalate to STI.',
+        'avanzado': 'Critical: if unsure or it fails, I’ll connect you with an STI tech.'
+      }
+    },
+    BTN_NO_ENCIENDE: {
+      es: {
+        'muy_fácil': 'Aseguramos energía básica: cable, toma, botón. Decime qué ves.',
+        'fácil': 'Confirmamos botón/cables. Anotá luces o sonidos al probar.',
+        'intermedio': 'Voltaje/cables internos/batería si aplica. Si no estás cómod@, avisame.',
+        'difícil': 'Abrir/cambiar fuente/cargador. Si dudas, mejor pausar y escalar.',
+        'avanzado': 'Pruebas cruzadas (fuente/RAM). Si no arranca, te conecto con STI.'
+      },
+      en: {
+        'muy_fácil': 'Ensure power basics: cable, outlet, power button. Tell me what you see.',
+        'fácil': 'Confirm button/cables. Note lights or sounds when testing.',
+        'intermedio': 'Voltage/internal cables/battery if applies. If not comfy, tell me.',
+        'difícil': 'Open/swap PSU/charger. If in doubt, pause and escalate.',
+        'avanzado': 'Cross tests (PSU/RAM). If still dead, I’ll connect you with STI.'
+      }
+    },
+    BTN_NO_INTERNET: {
+      es: {
+        'muy_fácil': 'Validamos router y señal. Anotá LEDs y si vuelve tras reiniciar.',
+        'fácil': 'Diferenciar WiFi vs cable. Decime si con cable funciona / DHCP renueva.',
+        'intermedio': 'DNS/ping/traceroute; guardá pérdidas o saltos raros.',
+        'difícil': 'Firmware/logs/canales. Cambiá de a uno y probá.',
+        'avanzado': 'Otro router/bridge. Si sigue mal, te conecto con STI para línea/equipo.'
+      },
+      en: {
+        'muy_fácil': 'Check router and signal. Note LEDs and if it returns after reboot.',
+        'fácil': 'Separate WiFi vs cable. Tell me if wired works / DHCP renews.',
+        'intermedio': 'DNS/ping/traceroute; keep loss or odd hops.',
+        'difícil': 'Firmware/logs/channels. Change one thing at a time.',
+        'avanzado': 'Try another router/bridge. If still bad, I’ll connect you with STI.'
+      }
+    },
+    BTN_LENTITUD: {
+      es: {
+        'muy_fácil': 'Liberamos recursos: cerrar apps, reiniciar, espacio libre.',
+        'fácil': 'Identificá procesos pesados y desactiva inicio innecesario.',
+        'intermedio': 'Drivers, antivirus completo y chequeo de disco; avisá si hay errores.',
+        'difícil': 'SFC/DISM o modo limpio; revisá temperaturas. Si calienta, frená.',
+        'avanzado': 'Upgrade/reinstalación limpia. Si no podés, te conecto con STI.'
+      },
+      en: {
+        'muy_fácil': 'Free resources: close heavy apps, reboot, ensure free space.',
+        'fácil': 'Find heavy processes and disable unneeded startup items.',
+        'intermedio': 'Drivers, full AV scan, disk check; report any errors.',
+        'difícil': 'SFC/DISM or clean boot; watch temps. If hot, stop.',
+        'avanzado': 'Upgrade/clean reinstall. If not feasible, I’ll connect you with STI.'
+      }
+    },
+    BTN_BLOQUEO: {
+      es: {
+        'muy_fácil': 'Cerrar/reiniciar y actualizar suele limpiar cuelgues simples.',
+        'fácil': 'Modo seguro/limpio y reinstalar la app problemática.',
+        'intermedio': 'Drivers, visor de eventos y perfil nuevo para descartar corrupción.',
+        'difícil': 'Memoria/disco y arranque limpio aislando servicios.',
+        'avanzado': 'Reparar sistema o reinstalación in-place; si sigue, escalo a STI.'
+      },
+      en: {
+        'muy_fácil': 'Close/reboot and update; often clears simple freezes.',
+        'fácil': 'Safe/clean boot and reinstall the problematic app.',
+        'intermedio': 'Drivers, event viewer, new user profile to rule out corruption.',
+        'difícil': 'Memory/disk tests and clean boot isolating services.',
+        'avanzado': 'Repair system or in-place reinstall; if it persists, I escalate to STI.'
+      }
+    },
+    BTN_PERIFERICOS: {
+      es: {
+        'muy_fácil': 'Confirmá conexión/alimentación y puerto correcto.',
+        'fácil': 'Reinstalar/auto-driver y probar en otro puerto/equipo.',
+        'intermedio': 'Reinstalar driver/firmware y evitar hubs pasivos.',
+        'difícil': 'Chequeá energía USB/conflictos y probá cable/dongle alternativo.',
+        'avanzado': 'Reinstalación completa del fabricante; si sigue, escalo a STI.'
+      },
+      en: {
+        'muy_fácil': 'Confirm connection/power and correct port.',
+        'fácil': 'Reinstall/auto-driver and test on another port/PC.',
+        'intermedio': 'Reinstall driver/firmware; avoid passive hubs.',
+        'difícil': 'Check USB power/conflicts; try alternate cable/dongle.',
+        'avanzado': 'Full vendor reinstall; if still failing, I escalate to STI.'
+      }
+    },
+    BTN_VIRUS: {
+      es: {
+        'muy_fácil': 'Aislar (sin internet) y escanear rápido para frenar propagación.',
+        'fácil': 'Full scan actualizado y limpieza de PUPs/adware.',
+        'intermedio': 'Scan en modo seguro/offline y revisar tareas de arranque.',
+        'difícil': 'Revisar DNS/Proxy/hosts y servicios sospechosos; reparar sistema.',
+        'avanzado': 'Backup + plan de reinstalación si persiste; cambio de contraseñas; escalar a STI.'
+      },
+      en: {
+        'muy_fácil': 'Isolate (offline) and quick-scan to stop spread.',
+        'fácil': 'Updated full scan and remove PUPs/adware.',
+        'intermedio': 'Safe-mode/offline scan and review startup tasks.',
+        'difícil': 'Check DNS/Proxy/hosts and suspicious services; repair system.',
+        'avanzado': 'Backup + clean reinstall if persists; change passwords; escalate to STI.'
+      }
+    }
+  };
+
+  const problemToken = getProblemTokenFromSession({}, problem) || 'GENERIC';
+  const templates = helpTemplates[problemToken] || helpTemplates.GENERICO;
+  const short = (isEn ? templates.en?.[level] : templates.es?.[level]) || (isEn ? helpTemplates.GENERICO.en[level] : helpTemplates.GENERICO.es[level]) || '';
+
+  // Plantilla por paso si existe
+  const perStep = stepTemplates[problemToken]?.[stepNumber] || null;
+  const stepSnippet = isEn ? perStep?.en : perStep?.es;
+
   return isEn
-    ? `**Help for Step ${stepNumber}:** ⏱️ ${estimateStepTime(stepText, stepIndex, locale)}\n\n**Of course!** Let me explain this step in detail:\n\n${stepText}\n\nTry to follow it calmly. If something is not clear, tell me which part you didn't understand and I'll explain it in another way.\n\nIf you get stuck, don't worry - we're here to help! Let me know how it goes.`
-    : `**🛠️ Ayuda — Paso ${stepNumber}**\n\n**¡Claro!** Dejame explicarte este paso con más detalle:\n\n${stepText}\n\nTratá de seguirlo con calma. Si hay algo que no se entiende, decime qué parte no te quedó clara y te la explico de otra forma.\n\nSi te trabás en alguna parte, no te preocupes - estamos acá para ayudarte! Contame cómo te fue.`;
+    ? `**Help for Step ${stepNumber}:** ⏱️ ${estimateStepTime(stepText, stepIndex, locale)}\n\n${stepSnippet || short}\n\n${stepText}`
+    : `**🛠️ Ayuda — Paso ${stepNumber} (${level})**\n\n${stepSnippet || short}\n\n${stepText}`;
 }
 
 // ========================================================
@@ -3686,8 +4029,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     };
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[BASIC_TESTS] ❌ sessionId inválido');
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[BASIC_TESTS] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -3718,6 +4061,12 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Regenerar los pasos llamando a handleAskDeviceStage con el dispositivo ya guardado
       // Pero primero necesitamos verificar que haya dispositivo y problema guardados
       if (session.device && session.problem) {
+        // Telemetría: back a pasos
+        pushBasicTestTelemetry(session, {
+          action: 'back_to_steps',
+          stepIndex: session.currentTestIndex ?? null,
+          level: null
+        }, sessionId);
         // Simular la selección del dispositivo para regenerar los pasos
         const deviceCfg = getDeviceFromButton(
           session.device === 'pc' && session.pcType === 'desktop' ? 'BTN_DEV_PC_DESKTOP' :
@@ -3767,6 +4116,14 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     if (buttonToken && buttonToken.startsWith('BTN_HELP_STEP_')) {
       // Extraer el índice del paso del token (ej: "BTN_HELP_STEP_0" → 0)
       const stepIdx = parseInt(buttonToken.replace('BTN_HELP_STEP_', ''), 10);
+      // Telemetría mínima: ayuda solicitada
+      const levelByIndex = ['muy_fácil','muy_fácil','muy_fácil','fácil','fácil','fácil','intermedio','intermedio','intermedio','difícil','difícil','difícil','avanzado','avanzado','avanzado'];
+      pushBasicTestTelemetry(session, {
+        action: 'help',
+        stepIndex: stepIdx,
+        level: levelByIndex[Math.min(Math.max(stepIdx, 0), 14)]
+      }, sessionId);
+      session.lastHelpStep = stepIdx;
       
       logger.info(`[BASIC_TESTS] Botón de ayuda detectado: ${buttonToken}, stepIdx: ${stepIdx}`);
       console.log(`[DEBUG] Procesando botón de ayuda - buttonToken: "${buttonToken}", stepIdx: ${stepIdx}, session.stage: ${session.stage}`);
@@ -3859,8 +4216,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // NO incluir botón de técnico aquí - el frontend lo creará automáticamente
       // con appendWAButton() cuando detecte allowWhatsapp: true
       
-      // Guardar el paso de ayuda actual en la sesión para referencia
-      session.lastHelpStep = stepNumber;
+      // Guardar el paso de ayuda actual en la sesión para referencia (0-based para telemetría y reordenamiento)
+      session.lastHelpStep = stepIdx;
       session.stepProgress = session.stepProgress || {};
       session.stepProgress[`basic_${stepNumber}`] = 'in_progress';
       
@@ -3899,6 +4256,12 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe cambiar a ENDED y desactivar waEligible
     //
     if (buttonToken === 'BTN_SOLVED' || /^\s*(s|si|sí|lo pude|lo pude solucionar|resuelto|solucionado)\b/i.test(userText || '')) {
+      // Telemetría: marcado como solucionado
+      pushBasicTestTelemetry(session, {
+        action: 'solved',
+        stepIndex: session.currentTestIndex ?? null,
+        level: null
+      }, sessionId);
       const whoLabel = session.userName ? session.userName.split(' ').map(n => 
         n.charAt(0).toUpperCase() + n.slice(1).toLowerCase()
       ).join(' ') : null;
@@ -3949,6 +4312,20 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe cambiar a ESCALATE
     //
     if (buttonToken === 'BTN_PERSIST' || /^\s*(no|n|el problema persiste|persiste|todavía no|aún no)\b/i.test(userText || '')) {
+      // Telemetría: problema persiste
+      pushBasicTestTelemetry(session, {
+        action: 'persist',
+        stepIndex: session.currentTestIndex ?? null,
+        level: null
+      }, sessionId);
+      // Si hubo ayuda previa para un paso y ahora persiste, marcar inefectivo
+      if (typeof session.lastHelpStep === 'number') {
+        pushBasicTestTelemetry(session, {
+          action: 'ineffective_help',
+          stepIndex: session.lastHelpStep,
+          level: null
+        }, sessionId);
+      }
       const reply = isEnglish
         ? `💡 I understand. Don't worry, we're here to help. Let me connect you with a technician who can help you further.`
         : `💡 Entiendo. No te preocupes, estamos acá para ayudarte. Dejame conectarte con un técnico que te pueda ayudar mejor.`;
@@ -4424,15 +4801,18 @@ async function createTicketAndRespond(session, sessionId, res) {
     // ========================================
     // GENERAR ID ÚNICO DE TICKET
     // ========================================
-    // Formato: TCK-YYYYMMDD-XXXXXX
-    // Ejemplo: TCK-20250115-A3F2B1
+    // Formato unificado: A0000 hasta Z9999 (sin Ñ)
+    // Este ID es el mismo formato que se usa para sesiones
+    // 
+    // ⚠️ IMPORTANTE: El ID del ticket es el mismo formato que el ID de sesión
+    // - Formato: A0000-Z9999 (sin Ñ)
+    // - Aleatorio y único sin repetición
+    // - Se verifica contra archivos existentes en TRANSCRIPTS_DIR y TICKETS_DIR
     // 
     // ✅ SE PUEDE MODIFICAR: El formato del ID (pero mantener único)
     // ❌ NO MODIFICAR: Debe ser único y no repetible
     //
-    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
-    const rand = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 caracteres hexadecimales
-    const ticketId = `TCK-${ymd}-${rand}`;
+    const ticketId = await generateUnifiedId();
     
     // Token de acceso público para el ticket (usado en URLs públicas)
     const accessToken = crypto.randomBytes(16).toString('hex');
@@ -4604,13 +4984,56 @@ async function createTicketAndRespond(session, sessionId, res) {
     waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
     waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
     
-    // Generar URLs de WhatsApp (diferentes formatos para compatibilidad)
-    const waNumberRaw = String(WHATSAPP_NUMBER);
-    const waUrl = buildWhatsAppUrl(waNumberRaw, waText);
-    const waNumber = waNumberRaw.replace(/\D+/g, '');
-    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waAppUrl = `https://api.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
-    const waIntentUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;
+    // ========================================
+    // GENERAR URLs DE WHATSAPP
+    // ========================================
+    // 
+    // Se generan múltiples formatos de URLs de WhatsApp para máxima compatibilidad
+    // entre diferentes dispositivos (escritorio, móvil, diferentes navegadores)
+    // 
+    // ⚠️ IMPORTANTE: Cada URL tiene un propósito específico:
+    // 
+    // - `waUrl` (wa.me): URL principal que funciona en todos los dispositivos
+    //   - En móvil: Abre directamente la app de WhatsApp con el mensaje prellenado
+    //   - En escritorio: Abre WhatsApp Web o la app según disponibilidad
+    //   - Formato: https://wa.me/5493417422422?text=...
+    //   - ✅ SE PUEDE MODIFICAR: El formato si WhatsApp cambia su API
+    //   - ❌ NO MODIFICAR: Debe usar buildWhatsAppUrl() para generar la URL correctamente
+    // 
+    // - `waWebUrl` (web.whatsapp.com): URL específica para WhatsApp Web
+    //   - Solo funciona en navegadores de escritorio
+    //   - Requiere que el usuario tenga WhatsApp Web abierto
+    //   - Formato: https://web.whatsapp.com/send?phone=...&text=...
+    //   - ✅ SE PUEDE MODIFICAR: El formato si WhatsApp cambia su API
+    // 
+    // - `waAppUrl` (api.whatsapp.com): URL universal que detecta automáticamente el dispositivo
+    //   - En móvil: Abre la app si está instalada, sino abre WhatsApp Web
+    //   - En escritorio: Abre WhatsApp Web o la app según disponibilidad
+    //   - Formato: https://api.whatsapp.com/send?phone=...&text=...
+    //   - ✅ SE PUEDE MODIFICAR: El formato si WhatsApp cambia su API
+    // 
+    // - `waIntentUrl` (whatsapp://): URL de protocolo para abrir directamente la app
+    //   - Solo funciona si WhatsApp está instalado
+    //   - En móvil: Abre directamente la app sin pasar por el navegador
+    //   - Formato: whatsapp://send?phone=...&text=...
+    //   - ✅ SE PUEDE MODIFICAR: El formato si WhatsApp cambia su protocolo
+    // 
+    // ✅ SE PUEDE MODIFICAR:
+    //    - Agregar más formatos de URLs si WhatsApp introduce nuevos
+    //    - Cambiar el orden de prioridad de las URLs
+    //    - Modificar el formato de las URLs si WhatsApp cambia su API
+    // 
+    // ❌ NO MODIFICAR:
+    //    - Debe generar al menos una URL válida (waUrl es la mínima requerida)
+    //    - Debe codificar correctamente el texto del mensaje (encodeURIComponent)
+    //    - Debe limpiar el número de teléfono (solo dígitos)
+    // 
+    const waNumberRaw = String(WHATSAPP_NUMBER);  // Número de teléfono en formato original
+    const waUrl = buildWhatsAppUrl(waNumberRaw, waText);  // URL principal (wa.me) - funciona en todos los dispositivos
+    const waNumber = waNumberRaw.replace(/\D+/g, '');  // Limpiar número: solo dígitos (ej: "5493417422422")
+    const waWebUrl = `https://web.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;  // URL para WhatsApp Web
+    const waAppUrl = `https://api.whatsapp.com/send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;  // URL universal (detecta dispositivo)
+    const waIntentUrl = `whatsapp://send?phone=${waNumber}&text=${encodeURIComponent(waText)}`;  // URL de protocolo (abre app directamente)
     
     // Marcar que la sesión es elegible para WhatsApp
     session.waEligible = true;
@@ -4729,21 +5152,74 @@ async function createTicketAndRespond(session, sessionId, res) {
     //   ✅ OPCIONAL: Información del ticket generado (para debugging o logs)
     //   ✅ SE PUEDE MODIFICAR: El formato o contenido de estas propiedades
     // 
+    // ========================================
+    // RETORNAR RESPUESTA AL FRONTEND
+    // ========================================
+    // 
+    // Esta respuesta contiene toda la información necesaria para que el frontend:
+    // 1. Muestre el mensaje de confirmación del ticket
+    // 2. Cree automáticamente el botón verde de WhatsApp
+    // 3. Permita al usuario volver atrás si lo desea
+    // 
+    // ⚠️ PROPIEDADES CRÍTICAS DE LA RESPUESTA:
+    // 
+    // - `allowWhatsapp: true` (línea 4755):
+    //   ✅ OBLIGATORIO: El frontend usa esta propiedad para saber que debe crear el botón verde
+    //   ❌ NO ELIMINAR: Si se elimina, el botón verde no aparecerá
+    //   ❌ NO CAMBIAR EL NOMBRE: Si cambias el nombre, debes actualizar el frontend también
+    //   📍 Frontend busca esta propiedad en: index.php línea ~1855 y chat-fullscreen.html línea ~1855
+    // 
+    // - `waUrl` y `whatsappUrl` (líneas 4748-4749):
+    //   ✅ AMBAS OBLIGATORIAS: El frontend busca ambas propiedades para máxima compatibilidad
+    //   - `waUrl`: Nombre principal que busca el frontend (prioridad alta)
+    //   - `whatsappUrl`: Nombre alternativo para compatibilidad con código antiguo
+    //   ❌ NO ELIMINAR: Si se eliminan, el botón verde no podrá abrir WhatsApp
+    //   ✅ SE PUEDE MODIFICAR: El valor (la URL) si cambia el formato de WhatsApp
+    //   📍 Frontend las usa en: función openTicket() en index.php línea ~1476-1480
+    // 
+    // - `waWebUrl`, `waAppUrl`, `waIntentUrl` (líneas 4750-4752):
+    //   ✅ OPCIONALES: URLs alternativas para diferentes dispositivos
+    //   - `waWebUrl`: Para WhatsApp Web (escritorio)
+    //   - `waAppUrl`: URL universal que detecta el dispositivo automáticamente
+    //   - `waIntentUrl`: URL de protocolo para abrir la app directamente (móvil)
+    //   ✅ SE PUEDE MODIFICAR: El formato de las URLs si WhatsApp cambia su API
+    //   📍 El frontend las usa como respaldo si waUrl no está disponible
+    // 
+    // - `buttons: buttons` (línea 4746):
+    //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
+    //   ❌ NO INCLUIR: Botones con value: 'BTN_WHATSAPP_TECNICO' o 'BTN_CONNECT_TECH'
+    //   ✅ SE PUEDE AGREGAR: Otros botones adicionales si es necesario (pero NO de WhatsApp)
+    // 
+    // - `ticketId`, `publicUrl`, `apiPublicUrl` (líneas 4753-4755):
+    //   ✅ OPCIONAL: Información del ticket generado (para debugging o logs)
+    //   ✅ SE PUEDE MODIFICAR: El formato o contenido de estas propiedades
+    // 
     // Retornar respuesta con ticket y botones
-    // ⚠️ IMPORTANTE: Incluir tanto whatsappUrl como waUrl para compatibilidad con el frontend
+    // Telemetría de ticket creado
+    logTelemetry({
+      type: 'escalate',
+      action: 'ticket_created',
+      sessionId,
+      ticketId,
+      problemToken: session.problemToken || getProblemTokenFromSession(session, session.problem) || null,
+      device: session.device || null,
+      stage: session.stage,
+      ts
+    }).catch(() => {});
+
     return res.json({
       ok: true,                                    // Indica que la operación fue exitosa
       reply: replyLines.join('\n\n'),              // Mensaje de confirmación del ticket
       stage: session.stage,                        // Estado actual: ESCALATE o CREATE_TICKET
       buttons: buttons,                            // Solo BTN_BACK - NO incluir botones de WhatsApp aquí
-      whatsappUrl: waUrl,                          // URL de WhatsApp (wa.me) - nombre alternativo
+      whatsappUrl: waUrl,                          // URL de WhatsApp (wa.me) - nombre alternativo para compatibilidad
       waUrl: waUrl,                                // URL de WhatsApp (wa.me) - nombre principal que busca el frontend
-      waWebUrl: waWebUrl,                          // URL de WhatsApp Web
-      waAppUrl: waAppUrl,                          // URL de WhatsApp App
-      waIntentUrl: waIntentUrl,                    // URL de intent de WhatsApp (para móviles)
-      ticketId: ticketId,                          // ID del ticket generado (para referencia)
-      publicUrl: publicUrl,                         // URL pública del ticket (opcional)
-      apiPublicUrl: apiPublicUrl,                  // URL de API del ticket (opcional)
+      waWebUrl: waWebUrl,                          // URL de WhatsApp Web (para escritorio)
+      waAppUrl: waAppUrl,                          // URL de WhatsApp App (universal, detecta dispositivo)
+      waIntentUrl: waIntentUrl,                    // URL de intent de WhatsApp (para móviles, abre app directamente)
+      ticketId: ticketId,                          // ID del ticket generado (para referencia y debugging)
+      publicUrl: publicUrl,                         // URL pública del ticket (opcional, para acceso externo)
+      apiPublicUrl: apiPublicUrl,                  // URL de API del ticket (opcional, para acceso programático)
       allowWhatsapp: true                          // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
     });
     
@@ -4888,8 +5364,8 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     };
   }
   
-  if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
-    logger.error('[ESCALATE] ❌ sessionId inválido');
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ESCALATE] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -4948,6 +5424,15 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     if (buttonToken === 'BTN_BACK' || buttonToken === 'BTN_BACK_TO_STEPS') {
       // Verificar que haya dispositivo y problema guardados para regenerar pasos
       if (session.device && session.problem) {
+        logTelemetry({
+          type: 'escalate',
+          action: 'escalate_back',
+          sessionId,
+          problemToken: session.problemToken || getProblemTokenFromSession(session, session.problem) || null,
+          device: session.device || null,
+          stage: session.stage,
+          ts: nowIso()
+        }).catch(() => {});
         // Simular la selección del dispositivo para regenerar los pasos
         const deviceCfg = getDeviceFromButton(
           session.device === 'pc' && session.pcType === 'desktop' ? 'BTN_DEV_PC_DESKTOP' :
@@ -5724,7 +6209,8 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
 app.get('/api/greeting', async (req, res) => {
   try {
     // Generar un ID único para esta sesión
-    const sessionId = generateSessionId();
+    // ⚠️ IMPORTANTE: generateSessionId() ahora es async
+    const sessionId = await generateSessionId();
     
     // Detectar idioma preferido del usuario desde headers HTTP
     // Los navegadores envían 'Accept-Language' con los idiomas que el usuario prefiere
@@ -5854,20 +6340,29 @@ app.post('/api/chat', async (req, res) => {
     
     // Obtener o generar sessionId
     // El frontend debe enviar el sessionId que recibió de /api/greeting
-    const sessionId = body.sessionId || getSessionId(req);
+    // ⚠️ IMPORTANTE: getSessionId() ahora es async
+    const sessionId = body.sessionId || await getSessionId(req);
     
     // Validar sessionId: debe ser un string no vacío con formato válido
-    // Formato esperado: "sess_" seguido de 32 caracteres hexadecimales
-    if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 10) {
+    // Formato esperado: A0000-Z9999 (5 caracteres: letra + 4 dígitos, sin Ñ)
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.length !== 5 || !/^[A-Z][0-9]{4}$/.test(sessionId)) {
       return res.status(400).json({
         ok: false,
         error: 'sessionId_invalid',
-        message: 'Se requiere un sessionId válido'
+        message: 'Se requiere un sessionId válido (formato: A0000-Z9999)'
       });
     }
     
-    // Validar formato del sessionId (debe empezar con "sess_" y tener al menos 10 caracteres)
-    // Permitir sessionIds generados por getSessionId() que pueden tener diferentes formatos
+    // Validar que no contenga la letra Ñ
+    if (sessionId.includes('Ñ')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'sessionId_invalid',
+        message: 'El sessionId no puede contener la letra Ñ'
+      });
+    }
+    
+    // Validar longitud máxima (por seguridad, aunque el formato ya limita a 5 caracteres)
     if (sessionId.length > 200) {
       return res.status(400).json({
         ok: false,
@@ -6186,6 +6681,12 @@ app.post('/api/chat', async (req, res) => {
       //
       if (buttonToken === 'BTN_WHATSAPP_TECNICO' || buttonToken === 'BTN_CONNECT_TECH') {
         logger.info(`[BASIC_TESTS] Usuario solicita conectar con técnico (token: ${buttonToken}), cambiando a ESCALATE`);
+      // Telemetría: solicitud de conexión a técnico
+      pushBasicTestTelemetry(session, {
+        action: 'connect_tech',
+        stepIndex: session.currentTestIndex ?? null,
+        level: null
+      }, sessionId);
         changeStage(session, STATES.ESCALATE);
         return await handleEscalateStage(session, incomingText, buttonToken, sessionId, res);
       }
