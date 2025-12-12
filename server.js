@@ -4194,7 +4194,12 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         ? "\n\nAfter trying this, how did it go?"
         : "\n\nDespués de probar esto, ¿cómo te fue?";
       
-      const reply = `${explanation}${followUp}`;
+      // Añadir CTA para consultas adicionales
+      const ctaHelp = isEnglish
+        ? '\n\nIf you have any doubt or need more help about this case, just tell me.'
+        : '\n\nCualquier duda o consulta con respecto a este caso, podés escribirme y te ayudo.';
+
+      const reply = `${explanation}${followUp}${ctaHelp}`;
       
       // Generar botones para continuar
       const buttons = [];
@@ -4206,7 +4211,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         description: isEnglish ? 'The problem is gone' : 'El problema desapareció'
       });
       
-      // Botón "Volver a los pasos"
+      // Botón "Volver a los pasos" (siempre presente para respetar el flujo)
       buttons.push({
         text: isEnglish ? '⏪ Back to Steps' : '⏪ Volver a los pasos',
         value: 'BTN_BACK_TO_STEPS',
