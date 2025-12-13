@@ -2336,6 +2336,43 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     logger.info(`[ASK_NAME] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
+    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ========================================
+    // Si el usuario expresa intención de hablar con un técnico, interrumpir
+    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    //
+    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
+    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    //
+    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+      // Detectar intención de técnico (explícita o implícita)
+      const techIntent = detectTechnicianIntent(userText, locale, session);
+      
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
+        // Intención clara detectada, escalar inmediatamente
+        logger.info(`[ASK_NAME] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
+        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
+        // Caso ambiguo, consultar OpenAI
+        logger.info(`[ASK_NAME] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
+        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
+        
+        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
+        const shouldEscalate = ambiguousResult.requiresTechnician || 
+          (session.fallbackCount >= 3) || // Muchos intentos fallidos
+          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
+        
+        if (shouldEscalate) {
+          logger.info(`[ASK_NAME] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
+          ambiguousResult.type = 'ambiguous';
+          ambiguousResult.reason = 'ambiguous_with_indicators';
+          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
+        }
+      }
+    }
+    
+    // ========================================
     // CASO 1: MENSAJE VACÍO
     // ========================================
     // Si el usuario no escribió nada, pedir que escriba su nombre
@@ -2895,6 +2932,43 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
     logger.info(`[ASK_NEED] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
+    
+    // ========================================
+    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ========================================
+    // Si el usuario expresa intención de hablar con un técnico, interrumpir
+    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    //
+    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
+    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    //
+    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+      // Detectar intención de técnico (explícita o implícita)
+      const techIntent = detectTechnicianIntent(userText, locale, session);
+      
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
+        // Intención clara detectada, escalar inmediatamente
+        logger.info(`[ASK_NEED] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
+        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
+        // Caso ambiguo, consultar OpenAI
+        logger.info(`[ASK_NEED] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
+        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
+        
+        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
+        const shouldEscalate = ambiguousResult.requiresTechnician || 
+          (session.fallbackCount >= 3) || // Muchos intentos fallidos
+          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
+        
+        if (shouldEscalate) {
+          logger.info(`[ASK_NEED] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
+          ambiguousResult.type = 'ambiguous';
+          ambiguousResult.reason = 'ambiguous_with_indicators';
+          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
+        }
+      }
+    }
     
     // ========================================
     // CASO 1: USUARIO SELECCIONÓ UN BOTÓN DE PROBLEMA
@@ -3755,6 +3829,43 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     logger.info(`[ASK_DEVICE] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
+    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ========================================
+    // Si el usuario expresa intención de hablar con un técnico, interrumpir
+    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    //
+    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
+    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    //
+    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+      // Detectar intención de técnico (explícita o implícita)
+      const techIntent = detectTechnicianIntent(userText, locale, session);
+      
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
+        // Intención clara detectada, escalar inmediatamente
+        logger.info(`[ASK_DEVICE] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
+        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
+        // Caso ambiguo, consultar OpenAI
+        logger.info(`[ASK_DEVICE] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
+        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
+        
+        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
+        const shouldEscalate = ambiguousResult.requiresTechnician || 
+          (session.fallbackCount >= 3) || // Muchos intentos fallidos
+          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
+        
+        if (shouldEscalate) {
+          logger.info(`[ASK_DEVICE] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
+          ambiguousResult.type = 'ambiguous';
+          ambiguousResult.reason = 'ambiguous_with_indicators';
+          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
+        }
+      }
+    }
+    
+    // ========================================
     // CASO 1: USUARIO SELECCIONÓ UN BOTÓN DE DISPOSITIVO
     // ========================================
     // Si el usuario hizo clic en un botón de dispositivo
@@ -4373,6 +4484,494 @@ function isTechnicalQuestion(text) {
 }
 
 /**
+ * Detecta si el usuario tiene intención de hablar con un técnico (explícita o implícita)
+ * 
+ * Esta función detecta intenciones explícitas (pedidos directos de técnico) e implícitas
+ * (acciones que requieren intervención técnica). Tiene prioridad absoluta sobre cualquier
+ * flujo automático.
+ * 
+ * @param {string} text - Texto del usuario
+ * @param {string} locale - Idioma del usuario
+ * @param {object} session - Sesión actual (para contexto)
+ * @returns {object} { requiresTechnician: boolean, confidence: 'high'|'medium'|'low', reason: string, type: 'explicit'|'implicit'|'frustration'|'risk'|'hardware' }
+ */
+function detectTechnicianIntent(text, locale, session = {}) {
+  if (!text || typeof text !== 'string') {
+    return { requiresTechnician: false, confidence: 'low', reason: 'empty_text', type: null };
+  }
+  
+  const lowerText = text.toLowerCase().trim();
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  // ========================================
+  // A) PEDIDOS EXPLÍCITOS DE CONTACTO CON TÉCNICO
+  // ========================================
+  const explicitPatterns = isEnglish ? [
+    /\b(want|need|would like|can i|could i|may i)\s+(to\s+)?(talk|speak|contact|connect|get|have)\s+(with|to)\s+(a\s+)?(technician|tech|human|person|someone|support|professional|expert)/i,
+    /\b(want|need|would like)\s+(a|an)\s+(technician|tech|human|person|support|professional)/i,
+    /\b(can|could|may)\s+(someone|anyone|a\s+person|a\s+human)\s+(help|assist|support)/i,
+    /\b(want|need)\s+(human|real\s+person|professional)\s+(support|help|assistance)/i,
+    /\b(connect|transfer|pass|put)\s+(me\s+)?(with|to)\s+(a\s+)?(technician|tech|human|support)/i,
+    /\b(open|create|generate|request)\s+(a\s+)?(ticket|support\s+ticket)/i,
+    /\b(need|want|get)\s+(a\s+)?(quote|estimate|presupuesto)/i,
+    /\b(need|want|coordinate|schedule)\s+(on[\s-]?site|presencial|visit|appointment|turno)/i,
+    /\b(whatsapp|phone|number|call|contact)\s+(support|technician|tech)/i,
+    /\b(don'?t|do\s+not)\s+(want|wish)\s+(to\s+)?(continue|follow|use)\s+(with|the\s+)?(bot|automated|steps)/i
+  ] : [
+    /\b(quiero|necesito|me\s+gustaría|podría|podés|puedo)\s+(hablar|contactar|conectar|comunicar|hablar|atender|ver|revisar)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|especialista|persona|humano|alguien|soporte)/i,
+    /\b(quiero|necesito|me\s+gustaría)\s+(un|una)\s+(técnico|tecnico|profesional|especialista|persona|humano|soporte)/i,
+    /\b(podés|puedes|podría|puede)\s+(pasarme|pasar|conectar|transferir|poner)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|soporte)/i,
+    /\b(quiero|necesito|me\s+gustaría)\s+(soporte|ayuda|asistencia)\s+(humano|de\s+verdad|real|profesional)/i,
+    /\b(no\s+quiero|no\s+me\s+gusta)\s+(seguir|continuar|usar)\s+(con|el|la)\s+(bot|automático|pasos)/i,
+    /\b(quiero|necesito|generar|crear|abrir|pedir)\s+(un\s+)?(ticket|presupuesto|turno|visita|revisión)/i,
+    /\b(whatsapp|teléfono|telefono|número|numero|llamar|contactar)\s+(soporte|técnico|tecnico)/i,
+    /\b(necesito|quiero)\s+(asistencia|ayuda)\s+(presencial|en\s+casa|domicilio)/i,
+    /\b(esto|esto)\s+(lo|la)\s+(tiene|debe)\s+(que|de)\s+(ver|revisar|hacer)\s+(un\s+)?(técnico|tecnico|profesional)/i,
+    /\b(hay|existe)\s+(alguien|una\s+persona|un\s+humano)\s+(que\s+)?(me\s+)?(pueda|puede)\s+(ayudar|atender|asistir)/i
+  ];
+  
+  for (const pattern of explicitPatterns) {
+    if (pattern.test(lowerText)) {
+      return {
+        requiresTechnician: true,
+        confidence: 'high',
+        reason: 'explicit_request',
+        type: 'explicit'
+      };
+    }
+  }
+  
+  // ========================================
+  // B) PEDIDOS IMPLÍCITOS DE INTERVENCIÓN
+  // ========================================
+  const implicitPatterns = isEnglish ? [
+    /\b(can|could|will|would)\s+(you|someone)\s+(remote|connect|access|log\s+in|fix|repair|install|configure|set\s+up|do\s+it)\s+(for|to)\s+(me|my\s+computer)/i,
+    /\b(don'?t|do\s+not)\s+(know|understand|remember|get)\s+(how|what|where|why)/i,
+    /\b(afraid|scared|worried|fear)\s+(to|of|that)\s+(mess|break|damage|lose|delete)/i,
+    /\b(rather|prefer|want)\s+(a|an|someone|professional|expert)\s+(to\s+)?(do|handle|fix|take\s+care)/i,
+    /\b(too|very|really)\s+(complicated|complex|difficult|hard|confusing)/i,
+    /\b(can'?t|cannot|unable)\s+(continue|follow|do|complete|understand)/i,
+    /\b(need|want)\s+(help|assistance)\s+(setting|configuring|installing|fixing)/i,
+    /\b(someone|professional|expert)\s+(take|have)\s+(a\s+)?(look|see|check|review)/i,
+    /\b(lost|confused|stuck|don'?t\s+know\s+where)\s+(to\s+)?(go|continue|proceed)/i
+  ] : [
+    /\b(podés|puedes|podría|puede|me\s+podés|me\s+puedes)\s+(entrar|conectar|acceder|configurar|instalar|arreglar|reparar|hacer|revisar|optimizar)\s+(a|en|mi|mi\s+compu|mi\s+pc|mi\s+notebook)/i,
+    /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendí|me\s+perdí|me\s+confundí)\s+(cómo|como|qué|que|dónde|donde|por\s+qué|porque)/i,
+    /\b(me\s+da|tengo|siento)\s+(miedo|temor|miedo)\s+(de|a|que)\s+(tocar|romper|perder|borrar|dañar|hacer\s+algo\s+mal)/i,
+    /\b(prefiero|quiero|mejor)\s+(que|que\s+lo|que\s+la)\s+(haga|haga|revisa|vea|arregle)\s+(alguien|un\s+profesional|un\s+técnico|alguien\s+que\s+sepa)/i,
+    /\b(muy|demasiado|realmente)\s+(complicado|complejo|difícil|difícil|confuso)/i,
+    /\b(no\s+puedo|no\s+sé|no\s+entiendo|no\s+seguir|me\s+perdí)/i,
+    /\b(necesito|quiero)\s+(ayuda|asistencia)\s+(para|con|en)\s+(configurar|instalar|arreglar|dejarlo\s+andando)/i,
+    /\b(alguien|un\s+profesional|un\s+técnico)\s+(lo|la|me)\s+(pueda|puede)\s+(revisar|ver|optimizar|arreglar)/i,
+    /\b(esto|esto)\s+(solo|solamente)\s+(no\s+puedo|no\s+sé|no\s+entiendo)/i
+  ];
+  
+  for (const pattern of implicitPatterns) {
+    if (pattern.test(lowerText)) {
+      return {
+        requiresTechnician: true,
+        confidence: 'high',
+        reason: 'implicit_request',
+        type: 'implicit'
+      };
+    }
+  }
+  
+  // ========================================
+  // C1) FRUSTRACIÓN O BLOQUEO DEL USUARIO
+  // ========================================
+  const frustrationPatterns = isEnglish ? [
+    /\b(tried|tested|did)\s+(everything|all|all\s+the\s+steps|all\s+steps)\s+(and|but|still)/i,
+    /\b(nothing|none)\s+(works|worked|helps|helped|fixed|changed)/i,
+    /\b(still|still)\s+(slow|same|broken|not\s+working|doesn'?t\s+work)/i,
+    /\b(didn'?t|did\s+not)\s+(fix|solve|work|help|change)/i,
+    /\b(can'?t|cannot)\s+(anymore|take|continue|do\s+this)/i,
+    /\b(tired|sick|fed\s+up)\s+(of|with)\s+(trying|testing|doing|this)/i,
+    /\b(back|returned|returning)\s+(to|at)\s+(the\s+)?(same|original)\s+(problem|issue)/i,
+    /\b(repeat|repeating|same)\s+(problem|issue|error)\s+(3|three|multiple|several|many)\s+(times)/i
+  ] : [
+    /\b(ya|ya)\s+(probé|intenté|hice|probé)\s+(todo|todos\s+los\s+pasos|todas\s+las\s+opciones)\s+(y|pero|y\s+sigue|y\s+todavía)/i,
+    /\b(nada|ninguna)\s+(funciona|funcionó|sirve|sirvió|ayuda|ayudó|soluciona|solucionó)/i,
+    /\b(sigue|todavía|aún)\s+(lento|igual|roto|sin\s+funcionar|no\s+funciona|igual)/i,
+    /\b(no\s+se|no)\s+(solucionó|arregló|funcionó|cambió|ayudó)/i,
+    /\b(no\s+puedo|ya\s+no\s+puedo)\s+(más|seguir|continuar|hacer\s+esto)/i,
+    /\b(estoy|me\s+siento)\s+(cansado|harto|frustrado)\s+(de|con)\s+(probar|intentar|hacer|esto)/i,
+    /\b(volví|volví|regresé)\s+(al|a\s+el)\s+(mismo|mismo)\s+(problema|error)/i,
+    /\b(repetir|repetiendo|mismo)\s+(problema|error)\s+(3|tres|varias|muchas)\s+(veces)/i
+  ];
+  
+  // Contar repeticiones del mismo problema
+  const problemRepetitions = session.problemRepetitions || 0;
+  const hasRepeatedProblem = problemRepetitions >= 3;
+  
+  for (const pattern of frustrationPatterns) {
+    if (pattern.test(lowerText) || hasRepeatedProblem) {
+      return {
+        requiresTechnician: true,
+        confidence: 'high',
+        reason: 'frustration_or_blocking',
+        type: 'frustration'
+      };
+    }
+  }
+  
+  // ========================================
+  // C2) RIESGO TÉCNICO O DE DATOS
+  // ========================================
+  const riskPatterns = isEnglish ? [
+    /\b(important|valuable|precious|work|job)\s+(files|data|documents|photos|pictures|information)/i,
+    /\b(afraid|worried|fear|scared)\s+(to|of|that)\s+(lose|losing|delete|deleting|losing|damage|damaging)/i,
+    /\b(files|documents)\s+(won'?t|will\s+not|don'?t|do\s+not)\s+(open|work|load)/i,
+    /\b(asking|asks|told|tells)\s+(me|to)\s+(format|delete|erase|wipe|remove\s+everything)/i,
+    /\b(strange|weird|suspicious|unusual|odd)\s+(message|popup|window|error)/i,
+    /\b(asking|asks|requesting|wants)\s+(me|to)\s+(pay|payment|money|credit\s+card)/i,
+    /\b(files|data)\s+(are|is)\s+(encrypted|locked|ransomware)/i,
+    /\b(blue\s+screen|bsod|fatal\s+error|critical\s+error|system\s+crash)/i,
+    /\b(won'?t|will\s+not|doesn'?t|does\s+not)\s+(boot|start|turn\s+on|load\s+windows)/i,
+    /\b(restarting|rebooting|shutting\s+down|turning\s+off)\s+(by\s+itself|automatically|on\s+its\s+own)/i
+  ] : [
+    /\b(tengo|tiene|hay)\s+(cosas|archivos|documentos|fotos|información|datos)\s+(importantes|valiosos|del\s+trabajo|del\s+laburo)/i,
+    /\b(me\s+da|tengo|siento)\s+(miedo|temor|preocupación)\s+(de|a|que)\s+(perder|borrar|eliminar|dañar)\s+(mis|mi)\s+(archivos|documentos|fotos|datos)/i,
+    /\b(archivos|documentos)\s+(no|no\s+se)\s+(abren|funcionan|cargan)/i,
+    /\b(me\s+pide|me\s+dice|me\s+salió)\s+(formatear|borrar|eliminar|borrar\s+todo|limpiar\s+todo)/i,
+    /\b(me\s+salió|apareció|veo)\s+(un|una)\s+(mensaje|ventana|error|popup)\s+(raro|extraño|sospechoso|raro)/i,
+    /\b(me\s+pide|me\s+solicita|me\s+pide)\s+(pagar|dinero|tarjeta|pago)/i,
+    /\b(archivos|datos)\s+(están|está)\s+(cifrados|bloqueados|encriptados|ransomware)/i,
+    /\b(pantalla\s+azul|error\s+grave|error\s+crítico|crash|se\s+cayó\s+el\s+sistema)/i,
+    /\b(no\s+arranca|no\s+inicia|no\s+prende|no\s+carga)\s+(windows|el\s+sistema)/i,
+    /\b(se\s+reinicia|se\s+apaga|se\s+apagó)\s+(solo|sola|automáticamente|de\s+golpe)/i
+  ];
+  
+  for (const pattern of riskPatterns) {
+    if (pattern.test(lowerText)) {
+      return {
+        requiresTechnician: true,
+        confidence: 'high',
+        reason: 'technical_risk_or_data_loss',
+        type: 'risk'
+      };
+    }
+  }
+  
+  // ========================================
+  // C3) HARDWARE O PROBLEMA FÍSICO
+  // ========================================
+  const hardwarePatterns = isEnglish ? [
+    /\b(won'?t|will\s+not|doesn'?t|does\s+not)\s+(turn\s+on|power\s+on|start|boot)/i,
+    /\b(turned\s+off|shut\s+down|died)\s+(and|but)\s+(won'?t|will\s+not|doesn'?t)\s+(turn\s+on|start)/i,
+    /\b(got|was)\s+(wet|soaked|water|liquid)/i,
+    /\b(fell|dropped|hit|damaged|broken)/i,
+    /\b(burning|burnt|smoke|smell|odor)\s+(smell|smoke|smell)/i,
+    /\b(strange|weird|loud|unusual|abnormal)\s+(noise|sound|beep|click)/i,
+    /\b(fan|ventilator)\s+(very|too|extremely)\s+(loud|noisy|strong)/i,
+    /\b(overheating|too\s+hot|very\s+hot|extremely\s+hot)/i,
+    /\b(screen|display|monitor)\s+(broken|cracked|shattered|black|no\s+image)/i,
+    /\b(sparks|sparking|smoke|fire)/i,
+    /\b(battery|power)\s+(won'?t|will\s+not|doesn'?t)\s+(charge|work)/i,
+    /\b(connector|port|plug)\s+(loose|broken|damaged|not\s+working)/i,
+    /\b(keyboard|mouse|keys|buttons)\s+(don'?t|do\s+not|won'?t|will\s+not)\s+(respond|work)/i,
+    /\b(port|connector|socket)\s+(broken|damaged|cracked)/i
+  ] : [
+    /\b(no\s+enciende|no\s+prende|no\s+arranca|no\s+inicia)/i,
+    /\b(se\s+apagó|se\s+cayó|se\s+apagó)\s+(y|pero|y\s+no)\s+(prende|enciende|arranca)/i,
+    /\b(se\s+mojó|le\s+cayó|entró)\s+(agua|líquido)/i,
+    /\b(se\s+cayó|se\s+golpeó|se\s+dañó|se\s+rompió)/i,
+    /\b(olor|huele)\s+(a|a\s+quemado|quemado)/i,
+    /\b(ruido|sonido|beep)\s+(raro|extraño|muy\s+fuerte|anormal)/i,
+    /\b(ventilador|fan)\s+(muy|demasiado|extremadamente)\s+(fuerte|ruidoso)/i,
+    /\b(se\s+calienta|muy\s+caliente|demasiado\s+caliente|extremadamente\s+caliente)/i,
+    /\b(pantalla|monitor)\s+(rota|rota|quebrada|negra|sin\s+imagen|no\s+da\s+imagen)/i,
+    /\b(chispas|chispeando|humo|fuego)/i,
+    /\b(batería|bateria)\s+(no\s+carga|no\s+funciona)/i,
+    /\b(conector|puerto|enchufe)\s+(flojo|roto|dañado|no\s+funciona)/i,
+    /\b(teclado|mouse|ratón|teclas|botones)\s+(no\s+responde|no\s+funciona)/i,
+    /\b(puerto|conector|enchufe)\s+(roto|dañado|quebrado)/i
+  ];
+  
+  for (const pattern of hardwarePatterns) {
+    if (pattern.test(lowerText)) {
+      return {
+        requiresTechnician: true,
+        confidence: 'high',
+        reason: 'hardware_or_physical_issue',
+        type: 'hardware'
+      };
+    }
+  }
+  
+  // Si no se detectó nada claro, retornar que no requiere técnico
+  return {
+    requiresTechnician: false,
+    confidence: 'low',
+    reason: 'no_match',
+    type: null
+  };
+}
+
+/**
+ * Consulta a OpenAI para clasificar intenciones ambiguas que podrían requerir técnico
+ * 
+ * Esta función se usa cuando el mensaje no coincide claramente con los patrones,
+ * pero podría indicar intención de técnico. OpenAI asesora, pero Tecnos decide.
+ * 
+ * @param {string} text - Texto del usuario
+ * @param {string} locale - Idioma del usuario
+ * @param {object} session - Sesión actual (para contexto)
+ * @returns {Promise<object>} { requiresTechnician: boolean, openaiAdvice: 'ESCALAR'|'NO_ESCALAR', confidence: number, reasoning: string }
+ */
+async function checkAmbiguousTechnicianIntent(text, locale, session = {}) {
+  if (!openai) {
+    logger.warn('[TECHNICIAN_INTENT] OpenAI no disponible, escalando por seguridad');
+    return {
+      requiresTechnician: true,
+      openaiAdvice: 'ESCALAR',
+      confidence: 0.5,
+      reasoning: 'OpenAI no disponible, escalando por principio de seguridad'
+    };
+  }
+  
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  const isEsAr = String(locale).toLowerCase() === 'es-ar';
+  
+  const systemPrompt = isEnglish
+    ? `You are an assistant that helps classify user messages to determine if they require human technician support.
+
+Analyze the user's message and determine if it indicates they want or need to speak with a human technician.
+
+Consider:
+- Explicit requests for technician/human support
+- Implicit requests (e.g., "can you do it for me", "I don't know how")
+- Frustration or repeated problems
+- Technical risks or data loss concerns
+- Hardware or physical issues
+- User insecurity or fear of breaking something
+
+Respond ONLY with a JSON object in this exact format:
+{
+  "requiresTechnician": true or false,
+  "confidence": 0.0 to 1.0,
+  "reasoning": "brief explanation"
+}
+
+If requiresTechnician is true, the advice is "ESCALAR". If false, the advice is "NO_ESCALAR".
+
+PRINCIPLE: When in doubt, prefer ESCALAR (true) over NO_ESCALAR (false).`
+    : (isEsAr
+      ? `Sos un asistente que ayuda a clasificar mensajes de usuarios para determinar si requieren soporte de un técnico humano.
+
+Analizá el mensaje del usuario y determiná si indica que quiere o necesita hablar con un técnico humano.
+
+Considerá:
+- Pedidos explícitos de técnico/soporte humano
+- Pedidos implícitos (ej: "podés hacerlo vos", "no sé cómo")
+- Frustración o problemas repetidos
+- Riesgos técnicos o pérdida de datos
+- Problemas de hardware o físicos
+- Inseguridad o miedo del usuario a romper algo
+
+Respondé SOLO con un objeto JSON en este formato exacto:
+{
+  "requiresTechnician": true o false,
+  "confidence": 0.0 a 1.0,
+  "reasoning": "explicación breve"
+}
+
+Si requiresTechnician es true, el consejo es "ESCALAR". Si es false, el consejo es "NO_ESCALAR".
+
+PRINCIPIO: Ante la duda, preferí ESCALAR (true) sobre NO_ESCALAR (false).`
+      : `Eres un asistente que ayuda a clasificar mensajes de usuarios para determinar si requieren soporte de un técnico humano.
+
+Analiza el mensaje del usuario y determina si indica que quiere o necesita hablar con un técnico humano.
+
+Considera:
+- Pedidos explícitos de técnico/soporte humano
+- Pedidos implícitos (ej: "puedes hacerlo tú", "no sé cómo")
+- Frustración o problemas repetidos
+- Riesgos técnicos o pérdida de datos
+- Problemas de hardware o físicos
+- Inseguridad o miedo del usuario a romper algo
+
+Responde SOLO con un objeto JSON en este formato exacto:
+{
+  "requiresTechnician": true o false,
+  "confidence": 0.0 a 1.0,
+  "reasoning": "explicación breve"
+}
+
+Si requiresTechnician es true, el consejo es "ESCALAR". Si es false, el consejo es "NO_ESCALAR".
+
+PRINCIPIO: Ante la duda, prefiere ESCALAR (true) sobre NO_ESCALAR (false).`);
+  
+  const userPrompt = isEnglish
+    ? `User message: "${text}"
+
+Context:
+- Problem: ${session.problem || 'Not specified'}
+- Device: ${session.device || 'Not specified'}
+- Stage: ${session.stage || 'unknown'}
+- Previous attempts: ${session.fallbackCount || 0}
+
+Analyze if this message indicates the user wants or needs human technician support.`
+    : `Mensaje del usuario: "${text}"
+
+Contexto:
+- Problema: ${session.problem || 'No especificado'}
+- Dispositivo: ${session.device || 'No especificado'}
+- Etapa: ${session.stage || 'unknown'}
+- Intentos previos: ${session.fallbackCount || 0}
+
+Analizá si este mensaje indica que el usuario quiere o necesita soporte de un técnico humano.`;
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
+      response_format: { type: 'json_object' }
+    });
+    
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenAI no retornó contenido');
+    }
+    
+    const parsed = JSON.parse(content);
+    const requiresTechnician = parsed.requiresTechnician === true;
+    const confidence = parsed.confidence || 0.5;
+    const reasoning = parsed.reasoning || 'No reasoning provided';
+    
+    return {
+      requiresTechnician: requiresTechnician,
+      openaiAdvice: requiresTechnician ? 'ESCALAR' : 'NO_ESCALAR',
+      confidence: confidence,
+      reasoning: reasoning
+    };
+  } catch (error) {
+    logger.error('[TECHNICIAN_INTENT] Error consultando OpenAI:', error);
+    // En caso de error, escalar por seguridad
+    return {
+      requiresTechnician: true,
+      openaiAdvice: 'ESCALAR',
+      confidence: 0.5,
+      reasoning: `Error consultando OpenAI: ${error.message}. Escalando por principio de seguridad.`
+    };
+  }
+}
+
+/**
+ * Escala inmediatamente a técnico, interrumpiendo cualquier flujo actual
+ * 
+ * Esta función tiene prioridad absoluta y debe ser llamada cuando se detecta
+ * intención de técnico. Interrumpe el flujo actual y ofrece contacto inmediato.
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} userText - Texto del usuario que disparó el escalamiento
+ * @param {string} sessionId - ID de la sesión
+ * @param {object} detectionResult - Resultado de detectTechnicianIntent o checkAmbiguousTechnicianIntent
+ * @param {object} res - Objeto de respuesta de Express (opcional, solo si se envía respuesta directa)
+ * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons, allowWhatsapp, handled } o void si usa res.json()
+ */
+async function escalateToTechnicianImmediately(session, userText, sessionId, detectionResult, res = null) {
+  const locale = ensureSessionLocale(session);
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
+  
+  // Registrar el handoff para auditoría
+  const handoffRecord = {
+    timestamp: nowIso(),
+    userMessage: userText,
+    detectionType: detectionResult.type || 'ambiguous',
+    detectionReason: detectionResult.reason || 'unknown',
+    detectionConfidence: detectionResult.confidence || 'low',
+    openaiAdvice: detectionResult.openaiAdvice || null,
+    openaiReasoning: detectionResult.reasoning || null,
+    stage: session.stage,
+    problem: session.problem || null,
+    device: session.device || null,
+    previousAttempts: session.fallbackCount || 0
+  };
+  
+  // Guardar en la sesión para auditoría
+  if (!session.handoffRecords) {
+    session.handoffRecords = [];
+  }
+  session.handoffRecords.push(handoffRecord);
+  
+  logger.info(`[ESCALATE_IMMEDIATE] Handoff activado: ${JSON.stringify(handoffRecord)}`);
+  
+  // Cambiar a stage ESCALATE
+  changeStage(session, STATES.ESCALATE);
+  
+  // Generar mensaje de confirmación según el idioma
+  // ⚠️ CRÍTICO: No repetir "Anoté tu problema" ni mostrar pasos automáticos
+  // El mensaje debe ser directo y ofrecer contacto inmediato
+  let reply = '';
+  if (isEnglish) {
+    reply = `I understand you'd like to speak with a technician. I'll connect you with a human specialist who can help you directly.
+
+Use the button below to continue on WhatsApp.`;
+  } else if (isEsLatam) {
+    reply = `Entiendo que quieres hablar con un técnico. Te voy a conectar con un especialista humano que puede ayudarte directamente.
+
+Usa el botón de abajo para continuar por WhatsApp.`;
+  } else {
+    reply = `Entiendo que querés hablar con un técnico. Te voy a conectar con un especialista humano que puede ayudarte directamente.
+
+Usá el botón de abajo para continuar por WhatsApp.`;
+  }
+  
+  // Agregar mensajes al transcript
+  session.transcript.push({
+    who: 'user',
+    text: userText,
+    ts: nowIso(),
+    handoffTriggered: true
+  });
+  session.transcript.push({
+    who: 'bot',
+    text: reply,
+    ts: nowIso(),
+    handoffActivated: true,
+    handoffRecord: handoffRecord
+  });
+  
+  // Guardar sesión
+  await saveSessionAndTranscript(sessionId, session);
+  
+  // Generar ticket y responder
+  // Si se pasa res, usar createTicketAndRespond directamente
+  if (res && typeof res.json === 'function') {
+    return await createTicketAndRespond(session, sessionId, res);
+  }
+  
+  // Si no se pasa res, retornar objeto para que el handler lo procese
+  return {
+    ok: true,
+    reply: reply,
+    stage: session.stage, // Ahora es ESCALATE
+    buttons: [
+      {
+        text: isEnglish ? '📲 Connect via WhatsApp' : '📲 Conectar por WhatsApp',
+        value: 'BTN_WHATSAPP_TECNICO',
+        description: isEnglish ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
+      },
+      {
+        text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
+        value: 'BTN_BACK',
+        description: isEnglish ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
+      }
+    ],
+    allowWhatsapp: true,
+    handled: true,
+    handoffActivated: true
+  };
+}
+
+/**
  * Genera una respuesta técnica usando OpenAI con el tono acordado
  * 
  * @param {string} question - Pregunta del usuario
@@ -4583,6 +5182,44 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
     logger.info(`[BASIC_TESTS] Procesando: "${userText || 'button'}" (buttonToken: ${buttonToken || 'none'})`);
+    
+    // ========================================
+    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ========================================
+    // Si el usuario expresa intención de hablar con un técnico, interrumpir
+    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    //
+    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
+    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    //
+    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+      // Detectar intención de técnico (explícita o implícita)
+      const techIntent = detectTechnicianIntent(userText, locale, session);
+      
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
+        // Intención clara detectada, escalar inmediatamente
+        logger.info(`[BASIC_TESTS] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
+        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
+        // Caso ambiguo, consultar OpenAI
+        logger.info(`[BASIC_TESTS] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
+        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
+        
+        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
+        // En BASIC_TESTS, ser más permisivo con la escalación
+        const shouldEscalate = ambiguousResult.requiresTechnician || 
+          (session.fallbackCount >= 2) || // En pasos, 2 fallbacks ya es suficiente
+          (session.currentTestIndex && session.currentTestIndex >= 5); // Pasos avanzados (5+)
+        
+        if (shouldEscalate) {
+          logger.info(`[BASIC_TESTS] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount}, step: ${session.currentTestIndex})`);
+          ambiguousResult.type = 'ambiguous';
+          ambiguousResult.reason = 'ambiguous_with_indicators';
+          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
+        }
+      }
+    }
     
     // ========================================
     // CASO 1: USUARIO HACE CLIC EN "VOLVER A LOS PASOS"
@@ -7476,6 +8113,71 @@ app.post('/api/chat', async (req, res) => {
     });
     
     logger.info(`[CHAT] Usuario (${sessionId}): "${incomingText.substring(0, 50)}${incomingText.length > 50 ? '...' : ''}"`);
+    
+    // ========================================
+    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (CATCH-ALL - PRIORIDAD ABSOLUTA)
+    // ========================================
+    // Esta detección funciona como catch-all antes de procesar por stage.
+    // Si el usuario expresa intención de hablar con un técnico, interrumpir
+    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    //
+    // ⚠️ CRÍTICO: Esta detección tiene prioridad absoluta sobre cualquier handler
+    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    //
+    if (incomingText && typeof incomingText === 'string' && incomingText.trim().length > 0 && !buttonToken) {
+      // Solo detectar en texto escrito, no en botones (los botones ya tienen su lógica)
+      const techIntent = detectTechnicianIntent(incomingText, sessionLocale, session);
+      
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
+        // Intención clara detectada, escalar inmediatamente
+        logger.info(`[CHAT] Intención de técnico detectada (${techIntent.type}) - Interrumpiendo flujo: "${incomingText.substring(0, 50)}..."`);
+        const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, techIntent, res);
+        // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
+        if (escalateResult && escalateResult.handled) {
+          return res.json({
+            ok: escalateResult.ok,
+            reply: escalateResult.reply,
+            stage: escalateResult.stage,
+            sessionId: sessionId,
+            buttons: escalateResult.buttons || [],
+            allowWhatsapp: escalateResult.allowWhatsapp || false
+          });
+        }
+        // Si ya se envió con res.json(), retornar
+        return;
+      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
+        // Caso ambiguo, consultar OpenAI
+        logger.info(`[CHAT] Caso ambiguo detectado, consultando OpenAI: "${incomingText.substring(0, 50)}..."`);
+        const ambiguousResult = await checkAmbiguousTechnicianIntent(incomingText, sessionLocale, session);
+        
+        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
+        const shouldEscalate = ambiguousResult.requiresTechnician || 
+          (session.fallbackCount >= 3) || // Muchos intentos fallidos
+          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2) || // En pasos avanzados
+          (session.stage === STATES.BASIC_TESTS && session.currentTestIndex && session.currentTestIndex >= 5); // Pasos muy avanzados
+        
+        if (shouldEscalate) {
+          logger.info(`[CHAT] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount}, stage: ${session.stage})`);
+          ambiguousResult.type = 'ambiguous';
+          ambiguousResult.reason = 'ambiguous_with_indicators';
+          const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, ambiguousResult, res);
+          // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
+          if (escalateResult && escalateResult.handled) {
+            return res.json({
+              ok: escalateResult.ok,
+              reply: escalateResult.reply,
+              stage: escalateResult.stage,
+              sessionId: sessionId,
+              buttons: escalateResult.buttons || [],
+              allowWhatsapp: escalateResult.allowWhatsapp || false
+            });
+          }
+          // Si ya se envió con res.json(), retornar
+          return;
+        }
+      }
+    }
     
     // ========================================
     // PROCESAR SEGÚN EL STAGE ACTUAL
