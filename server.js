@@ -1589,6 +1589,28 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     .join(' ')
     .toLowerCase();
   
+  // ⚠️ SOSTENIBILIDAD STI: Detectar conversación larga o ineficiente
+  const totalMessages = transcript.length;
+  const botMessages = transcript.filter(entry => entry.who === 'bot').length;
+  const userMessages = transcript.filter(entry => entry.who === 'user').length;
+  const stepsShown = session.stepsDone?.length || 0;
+  const currentStage = session.stage || '';
+  
+  // Calcular tiempo estimado de conversación (asumiendo ~30 segundos por intercambio)
+  const estimatedMinutes = Math.floor((totalMessages * 30) / 60);
+  
+  // Detectar si estamos en BASIC_TESTS con múltiples pasos
+  const isInSteps = currentStage === 'BASIC_TESTS';
+  const hasMultipleSteps = stepsShown >= 3;
+  
+  // ⚠️ REGLA COMERCIAL: Ofrecer WhatsApp cuando la asistencia gratuita se vuelve ineficiente
+  const shouldOfferWhatsAppEarly = 
+    (botMessages >= 5) || // 5+ mensajes del bot = conversación larga
+    (userMessages >= 4 && session.fallbackCount >= 2) || // 4+ mensajes del usuario con 2+ fallbacks
+    (isInSteps && hasMultipleSteps && session.fallbackCount >= 1) || // En pasos, 3+ pasos mostrados y 1+ fallback
+    (estimatedMinutes >= 3) || // 3+ minutos de conversación
+    (session.fallbackCount >= 2 && currentStage === 'BASIC_TESTS'); // 2+ fallbacks en pasos
+  
   // Detectar repetición léxica extrema (MANDAMIENTO 12)
   const repetitiveWords = ['perfecto', 'entiendo', 'frustrante', 'claro', 'excelente', 'genial', 'bien', 'ok'];
   const locale = ensureSessionLocale(session);
@@ -1614,6 +1636,11 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     /\b(no sé|no entiendo|no funciona|no puedo|help|ayuda|confundido|confused)\b/i.test(userText) ||
     session.fallbackCount >= 2
   );
+  
+  // ⚠️ SOSTENIBILIDAD: Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp
+  if (shouldOfferWhatsAppEarly) {
+    logger.info(`[MANDATES] 💼 Ofreciendo WhatsApp temprano: botMsgs=${botMessages}, userMsgs=${userMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount}, minutos=${estimatedMinutes}`);
+  }
   
   // Evaluar los 22 Mandamientos
   const evaluation = evaluateTecnosMandates(
@@ -1654,22 +1681,68 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     'en-US': finalReply
   });
   
-  // ⚠️ CAMBIO REAL: Si hay repetición léxica, modificar botones para ofrecer técnico
+  // ⚠️ SOSTENIBILIDAD STI: Modificar botones y ofrecer WhatsApp cuando corresponde
   let finalButtons = evaluation.correctedButtons || response.buttons || null;
-  if (extremeRepetition && finalButtons && Array.isArray(finalButtons)) {
-    const locale = ensureSessionLocale(session);
-    const isEnglish = String(locale).toLowerCase().startsWith('en');
-    const techButton = {
-      text: isEnglish ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
-      value: 'BTN_TECH',
-      description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
-    };
+  let shouldAllowWhatsApp = response.allowWhatsapp || false;
+  
+  // Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp activamente
+  if (shouldOfferWhatsAppEarly) {
+    shouldAllowWhatsApp = true;
     
-    // Agregar botón de técnico al inicio si no existe
-    const hasTechButton = finalButtons.some(btn => btn.value === 'BTN_TECH' || btn.token === 'BTN_TECH');
+    // Si hay botones, agregar botón de WhatsApp al inicio si no existe
+    if (finalButtons && Array.isArray(finalButtons)) {
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      const hasWhatsAppButton = finalButtons.some(btn => 
+        btn.value === 'BTN_WHATSAPP_TECNICO' || 
+        btn.token === 'BTN_WHATSAPP_TECNICO' ||
+        btn.value === 'BTN_CONNECT_TECH' ||
+        btn.token === 'BTN_CONNECT_TECH'
+      );
+      
+      if (!hasWhatsAppButton) {
+        const whatsappButton = {
+          text: isEnglish ? '💚 Talk to a Technician via WhatsApp' : '💚 Hablar con un Técnico por WhatsApp',
+          value: 'BTN_WHATSAPP_TECNICO',
+          description: isEnglish ? 'Get professional help via WhatsApp' : 'Obtener ayuda profesional por WhatsApp'
+        };
+        finalButtons = [whatsappButton, ...finalButtons];
+        logger.info(`[MANDATES] 💼 Botón de WhatsApp agregado por sostenibilidad (botMsgs=${botMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount})`);
+      }
+    }
+    
+    // Modificar el mensaje para recomendar WhatsApp si estamos en pasos
+    if (isInSteps && hasMultipleSteps) {
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      const recommendation = isEnglish
+        ? '\n\n💡 **Tip:** If these steps are taking too long or you prefer professional help, you can contact a technician via WhatsApp for faster assistance.'
+        : '\n\n💡 **Tip:** Si estos pasos están tomando mucho tiempo o preferís ayuda profesional, podés contactar a un técnico por WhatsApp para una asistencia más rápida.';
+      
+      // Agregar recomendación al final del mensaje si no está ya
+      if (!finalReply.includes('WhatsApp') && !finalReply.includes('técnico')) {
+        finalReply += recommendation;
+      }
+    }
+  }
+  
+  // Si hay repetición léxica extrema, también ofrecer WhatsApp
+  if (extremeRepetition && finalButtons && Array.isArray(finalButtons)) {
+    const isEnglish = String(locale).toLowerCase().startsWith('en');
+    const hasTechButton = finalButtons.some(btn => 
+      btn.value === 'BTN_TECH' || 
+      btn.token === 'BTN_TECH' ||
+      btn.value === 'BTN_WHATSAPP_TECNICO' ||
+      btn.token === 'BTN_WHATSAPP_TECNICO'
+    );
+    
     if (!hasTechButton) {
+      shouldAllowWhatsApp = true;
+      const techButton = {
+        text: isEnglish ? '💚 Talk to a Technician via WhatsApp' : '💚 Hablar con un Técnico por WhatsApp',
+        value: 'BTN_WHATSAPP_TECNICO',
+        description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
+      };
       finalButtons = [techButton, ...finalButtons];
-      logger.info(`[MANDATES] 🔄 Botón de técnico agregado por repetición léxica extrema`);
+      logger.info(`[MANDATES] 🔄 Botón de WhatsApp agregado por repetición léxica extrema`);
     }
   }
   
@@ -1678,11 +1751,12 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     logger.info(`[MANDATES] ✅ Correcciones aplicadas: ${evaluation.corrections.join(', ')}`);
   }
   
-  // Retornar respuesta ajustada
+  // Retornar respuesta ajustada con allowWhatsApp si corresponde
   return {
     ...response,
     reply: finalReply,
-    buttons: finalButtons
+    buttons: finalButtons,
+    allowWhatsapp: shouldAllowWhatsApp || response.allowWhatsapp || false
   };
 }
 
@@ -4659,6 +4733,10 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         session.tests.basic = Array.isArray(steps) ? steps : [];
         session.currentTestIndex = 0;
         
+        // ⚠️ SOSTENIBILIDAD: Contar mensajes para decidir si ofrecer WhatsApp
+        const transcript = session.transcript || [];
+        const botMessages = transcript.filter(entry => entry.who === 'bot').length;
+        
         // Generar mensaje de introducción con confirmación
         const who = session.userName ? getPersonalizedGreeting(
           session.userName, 
@@ -4717,6 +4795,20 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         
         // Generar botones: ayuda para cada paso + botones finales
         const buttons = [];
+        
+        // ⚠️ SOSTENIBILIDAD STI: Si hay 3+ pasos, ofrecer WhatsApp al inicio
+        const hasMultipleSteps = steps.length >= 3;
+        const shouldOfferWhatsAppInSteps = hasMultipleSteps && (session.fallbackCount >= 1 || botMessages >= 4);
+        
+        if (shouldOfferWhatsAppInSteps) {
+          const whatsappButton = {
+            text: isEnglish ? '💚 Get Professional Help via WhatsApp' : '💚 Obtener Ayuda Profesional por WhatsApp',
+            value: 'BTN_WHATSAPP_TECNICO',
+            description: isEnglish ? 'Skip steps and get direct help from a technician' : 'Saltar pasos y obtener ayuda directa de un técnico'
+          };
+          buttons.push(whatsappButton);
+          logger.info(`[BASIC_TESTS] 💼 Botón de WhatsApp agregado en pasos (${steps.length} pasos, fallbacks=${session.fallbackCount})`);
+        }
         
         // Botones de ayuda para cada paso (el frontend debe insertarlos donde encuentre [BTN_HELP_STEP_X])
         steps.forEach((step, idx) => {
