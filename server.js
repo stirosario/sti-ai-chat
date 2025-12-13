@@ -650,6 +650,58 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// ========================================================
+// 🧭 UTILIDADES DE IDIOMA Y TONO TECNOS
+// ========================================================
+// Centraliza la normalización de idioma y la voz consistente del asistente.
+const TECNOS_DEFAULT_LOCALE = 'es-AR';
+
+/**
+ * Normaliza cualquier locale recibido a los únicos soportados por Tecnos.
+ * - Español forzado a 'es-AR' para mantener tono argentino.
+ * - Inglés forzado a 'en-US' para mantener tono US.
+ */
+function normalizeLocale(locale = TECNOS_DEFAULT_LOCALE) {
+  const raw = String(locale || '').toLowerCase();
+  if (raw.startsWith('en')) return 'en-US';
+  if (raw.startsWith('es')) return 'es-AR';
+  return TECNOS_DEFAULT_LOCALE;
+}
+
+/**
+ * Garantiza que la sesión tenga un locale válido y lo retorna.
+ * Siempre pisa valores neutros o vacíos hacia los únicos aceptados.
+ */
+function ensureSessionLocale(session, fallback = TECNOS_DEFAULT_LOCALE) {
+  const normalized = normalizeLocale(session?.userLocale || fallback);
+  if (session && session.userLocale !== normalized) {
+    session.userLocale = normalized;
+  }
+  return normalized;
+}
+
+/**
+ * Selecciona una variante de respuesta según el locale normalizado.
+ */
+function selectByLocale(locale, variants = {}) {
+  const normalized = normalizeLocale(locale);
+  return normalized === 'en-US'
+    ? (variants.en ?? variants.es ?? '')
+    : (variants.es ?? variants.en ?? '');
+}
+
+/**
+ * Ajusta mínimamente el mensaje para mantener la voz Tecnos coherente.
+ * Solo limpia espacios y asegura que se use la variante correcta.
+ */
+function applyTecnosVoice(reply = '', locale = TECNOS_DEFAULT_LOCALE, variants = null) {
+  if (variants && typeof variants === 'object') {
+    reply = selectByLocale(locale, variants);
+  }
+  const text = (reply || '').toString().trim();
+  return text;
+}
+
 /**
  * Genera un ID único unificado para sesiones y tickets
  * Formato: A0000 hasta Z9999 (excluyendo la letra Ñ)
@@ -1023,7 +1075,7 @@ async function saveSessionAndTranscript(sessionId, session) {
       fecha_ultima_actualizacion: nowIso(),
       usuario: session.userName || 'Anónimo',
       dispositivo: session.device || 'unknown',
-      idioma: session.userLocale || 'es-AR',
+      idioma: ensureSessionLocale(session),
       conversacion: []
     };
     
@@ -2248,7 +2300,7 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
   
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
-    const locale = session.userLocale || 'es-AR';
+    const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     
     logger.info(`[ASK_NAME] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
@@ -2327,7 +2379,7 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       // - Mantén la opción de seleccionar problemas frecuentes
       // - Actualiza también la versión en inglés
       //
-      const locale = session.userLocale || 'es-AR';
+      const locale = ensureSessionLocale(session);
       const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
       
       // Generar mensaje según el idioma
@@ -2749,7 +2801,7 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
   
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
-    const locale = session.userLocale || 'es-AR';
+    const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
@@ -3542,7 +3594,7 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
   
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
-    const locale = session.userLocale || 'es-AR';
+    const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
@@ -4103,7 +4155,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
   
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
-    const locale = session.userLocale || 'es-AR';
+    const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
@@ -4841,7 +4893,7 @@ async function createTicketAndRespond(session, sessionId, res) {
   if (ticketCreationLocks.has(sessionId)) {
     const waitTime = Date.now() - ticketCreationLocks.get(sessionId);
     if (waitTime < 5000) { // Si hace menos de 5 segundos que se está creando
-      const locale = session.userLocale || 'es-AR';
+      const locale = ensureSessionLocale(session);
       const isEn = String(locale).toLowerCase().startsWith('en');
       return res.json({
         ok: false,
@@ -4858,7 +4910,7 @@ async function createTicketAndRespond(session, sessionId, res) {
   ticketCreationLocks.set(sessionId, Date.now());
   
   const ts = nowIso();
-  const locale = session.userLocale || 'es-AR';
+  const locale = ensureSessionLocale(session);
   const isEn = String(locale).toLowerCase().startsWith('en');
   const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
   
@@ -5452,7 +5504,7 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
   
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
-    const locale = session.userLocale || 'es-AR';
+    const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
@@ -6331,7 +6383,7 @@ app.get('/api/historial/:sessionId', async (req, res) => {
         fecha_ultima_actualizacion: nowIso(),
         usuario: session.userName || 'Anónimo',
         dispositivo: session.device || 'unknown',
-        idioma: session.userLocale || 'es-AR',
+        idioma: ensureSessionLocale(session),
         conversacion: (session.transcript || []).map((entry, index) => ({
           orden: index + 1,
           timestamp: entry.ts || nowIso(),
@@ -6506,18 +6558,19 @@ app.get('/api/greeting', async (req, res) => {
     const acceptLanguage = String(req.headers['accept-language'] || '').toLowerCase();
     const headerLocale = String(req.headers['x-locale'] || req.headers['x-lang'] || '').toLowerCase();
     
-    // Determinar locale inicial
-    // Prioridad: header personalizado > Accept-Language > español por defecto
-    let initialLocale = 'es-AR'; // Por defecto: Español Argentina
-    if (headerLocale) {
-      initialLocale = headerLocale;
-    } else if (acceptLanguage.startsWith('en')) {
-      initialLocale = 'en';
-    } else if (acceptLanguage.startsWith('es')) {
-      initialLocale = acceptLanguage.includes('ar') ? 'es-AR' : 'es-419';
-    }
-    
-    logger.info(`[GREETING] Nueva sesión: ${sessionId}, locale detectado: ${initialLocale}`);
+  // Determinar locale inicial
+  // Prioridad: header personalizado > Accept-Language > español por defecto
+  let initialLocale = 'es-AR'; // Por defecto: Español Argentina
+  if (headerLocale) {
+    initialLocale = headerLocale;
+  } else if (acceptLanguage.startsWith('en')) {
+    initialLocale = 'en';
+  } else if (acceptLanguage.startsWith('es')) {
+    initialLocale = acceptLanguage.includes('ar') ? 'es-AR' : 'es-419';
+  }
+  const normalizedLocale = normalizeLocale(initialLocale);
+  
+  logger.info(`[GREETING] Nueva sesión: ${sessionId}, locale detectado: ${initialLocale} (normalizado: ${normalizedLocale})`);
     
     // Crear objeto de sesión inicial
     // Esta estructura se usa en TODO el sistema, así que es importante mantenerla
@@ -6543,7 +6596,7 @@ app.get('/api/greeting', async (req, res) => {
       nameAttempts: 0,                  // Intentos de obtener el nombre
       stepProgress: {},                 // Progreso en los pasos
       pendingDeviceGroup: null,          // Grupo de dispositivos pendiente
-      userLocale: initialLocale,        // Idioma del usuario (detectado o por defecto)
+      userLocale: normalizedLocale,     // Idioma del usuario (normalizado y forzado a Tecnos)
       gdprConsent: null,                 // ⚠️ CRÍTICO: null = no aceptado, true = aceptado
       gdprConsentDate: null,            // Fecha/hora del consentimiento (si aceptó)
       contextWindow: [],                 // Ventana de contexto (últimos mensajes)
@@ -6556,7 +6609,7 @@ app.get('/api/greeting', async (req, res) => {
     
     // Generar el mensaje de bienvenida con política de privacidad
     // Usa el locale detectado para mostrar el mensaje en el idioma correcto
-    const greeting = buildLanguageSelectionGreeting(initialLocale);
+    const greeting = buildLanguageSelectionGreeting(normalizedLocale);
     
     // Agregar el mensaje inicial al transcript
     newSession.transcript.push({ 
@@ -6624,6 +6677,8 @@ app.get('/api/greeting', async (req, res) => {
  * - Etapa 2: Maneja pedido y validación de nombre
  */
 app.post('/api/chat', async (req, res) => {
+  let session = null;
+  let sessionLocale = TECNOS_DEFAULT_LOCALE;
   try {
     const body = req.body || {};
     
@@ -6661,7 +6716,8 @@ app.post('/api/chat', async (req, res) => {
     }
     
     // Cargar la sesión existente
-    let session = await getSession(sessionId);
+    session = await getSession(sessionId);
+    sessionLocale = ensureSessionLocale(session);
     
     // Si no existe sesión, crear una nueva (fallback)
     // Esto no debería pasar normalmente, pero es una medida de seguridad
@@ -6693,6 +6749,7 @@ app.post('/api/chat', async (req, res) => {
         contextWindow: [],
         detectedEntities: { device: null, action: null, urgency: 'normal' }
       };
+      sessionLocale = ensureSessionLocale(session);
       
       // Mostrar mensaje de GDPR
       const greeting = buildLanguageSelectionGreeting(session.userLocale);
@@ -6779,9 +6836,13 @@ app.post('/api/chat', async (req, res) => {
     
     // Validar que hay texto para procesar
     if (!incomingText) {
+      const noTextReply = applyTecnosVoice(null, sessionLocale, {
+        es: 'No recibí ningún mensaje. ¿Podés escribirlo de nuevo?',
+        en: "I didn't get your message. Could you type it again?"
+      });
       return res.json({
         ok: false,
-        reply: 'No recibí ningún mensaje. ¿Podrías escribir de nuevo?',
+        reply: noTextReply,
         stage: session.stage
       });
     }
@@ -7030,10 +7091,14 @@ app.post('/api/chat', async (req, res) => {
     logger.warn(`[CHAT] ⚠️  Stage no manejado: ${session.stage}`);
     
     await saveSessionAndTranscript(sessionId, session);
+    const unmanagedReply = applyTecnosVoice(null, sessionLocale, {
+      es: 'No puedo procesar eso ahora mismo. Usá los botones disponibles, por favor.',
+      en: "I can't process that right now. Please use the available buttons."
+    });
     
     return res.json({
       ok: false,
-      reply: 'Lo siento, aún no puedo procesar esa solicitud. Por favor, usá los botones disponibles.',
+      reply: unmanagedReply,
       stage: session.stage,
       sessionId: sessionId
     });
@@ -7041,10 +7106,15 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     // Manejo de errores global
     logger.error('[CHAT] ❌ Error procesando mensaje:', error);
+    const localeForError = normalizeLocale((session && session.userLocale) || TECNOS_DEFAULT_LOCALE);
+    const errorReply = applyTecnosVoice(null, localeForError, {
+      es: 'Tuvimos un problema momentáneo. Probá escribir de nuevo.',
+      en: 'I ran into a temporary issue. Please try again.'
+    });
     
     return res.status(500).json({
       ok: false,
-      reply: '😅 Disculpá, tuve un problema momentáneo. Probá escribirme de nuevo.',
+      reply: errorReply,
       error: 'Internal server error'
     });
   }
