@@ -121,6 +121,11 @@ const LOGS_DIR = process.env.LOGS_DIR || path.join(DATA_BASE, 'logs');
 // Las imágenes se procesan, comprimen y almacenan aquí para análisis
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
 
+// HISTORIAL_CHAT_DIR: Carpeta donde se guardan las conversaciones en formato legible para el historial
+// Este directorio es usado por el admin panel para buscar conversaciones
+// Formato diferente a TRANSCRIPTS_DIR: más legible y estructurado para análisis manual
+const HISTORIAL_CHAT_DIR = process.env.HISTORIAL_CHAT_DIR || path.join(DATA_BASE, 'historial_chat');
+
 // LOG_FILE: Ruta completa al archivo de log principal
 // Todos los logs del servidor se escriben aquí en formato texto
 // Se puede rotar (log rotation) para evitar que el archivo crezca demasiado
@@ -134,7 +139,7 @@ const STEP_INEFFECTIVE = {};  // { token: { stepIndex: count } }
 // fs.mkdirSync crea las carpetas de forma recursiva (incluye las carpetas padre si faltan)
 // El try/catch evita errores si las carpetas ya existen o si hay problemas de permisos
 // Esta operación es síncrona porque es crítica: el servidor no puede funcionar sin estas carpetas
-for (const dir of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
+for (const dir of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, HISTORIAL_CHAT_DIR]) {
   try {
     // recursive: true crea todas las carpetas padre necesarias
     // Si DATA_BASE no existe, la crea; luego crea transcripts, tickets, etc.
@@ -1004,6 +1009,61 @@ async function saveSessionAndTranscript(sessionId, session) {
   } catch (error) {
     // Si falla el transcript, no es crítico, solo loguear
     logger.debug(`[TRANSCRIPT] ⚠️  Error guardando transcript ${sessionId}:`, error.message);
+  }
+  
+  // ========================================
+  // GUARDAR EN HISTORIAL_CHAT_DIR (formato legible para admin panel)
+  // ========================================
+  // Este formato es usado por el admin panel para buscar conversaciones
+  // Mantiene compatibilidad con el sistema viejo (serverold.js)
+  try {
+    const historialData = {
+      id: sessionId,
+      fecha_inicio: session.startedAt || nowIso(),
+      fecha_ultima_actualizacion: nowIso(),
+      usuario: session.userName || 'Anónimo',
+      dispositivo: session.device || 'unknown',
+      idioma: session.userLocale || 'es-AR',
+      conversacion: []
+    };
+    
+    // Construir conversación en formato legible
+    if (session.transcript && Array.isArray(session.transcript)) {
+      historialData.conversacion = session.transcript.map((entry, index) => {
+        const timestamp = entry.ts || nowIso();
+        const quien = entry.who === 'user' ? 'USUARIO' : 'TECNOS';
+        
+        const msg = {
+          orden: index + 1,
+          timestamp: timestamp,
+          quien: quien,
+          mensaje: entry.text || '',
+          stage: entry.stage || session.stage || 'unknown'
+        };
+        
+        return msg;
+      });
+    }
+    
+    // Agregar metadata adicional
+    historialData.metadata = {
+      total_mensajes: historialData.conversacion.length,
+      mensajes_usuario: historialData.conversacion.filter(m => m.quien === 'USUARIO').length,
+      mensajes_bot: historialData.conversacion.filter(m => m.quien === 'TECNOS').length,
+      stage_inicial: session.stage || 'unknown',
+      stage_final: session.stage || 'unknown',
+      problema_detectado: session.problem || null,
+      solucion_aplicada: session.stage === STATES.ENDED || false,
+      ticket_generado: session.ticketId || null
+    };
+    
+    // Guardar en historial_chat con formato legible
+    const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
+    await fs.promises.writeFile(historialPath, JSON.stringify(historialData, null, 2), 'utf8');
+    logger.debug(`[HISTORIAL] ✅ Conversación guardada en historial_chat: ${sessionId}`);
+  } catch (error) {
+    // Si falla el historial, no es crítico, solo loguear
+    logger.debug(`[HISTORIAL] ⚠️  Error guardando historial ${sessionId}:`, error.message);
   }
 }
 
@@ -6205,6 +6265,199 @@ app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req,
 // - Asegúrate de que todos los campos necesarios estén presentes
 // - Actualiza también el handler handleAskLanguageStage si usa esos campos
 // ========================================================
+
+/**
+ * GET /api/historial/:sessionId
+ * Endpoint para obtener el historial de una conversación por ID
+ * Usado por el panel admin para buscar conversaciones
+ * 
+ * ⚠️ IMPORTANTE: Requiere autenticación (token en query string)
+ * ✅ SE PUEDE MODIFICAR: El formato de la respuesta
+ * ❌ NO MODIFICAR: Debe validar el formato del sessionId (A0000-Z9999)
+ */
+app.get('/api/historial/:sessionId', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId?.toUpperCase().trim();
+    const token = req.query.token;
+    
+    // Validar formato del sessionId: A0000-Z9999 (sin Ñ)
+    if (!sessionId || !isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Formato de ID inválido. Debe ser A0000-Z9999 (sin Ñ)'
+      });
+    }
+    
+    // Validar token de autenticación (opcional, pero recomendado)
+    // Si hay un token configurado, validarlo
+    if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Token de autenticación inválido'
+      });
+    }
+    
+    // Buscar la sesión en múltiples ubicaciones
+    // 1. Primero intentar desde HISTORIAL_CHAT_DIR (formato legible para admin)
+    let historialData = null;
+    try {
+      const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
+      try {
+        await fs.promises.access(historialPath);
+        const content = await fs.promises.readFile(historialPath, 'utf8');
+        historialData = JSON.parse(content);
+      } catch (e) {
+        // Archivo no existe en historial_chat, continuar con búsqueda en transcripts
+      }
+    } catch (error) {
+      logger.debug(`[HISTORIAL] Error leyendo desde historial_chat: ${error.message}`);
+    }
+    
+    // 2. Si no se encontró en historial_chat, buscar en la sesión normal
+    if (!historialData) {
+      const session = await getSession(sessionId);
+      
+      if (!session) {
+        return res.status(404).json({
+          ok: false,
+          error: 'Conversación no encontrada'
+        });
+      }
+      
+      // Formatear el historial desde la sesión normal
+      historialData = {
+        id: session.id || sessionId,
+        fecha_inicio: session.startedAt || nowIso(),
+        fecha_ultima_actualizacion: nowIso(),
+        usuario: session.userName || 'Anónimo',
+        dispositivo: session.device || 'unknown',
+        idioma: session.userLocale || 'es-AR',
+        conversacion: (session.transcript || []).map((entry, index) => ({
+          orden: index + 1,
+          timestamp: entry.ts || nowIso(),
+          quien: entry.who === 'user' ? 'USUARIO' : 'TECNOS',
+          mensaje: entry.text || '',
+          stage: entry.stage || session.stage || 'unknown'
+        })),
+        metadata: {
+          total_mensajes: (session.transcript || []).length,
+          mensajes_usuario: (session.transcript || []).filter(m => m.who === 'user').length,
+          mensajes_bot: (session.transcript || []).filter(m => m.who !== 'user').length,
+          stage_inicial: session.stage || 'unknown',
+          stage_final: session.stage || 'unknown',
+          problema_detectado: session.problem || null,
+          solucion_aplicada: session.stage === STATES.ENDED || false,
+          ticket_generado: session.ticketId || null
+        }
+      };
+    }
+    
+    // Formatear el historial para el admin panel
+    // El frontend espera el formato original de historial_chat, no un formato transformado
+    // Retornar directamente historialData que ya tiene el formato correcto
+    return res.json({
+      ok: true,
+      historial: historialData
+    });
+    
+  } catch (error) {
+    logger.error('[HISTORIAL] ❌ Error obteniendo historial:', {
+      error: error.message,
+      sessionId: req.params.sessionId
+    });
+    
+    return res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor al obtener el historial'
+    });
+  }
+});
+
+/**
+ * GET /api/transcript-json/:sessionId
+ * Endpoint para obtener el transcript completo en formato JSON
+ * Usado por el admin panel para mostrar el transcript crudo
+ * 
+ * ⚠️ IMPORTANTE: Requiere autenticación (token en query string)
+ * ✅ SE PUEDE MODIFICAR: El formato de la respuesta
+ * ❌ NO MODIFICAR: Debe validar el formato del sessionId (A0000-Z9999)
+ */
+app.get('/api/transcript-json/:sessionId', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId?.toUpperCase().trim();
+    const token = req.query.token;
+    
+    // Validar formato del sessionId: A0000-Z9999 (sin Ñ)
+    if (!sessionId || !isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Formato de ID inválido. Debe ser A0000-Z9999 (sin Ñ)'
+      });
+    }
+    
+    // Validar token de autenticación (opcional, pero recomendado)
+    if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Token de autenticación inválido'
+      });
+    }
+    
+    // Buscar el transcript en TRANSCRIPTS_DIR
+    let transcriptData = null;
+    try {
+      const transcriptPath = path.join(TRANSCRIPTS_DIR, `${sessionId}.json`);
+      try {
+        await fs.promises.access(transcriptPath);
+        const content = await fs.promises.readFile(transcriptPath, 'utf8');
+        transcriptData = JSON.parse(content);
+      } catch (e) {
+        // Archivo no existe, intentar desde la sesión
+        const session = await getSession(sessionId);
+        if (session && session.transcript) {
+          // Convertir transcript de sesión a formato de transcript JSON
+          transcriptData = {
+            sessionId: session.id || sessionId,
+            timestamp: session.startedAt || nowIso(),
+            messages: (session.transcript || []).map(entry => ({
+              sender: entry.who === 'user' ? 'user' : 'bot',
+              role: entry.who === 'user' ? 'user' : 'assistant',
+              text: entry.text || '',
+              content: entry.text || '',
+              timestamp: entry.ts || nowIso(),
+              stage: entry.stage || session.stage || 'unknown'
+            }))
+          };
+        }
+      }
+    } catch (error) {
+      logger.debug(`[TRANSCRIPT] Error leyendo transcript: ${error.message}`);
+    }
+    
+    if (!transcriptData || !transcriptData.messages) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Transcript no encontrado'
+      });
+    }
+    
+    return res.json({
+      ok: true,
+      transcript: transcriptData.messages
+    });
+    
+  } catch (error) {
+    logger.error('[TRANSCRIPT] ❌ Error obteniendo transcript:', {
+      error: error.message,
+      sessionId: req.params.sessionId
+    });
+    
+    return res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor al obtener el transcript'
+    });
+  }
+});
 
 /**
  * GET /api/greeting
