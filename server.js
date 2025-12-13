@@ -1006,6 +1006,9 @@ async function getSession(sessionId) {
     const fileContent = await fs.promises.readFile(sessionFile, 'utf8');
     const session = JSON.parse(fileContent);
     
+    // ⚠️ MEMORIA DE SESIÓN: Inicializar flags si no existen (sesiones antiguas)
+    ensureDecisionFlags(session);
+    
     return session;
   } catch (error) {
     logger.error(`[SESSION] ❌ Error cargando sesión ${sessionId}:`, error.message);
@@ -1544,6 +1547,394 @@ function evaluateTecnosMandates(session, proposedReply, proposedButtons = null, 
   };
 }
 
+// ========================================================
+// 🧠 MEMORIA DE SESIÓN OBLIGATORIA
+// ========================================================
+// 
+// CONSTITUCIÓN DE TECNOS - MANDAMIENTO 16: Registrar todo lo que el usuario ve
+// 
+// Tecnos NO debe decidir basándose solo en el último mensaje del usuario.
+// Debe recordar y utilizar durante la sesión:
+// - idioma elegido
+// - nombre del usuario
+// - problema detectado
+// - dispositivo
+// - pasos ofrecidos
+// - pasos confirmados como realizados (CRÍTICO: no asumir ejecución implícita)
+// - acciones no realizadas
+// - frustración o repetición
+// - si se ofreció WhatsApp
+// - decisiones previas del sistema
+//
+// ⚠️ CRÍTICO: Consultar un paso NO implica que el usuario lo haya realizado.
+// Un paso no confirmado es un paso no realizado.
+// Tecnos debe preguntar explícitamente si el paso se realizó y qué sucedió.
+//
+// ✅ SE PUEDE MODIFICAR: Agregar más flags de decisión si es necesario
+// ❌ NO MODIFICAR: La estructura base de decisionFlags (se usa en toda la app)
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Inicializa flags de decisión si no existen
+ * 
+ * Esta función asegura que toda sesión tenga un objeto decisionFlags
+ * con todos los flags necesarios para recordar decisiones previas.
+ * 
+ * Se llama automáticamente cuando se carga una sesión o cuando se necesita
+ * consultar/actualizar un flag.
+ * 
+ * @param {object} session - Objeto de sesión (puede ser null)
+ * @returns {void}
+ */
+function ensureDecisionFlags(session) {
+  if (!session) return;
+  if (!session.decisionFlags) {
+    session.decisionFlags = {
+      userRequestedTechnician: false,    // Usuario pidió técnico explícitamente
+      whatsappOffered: false,             // Ya se ofreció WhatsApp en esta sesión
+      userFrustrationDetected: false,     // Se detectó frustración del usuario
+      escalationBlockedByStage: false,   // Escalamiento bloqueado por etapa actual
+      ambiguousTechnicianIntent: false,  // Intención de técnico ambigua detectada
+      automaticFlowInterrupted: false,   // Flujo automático fue interrumpido
+      longStepsOffered: false,           // Ya se ofrecieron pasos largos
+      technicianDeclined: false,         // Usuario rechazó oferta de técnico
+      stepsRepeated: false,              // Pasos ya fueron repetidos
+      escalationAttempted: false        // Ya se intentó escalar (puede haber sido bloqueado)
+    };
+  }
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Consulta un flag de decisión
+ */
+function getDecisionFlag(session, flagName) {
+  ensureDecisionFlags(session);
+  return session.decisionFlags?.[flagName] || false;
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Actualiza un flag de decisión
+ */
+function setDecisionFlag(session, flagName, value) {
+  ensureDecisionFlags(session);
+  if (session.decisionFlags) {
+    session.decisionFlags[flagName] = value;
+    logger.info(`[MEMORY] 🧠 Flag actualizado: ${flagName} = ${value}`);
+  }
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Consulta si el usuario ya pidió técnico
+ */
+function hasUserRequestedTechnician(session) {
+  return getDecisionFlag(session, 'userRequestedTechnician');
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Consulta si ya se ofreció WhatsApp
+ */
+function hasWhatsAppBeenOffered(session) {
+  return getDecisionFlag(session, 'whatsappOffered');
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Consulta si se detectó frustración
+ */
+function hasFrustrationBeenDetected(session) {
+  return getDecisionFlag(session, 'userFrustrationDetected');
+}
+
+/**
+ * ⚠️ MEMORIA DE SESIÓN: Rastrea pasos confirmados vs no confirmados
+ * 
+ * CONSTITUCIÓN DE TECNOS - MEMORIA DE SESIÓN OBLIGATORIA
+ * 
+ * Consultar un paso NO implica que el usuario lo haya realizado.
+ * Un paso no confirmado es un paso no realizado.
+ * 
+ * Tecnos debe preguntar explícitamente:
+ * - si el paso se realizó
+ * - qué sucedió al intentarlo
+ * 
+ * Asumir ejecución implícita es falla crítica.
+ * 
+ * Esta función inicializa el rastreo de pasos si no existe.
+ * 
+ * ✅ SE PUEDE MODIFICAR: Agregar más información a cada paso (timestamp, resultado, etc.)
+ * ❌ NO MODIFICAR: La estructura base (se usa en toda la app para verificar pasos completados)
+ * 
+ * @param {object} session - Objeto de sesión
+ * @returns {void}
+ */
+function ensureStepsTracking(session) {
+  if (!session) return;
+  
+  // Inicializar stepsDone si no existe (pasos que el usuario confirmó haber completado)
+  if (!Array.isArray(session.stepsDone)) {
+    session.stepsDone = [];
+  }
+  
+  // Inicializar stepsOffered si no existe (pasos que Tecnos ofreció al usuario)
+  if (!Array.isArray(session.stepsOffered)) {
+    session.stepsOffered = [];
+  }
+  
+  // Inicializar stepsConfirmed si no existe (pasos confirmados explícitamente por el usuario)
+  // Formato: [{ stepIndex: number, confirmed: boolean, result: string, timestamp: string }]
+  if (!Array.isArray(session.stepsConfirmed)) {
+    session.stepsConfirmed = [];
+  }
+}
+
+/**
+ * Registra que un paso fue ofrecido al usuario
+ * 
+ * Esta función se llama cuando Tecnos muestra un paso al usuario.
+ * NO significa que el usuario lo haya realizado, solo que se le mostró.
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {number} stepIndex - Índice del paso (0-based)
+ * @param {string} stepText - Texto del paso ofrecido
+ * @returns {void}
+ */
+function recordStepOffered(session, stepIndex, stepText) {
+  ensureStepsTracking(session);
+  
+  // Verificar si el paso ya fue ofrecido
+  const alreadyOffered = session.stepsOffered.some(s => s.index === stepIndex);
+  if (!alreadyOffered) {
+    session.stepsOffered.push({
+      index: stepIndex,
+      text: stepText,
+      timestamp: nowIso()
+    });
+    logger.info(`[STEPS] Paso ${stepIndex} ofrecido al usuario`);
+  }
+}
+
+/**
+ * Registra que un paso fue confirmado como realizado por el usuario
+ * 
+ * Esta función se llama cuando el usuario confirma explícitamente que realizó un paso.
+ * Tecnos debe preguntar explícitamente antes de llamar esta función.
+ * 
+ * ⚠️ CRÍTICO: NO asumir que un paso fue realizado solo porque el usuario lo consultó.
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {number} stepIndex - Índice del paso (0-based)
+ * @param {boolean} completed - true si el paso fue completado, false si no
+ * @param {string} result - Resultado o comentario del usuario sobre el paso
+ * @returns {void}
+ */
+function recordStepConfirmed(session, stepIndex, completed, result = '') {
+  ensureStepsTracking(session);
+  
+  // Verificar si el paso ya fue confirmado
+  const existingConfirmation = session.stepsConfirmed.find(c => c.stepIndex === stepIndex);
+  if (existingConfirmation) {
+    // Actualizar confirmación existente
+    existingConfirmation.completed = completed;
+    existingConfirmation.result = result;
+    existingConfirmation.timestamp = nowIso();
+  } else {
+    // Crear nueva confirmación
+    session.stepsConfirmed.push({
+      stepIndex: stepIndex,
+      completed: completed,
+      result: result,
+      timestamp: nowIso()
+    });
+  }
+  
+  // Si fue completado, agregarlo a stepsDone
+  if (completed && !session.stepsDone.includes(stepIndex)) {
+    session.stepsDone.push(stepIndex);
+  }
+  
+  logger.info(`[STEPS] Paso ${stepIndex} confirmado: ${completed ? 'completado' : 'no completado'}`);
+}
+
+/**
+ * Consulta si un paso fue confirmado como realizado
+ * 
+ * Esta función verifica si el usuario confirmó explícitamente que realizó un paso.
+ * 
+ * ⚠️ CRÍTICO: Un paso no confirmado es un paso no realizado.
+ * NO asumir ejecución implícita.
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {number} stepIndex - Índice del paso (0-based)
+ * @returns {boolean} true si el paso fue confirmado como completado
+ */
+function isStepConfirmed(session, stepIndex) {
+  ensureStepsTracking(session);
+  const confirmation = session.stepsConfirmed.find(c => c.stepIndex === stepIndex);
+  return confirmation ? confirmation.completed === true : false;
+}
+
+/**
+ * Consulta qué pasos fueron ofrecidos pero NO confirmados
+ * 
+ * Esta función retorna los pasos que Tecnos ofreció pero el usuario no confirmó haber realizado.
+ * 
+ * Tecnos debe preguntar explícitamente sobre estos pasos antes de continuar.
+ * 
+ * @param {object} session - Objeto de sesión
+ * @returns {Array} Array de índices de pasos no confirmados
+ */
+function getUnconfirmedSteps(session) {
+  ensureStepsTracking(session);
+  const offeredIndices = session.stepsOffered.map(s => s.index);
+  const confirmedIndices = session.stepsConfirmed
+    .filter(c => c.completed === true)
+    .map(c => c.stepIndex);
+  
+  return offeredIndices.filter(index => !confirmedIndices.includes(index));
+}
+
+// ========================================================
+// 🎓 SISTEMA LIANA - ROL EXPLICATIVO Y ASISTENTE
+// ========================================================
+// 
+// CONSTITUCIÓN DE TECNOS - ROLES FUNDAMENTALES
+// 
+// El sistema STI opera con dos roles claramente diferenciados:
+// - Tecnos: rol controlador y decisor (diagnóstico, flujo, escalamiento)
+// - Liana: rol explicativo y asistente (explicaciones, tutoriales, guías)
+// 
+// REGLA DE INVOCACIÓN (NO NEGOCIABLE):
+// - Liana solo aparece cuando Tecnos la invoca explícitamente
+// - Liana nunca aparece por iniciativa propia
+// - Liana NO tiene autoridad para cambiar diagnóstico, alterar flujo, decidir escalamiento
+// 
+// CUANDO TECNOS DELEGA A LIANA:
+// - Usuario pide explicación detallada
+// - Usuario no entiende un paso
+// - Paso requiere guía paso a paso
+// - Instalación de software requiere tutorial
+// - Configuración de hardware requiere asistencia
+// 
+// FLUJO DE CONTROL:
+// 1. Tecnos presenta a Liana: "Te voy a conectar con Liana para que te explique..."
+// 2. Liana explica: Genera explicación detallada, tutorial o guía
+// 3. Tecnos retoma el control: "Ahora que Liana te explicó, volvamos a..."
+// 
+// ⚠️ CRÍTICO: Si Liana toma decisiones o escala, el sistema está violando la Constitución.
+// 
+// ✅ SE PUEDE MODIFICAR: El contenido de las explicaciones de Liana
+// ❌ NO MODIFICAR: Liana NO puede decidir ni escalar (solo Tecnos lo hace)
+
+/**
+ * Genera una explicación detallada usando Liana (rol explicativo)
+ * 
+ * Esta función se invoca cuando Tecnos decide que el usuario necesita
+ * una explicación más detallada de un paso o concepto técnico.
+ * 
+ * Liana NO decide cuándo explicar: Tecnos decide y delega a Liana.
+ * 
+ * @param {string} topic - Tema o paso a explicar (ej: "sfc /scannow", "reiniciar PC")
+ * @param {string} locale - Idioma del usuario ('es-AR' o 'en-US')
+ * @param {object} context - Contexto adicional (problema, dispositivo, etc.)
+ * @returns {Promise<string>} Explicación detallada generada por Liana
+ */
+async function generateLianaExplanation(topic, locale, context = {}) {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  // Si OpenAI está disponible, usarlo para generar explicación detallada
+  if (openai) {
+    try {
+      const systemPrompt = isEnglish
+        ? `You are Liana, a technical assistant that provides detailed, step-by-step explanations.
+Your role is to explain technical concepts clearly and help users understand how to perform specific tasks.
+You do NOT make decisions, you do NOT escalate, you do NOT diagnose.
+You ONLY explain and guide.
+
+Provide a clear, detailed explanation for: "${topic}"
+Context: Problem: ${context.problem || 'Not specified'}, Device: ${context.device || 'Not specified'}
+
+Format your response as a step-by-step guide with clear instructions.`
+        : `Sos Liana, una asistente técnica que brinda explicaciones detalladas paso a paso.
+Tu rol es explicar conceptos técnicos claramente y ayudar a los usuarios a entender cómo realizar tareas específicas.
+NO tomás decisiones, NO escalás, NO diagnosticás.
+SOLO explicás y guiás.
+
+Brindá una explicación clara y detallada para: "${topic}"
+Contexto: Problema: ${context.problem || 'No especificado'}, Dispositivo: ${context.device || 'No especificado'}
+
+Formateá tu respuesta como una guía paso a paso con instrucciones claras.`;
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Explain: ${topic}` }
+        ],
+        max_tokens: 500,
+        temperature: 0.7
+      });
+
+      const explanation = completion.choices[0]?.message?.content?.trim() || '';
+      if (explanation) {
+        logger.info(`[LIANA] Explicación generada para: ${topic}`);
+        return explanation;
+      }
+    } catch (error) {
+      logger.warn(`[LIANA] Error generando explicación con OpenAI: ${error.message}`);
+    }
+  }
+  
+  // Fallback: Explicación básica sin OpenAI
+  if (isEnglish) {
+    return `Here's a detailed explanation of ${topic}:\n\n[Liana would provide step-by-step instructions here. This is a fallback response when OpenAI is unavailable.]`;
+  } else {
+    return `Acá te explico detalladamente sobre ${topic}:\n\n[Liana brindaría instrucciones paso a paso acá. Esta es una respuesta de respaldo cuando OpenAI no está disponible.]`;
+  }
+}
+
+/**
+ * Presenta a Liana al usuario (Tecnos delega explicación)
+ * 
+ * Esta función genera el mensaje de presentación cuando Tecnos decide
+ * que Liana debe explicar algo al usuario.
+ * 
+ * ⚠️ CRÍTICO: Solo Tecnos puede invocar esta función.
+ * Liana nunca se presenta a sí misma.
+ * 
+ * @param {string} locale - Idioma del usuario
+ * @param {string} reason - Razón por la que Liana está siendo invocada
+ * @returns {string} Mensaje de presentación de Liana
+ */
+function presentLiana(locale, reason = '') {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  if (isEnglish) {
+    return `I'm going to connect you with Liana, our technical assistant, who will explain this step in detail.\n\n${reason ? `Reason: ${reason}\n\n` : ''}Liana will guide you through the process step by step.`;
+  } else {
+    return `Te voy a conectar con Liana, nuestra asistente técnica, que te va a explicar este paso en detalle.\n\n${reason ? `Motivo: ${reason}\n\n` : ''}Liana te va a guiar paso a paso en el proceso.`;
+  }
+}
+
+/**
+ * Retoma el control después de que Liana explica (Tecnos vuelve)
+ * 
+ * Esta función genera el mensaje de transición cuando Tecnos retoma
+ * el control después de que Liana ha explicado algo.
+ * 
+ * ⚠️ CRÍTICO: Tecnos siempre retoma el control después de Liana.
+ * Liana nunca continúa la conversación por su cuenta.
+ * 
+ * @param {string} locale - Idioma del usuario
+ * @returns {string} Mensaje de retorno de Tecnos
+ */
+function resumeTecnosControl(locale) {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  if (isEnglish) {
+    return `Now that Liana has explained that, let's continue. Did you complete the step? What happened when you tried it?`;
+  } else {
+    return `Ahora que Liana te explicó eso, sigamos. ¿Completaste el paso? ¿Qué pasó cuando lo intentaste?`;
+  }
+}
+
 /**
  * Verifica si la respuesta ajustada requiere escalamiento forzado y lo ejecuta
  * ⚠️ DECISIÓN REAL: Interrumpe el flujo si los mandamientos lo requieren
@@ -1628,14 +2019,36 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     }
   }
   
+  // ⚠️ MEMORIA DE SESIÓN: Consultar flags de frustración previos
+  ensureDecisionFlags(session);
+  const hasFrustrationFlag = hasFrustrationBeenDetected(session);
+  const hasUserRequestedTech = hasUserRequestedTechnician(session);
+  
   // Detectar frustración por fallbacks (MANDAMIENTO 9)
-  const frustrationDetected = session.fallbackCount >= 3 || extremeRepetition;
+  const frustrationDetected = session.fallbackCount >= 3 || extremeRepetition || hasFrustrationFlag;
+  
+  // Si se detecta frustración, actualizar el flag
+  if (frustrationDetected && !hasFrustrationFlag) {
+    setDecisionFlag(session, 'userFrustrationDetected', true);
+  }
   
   // Detectar ambigüedad en el mensaje del usuario (MANDAMIENTO 3)
   const hasAmbiguity = userText && (
     /\b(no sé|no entiendo|no funciona|no puedo|help|ayuda|confundido|confused)\b/i.test(userText) ||
     session.fallbackCount >= 2
   );
+  
+  // ⚠️ REGLA: Si el usuario ya pidió técnico, forzar escalamiento
+  if (hasUserRequestedTech) {
+    logger.warn(`[MANDATES] 🧠 Usuario ya pidió técnico - forzando escalamiento`);
+    return {
+      ...response,
+      _forceEscalate: true,
+      _escalationReason: 'user_previously_requested',
+      reply: response.reply,
+      buttons: response.buttons || null
+    };
+  }
   
   // ⚠️ SOSTENIBILIDAD: Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp
   if (shouldOfferWhatsAppEarly) {
@@ -1688,9 +2101,18 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
   let finalButtons = evaluation.correctedButtons || response.buttons || null;
   let shouldAllowWhatsApp = response.allowWhatsapp || false;
   
+  // ⚠️ MEMORIA DE SESIÓN: Consultar si ya se ofreció WhatsApp
+  const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
+  
   // Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp activamente
+  // ⚠️ REGLA: Si ya se ofreció WhatsApp antes, no volver a ofrecer pasos largos
   if (shouldOfferWhatsAppEarly) {
     shouldAllowWhatsApp = true;
+    
+    // Actualizar flag si no estaba activo
+    if (!hasWhatsAppBeenOffered) {
+      setDecisionFlag(session, 'whatsappOffered', true);
+    }
     
     // Si hay botones, agregar botón de WhatsApp al inicio si no existe
     if (finalButtons && Array.isArray(finalButtons)) {
@@ -1709,7 +2131,7 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
           description: isEnglish ? 'Get professional help via WhatsApp' : 'Obtener ayuda profesional por WhatsApp'
         };
         finalButtons = [whatsappButton, ...finalButtons];
-        logger.info(`[MANDATES] 💼 Botón de WhatsApp agregado por sostenibilidad (botMsgs=${botMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount})`);
+        logger.info(`[MANDATES] 💼 Botón de WhatsApp agregado por sostenibilidad (botMsgs=${botMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount}, yaOfrecido=${hasWhatsAppBeenOffered})`);
       }
     }
     
@@ -4786,7 +5208,11 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         
         // Formatear pasos con emojis, niveles de dificultad, tiempo estimado
         // Usar marcadores especiales [BTN_HELP_STEP_X] para que el frontend sepa dónde insertar cada botón
+        // ⚠️ MEMORIA DE SESIÓN: Registrar cada paso ofrecido al usuario
         const stepsWithHelp = steps.map((step, idx) => {
+          // Registrar que este paso fue ofrecido al usuario
+          recordStepOffered(session, idx, step);
+          
           const emoji = emojiForIndex(idx);
           const difficulty = getDifficultyForStep(idx, steps.length);
           const estimatedTime = estimateStepTime(step, idx, locale);
@@ -4806,18 +5232,45 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         // Generar botones: ayuda para cada paso + botones finales
         const buttons = [];
         
+        // ⚠️ MEMORIA DE SESIÓN: Consultar flags antes de decidir
+        ensureDecisionFlags(session);
+        const hasUserRequestedTech = hasUserRequestedTechnician(session);
+        const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
+        const hasFrustration = hasFrustrationBeenDetected(session);
+        
+        // ⚠️ REGLA: Si el usuario ya pidió técnico, no ofrecer pasos largos
+        if (hasUserRequestedTech) {
+          logger.warn(`[BASIC_TESTS] 🧠 Usuario ya pidió técnico - no ofrecer pasos largos`);
+          // Interrumpir y escalar inmediatamente
+          const escalationReason = {
+            requiresTechnician: true,
+            confidence: 'high',
+            type: 'user_previously_requested',
+            reason: 'Usuario ya pidió técnico en esta sesión'
+          };
+          return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
+        }
+        
         // ⚠️ SOSTENIBILIDAD STI: Si hay 3+ pasos, ofrecer WhatsApp al inicio
         const hasMultipleSteps = steps.length >= 3;
-        const shouldOfferWhatsAppInSteps = hasMultipleSteps && (session.fallbackCount >= 1 || botMessages >= 4);
+        // ⚠️ MEMORIA: Si ya se ofreció WhatsApp o hay frustración, ofrecer WhatsApp más temprano
+        const shouldOfferWhatsAppInSteps = hasMultipleSteps && (
+          hasWhatsAppBeenOffered ||  // Ya se ofreció antes
+          hasFrustration ||           // Hay frustración detectada
+          session.fallbackCount >= 1 || 
+          botMessages >= 4
+        );
         
         if (shouldOfferWhatsAppInSteps) {
+          setDecisionFlag(session, 'whatsappOffered', true);
+          setDecisionFlag(session, 'longStepsOffered', true);
           const whatsappButton = {
             text: isEnglish ? '💚 Get Professional Help via WhatsApp' : '💚 Obtener Ayuda Profesional por WhatsApp',
             value: 'BTN_WHATSAPP_TECNICO',
             description: isEnglish ? 'Skip steps and get direct help from a technician' : 'Saltar pasos y obtener ayuda directa de un técnico'
           };
           buttons.push(whatsappButton);
-          logger.info(`[BASIC_TESTS] 💼 Botón de WhatsApp agregado en pasos (${steps.length} pasos, fallbacks=${session.fallbackCount})`);
+          logger.info(`[BASIC_TESTS] 💼 Botón de WhatsApp agregado en pasos (${steps.length} pasos, fallbacks=${session.fallbackCount}, flags: whatsappOffered=${hasWhatsAppBeenOffered}, frustration=${hasFrustration})`);
         }
         
         // Botones de ayuda para cada paso (el frontend debe insertarlos donde encuentre [BTN_HELP_STEP_X])
@@ -5331,14 +5784,31 @@ function isTechnicalQuestion(text) {
 /**
  * Detecta si el usuario tiene intención de hablar con un técnico (explícita o implícita)
  * 
+ * CONSTITUCIÓN DE TECNOS - MANDAMIENTO 1, 2, 3: Prioridad al humano, nunca ignorar intención, ante la duda escalar
+ * 
  * Esta función detecta intenciones explícitas (pedidos directos de técnico) e implícitas
  * (acciones que requieren intervención técnica). Tiene prioridad absoluta sobre cualquier
- * flujo automático.
+ * flujo automático, EXCEPTO durante etapas iniciales donde aplica ANTI-ESCALAMIENTO ERRÓNEO.
+ * 
+ * ⚠️ ANTI-ESCALAMIENTO ERRÓNEO (CRÍTICO):
+ * Durante etapas de inicio (ASK_LANGUAGE, ASK_NAME):
+ * - NO se puede escalar a técnico
+ * - NO se puede ofrecer WhatsApp
+ * - NO se puede generar handoff
+ * 
+ * Excepción única:
+ * Pedido explícito e inequívoco del usuario solicitando técnico o WhatsApp.
+ * 
+ * Repetir un nombre, escribir una palabra suelta o mensajes sin verbo
+ * NO constituye intención de técnico.
+ * 
+ * ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
+ * ❌ NO MODIFICAR: La lógica de anti-escalamiento erróneo (es crítica para evitar falsos positivos)
  * 
  * @param {string} text - Texto del usuario
  * @param {string} locale - Idioma del usuario
- * @param {object} session - Sesión actual (para contexto)
- * @returns {object} { requiresTechnician: boolean, confidence: 'high'|'medium'|'low', reason: string, type: 'explicit'|'implicit'|'frustration'|'risk'|'hardware' }
+ * @param {object} session - Sesión actual (para contexto y verificar stage)
+ * @returns {object} { requiresTechnician: boolean, confidence: 'high'|'medium'|'low', reason: string, type: 'explicit'|'implicit'|'frustration'|'risk'|'hardware'|'blocked_by_stage' }
  */
 function detectTechnicianIntent(text, locale, session = {}) {
   if (!text || typeof text !== 'string') {
@@ -5347,6 +5817,62 @@ function detectTechnicianIntent(text, locale, session = {}) {
   
   const lowerText = text.toLowerCase().trim();
   const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  // ========================================
+  // ⚠️ ANTI-ESCALAMIENTO ERRÓNEO (CRÍTICO)
+  // ========================================
+  // Durante etapas iniciales, solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
+  // 
+  // Etapas bloqueadas: ASK_LANGUAGE, ASK_NAME
+  // En estas etapas, el usuario está en proceso de configuración inicial.
+  // Escalar por error aquí rompe la experiencia del usuario.
+  //
+  // ✅ SE PUEDE MODIFICAR: Agregar más etapas a la lista de bloqueadas si es necesario
+  // ❌ NO MODIFICAR: La lógica de bloqueo (es crítica para evitar escalamientos erróneos)
+  //
+  const currentStage = session.stage || '';
+  const blockedStages = ['ASK_LANGUAGE', 'ASK_NAME'];
+  const isBlockedStage = blockedStages.includes(currentStage);
+  
+  // Si estamos en etapa bloqueada, solo detectar pedidos EXPLÍCITOS e INEQUÍVOCOS
+  if (isBlockedStage) {
+    // Patrones de pedido EXPLÍCITO e INEQUÍVOCO (deben tener verbo de acción claro)
+    const explicitOnlyPatterns = isEnglish ? [
+      /\b(want|need|would like|can i|could i|may i)\s+(to\s+)?(talk|speak|contact|connect|get|have)\s+(with|to)\s+(a\s+)?(technician|tech|human|person|someone|support|professional|expert)/i,
+      /\b(want|need|would like)\s+(a|an)\s+(technician|tech|human|person|support|professional)/i,
+      /\b(open|create|generate|request)\s+(a\s+)?(ticket|support\s+ticket)/i,
+      /\b(whatsapp|phone|number|call|contact)\s+(support|technician|tech)/i
+    ] : [
+      /\b(quiero|necesito|me\s+gustaría|podría|podés|puedo)\s+(hablar|contactar|conectar|comunicar)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|especialista|persona|humano|soporte)/i,
+      /\b(quiero|necesito|me\s+gustaría)\s+(un|una)\s+(técnico|tecnico|profesional|soporte)/i,
+      /\b(quiero|necesito|generar|crear|abrir|pedir)\s+(un\s+)?(ticket|presupuesto)/i,
+      /\b(whatsapp|teléfono|telefono|número|numero|llamar|contactar)\s+(soporte|técnico|tecnico)/i
+    ];
+    
+    // Verificar si hay pedido explícito
+    let hasExplicitRequest = false;
+    for (const pattern of explicitOnlyPatterns) {
+      if (pattern.test(lowerText)) {
+        hasExplicitRequest = true;
+        break;
+      }
+    }
+    
+    // Si NO hay pedido explícito, bloquear escalamiento
+    if (!hasExplicitRequest) {
+      logger.info(`[TECHNICIAN_INTENT] ⚠️ Escalamiento bloqueado en etapa ${currentStage}: "${text.substring(0, 50)}..." (no es pedido explícito)`);
+      return {
+        requiresTechnician: false,
+        confidence: 'low',
+        reason: 'blocked_by_stage',
+        type: 'blocked_by_stage',
+        blockedStage: currentStage
+      };
+    }
+    
+    // Si hay pedido explícito, permitir escalamiento (excepción única)
+    logger.info(`[TECHNICIAN_INTENT] ✅ Pedido explícito detectado en etapa bloqueada ${currentStage}: "${text.substring(0, 50)}..."`);
+  }
   
   // ========================================
   // A) PEDIDOS EXPLÍCITOS DE CONTACTO CON TÉCNICO
@@ -5725,6 +6251,17 @@ async function escalateToTechnicianImmediately(session, userText, sessionId, det
   const isEnglish = String(locale).toLowerCase().startsWith('en');
   const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
   
+  // ⚠️ MEMORIA DE SESIÓN: Actualizar flags de decisión
+  ensureDecisionFlags(session);
+  setDecisionFlag(session, 'userRequestedTechnician', true);
+  setDecisionFlag(session, 'whatsappOffered', true);
+  setDecisionFlag(session, 'automaticFlowInterrupted', true);
+  setDecisionFlag(session, 'escalationAttempted', true);
+  
+  if (detectionResult.confidence === 'low' || detectionResult.type === 'ambiguous') {
+    setDecisionFlag(session, 'ambiguousTechnicianIntent', true);
+  }
+  
   // Registrar el handoff para auditoría
   const handoffRecord = {
     timestamp: nowIso(),
@@ -6083,6 +6620,41 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe regenerar los pasos usando handleAskDeviceStage
     //
     if (buttonToken === 'BTN_BACK_TO_STEPS' || buttonToken === 'BTN_BACK') {
+      // ⚠️ MEMORIA DE SESIÓN: Consultar flags antes de regenerar pasos
+      ensureDecisionFlags(session);
+      const hasUserRequestedTech = hasUserRequestedTechnician(session);
+      const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
+      const stepsRepeated = getDecisionFlag(session, 'stepsRepeated');
+      
+      // ⚠️ REGLA: Si el usuario ya pidió técnico, no volver a ofrecer pasos
+      if (hasUserRequestedTech) {
+        logger.warn(`[BASIC_TESTS] 🧠 Usuario ya pidió técnico - no volver a pasos`);
+        const escalationReason = {
+          requiresTechnician: true,
+          confidence: 'high',
+          type: 'user_previously_requested',
+          reason: 'Usuario ya pidió técnico, no volver a pasos'
+        };
+        return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
+      }
+      
+      // ⚠️ REGLA: Si ya se ofreció WhatsApp y se repiten pasos, ofrecer WhatsApp directamente
+      if (hasWhatsAppBeenOffered && stepsRepeated) {
+        logger.warn(`[BASIC_TESTS] 🧠 Pasos ya repetidos y WhatsApp ya ofrecido - escalar directamente`);
+        const escalationReason = {
+          requiresTechnician: true,
+          confidence: 'high',
+          type: 'steps_repeated_whatsapp_offered',
+          reason: 'Pasos repetidos y WhatsApp ya ofrecido'
+        };
+        return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
+      }
+      
+      // Marcar que se están repitiendo pasos
+      if (!stepsRepeated) {
+        setDecisionFlag(session, 'stepsRepeated', true);
+      }
+      
       // Regenerar los pasos llamando a handleAskDeviceStage con el dispositivo ya guardado
       // Pero primero necesitamos verificar que haya dispositivo y problema guardados
       if (session.device && session.problem) {
@@ -6199,26 +6771,51 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Generar explicación detallada del paso
       // IMPORTANTE: explainStepWithAI espera un índice 1-based (como en el código antiguo)
       // Por lo tanto, debemos pasar stepNumber (1-based), no stepIdx (0-based)
+      // ⚠️ CONSTITUCIÓN DE TECNOS: Usar Liana para explicaciones detalladas
+      // Tecnos presenta a Liana, Liana explica, Tecnos retoma el control
+      const lianaPresentation = presentLiana(locale, `Explicación detallada del paso ${stepNumber}`);
+      
       let explanation = '';
       try {
-        explanation = await explainStepWithAI(
+        // Generar explicación usando Liana (rol explicativo)
+        const lianaExplanation = await generateLianaExplanation(
           stepText,
-          stepNumber, // Pasar stepNumber (1-based) - la función espera índice 1-based
-          session.device || '',
-          session.problem || '',
-          locale
+          locale,
+          {
+            problem: session.problem || '',
+            device: session.device || '',
+            stepNumber: stepNumber
+          }
         );
+        
+        // Combinar presentación de Tecnos + explicación de Liana
+        explanation = `${lianaPresentation}\n\n---\n\n**Liana:**\n\n${lianaExplanation}`;
       } catch (err) {
-        logger.error('[BASIC_TESTS] Error generando ayuda:', err);
-        explanation = isEnglish
-          ? `**Help for Step ${stepNumber}:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
-          : `**🛠️ Ayuda — Paso ${stepNumber}**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
+        logger.error('[BASIC_TESTS] Error generando ayuda con Liana:', err);
+        // Fallback: usar explainStepWithAI si Liana falla
+        try {
+          explanation = await explainStepWithAI(
+            stepText,
+            stepNumber,
+            session.device || '',
+            session.problem || '',
+            locale
+          );
+          explanation = `${lianaPresentation}\n\n---\n\n**Liana:**\n\n${explanation}`;
+        } catch (fallbackErr) {
+          logger.error('[BASIC_TESTS] Error en fallback de ayuda:', fallbackErr);
+          explanation = isEnglish
+            ? `${lianaPresentation}\n\n---\n\n**Liana:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
+            : `${lianaPresentation}\n\n---\n\n**Liana:**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
+        }
       }
       
-      // Formatear el mensaje final con la pregunta de seguimiento
-      const followUp = isEnglish
-        ? "\n\nAfter trying this, how did it go?"
-        : "\n\nDespués de probar esto, ¿cómo te fue?";
+      // ⚠️ CONSTITUCIÓN DE TECNOS: Tecnos retoma el control después de Liana
+      // Preguntar EXPLÍCITAMENTE si el paso se completó (no asumir ejecución implícita)
+      const tecnosResume = resumeTecnosControl(locale);
+      
+      // Formatear el mensaje final con la pregunta explícita de Tecnos
+      const followUp = `\n\n---\n\n**Tecnos:**\n\n${tecnosResume}`;
       
       // Añadir CTA para consultas adicionales
       const ctaHelp = isEnglish
@@ -6231,11 +6828,16 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       const buttons = [];
       
       // Botón "Lo pude solucionar"
+      // ⚠️ CONSTITUCIÓN DE TECNOS: Este botón confirma que el paso fue completado
       buttons.push({
         text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
         value: 'BTN_SOLVED',
         description: isEnglish ? 'The problem is gone' : 'El problema desapareció'
       });
+      
+      // ⚠️ MEMORIA DE SESIÓN: Registrar que se está preguntando sobre este paso
+      // El usuario aún no ha confirmado, pero se le está preguntando explícitamente
+      // Esto permite rastrear qué pasos fueron consultados pero no confirmados
       
       // Botón "Volver a los pasos" (siempre presente para respetar el flujo)
       buttons.push({
@@ -6291,6 +6893,11 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe cambiar a ENDED y desactivar waEligible
     //
     if (buttonToken === 'BTN_SOLVED' || /^\s*(s|si|sí|lo pude|lo pude solucionar|resuelto|solucionado)\b/i.test(userText || '')) {
+      // ⚠️ MEMORIA DE SESIÓN: Registrar paso como confirmado y completado
+      const currentStepIndex = session.currentTestIndex ?? session.lastHelpStep ?? 0;
+      recordStepConfirmed(session, currentStepIndex, true, 'Usuario confirmó que completó el paso y solucionó el problema');
+      logger.info(`[BASIC_TESTS] Paso ${currentStepIndex} confirmado como completado por el usuario`);
+      
       // Telemetría: marcado como solucionado
       pushBasicTestTelemetry(session, {
         action: 'solved',
@@ -8737,6 +9344,19 @@ app.get('/api/greeting', async (req, res) => {
         device: null,
         action: null,
         urgency: 'normal'
+      },
+      // ⚠️ MEMORIA DE SESIÓN OBLIGATORIA: Flags de decisión que condicionan el comportamiento
+      decisionFlags: {
+        userRequestedTechnician: false,    // Usuario pidió técnico explícitamente
+        whatsappOffered: false,             // Ya se ofreció WhatsApp en esta sesión
+        userFrustrationDetected: false,     // Se detectó frustración del usuario
+        escalationBlockedByStage: false,   // Escalamiento bloqueado por etapa actual
+        ambiguousTechnicianIntent: false,  // Intención de técnico ambigua detectada
+        automaticFlowInterrupted: false,   // Flujo automático fue interrumpido
+        longStepsOffered: false,           // Ya se ofrecieron pasos largos
+        technicianDeclined: false,         // Usuario rechazó oferta de técnico
+        stepsRepeated: false,              // Pasos ya fueron repetidos
+        escalationAttempted: false        // Ya se intentó escalar (puede haber sido bloqueado)
       }
     };
     
@@ -8876,7 +9496,20 @@ app.post('/api/chat', async (req, res) => {
         gdprConsent: null,
         gdprConsentDate: null,
         contextWindow: [],
-        detectedEntities: { device: null, action: null, urgency: 'normal' }
+        detectedEntities: { device: null, action: null, urgency: 'normal' },
+        // ⚠️ MEMORIA DE SESIÓN OBLIGATORIA: Flags de decisión que condicionan el comportamiento
+        decisionFlags: {
+          userRequestedTechnician: false,
+          whatsappOffered: false,
+          userFrustrationDetected: false,
+          escalationBlockedByStage: false,
+          ambiguousTechnicianIntent: false,
+          automaticFlowInterrupted: false,
+          longStepsOffered: false,
+          technicianDeclined: false,
+          stepsRepeated: false,
+          escalationAttempted: false
+        }
       };
       sessionLocale = ensureSessionLocale(session);
       
