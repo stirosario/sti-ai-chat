@@ -1985,9 +1985,18 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
       finalReply = applyTecnosVoice(finalReply, locale);
     }
     
+    // ⚠️ BLOQUEO ABSOLUTO: NO ofrecer WhatsApp en etapas iniciales
+    // Especialmente en ASK_NEED cuando es primera selección de problema
+    const isFirstProblemSelection = currentStage === 'ASK_NEED' && 
+                                     !session.problem && 
+                                     !session.stepsDone?.length && 
+                                     session.fallbackCount === 0;
+    
     return {
       ...response,
-      reply: finalReply
+      reply: finalReply,
+      // ⚠️ CRÍTICO: Forzar allowWhatsapp a false en primera selección de problema
+      allowWhatsapp: isFirstProblemSelection ? false : (response.allowWhatsapp || false)
     };
   }
   
@@ -4177,64 +4186,99 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     logger.info(`[ASK_NEED] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
-    // ⚠️ ANTI-WHATSAPP PREMATURO (CRÍTICO)
+    // ⚠️ GUARD RAIL ABSOLUTO: BLOQUEO EN ASK_NEED (BUG J7685)
     // ========================================
-    // REGLA CENTRAL: Seleccionar un problema desde el menú NO constituye intención de técnico.
+    // REGLA DE BLOQUEO ABSOLUTO: Durante ASK_NEED, Tecnos TIENE PROHIBIDO escalar
+    // SI se cumplen TODAS estas condiciones:
+    // 1) Es la primera vez que el problema aparece en la sesión
+    // 2) El usuario NO confirmó haber realizado ningún paso
+    // 3) El usuario NO expresó frustración
+    // 4) El usuario NO pidió explícitamente un técnico
+    // 5) No existe riesgo técnico ni de datos
+    //
+    // ⚠️ CRÍTICO: Seleccionar un problema desde el menú NO es pedido de técnico.
     // Nombrar el problema ≠ pedir técnico.
+    // Repetir o reformular el problema NO es frustración, NO es bloqueo, NO habilita WhatsApp.
     //
-    // Tecnos NO debe ofrecer WhatsApp cuando:
-    // - Es la primera vez que el usuario selecciona o escribe el problema
-    // - El usuario todavía no realizó ningún paso guiado
-    // - No hay señales de frustración
-    // - No hay repetición del problema
-    // - No hay riesgo técnico o de datos
-    // - No existe pedido explícito de humano
+    // PROHIBICIÓN TÉCNICA EXPLÍCITA:
+    // - NO detectar intención de técnico cuando se selecciona un botón de problema
+    // - NO escalar cuando el usuario solo nombra o repite el problema
+    // - NO consultar OpenAI para casos ambiguos en ASK_NEED
     //
-    // SOLO detectar intención de técnico si:
-    // 1. Hay pedido EXPLÍCITO ("quiero hablar con un técnico", "WhatsApp", etc.)
-    // 2. Hay frustración/bloqueo detectado (repetición, "no entiendo", etc.)
-    // 3. Ya se intentaron pasos sin éxito
-    // 4. Hay complejidad real o riesgo técnico
+    // Si el usuario hizo clic en un botón de problema, procesarlo DIRECTAMENTE sin detectar intención.
+    // Si el usuario escribió texto, SOLO detectar si hay pedido EXPLÍCITO e INEQUÍVOCO.
     //
-    // ⚠️ CRÍTICO: NO detectar intención de técnico cuando se selecciona un botón de problema
-    // Los botones de problema (BTN_NO_INTERNET, BTN_NO_ENCIENDE, etc.) son selecciones de problema,
-    // NO pedidos de técnico.
-    //
-    // Si el usuario hizo clic en un botón de problema, procesarlo directamente sin detectar intención.
-    // Solo detectar intención si el usuario ESCRIBIÓ texto (no botón) Y hay indicadores claros.
-    //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0 && !buttonToken) {
-      // ⚠️ SOLO detectar intención si NO es un botón de problema
-      // Si es un botón, procesarlo directamente sin detectar intención
-      
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      // ⚠️ CRÍTICO: Solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
-      // NO escalar por problemas genéricos o selecciones de menú
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high' && techIntent.type === 'explicit') {
-        // SOLO escalar si es pedido EXPLÍCITO (no implícito, no frustración, no riesgo)
-        // Esto asegura que solo se escale cuando el usuario realmente pide técnico
-        logger.info(`[ASK_NEED] ✅ Pedido EXPLÍCITO de técnico detectado: "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician && techIntent.confidence === 'high' && 
-                 (techIntent.type === 'frustration' || techIntent.type === 'risk')) {
-        // Escalar solo si hay frustración REAL o riesgo REAL (no solo selección de problema)
-        // Verificar que realmente hay frustración: pasos intentados, repetición, etc.
-        const hasRealFrustration = session.fallbackCount >= 2 || 
-                                   session.stepsDone?.length > 0 ||
-                                   session.problemRepetitions >= 2;
-        
-        if (hasRealFrustration) {
-          logger.info(`[ASK_NEED] ✅ Frustración/riesgo REAL detectado: "${userText.substring(0, 50)}..."`);
-          return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-        } else {
-          // NO escalar si es solo la primera interacción del problema
-          logger.info(`[ASK_NEED] ⚠️ Intención detectada pero NO escalando (primera interacción, sin frustración real): "${userText.substring(0, 50)}..."`);
-        }
+    // ⚠️ BLOQUEO ABSOLUTO: Si es botón de problema, saltar toda detección de intención
+    if (buttonToken) {
+      // Si es un botón, verificar si es un botón de problema
+      const problemInfo = getProblemFromButton(buttonToken);
+      if (problemInfo) {
+        // ✅ ES UN BOTÓN DE PROBLEMA - BLOQUEAR TODA DETECCIÓN DE INTENCIÓN
+        // Procesar directamente sin detectar intención de técnico
+        logger.info(`[ASK_NEED] 🚫 BLOQUEO: Botón de problema detectado, saltando detección de intención: ${buttonToken}`);
+        // Continuar con el procesamiento normal del botón (línea 4255)
+      } else {
+        // No es un botón de problema, puede ser otro tipo de botón
+        // Continuar con el procesamiento normal
       }
-      // ❌ NO consultar OpenAI para casos ambiguos en ASK_NEED
-      // Esto causa escalamiento prematuro cuando el usuario solo selecciona un problema
+    } else if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+      // ⚠️ SOLO detectar intención si NO es un botón de problema
+      // Verificar primero si es la primera selección del problema
+      const isFirstProblemSelection = !session.problem && 
+                                      !session.stepsDone?.length && 
+                                      session.fallbackCount === 0;
+      
+      if (isFirstProblemSelection) {
+        // ⚠️ BLOQUEO ABSOLUTO: Primera selección de problema - NO detectar intención
+        logger.info(`[ASK_NEED] 🚫 BLOQUEO: Primera selección de problema, saltando detección de intención: "${userText.substring(0, 50)}..."`);
+        // Continuar con el procesamiento normal del texto (línea 4260)
+      } else {
+        // ⚠️ SOLO detectar intención si NO es primera selección de problema
+        // Detectar intención de técnico (explícita o implícita)
+        const techIntent = detectTechnicianIntent(userText, locale, session);
+        
+        // ⚠️ CRÍTICO: Solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
+        // NO escalar por problemas genéricos o selecciones de menú
+        if (techIntent.requiresTechnician && techIntent.confidence === 'high' && techIntent.type === 'explicit') {
+          // SOLO escalar si es pedido EXPLÍCITO (no implícito, no frustración, no riesgo)
+          // Esto asegura que solo se escale cuando el usuario realmente pide técnico
+          logger.info(`[ASK_NEED] ✅ Pedido EXPLÍCITO de técnico detectado: "${userText.substring(0, 50)}..."`);
+          const escalateResult = await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+          // ⚠️ CRÍTICO: Verificar si el escalamiento fue bloqueado por el guard rail
+          if (escalateResult === null) {
+            logger.info(`[ASK_NEED] ⚠️ Escalamiento bloqueado por guard rail (pedido explícito bloqueado), continuando con flujo normal`);
+            // Continuar con el procesamiento normal del texto (no retornar, seguir con el flujo)
+          } else {
+            // Escalamiento permitido, retornar el resultado
+            return escalateResult;
+          }
+        } else if (techIntent.requiresTechnician && techIntent.confidence === 'high' && 
+                   (techIntent.type === 'frustration' || techIntent.type === 'risk')) {
+          // Escalar solo si hay frustración REAL o riesgo REAL (no solo selección de problema)
+          // Verificar que realmente hay frustración: pasos intentados, repetición, etc.
+          const hasRealFrustration = session.fallbackCount >= 2 || 
+                                     session.stepsDone?.length > 0 ||
+                                     session.problemRepetitions >= 2;
+          
+          if (hasRealFrustration) {
+            logger.info(`[ASK_NEED] ✅ Frustración/riesgo REAL detectado: "${userText.substring(0, 50)}..."`);
+            const escalateResult = await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+            // ⚠️ CRÍTICO: Verificar si el escalamiento fue bloqueado por el guard rail
+            if (escalateResult === null) {
+              logger.info(`[ASK_NEED] ⚠️ Escalamiento bloqueado por guard rail, continuando con flujo normal`);
+              // Continuar con el procesamiento normal del texto (no retornar, seguir con el flujo)
+            } else {
+              // Escalamiento permitido, retornar el resultado
+              return escalateResult;
+            }
+          } else {
+            // NO escalar si es solo la primera interacción del problema
+            logger.info(`[ASK_NEED] ⚠️ Intención detectada pero NO escalando (primera interacción, sin frustración real): "${userText.substring(0, 50)}..."`);
+          }
+        }
+        // ❌ NO consultar OpenAI para casos ambiguos en ASK_NEED
+        // Esto causa escalamiento prematuro cuando el usuario solo selecciona un problema
+      }
     }
     
     // ========================================
@@ -4299,12 +4343,14 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         await saveSessionAndTranscript(sessionId, session);
         
         // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        // ⚠️ BLOQUEO ABSOLUTO: NO incluir allowWhatsapp en primera selección de problema
         const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons, // ⚠️ CRÍTICO: Incluir los botones de dispositivos
-          handled: true
+          handled: true,
+          allowWhatsapp: false // ⚠️ CRÍTICO: Forzar a false en primera selección de problema (BUG J7685)
         };
         return applyMandatesToResponse(response, session, userText, buttonToken);
       }
@@ -6308,6 +6354,38 @@ Analizá si este mensaje indica que el usuario quiere o necesita soporte de un t
  * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons, allowWhatsapp, handled } o void si usa res.json()
  */
 async function escalateToTechnicianImmediately(session, userText, sessionId, detectionResult, res = null) {
+  // ========================================
+  // ⚠️ GUARD RAIL ABSOLUTO: BLOQUEO EN ASK_NEED (BUG J7685)
+  // ========================================
+  // REGLA DE BLOQUEO ABSOLUTO: Durante ASK_NEED, Tecnos TIENE PROHIBIDO escalar
+  // SI se cumplen TODAS estas condiciones:
+  // 1) Es la primera vez que el problema aparece en la sesión
+  // 2) El usuario NO confirmó haber realizado ningún paso
+  // 3) El usuario NO expresó frustración
+  // 4) El usuario NO pidió explícitamente un técnico
+  // 5) No existe riesgo técnico ni de datos
+  //
+  // ⚠️ CRÍTICO: Seleccionar un problema desde el menú NO es pedido de técnico.
+  // Nombrar el problema ≠ pedir técnico.
+  // Repetir o reformular el problema NO es frustración, NO es bloqueo, NO habilita WhatsApp.
+  //
+  const currentStage = session.stage || '';
+  // Verificar si es primera selección de problema (incluso si el stage ya cambió a ASK_DEVICE)
+  // El stage puede cambiar a ASK_DEVICE antes de que se llame a esta función
+  const isFirstProblemSelection = (currentStage === 'ASK_NEED' || currentStage === 'ASK_DEVICE') && 
+                                   session.problem && // Problema ya fue guardado (selección reciente)
+                                   !session.stepsDone?.length && // No hay pasos intentados
+                                   session.fallbackCount === 0 && // No hay fallbacks
+                                   (!detectionResult || detectionResult.type !== 'explicit') && // No es pedido explícito
+                                   (!detectionResult || detectionResult.reason !== 'explicit_request'); // No es pedido explícito
+  
+  if (isFirstProblemSelection) {
+    logger.warn(`[ESCALATE_BLOCKED] 🚫 BLOQUEO ABSOLUTO: Escalamiento bloqueado (primera selección de problema). Stage: ${currentStage}, Problema: "${session.problem}", Texto: "${userText?.substring(0, 50) || ''}..."`);
+    // ⚠️ CRÍTICO: Retornar null para indicar que el escalamiento está bloqueado
+    // El handler debe verificar si el resultado es null antes de usar el resultado
+    return null;
+  }
+  
   const locale = ensureSessionLocale(session);
   const isEnglish = String(locale).toLowerCase().startsWith('en');
   const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
@@ -9704,8 +9782,12 @@ app.post('/api/chat', async (req, res) => {
         // Intención clara detectada, escalar inmediatamente
         logger.info(`[CHAT] Intención de técnico detectada (${techIntent.type}) - Interrumpiendo flujo: "${incomingText.substring(0, 50)}..."`);
         const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, techIntent, res);
-        // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
-        if (escalateResult && escalateResult.handled) {
+        // ⚠️ CRÍTICO: Verificar si el escalamiento fue bloqueado por el guard rail
+        if (escalateResult === null) {
+          logger.info(`[CHAT] ⚠️ Escalamiento bloqueado por guard rail, continuando con flujo normal`);
+          // Continuar con el procesamiento normal (no retornar, seguir con el flujo)
+        } else if (escalateResult && escalateResult.handled) {
+          // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
           return res.json({
             ok: escalateResult.ok,
             reply: escalateResult.reply,
@@ -9733,8 +9815,12 @@ app.post('/api/chat', async (req, res) => {
           ambiguousResult.type = 'ambiguous';
           ambiguousResult.reason = 'ambiguous_with_indicators';
           const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, ambiguousResult, res);
-          // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
-          if (escalateResult && escalateResult.handled) {
+          // ⚠️ CRÍTICO: Verificar si el escalamiento fue bloqueado por el guard rail
+          if (escalateResult === null) {
+            logger.info(`[CHAT] ⚠️ Escalamiento bloqueado por guard rail (caso ambiguo bloqueado), continuando con flujo normal`);
+            // Continuar con el procesamiento normal (no retornar, seguir con el flujo)
+          } else if (escalateResult && escalateResult.handled) {
+            // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
             return res.json({
               ok: escalateResult.ok,
               reply: escalateResult.reply,
