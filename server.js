@@ -1971,6 +1971,30 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
     return response;
   }
   
+  // ⚠️ NUEVO: SALTEAR MANDAMIENTOS EN ETAPAS INICIALES
+  const currentStage = session.stage || '';
+  const initialStages = ['ASK_LANGUAGE', 'ASK_NAME', 'ASK_NEED'];
+  
+  if (initialStages.includes(currentStage)) {
+    logger.info(`[MANDATES] ⏭️ Salteando evaluación de mandamientos en etapa inicial: ${currentStage}`);
+    
+    // Solo aplicar tono Tecnos (sin evaluación completa)
+    const locale = ensureSessionLocale(session);
+    let finalReply = response.reply || '';
+    if (finalReply && finalReply.trim().length > 0) {
+      finalReply = applyTecnosVoice(finalReply, locale);
+    }
+    
+    return {
+      ...response,
+      reply: finalReply
+    };
+  }
+  
+  // ⚠️ CONTINUAR CON EVALUACIÓN NORMAL SOLO DESPUÉS DE ASK_NEED
+  const locale = ensureSessionLocale(session);
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
   // ⚠️ EVALUACIÓN PREVIA: Detectar frustración/repetitividad ANTES de evaluar mandamientos
   const transcript = session.transcript || [];
   const recentBotMessages = transcript
@@ -1985,7 +2009,7 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
   const botMessages = transcript.filter(entry => entry.who === 'bot').length;
   const userMessages = transcript.filter(entry => entry.who === 'user').length;
   const stepsShown = session.stepsDone?.length || 0;
-  const currentStage = session.stage || '';
+  // ⚠️ currentStage ya está definido arriba (línea ~1975)
   
   // Calcular tiempo estimado de conversación (asumiendo ~30 segundos por intercambio)
   const estimatedMinutes = Math.floor((totalMessages * 30) / 60);
@@ -2004,7 +2028,7 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
   
   // Detectar repetición léxica extrema (MANDAMIENTO 12)
   const repetitiveWords = ['perfecto', 'entiendo', 'frustrante', 'claro', 'excelente', 'genial', 'bien', 'ok'];
-  const locale = ensureSessionLocale(session);
+  // ⚠️ locale ya está definido arriba (línea ~1995)
   const wordsToCheck = String(locale).toLowerCase().startsWith('en') 
     ? ['perfect', 'understand', 'frustrating', 'clear', 'excellent', 'great', 'ok', 'okay']
     : repetitiveWords;
