@@ -91,6 +91,11 @@ import multer from 'multer';
 // Reduce el tamaño de las imágenes para ahorrar espacio y ancho de banda
 import sharp from 'sharp';
 
+// openai: Cliente oficial de OpenAI para interactuar con la API
+// Permite generar respuestas inteligentes usando GPT para preguntas técnicas
+// Se usa para responder preguntas sobre informática y tecnología con el tono correcto
+import OpenAI from 'openai';
+
 // ========================================================
 // 📁 CONFIGURACIÓN DE DIRECTORIOS
 // ========================================================
@@ -241,6 +246,26 @@ const logger = pino({
         }
       }
 });
+
+// ========================================================
+// 🤖 CONFIGURACIÓN DE OPENAI
+// ========================================================
+
+// Inicializar cliente de OpenAI si está configurada la API key
+// Se usa para generar respuestas inteligentes a preguntas técnicas
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  try {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    logger.info('[OPENAI] ✅ Cliente de OpenAI inicializado');
+  } catch (error) {
+    logger.error('[OPENAI] ❌ Error inicializando OpenAI:', error.message);
+  }
+} else {
+  logger.warn('[OPENAI] ⚠️  OPENAI_API_KEY no configurada - respuestas técnicas deshabilitadas');
+}
 
 let logStream = null;
 try {
@@ -1092,6 +1117,11 @@ async function saveSessionAndTranscript(sessionId, session) {
           mensaje: entry.text || '',
           stage: entry.stage || session.stage || 'unknown'
         };
+        
+        // Incluir botones si existen en el entry
+        if (entry.buttons && Array.isArray(entry.buttons)) {
+          msg.botones = entry.buttons;
+        }
         
         return msg;
       });
@@ -2503,6 +2533,65 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     }
     
     // ========================================
+    // CASO 4.5: DETECCIÓN DE PREGUNTAS TÉCNICAS (con OpenAI)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos de informática/tecnología
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    // Esto permite responder preguntas técnicas incluso cuando se espera un nombre
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del paso actual
+    //
+    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
+      logger.info(`[ASK_NAME] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          userText,
+          locale,
+          {
+            userName: session.userName || 'usuario',
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[ASK_NAME] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      if (!technicalReply) {
+        technicalReply = isEnglish
+          ? `I'm sorry, I couldn't generate a specific technical answer right now. But first, could you tell me your name? For example: "Ana" or "John Paul".`
+          : `Disculpá, no pude generar una respuesta técnica específica en este momento. Pero primero, ¿podés decirme tu nombre? Por ejemplo: "Ana" o "Juan Pablo".`;
+      } else {
+        // Agregar recordatorio de que necesitamos el nombre
+        const nameReminder = isEnglish
+          ? `\n\nBy the way, I still need your name to continue. Could you tell me your name? For example: "Ana" or "John Paul".`
+          : `\n\nPor cierto, todavía necesito tu nombre para continuar. ¿Podés decirme tu nombre? Por ejemplo: "Ana" o "Juan Pablo".`;
+        technicalReply += nameReminder;
+      }
+      
+      session.transcript.push({
+        who: 'bot',
+        text: technicalReply,
+        ts: nowIso(),
+        questionType: 'technical_openai'
+      });
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      return {
+        ok: true,
+        reply: technicalReply,
+        stage: session.stage,
+        handled: true
+      };
+    }
+    
+    // ========================================
     // CASO 5: TEXTO CLARAMENTE NO ES UN NOMBRE
     // ========================================
     // Si el texto parece ser un problema técnico o frase genérica
@@ -2967,7 +3056,72 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     }
     
     // ========================================
-    // CASO 3: FALLBACK - NO SE DETECTÓ PROBLEMA
+    // CASO 3: DETECCIÓN DE PREGUNTAS TÉCNICAS (con OpenAI)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos relacionados con su problema
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del problema
+    //
+    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
+      logger.info(`[ASK_NEED] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          userText,
+          locale,
+          {
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[ASK_NEED] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI generó respuesta, usarla
+      if (technicalReply) {
+        session.transcript.push({
+          who: 'user',
+          text: userText,
+          ts: nowIso()
+        });
+        session.transcript.push({
+          who: 'bot',
+          text: technicalReply,
+          ts: nowIso(),
+          questionType: 'technical',
+          aiGenerated: true
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        // Mostrar botones de problemas para que pueda continuar
+        const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
+          'BTN_NO_ENCIENDE',
+          'BTN_NO_INTERNET',
+          'BTN_LENTITUD',
+          'BTN_BLOQUEO',
+          'BTN_PERIFERICOS',
+          'BTN_VIRUS'
+        ], locale));
+        
+        return {
+          ok: true,
+          reply: technicalReply,
+          stage: session.stage, // Sigue siendo ASK_NEED
+          buttons: problemButtons, // Mostrar botones para continuar
+          handled: true
+        };
+      }
+      // Si OpenAI falló, continuar con el fallback normal
+    }
+    
+    // ========================================
+    // CASO 4: FALLBACK - NO SE DETECTÓ PROBLEMA
     // ========================================
     // Si el usuario escribió algo que no coincide con ningún problema conocido
     // Pedir que seleccione uno de los botones de problemas frecuentes
@@ -3795,7 +3949,65 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     }
     
     // ========================================
-    // CASO 2: FALLBACK - NO SE DETECTÓ DISPOSITIVO
+    // CASO 2: DETECCIÓN DE PREGUNTAS TÉCNICAS (con OpenAI)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos relacionados con dispositivos/hardware
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del dispositivo
+    //
+    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
+      logger.info(`[ASK_DEVICE] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          userText,
+          locale,
+          {
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[ASK_DEVICE] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI generó respuesta, usarla
+      if (technicalReply) {
+        session.transcript.push({
+          who: 'user',
+          text: userText,
+          ts: nowIso()
+        });
+        session.transcript.push({
+          who: 'bot',
+          text: technicalReply,
+          ts: nowIso(),
+          questionType: 'technical',
+          aiGenerated: true
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        // Mostrar botones de dispositivos para que pueda continuar
+        const deviceButtons = getDeviceSelectionButtons(locale);
+        
+        return {
+          ok: true,
+          reply: technicalReply,
+          stage: session.stage, // Sigue siendo ASK_DEVICE
+          buttons: deviceButtons, // Mostrar botones para continuar
+          handled: true
+        };
+      }
+      // Si OpenAI falló, continuar con el fallback normal
+    }
+    
+    // ========================================
+    // CASO 3: FALLBACK - NO SE DETECTÓ DISPOSITIVO
     // ========================================
     // Si el usuario escribió algo que no coincide con ningún dispositivo conocido
     // Pedir que seleccione uno de los botones de dispositivos
@@ -4092,6 +4304,217 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
   return isEn
     ? `**Help for Step ${stepNumber}:** ⏱️ ${estimateStepTime(stepText, stepIndex, locale)}\n\n${stepSnippet || short}\n\n${stepText}`
     : `**🛠️ Ayuda — Paso ${stepNumber} (${level})**\n\n${stepSnippet || short}\n\n${stepText}`;
+}
+
+// ========================================================
+// 🤖 FUNCIONES PARA DETECCIÓN Y RESPUESTA DE PREGUNTAS TÉCNICAS
+// ========================================================
+
+/**
+ * Detecta si un texto es una pregunta técnica relacionada con informática/tecnología
+ * 
+ * @param {string} text - Texto a analizar
+ * @returns {boolean} true si parece una pregunta técnica
+ */
+function isTechnicalQuestion(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  const lowerText = text.toLowerCase().trim();
+  
+  // Palabras clave técnicas comunes
+  const technicalKeywords = [
+    // Comandos y herramientas
+    'sfc', 'dism', 'cmd', 'powershell', 'terminal', 'consola', 'command prompt',
+    'chkdsk', 'diskpart', 'regedit', 'msconfig', 'task manager', 'administrador de tareas',
+    'bios', 'uefi', 'boot', 'arranque', 'inicio',
+    
+    // Hardware
+    'cpu', 'gpu', 'ram', 'disco', 'hdd', 'ssd', 'fuente', 'psu', 'motherboard', 'placa',
+    'puerto', 'usb', 'hdmi', 'vga', 'dvi', 'displayport',
+    'teclado', 'mouse', 'monitor', 'pantalla', 'impresora', 'router', 'modem',
+    
+    // Software y sistema operativo
+    'windows', 'linux', 'macos', 'sistema operativo', 'os', 'driver', 'controlador',
+    'antivirus', 'malware', 'virus', 'spyware', 'rootkit', 'trojan',
+    'firewall', 'cortafuegos', 'proxy', 'dns', 'ip', 'dhcp', 'wifi', 'ethernet',
+    'actualización', 'update', 'parche', 'patch', 'instalación', 'instalar',
+    'desinstalar', 'uninstall', 'reinstalar', 'reinstall',
+    
+    // Problemas comunes
+    'error', 'fallo', 'crash', 'cuelgue', 'bloqueo', 'freeze', 'lento', 'lentitud',
+    'no enciende', 'no arranca', 'no prende', 'pantalla azul', 'bsod', 'pantalla negra',
+    'sin internet', 'sin conexión', 'no conecta', 'sin señal', 'sin wifi',
+    'sin sonido', 'audio', 'altavoz', 'auricular', 'micrófono',
+    
+    // Conceptos técnicos
+    'formatear', 'formateo', 'partición', 'partición', 'backup', 'respaldo', 'restaurar',
+    'reparar', 'reparación', 'diagnóstico', 'diagnosticar', 'optimizar', 'optimización',
+    'limpiar', 'limpieza', 'mantenimiento', 'seguridad', 'privacidad', 'encriptación',
+    'red', 'redes', 'lan', 'wan', 'vpn', 'servidor', 'cliente', 'protocolo',
+    
+    // Preguntas técnicas
+    'cómo', 'como', 'how', 'qué', 'que', 'what', 'por qué', 'porque', 'why',
+    'funciona', 'funcionar', 'work', 'working', 'arreglar', 'fix', 'solucionar', 'solve'
+  ];
+  
+  // Verificar si contiene palabras técnicas
+  const hasTechnicalKeyword = technicalKeywords.some(keyword => 
+    lowerText.includes(keyword)
+  );
+  
+  // Verificar si es una pregunta (contiene signos de interrogación o palabras interrogativas)
+  const isQuestion = /[?¿]|^(cómo|como|how|qué|que|what|por qué|porque|why|cuál|cuando|dónde)/i.test(lowerText);
+  
+  // Verificar si tiene suficiente longitud (más de 3 palabras)
+  const wordCount = lowerText.split(/\s+/).filter(w => w.length > 0).length;
+  const hasEnoughWords = wordCount >= 3;
+  
+  return hasTechnicalKeyword && (isQuestion || hasEnoughWords);
+}
+
+/**
+ * Genera una respuesta técnica usando OpenAI con el tono acordado
+ * 
+ * @param {string} question - Pregunta del usuario
+ * @param {string} locale - Idioma del usuario ('es-AR' o 'en-US')
+ * @param {object} context - Contexto adicional (problema, dispositivo, etc.)
+ * @returns {Promise<string>} Respuesta generada por OpenAI
+ */
+async function generateTechnicalResponse(question, locale, context = {}) {
+  if (!openai) {
+    logger.warn('[OPENAI] Cliente no disponible, no se puede generar respuesta técnica');
+    return null;
+  }
+  
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  const isEsAr = String(locale).toLowerCase() === 'es-ar';
+  
+  // Construir el prompt con las reglas de tono
+  let systemPrompt = '';
+  let userPrompt = '';
+  
+  if (isEnglish) {
+    systemPrompt = `You are Tecnos, a technical support assistant for STI (Servicio Técnico Inteligente). 
+
+CRITICAL TONE RULES (MANDATORY):
+- Use American English exclusively
+- Tone: Friendly, natural, professional
+- Style: Modern US technical support
+- Language: Everyday, clear, human
+- DO NOT be overly formal or artificial
+- DO NOT use structures copied from Spanish
+- DO NOT use generic international English
+- DO NOT apologize unnecessarily
+- DO NOT explain internal decisions
+- DO NOT use generic AI responses
+
+Your personality must be:
+- Consistent and recognizable as Tecnos
+- Helpful and solution-oriented
+- Clear and direct
+- Human and approachable
+
+Respond to technical questions about computers, software, hardware, and IT troubleshooting. Be specific, actionable, and helpful.`;
+
+    userPrompt = `User question: "${question}"
+
+Context:
+- Problem: ${context.problem || 'Not specified'}
+- Device: ${context.device || 'Not specified'}
+
+Provide a clear, helpful technical answer following the tone rules above.`;
+  } else {
+    // Español
+    if (isEsAr) {
+      systemPrompt = `Sos Tecnos, un asistente de soporte técnico de STI (Servicio Técnico Inteligente).
+
+REGLAS DE TONO CRÍTICAS (OBLIGATORIAS):
+- Usá español exclusivamente de Argentina
+- Usá voseo correcto cuando corresponda (ej: "abrí", "escribí", "ejecutá", "revisá")
+- Tono: Profesional, cercano, claro, empático sin exageración
+- Estilo: Propio de un servicio técnico argentino real
+- Directo, sin rodeos innecesarios
+- NO uses español neutro
+- NO uses expresiones de otros países
+- NO traduzcas literalmente desde inglés
+- NO suenes robótico ni institucional
+- NO pidas disculpas innecesarias
+- NO expliques decisiones internas
+- NO uses respuestas genéricas de IA
+
+Tu personalidad debe ser:
+- Coherente y reconocible como Tecnos
+- Útil y orientada a resolver
+- Clara y directa
+- Humana y cercana
+
+Respondé preguntas técnicas sobre computadoras, software, hardware y solución de problemas informáticos. Sé específico, accionable y útil.`;
+
+      userPrompt = `Pregunta del usuario: "${question}"
+
+Contexto:
+- Problema: ${context.problem || 'No especificado'}
+- Dispositivo: ${context.device || 'No especificado'}
+
+Dame una respuesta técnica clara y útil siguiendo las reglas de tono de arriba.`;
+    } else {
+      // Español latinoamericano (no argentino)
+      systemPrompt = `Eres Tecnos, un asistente de soporte técnico de STI (Servicio Técnico Inteligente).
+
+REGLAS DE TONO CRÍTICAS (OBLIGATORIAS):
+- Usa español latinoamericano
+- Tono: Profesional, cercano, claro, empático sin exageración
+- Estilo: Propio de un servicio técnico real
+- Directo, sin rodeos innecesarios
+- NO uses español neutro
+- NO traduzcas literalmente desde inglés
+- NO suenes robótico ni institucional
+- NO pidas disculpas innecesarias
+- NO expliques decisiones internas
+- NO uses respuestas genéricas de IA
+
+Tu personalidad debe ser:
+- Coherente y reconocible como Tecnos
+- Útil y orientada a resolver
+- Clara y directa
+- Humana y cercana
+
+Responde preguntas técnicas sobre computadoras, software, hardware y solución de problemas informáticos. Sé específico, accionable y útil.`;
+
+      userPrompt = `Pregunta del usuario: "${question}"
+
+Contexto:
+- Problema: ${context.problem || 'No especificado'}
+- Dispositivo: ${context.device || 'No especificado'}
+
+Proporciona una respuesta técnica clara y útil siguiendo las reglas de tono de arriba.`;
+    }
+  }
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 800
+    });
+    
+    const answer = response.choices[0]?.message?.content?.trim();
+    
+    if (answer) {
+      logger.info('[OPENAI] ✅ Respuesta técnica generada');
+      return answer;
+    } else {
+      logger.warn('[OPENAI] ⚠️  Respuesta vacía de OpenAI');
+      return null;
+    }
+  } catch (error) {
+    logger.error('[OPENAI] ❌ Error generando respuesta técnica:', error.message);
+    return null;
+  }
 }
 
 // ========================================================
@@ -4545,7 +4968,124 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     }
     
     // ========================================
-    // CASO 6: FALLBACK - NO SE RECONOCIÓ LA ACCIÓN
+    // CASO 6: DETECCIÓN DE PREGUNTAS TÉCNICAS (con OpenAI)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos de informática/tecnología
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del paso actual
+    //
+    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
+      logger.info(`[BASIC_TESTS] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          userText,
+          locale,
+          {
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[BASIC_TESTS] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI no está disponible o falló, usar respuesta hardcodeada para SFC/DISM
+      if (!technicalReply) {
+        const lowerText = userText.toLowerCase().trim();
+        
+        // Fallback específico para SFC/DISM
+        if (/sfc|dism|reparar sistema|reparación del sistema|system file checker|deployment image/i.test(lowerText)) {
+          technicalReply = isEnglish
+            ? `**How to repair Windows with SFC and DISM:**
+
+**1. SFC (System File Checker):**
+- Open Command Prompt as Administrator (right-click → Run as administrator)
+- Type: \`sfc /scannow\`
+- Wait for it to complete (can take 15-30 minutes)
+- If it finds errors, restart your PC
+
+**2. DISM (Deployment Image Servicing and Management):**
+- Still in Command Prompt as Administrator
+- First, run: \`DISM /Online /Cleanup-Image /CheckHealth\`
+- If issues are found, run: \`DISM /Online /Cleanup-Image /RestoreHealth\`
+- This can take 20-40 minutes
+
+**Important:** Run SFC first, then DISM. Restart after each completes.
+
+After running these, let me know how it went!`
+            : `**Cómo reparar Windows con SFC y DISM:**
+
+**1. SFC (System File Checker - Verificador de archivos del sistema):**
+- Abrí el Símbolo del sistema como Administrador (clic derecho → Ejecutar como administrador)
+- Escribí: \`sfc /scannow\`
+- Esperá a que termine (puede tardar 15-30 minutos)
+- Si encuentra errores, reiniciá la PC
+
+**2. DISM (Deployment Image Servicing and Management):**
+- Seguí en el Símbolo del sistema como Administrador
+- Primero, ejecutá: \`DISM /Online /Cleanup-Image /CheckHealth\`
+- Si encuentra problemas, ejecutá: \`DISM /Online /Cleanup-Image /RestoreHealth\`
+- Esto puede tardar 20-40 minutos
+
+**Importante:** Ejecutá primero SFC, después DISM. Reiniciá después de que termine cada uno.
+
+Después de ejecutar estos comandos, contame cómo te fue.`;
+        } else {
+          // Si no es SFC/DISM y OpenAI falló, usar mensaje genérico
+          technicalReply = isEnglish
+            ? "I understand your technical question, but I'm having trouble generating a detailed answer right now. Please try selecting a specific step from the buttons above, or describe your problem in more detail."
+            : "Entiendo tu pregunta técnica, pero estoy teniendo problemas para generar una respuesta detallada ahora. Por favor, intentá seleccionar un paso específico de los botones de arriba, o describí tu problema con más detalle.";
+        }
+      }
+      
+      // Aplicar tono Tecnos si es necesario (verificar que la respuesta de OpenAI siga las reglas)
+      // Nota: El prompt de OpenAI ya incluye las reglas de tono, pero podemos hacer una verificación final
+      
+      session.transcript.push({
+        who: 'user',
+        text: userText,
+        ts: nowIso()
+      });
+      session.transcript.push({
+        who: 'bot',
+        text: technicalReply,
+        ts: nowIso(),
+        questionType: 'technical',
+        aiGenerated: !!technicalReply && !technicalReply.includes('estoy teniendo problemas')
+      });
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Botones para continuar
+      const buttons = [
+        {
+          text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
+          value: 'BTN_SOLVED',
+          description: isEnglish ? 'The problem is gone' : 'El problema desapareció'
+        },
+        {
+          text: isEnglish ? '⏪ Back to Steps' : '⏪ Volver a los pasos',
+          value: 'BTN_BACK_TO_STEPS',
+          description: isEnglish ? 'Go back to see all steps' : 'Volver a ver todos los pasos'
+        }
+      ];
+      
+      return {
+        ok: true,
+        reply: technicalReply,
+        stage: session.stage,
+        buttons: buttons,
+        handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 7: FALLBACK - NO SE RECONOCIÓ LA ACCIÓN
     // ========================================
     // Si el usuario escribió algo que no se reconoce, pedir que use los botones
     //
@@ -5618,6 +6158,80 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     }
     
     // ========================================
+    // CASO 3.5: DETECCIÓN DE PREGUNTAS TÉCNICAS (con OpenAI)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos de informática/tecnología
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    // Esto permite responder preguntas técnicas incluso en la etapa de escalación
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del paso actual
+    //
+    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
+      logger.info(`[ESCALATE] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          userText,
+          locale,
+          {
+            userName: session.userName,
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[ESCALATE] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      if (!technicalReply) {
+        technicalReply = isEnglish
+          ? `I'm sorry, I couldn't generate a specific technical answer right now. Would you like to connect with a technician who can help you with this?`
+          : `Disculpá, no pude generar una respuesta técnica específica en este momento. ¿Querés que te conecte con un técnico que pueda ayudarte con esto?`;
+      }
+      
+      session.transcript.push({
+        who: 'user',
+        text: userText,
+        ts: nowIso()
+      });
+      session.transcript.push({
+        who: 'bot',
+        text: technicalReply,
+        ts: nowIso(),
+        questionType: 'technical_openai'
+      });
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Botones para continuar
+      const buttons = [
+        {
+          text: isEnglish ? '📲 Connect with Technician' : '📲 Conectar con Técnico',
+          value: 'BTN_WHATSAPP_TECNICO',
+          description: isEnglish ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
+        },
+        {
+          text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
+          value: 'BTN_BACK',
+          description: isEnglish ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
+        }
+      ];
+      
+      return res.json({
+        ok: true,
+        reply: technicalReply,
+        stage: session.stage,
+        buttons: buttons,
+        allowWhatsapp: true,
+        handled: true
+      });
+    }
+    
+    // ========================================
     // CASO 4: FALLBACK - OFRECER BOTÓN DIRECTAMENTE
     // ========================================
     // Si el usuario escribió algo que no se reconoce, ofrecer el botón directamente
@@ -6384,13 +6998,20 @@ app.get('/api/historial/:sessionId', async (req, res) => {
         usuario: session.userName || 'Anónimo',
         dispositivo: session.device || 'unknown',
         idioma: ensureSessionLocale(session),
-        conversacion: (session.transcript || []).map((entry, index) => ({
-          orden: index + 1,
-          timestamp: entry.ts || nowIso(),
-          quien: entry.who === 'user' ? 'USUARIO' : 'TECNOS',
-          mensaje: entry.text || '',
-          stage: entry.stage || session.stage || 'unknown'
-        })),
+        conversacion: (session.transcript || []).map((entry, index) => {
+          const msg = {
+            orden: index + 1,
+            timestamp: entry.ts || nowIso(),
+            quien: entry.who === 'user' ? 'USUARIO' : 'TECNOS',
+            mensaje: entry.text || '',
+            stage: entry.stage || session.stage || 'unknown'
+          };
+          // Incluir botones si existen en el entry
+          if (entry.buttons && Array.isArray(entry.buttons)) {
+            msg.botones = entry.buttons;
+          }
+          return msg;
+        }),
         metadata: {
           total_mensajes: (session.transcript || []).length,
           mensajes_usuario: (session.transcript || []).filter(m => m.who === 'user').length,
@@ -7080,6 +7701,71 @@ app.post('/api/chat', async (req, res) => {
           return; // Ya se envió la respuesta
         }
       }
+    }
+    
+    // ========================================
+    // DETECCIÓN DE PREGUNTAS TÉCNICAS (Catch-all antes del fallback)
+    // ========================================
+    // Si el usuario pregunta sobre temas técnicos de informática/tecnología
+    // Usar OpenAI para generar una respuesta con el tono acordado
+    // Esto funciona como un catch-all para cualquier stage no manejado
+    //
+    // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
+    // ❌ NO MODIFICAR: Debe mantener el contexto del paso actual
+    //
+    if (incomingText && typeof incomingText === 'string' && isTechnicalQuestion(incomingText)) {
+      logger.info(`[CHAT] Pregunta técnica detectada en fallback: "${incomingText.substring(0, 50)}..."`);
+      
+      // Intentar generar respuesta con OpenAI
+      let technicalReply = null;
+      try {
+        technicalReply = await generateTechnicalResponse(
+          incomingText,
+          sessionLocale,
+          {
+            userName: session.userName,
+            problem: session.problem || '',
+            device: session.device || ''
+          }
+        );
+      } catch (error) {
+        logger.error('[CHAT] Error generando respuesta técnica con OpenAI:', error);
+      }
+      
+      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      if (!technicalReply) {
+        technicalReply = applyTecnosVoice(null, sessionLocale, {
+          es: 'Disculpá, no pude generar una respuesta técnica específica en este momento. ¿Podés reformular tu pregunta o usar los botones disponibles?',
+          en: "I'm sorry, I couldn't generate a specific technical answer right now. Could you rephrase your question or use the available buttons?"
+        });
+      }
+      
+      session.transcript.push({
+        who: 'bot',
+        text: technicalReply,
+        ts: nowIso(),
+        questionType: 'technical_openai'
+      });
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Botones para continuar según el stage actual
+      const buttons = [];
+      if (session.stage === STATES.BASIC_TESTS) {
+        buttons.push({
+          text: applyTecnosVoice(null, sessionLocale, { es: '⏪ Volver a los pasos', en: '⏪ Back to Steps' }),
+          value: 'BTN_BACK_TO_STEPS',
+          description: applyTecnosVoice(null, sessionLocale, { es: 'Volver a ver todos los pasos', en: 'Go back to see all steps' })
+        });
+      }
+      
+      return res.json({
+        ok: true,
+        reply: technicalReply,
+        stage: session.stage,
+        sessionId: sessionId,
+        buttons: buttons
+      });
     }
     
     // ========================================
