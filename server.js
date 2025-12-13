@@ -6434,7 +6434,38 @@ app.get('/api/transcript-json/:sessionId', async (req, res) => {
       logger.debug(`[TRANSCRIPT] Error leyendo transcript: ${error.message}`);
     }
     
+    // Si no hay transcriptData, intentar obtenerlo desde historial_chat
     if (!transcriptData || !transcriptData.messages) {
+      try {
+        const historialPath = path.join(HISTORIAL_CHAT_DIR, `${sessionId}.json`);
+        try {
+          await fs.promises.access(historialPath);
+          const historialContent = await fs.promises.readFile(historialPath, 'utf8');
+          const historialData = JSON.parse(historialContent);
+          
+          if (historialData.conversacion && Array.isArray(historialData.conversacion)) {
+            transcriptData = {
+              sessionId: historialData.id || sessionId,
+              timestamp: historialData.fecha_inicio || nowIso(),
+              messages: historialData.conversacion.map(msg => ({
+                sender: msg.quien === 'USUARIO' ? 'user' : 'bot',
+                role: msg.quien === 'USUARIO' ? 'user' : 'assistant',
+                text: msg.mensaje || '',
+                content: msg.mensaje || '',
+                timestamp: msg.timestamp || nowIso(),
+                stage: msg.stage || 'unknown'
+              }))
+            };
+          }
+        } catch (e) {
+          // No existe en historial_chat tampoco
+        }
+      } catch (error) {
+        logger.debug(`[TRANSCRIPT] Error leyendo desde historial_chat: ${error.message}`);
+      }
+    }
+    
+    if (!transcriptData || !transcriptData.messages || transcriptData.messages.length === 0) {
       return res.status(404).json({
         ok: false,
         error: 'Transcript no encontrado'
