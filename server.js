@@ -2159,11 +2159,13 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     };
   }
   
-  if (!userText || typeof userText !== 'string' || userText.trim().length === 0) {
-    logger.error('[ASK_LANGUAGE] ❌ userText inválido o vacío');
+  // ⚠️ FIX: userText puede estar vacío si el usuario hizo clic en un botón
+  // En ese caso, buttonToken contiene la información necesaria
+  if ((!userText || typeof userText !== 'string' || userText.trim().length === 0) && !buttonToken) {
+    logger.error('[ASK_LANGUAGE] ❌ userText y buttonToken inválidos o vacíos');
     return {
       ok: false,
-      error: 'Texto de usuario inválido',
+      error: 'Texto de usuario o botón inválido',
       handled: true
     };
   }
@@ -2180,8 +2182,11 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
   
   try {
     // Normalizar el texto del usuario a minúsculas para comparación
-    // Esto permite que "Sí", "SI", "sí" sean tratados igual
-    const lowerMsg = userText.toLowerCase().trim();
+    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto
+    const textToProcess = (userText && userText.trim().length > 0) 
+      ? userText 
+      : (buttonToken ? String(buttonToken) : '');
+    const lowerMsg = textToProcess.toLowerCase().trim();
     
     logger.info(`[ASK_LANGUAGE] Procesando: "${lowerMsg}" (buttonToken: ${buttonToken || 'none'})`);
     
@@ -2235,7 +2240,9 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
         buttons: languageButtons,
         handled: true // Indica que este handler procesó la request
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
+      // Usar buttonToken como userText si userText está vacío (cuando se hace clic en botón)
+      const textForMandates = (userText && userText.trim().length > 0) ? userText : (buttonToken || '');
+      return applyMandatesToResponse(response, session, textForMandates, buttonToken);
     }
     
     // ========================================
