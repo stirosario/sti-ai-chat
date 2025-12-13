@@ -1023,6 +1023,68 @@ async function getSession(sessionId) {
 const MAX_TRANSCRIPT_MESSAGES = 1000;
 
 /**
+ * Registra un mensaje del bot en el transcript con información de botones
+ * 
+ * Esta función es OBLIGATORIA para cumplir con auditoría: cada mensaje del bot que incluye
+ * botones debe registrarlos en el log, aunque el usuario no interactúe con ellos.
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - El formato de los botones en el transcript
+ *    - Los campos adicionales que se incluyen
+ * ❌ NO MODIFICAR:
+ *    - Debe incluir información de botones cuando existen
+ *    - Debe incluir el stage actual
+ *    - Debe registrar siempre, independientemente de la interacción del usuario
+ * 
+ * @param {Array} transcript - Array del transcript de la sesión
+ * @param {string} text - Texto del mensaje del bot
+ * @param {string} stage - Stage actual de la conversación
+ * @param {Array|undefined} buttons - Array de botones mostrados (opcional)
+ * @returns {void}
+ */
+function addBotMessageToTranscript(transcript, text, stage, buttons = undefined) {
+  // Asegurar que transcript es un array
+  if (!transcript || !Array.isArray(transcript)) {
+    logger.error('[TRANSCRIPT] ❌ transcript no es un array válido');
+    return;
+  }
+  
+  // Construir el objeto del mensaje
+  const messageEntry = {
+    who: 'bot',
+    text: text,
+    ts: nowIso(),
+    stage: stage
+  };
+  
+  // Si hay botones, incluir información detallada de cada uno
+  if (buttons && Array.isArray(buttons) && buttons.length > 0) {
+    messageEntry.buttons = buttons.map((btn, idx) => {
+      // Extraer información del botón según su formato
+      // Puede ser: { text, value }, { label, value }, { text, token }, etc.
+      const buttonInfo = {
+        order: idx + 1, // Orden en el que aparece (1-based)
+        text: btn.text || btn.label || btn.title || String(btn), // Texto visible
+        id: btn.value || btn.token || btn.key || btn.text || btn.label || String(btn) // ID interno
+      };
+      
+      // Incluir propiedades adicionales si existen
+      if (btn.icon) buttonInfo.icon = btn.icon;
+      if (btn.description) buttonInfo.description = btn.description;
+      if (btn.example) buttonInfo.example = btn.example;
+      
+      return buttonInfo;
+    });
+    
+    // Agregar resumen de botones para facilitar auditoría
+    messageEntry.buttonsCount = buttons.length;
+  }
+  
+  // Agregar el mensaje al transcript
+  transcript.push(messageEntry);
+}
+
+/**
  * Guarda la sesión Y también guarda el transcript en formato texto plano
  * El transcript es útil para análisis y debugging
  * 
@@ -1075,7 +1137,16 @@ async function saveSessionAndTranscript(sessionId, session) {
       for (const msg of session.transcript) {
         const who = msg.who === 'user' ? 'USER' : msg.who === 'system' ? 'SYSTEM' : 'ASSISTANT';
         const time = msg.ts || nowIso();
-        transcriptText += `[${time}] ${who}: ${msg.text}\n`;
+        const stage = msg.stage ? ` [Stage: ${msg.stage}]` : '';
+        transcriptText += `[${time}]${stage} ${who}: ${msg.text}\n`;
+        
+        // Si hay botones, registrarlos explícitamente
+        if (msg.buttons && Array.isArray(msg.buttons) && msg.buttons.length > 0) {
+          transcriptText += `  └─ TECNOS mostró ${msg.buttons.length} botón(es):\n`;
+          msg.buttons.forEach((btn, idx) => {
+            transcriptText += `     Botón ${btn.order || idx + 1}: "${btn.text}" → ID: ${btn.id}\n`;
+          });
+        }
       }
     }
     
@@ -1517,13 +1588,14 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
         session.transcript = [];
       }
       
-      // Agregar este mensaje al transcript (historial de la conversación)
-      session.transcript.push({ 
-        who: 'bot', 
-        text: reply, 
-        ts: nowIso(), 
-        stage: session.stage 
-      });
+      // Preparar botones de selección de idioma
+      const buttons = [
+        { text: '(🇦🇷) Español 🌎', value: 'español' },
+        { text: '(🇺🇸) English 🌎', value: 'english' }
+      ];
+      
+      // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+      addBotMessageToTranscript(session.transcript, reply, session.stage, buttons);
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
@@ -1533,10 +1605,7 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
         ok: true,
         reply: reply,
         stage: session.stage, // Mantener ASK_LANGUAGE hasta que seleccione idioma
-        buttons: [
-          { text: '(🇦🇷) Español 🌎', value: 'español' },
-          { text: '(🇺🇸) English 🌎', value: 'english' }
-        ],
+        buttons: buttons,
         handled: true // Indica que este handler procesó la request
       };
     }
@@ -1578,7 +1647,7 @@ If you change your mind, you can restart the chat.
         session.transcript = [];
       }
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      addBotMessageToTranscript(session.transcript, reply, session.stage, undefined);
       await saveSessionAndTranscript(sessionId, session);
       
       return {
@@ -1647,7 +1716,8 @@ If you change your mind, you can restart the chat.
           session.transcript = [];
         }
         
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        // Registrar mensaje del bot sin botones (confirmación de idioma)
+        addBotMessageToTranscript(session.transcript, reply, session.stage, undefined);
         await saveSessionAndTranscript(sessionId, session);
         
         return {
@@ -2491,9 +2561,6 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
           ? `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
           : `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
       
-      // Agregar mensaje al transcript
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      
       // ========================================
       // GENERAR BOTONES DE PROBLEMAS FRECUENTES
       // ========================================
@@ -2523,6 +2590,9 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         'BTN_PERIFERICOS',
         'BTN_VIRUS'
       ], locale));
+      
+      // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+      addBotMessageToTranscript(session.transcript, reply, session.stage, problemButtons);
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
@@ -2554,7 +2624,8 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
         : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".";
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Registrar mensaje del bot sin botones
+      addBotMessageToTranscript(session.transcript, reply, session.stage, undefined);
       await saveSessionAndTranscript(sessionId, session);
       
       logger.info(`[ASK_NAME] ⚠️ No se detectó nombre. Motivo: ${nameResult.reason}, Intentos: ${session.nameAttempts}`);
@@ -2896,6 +2967,69 @@ function sortProblemButtons(buttons = []) {
   return scored.map(x => x.b);
 }
 
+/**
+ * Valida si hay frustración real del usuario antes de permitir escalamiento
+ * 
+ * CONSTITUCIÓN DE TECNOS - REGLA DE FRUSTRACIÓN (DEFINICIÓN CORRECTA)
+ * 
+ * La frustración SOLO puede considerarse válida si ocurre AL MENOS UNO:
+ * - El usuario confirmó pasos realizados y el problema persiste
+ * - El usuario expresa cansancio, bloqueo o enojo explícito
+ * - El usuario repite el problema DESPUÉS de pasos guiados
+ * - El usuario pide ayuda humana directa
+ * 
+ * Repetición SIN pasos confirmados ≠ frustración.
+ * 
+ * @param {object} session - Objeto de sesión actual
+ * @param {string} userText - Texto del usuario
+ * @returns {boolean} true si hay frustración real, false si no
+ */
+function hasRealFrustration(session, userText) {
+  if (!session || !userText) return false;
+  
+  const lowerText = String(userText).toLowerCase().trim();
+  
+  // Condición 1: Usuario confirmó pasos realizados y el problema persiste
+  const hasConfirmedSteps = session.stepsDone && session.stepsDone.length > 0;
+  const problemPersists = /persiste|todavía|aún|sigue|still|yet|continúa/i.test(lowerText);
+  if (hasConfirmedSteps && problemPersists) {
+    logger.info('[FRUSTRATION] ✅ Frustración válida: Pasos confirmados y problema persiste');
+    return true;
+  }
+  
+  // Condición 2: Usuario expresa cansancio, bloqueo o enojo explícito
+  const explicitFrustrationPatterns = [
+    /estoy.*cansado|i'm.*tired|estoy.*harto|i'm.*fed up/i,
+    /no.*funciona.*nada|nothing.*works|no.*sirve.*nada/i,
+    /estoy.*frustrado|i'm.*frustrated|estoy.*molesto|i'm.*annoyed/i,
+    /no.*puedo.*más|i.*can't.*anymore|estoy.*bloqueado|i'm.*stuck/i,
+    /ya.*no.*sé.*qué.*hacer|i.*don't.*know.*what.*to.*do/i
+  ];
+  if (explicitFrustrationPatterns.some(pattern => pattern.test(lowerText))) {
+    logger.info('[FRUSTRATION] ✅ Frustración válida: Expresión explícita de frustración');
+    return true;
+  }
+  
+  // Condición 3: Usuario repite el problema DESPUÉS de pasos guiados
+  const hasStepsDone = session.stepsDone && session.stepsDone.length > 0;
+  const problemRepeated = session.problem && lowerText.includes(session.problem.toLowerCase());
+  if (hasStepsDone && problemRepeated) {
+    logger.info('[FRUSTRATION] ✅ Frustración válida: Problema repetido después de pasos');
+    return true;
+  }
+  
+  // Condición 4: Usuario pide ayuda humana directa (solo si hay pasos confirmados)
+  const explicitHumanHelpRequest = /hablar.*técnico|talk.*technician|quiero.*técnico|want.*technician|necesito.*técnico|need.*technician|hablar.*humano|talk.*human/i.test(lowerText);
+  if (hasConfirmedSteps && explicitHumanHelpRequest) {
+    logger.info('[FRUSTRATION] ✅ Frustración válida: Petición explícita de técnico después de pasos');
+    return true;
+  }
+  
+  // Si no se cumple ninguna condición, no hay frustración real
+  logger.debug('[FRUSTRATION] ❌ No hay frustración real válida');
+  return false;
+}
+
 // ========================================================
 // 🎯 HANDLER: handleAskNeedStage
 // ========================================================
@@ -2931,6 +3065,33 @@ function sortProblemButtons(buttons = []) {
  * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons?, handled }
  */
 async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
+  // ========================================================
+  // 🔒 GUARD RAIL ABSOLUTO - ANTI-BUG J7685
+  // ========================================================
+  // CONSTITUCIÓN DE TECNOS - REGLA CENTRAL (NO NEGOCIABLE)
+  // 
+  // Seleccionar un problema desde el menú o escribir el nombre del problema
+  // NO constituye intención de hablar con un técnico.
+  // 
+  // Nombrar el problema ≠ pedir técnico.
+  // 
+  // Durante el stage ASK_NEED:
+  // Tecnos TIENE PROHIBIDO ofrecer:
+  // - WhatsApp
+  // - técnico humano
+  // - escalamiento
+  // - handoff
+  // 
+  // SI SE CUMPLEN TODAS ESTAS CONDICIONES:
+  // 1) Es la primera vez que el problema aparece en la sesión
+  // 2) El usuario NO confirmó haber realizado ningún paso
+  // 3) El usuario NO expresó frustración
+  // 4) El usuario NO pidió explícitamente un técnico o WhatsApp
+  // 5) No existe riesgo técnico ni de datos
+  // 
+  // Si estas condiciones se cumplen, cualquier escalamiento es FALLA CRÍTICA.
+  // ========================================================
+  
   // Validar parámetros esenciales con validación de tipos
   if (!session || typeof session !== 'object') {
     logger.error('[ASK_NEED] ❌ Session inválida o no es un objeto');
@@ -3016,29 +3177,39 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         // Generar botones de selección de dispositivo
         const deviceButtons = getDeviceSelectionButtons(locale);
         
-        // Agregar mensajes al transcript
+        // Agregar mensaje del usuario al transcript
         session.transcript.push({
           who: 'user',
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          problemSelected: session.problem // Metadata: problema seleccionado
-        });
+        
+        // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+        addBotMessageToTranscript(session.transcript, reply, session.stage, deviceButtons);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotMsg = session.transcript[session.transcript.length - 1];
+        if (lastBotMsg && lastBotMsg.who === 'bot') {
+          lastBotMsg.problemSelected = session.problem; // Metadata: problema seleccionado
+        }
+        
+        // 🔒 GUARD RAIL: Asegurar que NO se active allowWhatsapp en ASK_NEED
+        // El problema fue seleccionado, pero NO hay frustración ni pasos confirmados
+        // Por lo tanto, NO se debe escalar a WhatsApp/técnico
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
         // Retornar respuesta exitosa con botones de dispositivos
+        // ⚠️ CRÍTICO: NO incluir allowWhatsapp: true aquí
+        // El escalamiento solo ocurre después de pasos confirmados o frustración real
         return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons, // ⚠️ CRÍTICO: Incluir los botones de dispositivos
           handled: true
+          // ⚠️ NO incluir allowWhatsapp: true - escalamiento prematuro bloqueado
         };
       }
     }
@@ -3106,29 +3277,39 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         // Generar botones de selección de dispositivo
         const deviceButtons = getDeviceSelectionButtons(locale);
         
-        // Agregar mensajes al transcript
+        // Agregar mensaje del usuario al transcript
         session.transcript.push({
           who: 'user',
           text: textToProcess,
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          problemDetected: session.problem // Metadata: problema detectado
-        });
+        
+        // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+        addBotMessageToTranscript(session.transcript, reply, session.stage, deviceButtons);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotMsg2 = session.transcript[session.transcript.length - 1];
+        if (lastBotMsg2 && lastBotMsg2.who === 'bot') {
+          lastBotMsg2.problemDetected = session.problem; // Metadata: problema detectado
+        }
+        
+        // 🔒 GUARD RAIL: Asegurar que NO se active allowWhatsapp en ASK_NEED
+        // El problema fue detectado en texto, pero NO hay frustración ni pasos confirmados
+        // Por lo tanto, NO se debe escalar a WhatsApp/técnico
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
         // Retornar respuesta exitosa con botones de dispositivos
+        // ⚠️ CRÍTICO: NO incluir allowWhatsapp: true aquí
+        // El escalamiento solo ocurre después de pasos confirmados o frustración real
         return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons,
           handled: true
+          // ⚠️ NO incluir allowWhatsapp: true - escalamiento prematuro bloqueado
         };
       }
     }
@@ -4004,19 +4185,23 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
         });
         
-        // Agregar mensajes al transcript
+        // Agregar mensaje del usuario al transcript
         session.transcript.push({
           who: 'user',
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          deviceSelected: session.device, // Metadata: dispositivo seleccionado
-          stepsGenerated: steps.length // Metadata: cantidad de pasos generados
-        });
+        
+        // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+        // Los botones incluyen: botones de ayuda por pasos + botones finales
+        addBotMessageToTranscript(session.transcript, reply, session.stage, buttons);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotMsg = session.transcript[session.transcript.length - 1];
+        if (lastBotMsg && lastBotMsg.who === 'bot') {
+          lastBotMsg.deviceSelected = session.device; // Metadata: dispositivo seleccionado
+          lastBotMsg.stepsGenerated = steps.length; // Metadata: cantidad de pasos generados
+        }
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
@@ -4936,7 +5121,37 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe cambiar a ESCALATE
     //
     if (buttonToken === 'BTN_PERSIST' || /^\s*(no|n|el problema persiste|persiste|todavía no|aún no)\b/i.test(userText || '')) {
-      // Telemetría: problema persiste
+      // 🔒 VALIDACIÓN DE FRUSTRACIÓN REAL ANTES DE ESCALAR
+      // CONSTITUCIÓN DE TECNOS: El problema persiste SOLO es frustración válida si:
+      // - El usuario confirmó pasos realizados (session.stepsDone.length > 0)
+      // - O hay frustración explícita detectada
+      const hasStepsDone = session.stepsDone && session.stepsDone.length > 0;
+      const hasRealFrustrationValue = hasRealFrustration(session, userText || buttonToken || '');
+      
+      if (!hasStepsDone && !hasRealFrustrationValue) {
+        // Si no hay pasos confirmados ni frustración real, NO escalar
+        // Continuar con el flujo de diagnóstico normal
+        logger.warn(`[BASIC_TESTS] 🚫 Escalamiento bloqueado: BTN_PERSIST sin pasos confirmados. Usuario: "${userText || buttonToken || ''}"`);
+        
+        // Retornar mensaje indicando que debe continuar con los pasos
+        const continueReply = isEnglish
+          ? `I understand the problem persists. Let's continue with the diagnostic steps. Please try the steps I provided and let me know the result.`
+          : `Entiendo que el problema persiste. Sigamos con los pasos de diagnóstico. Por favor, probá los pasos que te di y contame el resultado.`;
+        
+        // Registrar mensaje del bot sin botones de escalamiento
+        addBotMessageToTranscript(session.transcript, continueReply, session.stage, undefined);
+        await saveSessionAndTranscript(sessionId, session);
+        
+        return {
+          ok: true,
+          reply: continueReply,
+          stage: session.stage, // Mantener BASIC_TESTS
+          handled: true
+          // ⚠️ NO incluir allowWhatsapp: true - no hay frustración real
+        };
+      }
+      
+      // Telemetría: problema persiste (solo si hay frustración real)
       pushBasicTestTelemetry(session, {
         action: 'persist',
         stepIndex: session.currentTestIndex ?? null,
@@ -4954,7 +5169,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         ? `💡 I understand. Don't worry, we're here to help. Let me connect you with a technician who can help you further.`
         : `💡 Entiendo. No te preocupes, estamos acá para ayudarte. Dejame conectarte con un técnico que te pueda ayudar mejor.`;
       
-      // Cambiar a estado ESCALATE
+      // Cambiar a estado ESCALATE solo si hay frustración real
       changeStage(session, STATES.ESCALATE);
       
       // ========================================
@@ -7316,12 +7531,9 @@ app.get('/api/greeting', async (req, res) => {
     // Usa el locale detectado para mostrar el mensaje en el idioma correcto
     const greeting = buildLanguageSelectionGreeting(normalizedLocale);
     
-    // Agregar el mensaje inicial al transcript
-    newSession.transcript.push({ 
-      who: 'bot', 
-      text: greeting.text, 
-      ts: nowIso() 
-    });
+    // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+    // Esto registra tanto el texto como los botones que se muestran al usuario
+    addBotMessageToTranscript(newSession.transcript, greeting.text, newSession.stage, greeting.buttons || []);
     
     // Guardar la sesión en el sistema de archivos
     await saveSessionAndTranscript(sessionId, newSession);
@@ -7467,7 +7679,9 @@ app.post('/api/chat', async (req, res) => {
       
       // Mostrar mensaje de GDPR
       const greeting = buildLanguageSelectionGreeting(session.userLocale);
-      session.transcript.push({ who: 'bot', text: greeting.text, ts: nowIso() });
+      
+      // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
+      addBotMessageToTranscript(session.transcript, greeting.text, session.stage, greeting.buttons || []);
       await saveSessionAndTranscript(sessionId, session);
       
       return res.json({
