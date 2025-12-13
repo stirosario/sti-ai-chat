@@ -3565,41 +3565,20 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     logger.info(`[ASK_NAME] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ⚠️ BLOQUEO ABSOLUTO: NO DETECTAR INTENCIÓN DE TÉCNICO EN ASK_NAME
     // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    // REGLA DE BLOQUEO ABSOLUTO: Durante ASK_NAME, Tecnos TIENE PROHIBIDO detectar intención de técnico.
+    // El usuario está escribiendo su nombre, NO pidiendo un técnico.
     //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    // ⚠️ CRÍTICO: Eliminada toda detección de intención de técnico en ASK_NAME
+    // Esto previene escalamiento prematuro cuando el usuario escribe su nombre (ej: "lucas")
     //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[ASK_NAME] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[ASK_NAME] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[ASK_NAME] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
-        }
-      }
-    }
+    // Motivo: En la conversación X5701, el usuario escribió "lucas" y Tecnos interpretó erróneamente
+    // que quería hablar con un técnico, ofreciendo WhatsApp inmediatamente.
+    //
+    // ✅ CORRECCIÓN: Procesar el nombre directamente sin detectar intención de técnico
+    // El usuario puede pedir técnico DESPUÉS de ingresar su nombre, no durante ASK_NAME
+    //
     
     // ========================================
     // CASO 1: MENSAJE VACÍO
@@ -3735,10 +3714,13 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       };
       const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
       
-      // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-      const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_NAME');
-      if (forcedEscalation) return forcedEscalation;
-      
+      // ⚠️ BLOQUEO ABSOLUTO: NO verificar escalamiento después de guardar nombre
+      // El usuario acaba de ingresar su nombre correctamente, no hay razón para escalar
+      // Esto previene escalamiento prematuro cuando el usuario escribe su nombre (ej: "lucas")
+      // 
+      // Motivo: En la conversación X5701, el usuario escribió "lucas" y Tecnos escaló erróneamente
+      // 
+      // ✅ CORRECCIÓN: Retornar respuesta directamente sin verificar escalamiento forzado
       return adjustedResponse;
     }
     
