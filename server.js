@@ -2128,9 +2128,20 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
   // ⚠️ MEMORIA DE SESIÓN: Consultar si ya se ofreció WhatsApp
   const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
   
+  // ⚠️ ANTI-WHATSAPP PREMATURO: NO ofrecer WhatsApp en etapas iniciales
+  // REGLA: Seleccionar un problema desde el menú NO constituye intención de técnico.
+  // NO ofrecer WhatsApp cuando:
+  // - Es la primera vez que el usuario selecciona o escribe el problema (ASK_NEED)
+  // - El usuario todavía no realizó ningún paso guiado
+  // - No hay señales de frustración real
+  const isInitialProblemSelection = currentStage === 'ASK_NEED' && 
+                                     !session.stepsDone?.length && 
+                                     session.fallbackCount === 0;
+  
   // Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp activamente
   // ⚠️ REGLA: Si ya se ofreció WhatsApp antes, no volver a ofrecer pasos largos
-  if (shouldOfferWhatsAppEarly) {
+  // ⚠️ REGLA: NO ofrecer WhatsApp en la primera selección de problema
+  if (shouldOfferWhatsAppEarly && !isInitialProblemSelection) {
     shouldAllowWhatsApp = true;
     
     // Actualizar flag si no estaba activo
@@ -4166,40 +4177,64 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     logger.info(`[ASK_NEED] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
+    // ⚠️ ANTI-WHATSAPP PREMATURO (CRÍTICO)
     // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
+    // REGLA CENTRAL: Seleccionar un problema desde el menú NO constituye intención de técnico.
+    // Nombrar el problema ≠ pedir técnico.
     //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
+    // Tecnos NO debe ofrecer WhatsApp cuando:
+    // - Es la primera vez que el usuario selecciona o escribe el problema
+    // - El usuario todavía no realizó ningún paso guiado
+    // - No hay señales de frustración
+    // - No hay repetición del problema
+    // - No hay riesgo técnico o de datos
+    // - No existe pedido explícito de humano
     //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
+    // SOLO detectar intención de técnico si:
+    // 1. Hay pedido EXPLÍCITO ("quiero hablar con un técnico", "WhatsApp", etc.)
+    // 2. Hay frustración/bloqueo detectado (repetición, "no entiendo", etc.)
+    // 3. Ya se intentaron pasos sin éxito
+    // 4. Hay complejidad real o riesgo técnico
+    //
+    // ⚠️ CRÍTICO: NO detectar intención de técnico cuando se selecciona un botón de problema
+    // Los botones de problema (BTN_NO_INTERNET, BTN_NO_ENCIENDE, etc.) son selecciones de problema,
+    // NO pedidos de técnico.
+    //
+    // Si el usuario hizo clic en un botón de problema, procesarlo directamente sin detectar intención.
+    // Solo detectar intención si el usuario ESCRIBIÓ texto (no botón) Y hay indicadores claros.
+    //
+    if (userText && typeof userText === 'string' && userText.trim().length > 0 && !buttonToken) {
+      // ⚠️ SOLO detectar intención si NO es un botón de problema
+      // Si es un botón, procesarlo directamente sin detectar intención
+      
       // Detectar intención de técnico (explícita o implícita)
       const techIntent = detectTechnicianIntent(userText, locale, session);
       
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[ASK_NEED] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
+      // ⚠️ CRÍTICO: Solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
+      // NO escalar por problemas genéricos o selecciones de menú
+      if (techIntent.requiresTechnician && techIntent.confidence === 'high' && techIntent.type === 'explicit') {
+        // SOLO escalar si es pedido EXPLÍCITO (no implícito, no frustración, no riesgo)
+        // Esto asegura que solo se escale cuando el usuario realmente pide técnico
+        logger.info(`[ASK_NEED] ✅ Pedido EXPLÍCITO de técnico detectado: "${userText.substring(0, 50)}..."`);
         return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[ASK_NEED] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
+      } else if (techIntent.requiresTechnician && techIntent.confidence === 'high' && 
+                 (techIntent.type === 'frustration' || techIntent.type === 'risk')) {
+        // Escalar solo si hay frustración REAL o riesgo REAL (no solo selección de problema)
+        // Verificar que realmente hay frustración: pasos intentados, repetición, etc.
+        const hasRealFrustration = session.fallbackCount >= 2 || 
+                                   session.stepsDone?.length > 0 ||
+                                   session.problemRepetitions >= 2;
         
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[ASK_NEED] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
+        if (hasRealFrustration) {
+          logger.info(`[ASK_NEED] ✅ Frustración/riesgo REAL detectado: "${userText.substring(0, 50)}..."`);
+          return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
+        } else {
+          // NO escalar si es solo la primera interacción del problema
+          logger.info(`[ASK_NEED] ⚠️ Intención detectada pero NO escalando (primera interacción, sin frustración real): "${userText.substring(0, 50)}..."`);
         }
       }
+      // ❌ NO consultar OpenAI para casos ambiguos en ASK_NEED
+      // Esto causa escalamiento prematuro cuando el usuario solo selecciona un problema
     }
     
     // ========================================
@@ -5847,15 +5882,17 @@ function detectTechnicianIntent(text, locale, session = {}) {
   // ========================================
   // Durante etapas iniciales, solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
   // 
-  // Etapas bloqueadas: ASK_LANGUAGE, ASK_NAME
+  // Etapas bloqueadas: ASK_LANGUAGE, ASK_NAME, ASK_NEED
   // En estas etapas, el usuario está en proceso de configuración inicial.
+  // ASK_NEED: El usuario está seleccionando un problema del menú, NO pidiendo técnico.
+  // Seleccionar un problema ≠ pedir técnico.
   // Escalar por error aquí rompe la experiencia del usuario.
   //
   // ✅ SE PUEDE MODIFICAR: Agregar más etapas a la lista de bloqueadas si es necesario
   // ❌ NO MODIFICAR: La lógica de bloqueo (es crítica para evitar escalamientos erróneos)
   //
   const currentStage = session.stage || '';
-  const blockedStages = ['ASK_LANGUAGE', 'ASK_NAME'];
+  const blockedStages = ['ASK_LANGUAGE', 'ASK_NAME', 'ASK_NEED'];
   const isBlockedStage = blockedStages.includes(currentStage);
   
   // Si estamos en etapa bloqueada, solo detectar pedidos EXPLÍCITOS e INEQUÍVOCOS
