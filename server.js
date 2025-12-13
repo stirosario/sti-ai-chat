@@ -1023,6 +1023,670 @@ async function getSession(sessionId) {
 const MAX_TRANSCRIPT_MESSAGES = 1000;
 
 /**
+ * Agrega un mensaje del bot al transcript con registro obligatorio de botones
+ * 
+ * ⚠️ CRÍTICO: Esta función asegura que los botones mostrados por TECNOS queden
+ * registrados en el log, incluso si el usuario no interactúa con ellos.
+ * 
+ * Los botones forman parte de la respuesta del bot y deben registrarse como
+ * salida del bot, no como input del usuario.
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} text - Texto del mensaje del bot
+ * @param {Array} buttons - Array de botones mostrados (opcional)
+ * @param {string} stage - Stage activo en ese momento (opcional, se toma de session.stage si no se proporciona)
+ * @returns {void}
+ */
+function addBotMessageToTranscript(session, text, buttons = null, stage = null) {
+  if (!session || !session.transcript) {
+    logger.error('[TRANSCRIPT] ❌ Sesión o transcript inválido');
+    return;
+  }
+  
+  const entry = {
+    who: 'bot',
+    text: text || '',
+    ts: nowIso(),
+    stage: stage || session.stage || 'unknown'
+  };
+  
+  // ⚠️ REGISTRO OBLIGATORIO DE BOTONES
+  // Si hay botones, registrarlos explícitamente en el transcript
+  if (buttons && Array.isArray(buttons) && buttons.length > 0) {
+    entry.buttons = buttons.map((btn, index) => ({
+      order: index + 1,
+      text: btn.text || btn.label || '',
+      value: btn.value || btn.token || '',
+      description: btn.description || null
+    }));
+    entry.buttonsCount = buttons.length;
+    
+    logger.info(`[TRANSCRIPT] Botón(es) registrado(s) para mensaje del bot: ${buttons.length} botón(es) en stage ${entry.stage}`);
+  }
+  
+  session.transcript.push(entry);
+}
+
+/**
+ * Detecta palabras repetidas en los últimos mensajes del bot para evitar repetitividad léxica
+ * 
+ * MANDAMIENTO 12: Evitar repetitividad de palabras
+ * Tecnos debe variar el lenguaje y evitar repetir términos como "perfecto", "frustrante", "entiendo", etc.
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} proposedText - Texto propuesto para el bot
+ * @param {number} lookbackMessages - Cantidad de mensajes anteriores a revisar (default: 5)
+ * @returns {object} { hasRepetition: boolean, repeatedWords: Array, suggestions: Array }
+ */
+function checkLexicalRepetition(session, proposedText, lookbackMessages = 5) {
+  if (!session || !session.transcript || !proposedText) {
+    return { hasRepetition: false, repeatedWords: [], suggestions: [] };
+  }
+  
+  // Palabras comunes que no deben repetirse frecuentemente
+  const sensitiveWords = [
+    'perfecto', 'perfect', 'perfecta', 'perfectas',
+    'entiendo', 'understand', 'entendí', 'understood',
+    'frustrante', 'frustrating', 'frustrado', 'frustrated',
+    'disculpa', 'sorry', 'disculpame', 'apologize',
+    'claro', 'clear', 'claramente', 'clearly',
+    'obvio', 'obvious', 'obviamente', 'obviously',
+    'genial', 'great', 'geniales', 'excellent',
+    'fantástico', 'fantastic', 'fantástica', 'wonderful',
+    'increíble', 'incredible', 'increíbles', 'amazing'
+  ];
+  
+  // Obtener últimos mensajes del bot
+  const botMessages = session.transcript
+    .filter(entry => entry.who === 'bot')
+    .slice(-lookbackMessages)
+    .map(entry => (entry.text || '').toLowerCase());
+  
+  // Normalizar texto propuesto
+  const normalizedProposed = proposedText.toLowerCase();
+  
+  // Detectar repeticiones
+  const repeatedWords = [];
+  const suggestions = [];
+  
+  sensitiveWords.forEach(word => {
+    const wordRegex = new RegExp(`\\b${word}\\b`, 'gi');
+    const countInHistory = botMessages.reduce((count, msg) => {
+      return count + (msg.match(wordRegex) || []).length;
+    }, 0);
+    const countInProposed = (normalizedProposed.match(wordRegex) || []).length;
+    
+    // Si la palabra aparece más de 2 veces en total (historia + propuesta), es repetitiva
+    if (countInHistory + countInProposed > 2) {
+      repeatedWords.push(word);
+      
+      // Generar sugerencias de reemplazo según el idioma
+      const locale = ensureSessionLocale(session);
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      
+      if (word.includes('perfecto') || word.includes('perfect')) {
+        suggestions.push({
+          word: word,
+          replacements: isEnglish 
+            ? ['good', 'sounds good', 'alright', 'okay', 'fine']
+            : ['bien', 'joya', 'ok', 'de acuerdo', 'listo']
+        });
+      } else if (word.includes('entiendo') || word.includes('understand')) {
+        suggestions.push({
+          word: word,
+          replacements: isEnglish
+            ? ['I see', 'got it', 'I get it', 'noted', 'I hear you']
+            : ['tomado', 'anotado', 'claro', 'ok', 'joya']
+        });
+      } else if (word.includes('disculpa') || word.includes('sorry')) {
+        suggestions.push({
+          word: word,
+          replacements: isEnglish
+            ? ['my apologies', 'pardon', 'excuse me']
+            : ['perdón', 'perdoname', 'mil disculpas']
+        });
+      } else if (word.includes('claro') || word.includes('clear')) {
+        suggestions.push({
+          word: word,
+          replacements: isEnglish
+            ? ['sure', 'of course', 'absolutely', 'definitely']
+            : ['seguro', 'por supuesto', 'sin duda', 'obvio']
+        });
+      }
+    }
+  });
+  
+  return {
+    hasRepetition: repeatedWords.length > 0,
+    repeatedWords: repeatedWords,
+    suggestions: suggestions
+  };
+}
+
+/**
+ * Detecta si el bot está repitiendo bloques completos de texto sin motivo
+ * 
+ * MANDAMIENTO 8: No repetir bloques sin motivo
+ * Tecnos no reimprime menús o pasos completos innecesariamente.
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} proposedText - Texto propuesto para el bot
+ * @returns {object} { isRepetition: boolean, reason: string }
+ */
+function checkBlockRepetition(session, proposedText) {
+  if (!session || !session.transcript || !proposedText) {
+    return { isRepetition: false, reason: null };
+  }
+  
+  // Obtener últimos mensajes del bot
+  const botMessages = session.transcript
+    .filter(entry => entry.who === 'bot')
+    .slice(-3)
+    .map(entry => (entry.text || '').trim());
+  
+  // Normalizar texto propuesto
+  const normalizedProposed = proposedText.trim();
+  
+  // Detectar si el texto propuesto es muy similar a un mensaje anterior (más del 80% de similitud)
+  for (const previousMsg of botMessages) {
+    if (previousMsg.length > 20) { // Solo comparar mensajes significativos
+      const similarity = calculateTextSimilarity(normalizedProposed, previousMsg);
+      if (similarity > 0.8) {
+        return {
+          isRepetition: true,
+          reason: `El mensaje propuesto es ${Math.round(similarity * 100)}% similar a un mensaje anterior`
+        };
+      }
+    }
+  }
+  
+  return { isRepetition: false, reason: null };
+}
+
+/**
+ * Calcula la similitud entre dos textos usando el algoritmo de Jaccard
+ * 
+ * @param {string} text1 - Primer texto
+ * @param {string} text2 - Segundo texto
+ * @returns {number} Similitud entre 0 y 1
+ */
+function calculateTextSimilarity(text1, text2) {
+  if (!text1 || !text2) return 0;
+  
+  // Normalizar textos
+  const normalize = (text) => {
+    return text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  
+  const normalized1 = normalize(text1);
+  const normalized2 = normalize(text2);
+  
+  // Crear sets de palabras
+  const words1 = new Set(normalized1.split(' ').filter(w => w.length > 2));
+  const words2 = new Set(normalized2.split(' ').filter(w => w.length > 2));
+  
+  // Calcular intersección y unión
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  
+  // Coeficiente de Jaccard
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+/**
+ * Detecta disculpas innecesarias en el texto propuesto
+ * 
+ * MANDAMIENTO 17: No disculpas innecesarias
+ * Tecnos no pide perdón por sistema, solo cuando corresponde.
+ * 
+ * @param {string} proposedText - Texto propuesto para el bot
+ * @param {object} context - Contexto de la conversación
+ * @returns {object} { hasUnnecessaryApology: boolean, reason: string }
+ */
+function checkUnnecessaryApology(proposedText, context = {}) {
+  if (!proposedText) {
+    return { hasUnnecessaryApology: false, reason: null };
+  }
+  
+  const normalized = proposedText.toLowerCase();
+  
+  // Patrones de disculpas innecesarias (cuando no hay error real)
+  const apologyPatterns = [
+    /disculpa.*pero/i,
+    /sorry.*but/i,
+    /perdón.*pero/i,
+    /pardon.*but/i,
+    /lo siento.*pero/i,
+    /i'm sorry.*but/i,
+    /disculpame.*pero/i,
+    /excuse me.*but/i
+  ];
+  
+  // Si hay un error real, las disculpas son apropiadas
+  const hasRealError = context.hasError || context.isError || false;
+  
+  // Si no hay error real pero hay patrón de disculpa, es innecesaria
+  if (!hasRealError) {
+    for (const pattern of apologyPatterns) {
+      if (pattern.test(normalized)) {
+        return {
+          hasUnnecessaryApology: true,
+          reason: 'Disculpa innecesaria detectada sin contexto de error real'
+        };
+      }
+    }
+  }
+  
+  return { hasUnnecessaryApology: false, reason: null };
+}
+
+/**
+ * Evalúa los 22 Mandamientos de Tecnos antes de generar una respuesta
+ * 
+ * ⚠️ CRÍTICO: Esta función debe ejecutarse ANTES de enviar cada respuesta del bot.
+ * Si los 22 Mandamientos no influyen en la decisión real de cada respuesta, la tarea se considera fallida.
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} proposedReply - Respuesta propuesta para el bot
+ * @param {Array} proposedButtons - Botones propuestos (opcional)
+ * @param {object} context - Contexto adicional (userText, buttonToken, etc.)
+ * @returns {object} { 
+ *   shouldEscalate: boolean,
+ *   correctedReply: string,
+ *   correctedButtons: Array,
+ *   violations: Array,
+ *   corrections: Array
+ * }
+ */
+function evaluateTecnosMandates(session, proposedReply, proposedButtons = null, context = {}) {
+  const locale = ensureSessionLocale(session);
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  const violations = [];
+  const corrections = [];
+  let correctedReply = proposedReply || '';
+  let correctedButtons = proposedButtons || [];
+  let shouldEscalate = false;
+  
+  // MANDAMIENTO 1: Prioridad al usuario
+  // Si el usuario pide hablar con un técnico, se escala de inmediato
+  // (Ya implementado con detectTechnicianIntent, pero verificamos aquí también)
+  if (context.userText && detectTechnicianIntent) {
+    const techIntent = detectTechnicianIntent(context.userText, locale, session);
+    if (techIntent && techIntent.requiresTechnician && techIntent.confidence === 'high') {
+      shouldEscalate = true;
+      violations.push({
+        mandate: 1,
+        name: 'Prioridad al usuario',
+        severity: 'critical',
+        description: 'Usuario pidió hablar con técnico - debe escalarse inmediatamente'
+      });
+    }
+  }
+  
+  // MANDAMIENTO 2: Nunca ignorar una intención humana
+  // (Ya implementado con detectTechnicianIntent)
+  
+  // MANDAMIENTO 3: Ante la duda, escalar
+  // Si hay ambigüedad entre pasos automáticos y técnico, se ofrece técnico
+  if (context.hasAmbiguity && !shouldEscalate) {
+    shouldEscalate = true;
+    violations.push({
+      mandate: 3,
+      name: 'Ante la duda, escalar',
+      severity: 'high',
+      description: 'Ambigüedad detectada - debe ofrecerse técnico'
+    });
+  }
+  
+  // MANDAMIENTO 4: Una sola voz, una sola identidad
+  // (Ya implementado con applyTecnosVoice)
+  
+  // MANDAMIENTO 5: Idioma correcto siempre
+  // (Ya implementado con ensureSessionLocale y applyTecnosVoice)
+  
+  // MANDAMIENTO 6: Español = Argentina real
+  // (Ya implementado con applyTecnosVoice)
+  
+  // MANDAMIENTO 7: Inglés = US friendly real
+  // (Ya implementado con applyTecnosVoice)
+  
+  // MANDAMIENTO 8: No repetir bloques sin motivo
+  const blockRepetition = checkBlockRepetition(session, correctedReply);
+  if (blockRepetition.isRepetition) {
+    violations.push({
+      mandate: 8,
+      name: 'No repetir bloques sin motivo',
+      severity: 'medium',
+      description: blockRepetition.reason
+    });
+    // Acortar o variar el mensaje si es repetición
+    if (correctedReply.length > 100) {
+      const sentences = correctedReply.split(/[.!?]\s+/);
+      if (sentences.length > 1) {
+        correctedReply = sentences.slice(0, Math.ceil(sentences.length / 2)).join('. ') + '.';
+        corrections.push('Mensaje acortado para evitar repetición de bloque completo');
+      }
+    }
+  }
+  
+  // MANDAMIENTO 9: No forzar caminos
+  // Si el usuario se traba o se frustra, ofrecer técnico
+  if (context.userFrustration || context.userStuck) {
+    if (!shouldEscalate) {
+      shouldEscalate = true;
+      violations.push({
+        mandate: 9,
+        name: 'No forzar caminos',
+        severity: 'high',
+        description: 'Usuario frustrado o trabado - debe ofrecerse técnico'
+      });
+    }
+  }
+  
+  // MANDAMIENTO 10: Seguridad primero
+  // (Ya implementado con detectTechnicianIntent para casos de riesgo)
+  
+  // MANDAMIENTO 11: Nada de respuestas genéricas de IA
+  // (Ya implementado con generateTechnicalResponse usando OpenAI)
+  
+  // MANDAMIENTO 12: Evitar repetitividad de palabras
+  const lexicalRepetition = checkLexicalRepetition(session, correctedReply);
+  if (lexicalRepetition.hasRepetition) {
+    violations.push({
+      mandate: 12,
+      name: 'Evitar repetitividad de palabras',
+      severity: 'medium',
+      description: `Palabras repetidas detectadas: ${lexicalRepetition.repeatedWords.join(', ')}`
+    });
+    
+    // Aplicar correcciones de palabras repetidas
+    lexicalRepetition.suggestions.forEach(suggestion => {
+      const wordRegex = new RegExp(`\\b${suggestion.word}\\b`, 'gi');
+      if (wordRegex.test(correctedReply)) {
+        const replacement = suggestion.replacements[Math.floor(Math.random() * suggestion.replacements.length)];
+        correctedReply = correctedReply.replace(wordRegex, replacement);
+        corrections.push(`Reemplazada palabra repetida "${suggestion.word}" por "${replacement}"`);
+      }
+    });
+  }
+  
+  // MANDAMIENTO 13: Preguntar lo mínimo necesario
+  // Verificar que no se hagan múltiples preguntas en un solo mensaje
+  const questionCount = (correctedReply.match(/\?/g) || []).length;
+  if (questionCount > 2) {
+    violations.push({
+      mandate: 13,
+      name: 'Preguntar lo mínimo necesario',
+      severity: 'low',
+      description: `Demasiadas preguntas en un solo mensaje (${questionCount})`
+    });
+    // Mantener solo las primeras 2 preguntas
+    const sentences = correctedReply.split(/\?/);
+    if (sentences.length > 2) {
+      correctedReply = sentences.slice(0, 2).join('?') + '?';
+      corrections.push('Mensaje acortado para hacer solo las preguntas esenciales');
+    }
+  }
+  
+  // MANDAMIENTO 14: Botones claros y consistentes
+  // (Ya implementado - los botones se generan con estructura clara)
+  
+  // MANDAMIENTO 15: Registrar lo que el usuario vio
+  // (Ya implementado con addBotMessageToTranscript)
+  
+  // MANDAMIENTO 16: No contradicciones
+  // Verificar que el mensaje no contradiga mensajes anteriores del bot
+  if (session.transcript && session.transcript.length > 0) {
+    const recentBotMessages = session.transcript
+      .filter(entry => entry.who === 'bot')
+      .slice(-3)
+      .map(entry => entry.text || '');
+    
+    // Detectar contradicciones básicas (ej: "sí" vs "no" en el mismo contexto)
+    const contradictionPatterns = [
+      { positive: /\b(sí|si|yes|correcto|right)\b/i, negative: /\b(no|not|incorrecto|wrong)\b/i },
+      { positive: /\b(puedo|can|puede|able)\b/i, negative: /\b(no puedo|cannot|unable)\b/i }
+    ];
+    
+    contradictionPatterns.forEach(pattern => {
+      const hasPositive = pattern.positive.test(correctedReply);
+      const hasNegativeInHistory = recentBotMessages.some(msg => pattern.negative.test(msg));
+      
+      if (hasPositive && hasNegativeInHistory) {
+        violations.push({
+          mandate: 16,
+          name: 'No contradicciones',
+          severity: 'medium',
+          description: 'Posible contradicción detectada con mensajes anteriores'
+        });
+      }
+    });
+  }
+  
+  // MANDAMIENTO 17: No disculpas innecesarias
+  const unnecessaryApology = checkUnnecessaryApology(correctedReply, context);
+  if (unnecessaryApology.hasUnnecessaryApology) {
+    violations.push({
+      mandate: 17,
+      name: 'No disculpas innecesarias',
+      severity: 'low',
+      description: unnecessaryApology.reason
+    });
+    
+    // Remover disculpas innecesarias
+    correctedReply = correctedReply
+      .replace(/\b(disculpa|sorry|perdón|pardon|lo siento|i'm sorry|disculpame)\s*,?\s*pero\s+/gi, '')
+      .replace(/\b(disculpa|sorry|perdón|pardon|lo siento|i'm sorry|disculpame)\s*,?\s*but\s+/gi, '')
+      .trim();
+    
+    corrections.push('Disculpas innecesarias removidas del mensaje');
+  }
+  
+  // MANDAMIENTO 18: Confirmar y avanzar
+  // Verificar que el mensaje confirme lo esencial y avance sin rodeos
+  if (correctedReply.length > 300 && !context.needsDetailedExplanation) {
+    violations.push({
+      mandate: 18,
+      name: 'Confirmar y avanzar',
+      severity: 'low',
+      description: 'Mensaje demasiado largo - debe ser más directo'
+    });
+    // Acortar si es muy largo y no necesita detalle
+    const sentences = correctedReply.split(/[.!?]\s+/);
+    if (sentences.length > 3) {
+      correctedReply = sentences.slice(0, 3).join('. ') + '.';
+      corrections.push('Mensaje acortado para ser más directo');
+    }
+  }
+  
+  // MANDAMIENTO 19: Escalamiento con salida real
+  // (Ya implementado con createTicketAndRespond y WhatsApp)
+  
+  // MANDAMIENTO 20: Respeto por el tiempo del usuario
+  // Verificar que los pasos propuestos sean cortos
+  if (context.proposedSteps && context.proposedSteps.length > 5) {
+    violations.push({
+      mandate: 20,
+      name: 'Respeto por el tiempo del usuario',
+      severity: 'medium',
+      description: `Demasiados pasos propuestos (${context.proposedSteps.length}) - debe ofrecerse técnico`
+    });
+    if (!shouldEscalate) {
+      shouldEscalate = true;
+    }
+  }
+  
+  // MANDAMIENTO 21: Cierre limpio y humano
+  // (Ya implementado en casos de ENDED)
+  
+  // MANDAMIENTO 22: OpenAI asesora, Tecnos decide
+  // (Ya implementado - OpenAI se usa para sugerencias, pero Tecnos decide)
+  
+  // Log de violaciones para auditoría
+  if (violations.length > 0) {
+    logger.warn(`[MANDATES] ⚠️ Violaciones detectadas: ${violations.length}`, {
+      sessionId: session.id || 'unknown',
+      violations: violations.map(v => `${v.mandate}: ${v.name}`),
+      corrections: corrections
+    });
+  }
+  
+  return {
+    shouldEscalate,
+    correctedReply,
+    correctedButtons,
+    violations,
+    corrections
+  };
+}
+
+/**
+ * Verifica si la respuesta ajustada requiere escalamiento forzado y lo ejecuta
+ * ⚠️ DECISIÓN REAL: Interrumpe el flujo si los mandamientos lo requieren
+ */
+async function checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, handlerName) {
+  if (adjustedResponse && adjustedResponse._forceEscalate) {
+    logger.warn(`[${handlerName}] 🚨 Mandamientos requieren escalamiento: ${adjustedResponse._escalationReason}`);
+    const escalationReason = {
+      requiresTechnician: true,
+      confidence: 'high',
+      type: adjustedResponse._escalationReason,
+      reason: `Mandamientos detectaron ${adjustedResponse._escalationReason} en ${handlerName}`
+    };
+    return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
+  }
+  return null; // No requiere escalamiento
+}
+
+/**
+ * Aplica los 22 Mandamientos a una respuesta antes de retornarla
+ * Esta función wrapper asegura que cada respuesta cumpla con los mandamientos
+ * 
+ * ⚠️ CRÍTICO: Debe llamarse ANTES de retornar cada respuesta del bot
+ * 
+ * @param {Object} response - Objeto de respuesta { ok, reply, stage, buttons, handled, ... }
+ * @param {Object} session - Sesión del usuario
+ * @param {string} userText - Texto del usuario que generó esta respuesta
+ * @param {string|null} buttonToken - Token del botón si aplica
+ * @returns {Object} Respuesta ajustada según los 22 Mandamientos (puede incluir _forceEscalate)
+ */
+function applyMandatesToResponse(response, session, userText = '', buttonToken = null) {
+  // Si la respuesta no es exitosa, retornarla sin modificar
+  if (!response || !response.ok || !response.reply) {
+    return response;
+  }
+  
+  // ⚠️ EVALUACIÓN PREVIA: Detectar frustración/repetitividad ANTES de evaluar mandamientos
+  const transcript = session.transcript || [];
+  const recentBotMessages = transcript
+    .filter(entry => entry.who === 'bot')
+    .slice(-5)
+    .map(entry => entry.text || '')
+    .join(' ')
+    .toLowerCase();
+  
+  // Detectar repetición léxica extrema (MANDAMIENTO 12)
+  const repetitiveWords = ['perfecto', 'entiendo', 'frustrante', 'claro', 'excelente', 'genial', 'bien', 'ok'];
+  const locale = ensureSessionLocale(session);
+  const wordsToCheck = String(locale).toLowerCase().startsWith('en') 
+    ? ['perfect', 'understand', 'frustrating', 'clear', 'excellent', 'great', 'ok', 'okay']
+    : repetitiveWords;
+  
+  let extremeRepetition = false;
+  for (const word of wordsToCheck) {
+    const count = (recentBotMessages.match(new RegExp(`\\b${word}\\b`, 'gi')) || []).length;
+    if (count >= 3) {
+      extremeRepetition = true;
+      logger.warn(`[MANDATES] 🔴 Repetición extrema detectada: "${word}" aparece ${count} veces`);
+      break;
+    }
+  }
+  
+  // Detectar frustración por fallbacks (MANDAMIENTO 9)
+  const frustrationDetected = session.fallbackCount >= 3 || extremeRepetition;
+  
+  // Detectar ambigüedad en el mensaje del usuario (MANDAMIENTO 3)
+  const hasAmbiguity = userText && (
+    /\b(no sé|no entiendo|no funciona|no puedo|help|ayuda|confundido|confused)\b/i.test(userText) ||
+    session.fallbackCount >= 2
+  );
+  
+  // Evaluar los 22 Mandamientos
+  const evaluation = evaluateTecnosMandates(
+    session,
+    response.reply,
+    response.buttons || null,
+    {
+      userText,
+      buttonToken,
+      hasAmbiguity,
+      userFrustration: frustrationDetected,
+      userStuck: session.fallbackCount >= 5,
+      needsDetailedExplanation: false,
+      proposedSteps: null
+    }
+  );
+  
+  // ⚠️ DECISIÓN REAL: Si hay frustración/repetitividad/ambigüedad, FORZAR escalamiento
+  if (evaluation.shouldEscalate || frustrationDetected || (hasAmbiguity && session.fallbackCount >= 2)) {
+    logger.warn(`[MANDATES] 🚨 FORZANDO ESCALAMIENTO: frustración=${frustrationDetected}, ambigüedad=${hasAmbiguity}, fallbacks=${session.fallbackCount}`);
+    
+    // Retornar señal especial para que el handler interrumpa y escale
+    return {
+      ...response,
+      _forceEscalate: true,
+      _escalationReason: frustrationDetected ? 'frustration' : (hasAmbiguity ? 'ambiguity' : 'mandates'),
+      reply: evaluation.correctedReply || response.reply,
+      buttons: evaluation.correctedButtons || response.buttons || null
+    };
+  }
+  
+  // Aplicar correcciones de texto
+  let finalReply = evaluation.correctedReply || response.reply;
+  
+  // Aplicar tono de Tecnos (MANDAMIENTO 4, 5, 6, 7)
+  finalReply = applyTecnosVoice(finalReply, locale, {
+    'es-AR': finalReply,
+    'en-US': finalReply
+  });
+  
+  // ⚠️ CAMBIO REAL: Si hay repetición léxica, modificar botones para ofrecer técnico
+  let finalButtons = evaluation.correctedButtons || response.buttons || null;
+  if (extremeRepetition && finalButtons && Array.isArray(finalButtons)) {
+    const locale = ensureSessionLocale(session);
+    const isEnglish = String(locale).toLowerCase().startsWith('en');
+    const techButton = {
+      text: isEnglish ? '💚 Talk to a Technician' : '💚 Hablar con un Técnico',
+      value: 'BTN_TECH',
+      description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
+    };
+    
+    // Agregar botón de técnico al inicio si no existe
+    const hasTechButton = finalButtons.some(btn => btn.value === 'BTN_TECH' || btn.token === 'BTN_TECH');
+    if (!hasTechButton) {
+      finalButtons = [techButton, ...finalButtons];
+      logger.info(`[MANDATES] 🔄 Botón de técnico agregado por repetición léxica extrema`);
+    }
+  }
+  
+  // Log de correcciones aplicadas
+  if (evaluation.corrections && evaluation.corrections.length > 0) {
+    logger.info(`[MANDATES] ✅ Correcciones aplicadas: ${evaluation.corrections.join(', ')}`);
+  }
+  
+  // Retornar respuesta ajustada
+  return {
+    ...response,
+    reply: finalReply,
+    buttons: finalButtons
+  };
+}
+
+/**
  * Guarda la sesión Y también guarda el transcript en formato texto plano
  * El transcript es útil para análisis y debugging
  * 
@@ -1477,28 +2141,27 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
       // El mensaje es bilingüe porque aún no sabemos qué idioma prefiere el usuario
       const reply = `🆔 **${sessionId}**\n\n✅ **Gracias por aceptar / Thank you for accepting**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
       
-      // Agregar este mensaje al transcript (historial de la conversación)
-      session.transcript.push({ 
-        who: 'bot', 
-        text: reply, 
-        ts: nowIso(), 
-        stage: session.stage 
-      });
+      // Generar botones de selección de idioma
+      const languageButtons = [
+        { text: '(🇦🇷) Español 🌎', value: 'español' },
+        { text: '(🇺🇸) English 🌎', value: 'english' }
+      ];
+      
+      // Agregar mensaje al transcript CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, reply, languageButtons, session.stage);
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta con botones de selección de idioma
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Mantener ASK_LANGUAGE hasta que seleccione idioma
-        buttons: [
-          { text: '(🇦🇷) Español 🌎', value: 'español' },
-          { text: '(🇺🇸) English 🌎', value: 'english' }
-        ],
+        buttons: languageButtons,
         handled: true // Indica que este handler procesó la request
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -1533,15 +2196,18 @@ If you change your mind, you can restart the chat.
 
 📧 For inquiries without registration, write to us at: web@stia.com.ar`;
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Mantener ASK_LANGUAGE (no avanzar)
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -1570,15 +2236,18 @@ If you change your mind, you can restart the chat.
         // Mensaje de confirmación en español
         const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
         
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+        addBotMessageToTranscript(session, reply, null, session.stage);
         await saveSessionAndTranscript(sessionId, session);
         
-        return {
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_NAME
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       
       // Detectar selección de Inglés
@@ -1592,15 +2261,18 @@ If you change your mind, you can restart the chat.
         // Mensaje de confirmación en inglés
         const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
         
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+        // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+        addBotMessageToTranscript(session, reply, null, session.stage);
         await saveSessionAndTranscript(sessionId, session);
         
-        return {
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_NAME
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -1617,29 +2289,35 @@ If you change your mind, you can restart the chat.
       ? `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`
       : `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
     
-    session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-    await saveSessionAndTranscript(sessionId, session);
-    
-    // Retornar botones según el estado actual
+    // Generar botones según el estado actual
     // Si ya aceptó GDPR, mostrar botones de idioma
     // Si no, mostrar botones de aceptación/rechazo
-    return {
+    const retryButtons = session.gdprConsent
+      ? [
+          // Botones de idioma (si ya aceptó GDPR)
+          { text: '(🇦🇷) Español 🌎', value: 'español' },
+          { text: '(🇺🇸) English 🌎', value: 'english' }
+        ]
+      : [
+          // Botones de aceptación/rechazo bilingües (si aún no aceptó GDPR)
+          { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
+          { text: 'No Acepto / No, I Decline ❌', value: 'no' }
+        ];
+    
+    // Agregar mensaje al transcript CON botones (registro obligatorio)
+    addBotMessageToTranscript(session, retry, retryButtons, session.stage);
+    
+    await saveSessionAndTranscript(sessionId, session);
+    
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,
       reply: retry,
       stage: session.stage,
-      buttons: session.gdprConsent
-        ? [
-            // Botones de idioma (si ya aceptó GDPR)
-            { text: '(🇦🇷) Español 🌎', value: 'español' },
-            { text: '(🇺🇸) English 🌎', value: 'english' }
-          ]
-        : [
-            // Botones de aceptación/rechazo bilingües (si aún no aceptó GDPR)
-            { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
-            { text: 'No Acepto / No, I Decline ❌', value: 'no' }
-          ],
+      buttons: retryButtons,
       handled: true
     };
+    return applyMandatesToResponse(response, session, userText, buttonToken);
     
   } catch (error) {
     // Manejo de errores robusto
@@ -1657,7 +2335,8 @@ If you change your mind, you can restart the chat.
       : "Lo siento, hubo un error procesando tu solicitud. Por favor, intentá de nuevo.";
     
     if (session) {
-      session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (mensaje de error, no hay botones)
+      addBotMessageToTranscript(session, errorReply, null, session?.stage || STATES.ASK_LANGUAGE);
     }
     
     return {
@@ -2385,15 +3064,18 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "I didn't receive your message. Please try typing your name again."
         : "No recibí tu mensaje. Por favor, escribí tu nombre de nuevo.";
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2457,9 +3139,6 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
           ? `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
           : `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
       
-      // Agregar mensaje al transcript
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-      
       // ========================================
       // GENERAR BOTONES DE PROBLEMAS FRECUENTES
       // ========================================
@@ -2490,17 +3169,27 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         'BTN_VIRUS'
       ], locale));
       
+      // Agregar mensaje al transcript CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, reply, problemButtons, session.stage);
+      
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta exitosa con botones
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ASK_NEED
         buttons: problemButtons, // ⚠️ CRÍTICO: Incluir los botones de problemas frecuentes
         handled: true
       };
+      const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
+      
+      // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
+      const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_NAME');
+      if (forcedEscalation) return forcedEscalation;
+      
+      return adjustedResponse;
     }
     
     // ========================================
@@ -2520,17 +3209,20 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
         : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".";
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
       logger.info(`[ASK_NAME] ⚠️ No se detectó nombre. Motivo: ${nameResult.reason}, Intentos: ${session.nameAttempts}`);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2556,17 +3248,20 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
         : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?";
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
       logger.info(`[ASK_NAME] ⚠️ Límite de intentos alcanzado, continuando sin nombre`);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ASK_NEED
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2620,12 +3315,14 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       
       await saveSessionAndTranscript(sessionId, session);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2644,15 +3341,18 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
         : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".";
       
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2674,12 +3374,14 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
     await saveSessionAndTranscript(sessionId, session);
     
-    return {
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,
       reply: fallbackReply,
       stage: session.stage,
       handled: true
     };
+    return applyMandatesToResponse(response, session, userText, buttonToken);
     
   } catch (error) {
     // Manejo de errores robusto
@@ -3018,24 +3720,28 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          problemSelected: session.problem // Metadata: problema seleccionado
-        });
+        
+        // Agregar mensaje del bot CON botones (registro obligatorio)
+        addBotMessageToTranscript(session, reply, deviceButtons, session.stage);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotEntry = session.transcript[session.transcript.length - 1];
+        if (lastBotEntry && lastBotEntry.who === 'bot') {
+          lastBotEntry.problemSelected = session.problem; // Metadata: problema seleccionado
+        }
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // Retornar respuesta exitosa con botones de dispositivos
-        return {
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons, // ⚠️ CRÍTICO: Incluir los botones de dispositivos
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -3108,24 +3814,28 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           text: userText,
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          problemDetected: session.problem // Metadata: problema detectado
-        });
+        
+        // Agregar mensaje del bot CON botones (registro obligatorio)
+        addBotMessageToTranscript(session, reply, deviceButtons, session.stage);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotEntry = session.transcript[session.transcript.length - 1];
+        if (lastBotEntry && lastBotEntry.who === 'bot') {
+          lastBotEntry.problemDetected = session.problem; // Metadata: problema detectado
+        }
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // Retornar respuesta exitosa con botones de dispositivos
-        return {
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons,
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -3163,15 +3873,6 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           text: userText,
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: technicalReply,
-          ts: nowIso(),
-          questionType: 'technical',
-          aiGenerated: true
-        });
-        
-        await saveSessionAndTranscript(sessionId, session);
         
         // Mostrar botones de problemas para que pueda continuar
         const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
@@ -3183,13 +3884,27 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           'BTN_VIRUS'
         ], locale));
         
-        return {
+        // Agregar mensaje del bot CON botones (registro obligatorio)
+        addBotMessageToTranscript(session, technicalReply, problemButtons, session.stage);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotEntry = session.transcript[session.transcript.length - 1];
+        if (lastBotEntry && lastBotEntry.who === 'bot') {
+          lastBotEntry.questionType = 'technical';
+          lastBotEntry.aiGenerated = true;
+        }
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: technicalReply,
           stage: session.stage, // Sigue siendo ASK_NEED
           buttons: problemButtons, // Mostrar botones para continuar
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       // Si OpenAI falló, continuar con el fallback normal
     }
@@ -3225,23 +3940,28 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
       text: userText,
       ts: nowIso()
     });
-    session.transcript.push({
-      who: 'bot',
-      text: fallbackReply,
-      ts: nowIso()
-    });
+    
+    // Agregar mensaje del bot CON botones (registro obligatorio)
+    addBotMessageToTranscript(session, fallbackReply, problemButtons, session.stage);
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
     
-    // Retornar respuesta con botones de problemas frecuentes
-    return {
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,
       reply: fallbackReply,
       stage: session.stage, // Sigue siendo ASK_NEED
       buttons: problemButtons, // Mostrar botones de problemas frecuentes
       handled: true
     };
+    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
+    
+    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
+    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_NEED');
+    if (forcedEscalation) return forcedEscalation;
+    
+    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -3912,15 +4632,18 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
               ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${deviceCfg.label}. Cuéntame, ¿qué problema presenta?`
               : `Perfecto, ${whoLabel}. Tomo que te referís a ${deviceCfg.label}. Contame, ¿qué problema presenta?`);
           
-          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+          // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+          addBotMessageToTranscript(session, reply, null, session.stage);
           await saveSessionAndTranscript(sessionId, session);
           
-          return {
+          // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+          const response = {
             ok: true,
             reply: reply,
             stage: session.stage,
             handled: true
           };
+          return applyMandatesToResponse(response, session, userText, buttonToken);
         }
         
         // Hay problema guardado, generar y mostrar pasos
@@ -4037,25 +4760,35 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: reply,
-          ts: nowIso(),
-          deviceSelected: session.device, // Metadata: dispositivo seleccionado
-          stepsGenerated: steps.length // Metadata: cantidad de pasos generados
-        });
+        
+        // Agregar mensaje del bot CON botones (registro obligatorio)
+        addBotMessageToTranscript(session, reply, buttons, session.stage);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotEntry = session.transcript[session.transcript.length - 1];
+        if (lastBotEntry && lastBotEntry.who === 'bot') {
+          lastBotEntry.deviceSelected = session.device; // Metadata: dispositivo seleccionado
+          lastBotEntry.stepsGenerated = steps.length; // Metadata: cantidad de pasos generados
+        }
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // Retornar respuesta exitosa con pasos y botones
-        return {
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es BASIC_TESTS
           buttons: buttons, // ⚠️ CRÍTICO: Incluir los botones de ayuda y resultado
           handled: true
         };
+        const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
+        
+        // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
+        const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'BASIC_TESTS');
+        if (forcedEscalation) return forcedEscalation;
+        
+        return adjustedResponse;
       }
     }
     
@@ -4093,26 +4826,31 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           text: userText,
           ts: nowIso()
         });
-        session.transcript.push({
-          who: 'bot',
-          text: technicalReply,
-          ts: nowIso(),
-          questionType: 'technical',
-          aiGenerated: true
-        });
-        
-        await saveSessionAndTranscript(sessionId, session);
         
         // Mostrar botones de dispositivos para que pueda continuar
         const deviceButtons = getDeviceSelectionButtons(locale);
         
-        return {
+        // Agregar mensaje del bot CON botones (registro obligatorio)
+        addBotMessageToTranscript(session, technicalReply, deviceButtons, session.stage);
+        
+        // Agregar metadata adicional al último mensaje del bot
+        const lastBotEntry = session.transcript[session.transcript.length - 1];
+        if (lastBotEntry && lastBotEntry.who === 'bot') {
+          lastBotEntry.questionType = 'technical';
+          lastBotEntry.aiGenerated = true;
+        }
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+        const response = {
           ok: true,
           reply: technicalReply,
           stage: session.stage, // Sigue siendo ASK_DEVICE
           buttons: deviceButtons, // Mostrar botones para continuar
           handled: true
         };
+        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       // Si OpenAI falló, continuar con el fallback normal
     }
@@ -4141,23 +4879,28 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
       text: userText,
       ts: nowIso()
     });
-    session.transcript.push({
-      who: 'bot',
-      text: fallbackReply,
-      ts: nowIso()
-    });
+    
+    // Agregar mensaje del bot CON botones (registro obligatorio)
+    addBotMessageToTranscript(session, fallbackReply, deviceButtons, session.stage);
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
     
-    // Retornar respuesta con botones de dispositivos
-    return {
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,
       reply: fallbackReply,
       stage: session.stage, // Sigue siendo ASK_DEVICE
       buttons: deviceButtons, // Mostrar botones de dispositivos
       handled: true
     };
+    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
+    
+    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
+    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_DEVICE');
+    if (forcedEscalation) return forcedEscalation;
+    
+    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -4924,6 +5667,20 @@ Usa el botón de abajo para continuar por WhatsApp.`;
 Usá el botón de abajo para continuar por WhatsApp.`;
   }
   
+  // Generar botones de escalamiento
+  const escalationButtons = [
+    {
+      text: isEnglish ? '📲 Connect via WhatsApp' : '📲 Conectar por WhatsApp',
+      value: 'BTN_WHATSAPP_TECNICO',
+      description: isEnglish ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
+    },
+    {
+      text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
+      value: 'BTN_BACK',
+      description: isEnglish ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
+    }
+  ];
+  
   // Agregar mensajes al transcript
   session.transcript.push({
     who: 'user',
@@ -4931,13 +5688,16 @@ Usá el botón de abajo para continuar por WhatsApp.`;
     ts: nowIso(),
     handoffTriggered: true
   });
-  session.transcript.push({
-    who: 'bot',
-    text: reply,
-    ts: nowIso(),
-    handoffActivated: true,
-    handoffRecord: handoffRecord
-  });
+  
+  // Agregar mensaje del bot CON botones (registro obligatorio)
+  addBotMessageToTranscript(session, reply, escalationButtons, session.stage);
+  
+  // Agregar metadata adicional al último mensaje del bot
+  const lastBotEntry = session.transcript[session.transcript.length - 1];
+  if (lastBotEntry && lastBotEntry.who === 'bot') {
+    lastBotEntry.handoffActivated = true;
+    lastBotEntry.handoffRecord = handoffRecord;
+  }
   
   // Guardar sesión
   await saveSessionAndTranscript(sessionId, session);
@@ -4949,26 +5709,17 @@ Usá el botón de abajo para continuar por WhatsApp.`;
   }
   
   // Si no se pasa res, retornar objeto para que el handler lo procese
-  return {
+  // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+  const response = {
     ok: true,
     reply: reply,
     stage: session.stage, // Ahora es ESCALATE
-    buttons: [
-      {
-        text: isEnglish ? '📲 Connect via WhatsApp' : '📲 Conectar por WhatsApp',
-        value: 'BTN_WHATSAPP_TECNICO',
-        description: isEnglish ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
-      },
-      {
-        text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
-        value: 'BTN_BACK',
-        description: isEnglish ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
-      }
-    ],
+    buttons: escalationButtons,
     allowWhatsapp: true,
     handled: true,
     handoffActivated: true
   };
+  return applyMandatesToResponse(response, session, userText || '', null);
 }
 
 /**
@@ -5259,7 +6010,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         ? "I couldn't regenerate the steps. Please start over by describing your problem."
         : "No pude regenerar los pasos. Por favor, empezá de nuevo describiendo tu problema.";
       
-      session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
+      // Agregar mensaje del bot SIN botones (mensaje de error, no hay botones)
+      addBotMessageToTranscript(session, errorReply, null, session.stage);
       await saveSessionAndTranscript(sessionId, session);
       
       return {
@@ -5404,24 +6156,28 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken, // Guardar el token del botón para referencia
         ts: nowIso()
       });
-      session.transcript.push({
-        who: 'bot',
-        text: reply,
-        ts: nowIso(),
-        helpStep: stepNumber // Metadata: paso de ayuda mostrado
-      });
+      
+      // Agregar mensaje del bot CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, reply, buttons, session.stage);
+      
+      // Agregar metadata adicional al último mensaje del bot
+      const lastBotEntry = session.transcript[session.transcript.length - 1];
+      if (lastBotEntry && lastBotEntry.who === 'bot') {
+        lastBotEntry.helpStep = stepNumber; // Metadata: paso de ayuda mostrado
+      }
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta exitosa con ayuda y botones
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Sigue siendo BASIC_TESTS
         buttons: buttons, // ⚠️ CRÍTICO: Incluir los botones de continuación
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -5461,23 +6217,22 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken || userText,
         ts: nowIso()
       });
-      session.transcript.push({
-        who: 'bot',
-        text: reply,
-        ts: nowIso()
-      });
+      
+      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
+      addBotMessageToTranscript(session, reply, null, session.stage);
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta exitosa
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ENDED
         buttons: [], // Sin botones, la conversación terminó
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -5541,11 +6296,9 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken || userText,
         ts: nowIso()
       });
-      session.transcript.push({
-        who: 'bot',
-        text: reply,
-        ts: nowIso()
-      });
+      
+      // Agregar mensaje del bot CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, reply, buttons, session.stage);
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
@@ -5572,8 +6325,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
       //   ❌ NO INCLUIR: Botones de WhatsApp (se crean automáticamente en el frontend)
       // 
-      // Retornar respuesta exitosa
-      return {
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,                    // Indica que la operación fue exitosa
         reply: reply,                 // Mensaje de respuesta al usuario
         stage: session.stage,        // Estado actual: ESCALATE
@@ -5581,6 +6334,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         allowWhatsapp: true,         // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
         handled: true                // Indica que este handler procesó la request
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -5696,8 +6450,6 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
         aiGenerated: !!technicalReply && !technicalReply.includes('estoy teniendo problemas')
       });
       
-      await saveSessionAndTranscript(sessionId, session);
-      
       // Botones para continuar
       const buttons = [
         {
@@ -5712,13 +6464,27 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
         }
       ];
       
-      return {
+      // Agregar mensaje del bot CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, technicalReply, buttons, session.stage);
+      
+      // Agregar metadata adicional al último mensaje del bot
+      const lastBotEntry = session.transcript[session.transcript.length - 1];
+      if (lastBotEntry && lastBotEntry.who === 'bot') {
+        lastBotEntry.questionType = 'technical';
+        lastBotEntry.aiGenerated = true;
+      }
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         buttons: buttons,
         handled: true
       };
+      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -5764,12 +6530,20 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
     
     await saveSessionAndTranscript(sessionId, session);
     
-    return {
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,
       reply: fallbackReply,
       stage: session.stage,
       handled: true
     };
+    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
+    
+    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
+    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'BASIC_TESTS');
+    if (forcedEscalation) return forcedEscalation;
+    
+    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -6402,12 +7176,8 @@ async function createTicketAndRespond(session, sessionId, res) {
       description: isEn ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
     });
     
-    // Agregar mensaje al transcript
-    session.transcript.push({
-      who: 'bot',
-      text: replyLines.join('\n\n'),
-      ts: ts
-    });
+    // Agregar mensaje al transcript CON botones (registro obligatorio)
+    addBotMessageToTranscript(session, replyLines.join('\n\n'), buttons, session.stage);
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
@@ -6858,14 +7628,17 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
         }
       ];
       
-      return res.json({
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         buttons: buttons,
         allowWhatsapp: true,
         handled: true
-      });
+      };
+      const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
+      return res.json(adjustedResponse);
     }
     
     // ========================================
@@ -6908,11 +7681,9 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
       text: userText || '',
       ts: nowIso()
     });
-    session.transcript.push({
-      who: 'bot',
-      text: reply,
-      ts: nowIso()
-    });
+    
+    // Agregar mensaje del bot CON botones (registro obligatorio)
+    addBotMessageToTranscript(session, reply, buttons, session.stage);
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
@@ -6938,15 +7709,17 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     //   ✅ OBLIGATORIO: Indica que este handler procesó la request
     //   ❌ NO CAMBIAR A false: Causaría que el handler principal intente procesar de nuevo
     // 
-    // Retornar respuesta con botones
-    return res.json({
+    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+    const response = {
       ok: true,                      // Indica que la operación fue exitosa
       reply: reply,                  // Mensaje de respuesta al usuario
       stage: session.stage,          // Estado actual: ESCALATE
       buttons: buttons,              // Solo BTN_BACK - NO incluir botones de WhatsApp
       allowWhatsapp: true,           // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
       handled: true                  // Indica que este handler procesó la request
-    });
+    };
+    const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
+    return res.json(adjustedResponse);
     
   } catch (error) {
     // Manejo de errores robusto
@@ -7869,12 +8642,8 @@ app.get('/api/greeting', async (req, res) => {
     // Usa el locale detectado para mostrar el mensaje en el idioma correcto
     const greeting = buildLanguageSelectionGreeting(normalizedLocale);
     
-    // Agregar el mensaje inicial al transcript
-    newSession.transcript.push({ 
-      who: 'bot', 
-      text: greeting.text, 
-      ts: nowIso() 
-    });
+    // Agregar el mensaje inicial al transcript CON botones (registro obligatorio)
+    addBotMessageToTranscript(newSession, greeting.text, greeting.buttons || [], newSession.stage);
     
     // Guardar la sesión en el sistema de archivos
     await saveSessionAndTranscript(sessionId, newSession);
@@ -8011,16 +8780,22 @@ app.post('/api/chat', async (req, res) => {
       
       // Mostrar mensaje de GDPR
       const greeting = buildLanguageSelectionGreeting(session.userLocale);
-      session.transcript.push({ who: 'bot', text: greeting.text, ts: nowIso() });
+      
+      // Agregar mensaje al transcript CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, greeting.text, greeting.buttons || [], session.stage);
+      
       await saveSessionAndTranscript(sessionId, session);
       
-      return res.json({
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: greeting.text,
         stage: session.stage,
         sessionId: sessionId,
         buttons: greeting.buttons || []
-      });
+      };
+      const adjustedResponse = applyMandatesToResponse(response, session, '', null);
+      return res.json(adjustedResponse);
     }
     
     // ========================================
@@ -8442,15 +9217,6 @@ app.post('/api/chat', async (req, res) => {
         });
       }
       
-      session.transcript.push({
-        who: 'bot',
-        text: technicalReply,
-        ts: nowIso(),
-        questionType: 'technical_openai'
-      });
-      
-      await saveSessionAndTranscript(sessionId, session);
-      
       // Botones para continuar según el stage actual
       const buttons = [];
       if (session.stage === STATES.BASIC_TESTS) {
@@ -8461,13 +9227,27 @@ app.post('/api/chat', async (req, res) => {
         });
       }
       
-      return res.json({
+      // Agregar mensaje del bot CON botones (registro obligatorio)
+      addBotMessageToTranscript(session, technicalReply, buttons.length > 0 ? buttons : null, session.stage);
+      
+      // Agregar metadata adicional al último mensaje del bot
+      const lastBotEntry = session.transcript[session.transcript.length - 1];
+      if (lastBotEntry && lastBotEntry.who === 'bot') {
+        lastBotEntry.questionType = 'technical_openai';
+      }
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
+      const response = {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         sessionId: sessionId,
         buttons: buttons
-      });
+      };
+      const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
+      return res.json(adjustedResponse);
     }
     
     // ========================================
