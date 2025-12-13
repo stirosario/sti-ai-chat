@@ -3893,9 +3893,142 @@ function getProblemTokenFromSession(session = {}, problemText = '') {
 }
 
 /**
- * Genera pasos de diagnóstico por problema/dispositivo (6-8 pasos)
- * Usa playbook específico; fallback genérico si falta.
+ * Filtra pasos ya confirmados, fallidos o descartados para evitar reimprimirlos
+ * 
+ * CONSTITUCIÓN DE TECNOS - PROHIBICIÓN DE REIMPRESIÓN
+ * 
+ * Esta función es OBLIGATORIA para cumplir con la corrección crítica del bug de reinicio de flujo.
+ * Un paso confirmado como realizado por el usuario NO puede volver a sugerirse ni imprimirse automáticamente.
+ * 
+ * PROPÓSITO:
+ * - Eliminar de la lista de pasos aquellos que el usuario ya confirmó haber realizado
+ * - Eliminar pasos que el usuario reportó como fallidos
+ * - Evitar que el sistema reimprima el bloque completo de pasos iniciales
+ * 
+ * CÓMO FUNCIONA:
+ * 1. Recibe un array de pasos y la sesión actual
+ * 2. Revisa session.stepsDone (pasos confirmados por el usuario)
+ * 3. Revisa session.failedSteps (pasos que el usuario reportó como fallidos)
+ * 4. Revisa session.stepProgress (estado de cada paso: 'completed', 'failed', etc.)
+ * 5. Filtra los pasos que ya fueron realizados o fallaron
+ * 6. Retorna solo los pasos pendientes
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - La lógica de comparación de texto (líneas 3930-3933) para hacer matching más/menos estricto
+ *    - El formato de la key en stepProgress (línea 3946) si cambia la estructura
+ *    - Agregar más validaciones de estado de pasos
+ * 
+ * ❌ NO MODIFICAR:
+ *    - La estructura de retorno (debe ser un Array)
+ *    - La validación inicial de array vacío (líneas 3912-3914) - es crítica para evitar errores
+ *    - La lógica de filtrado principal (línea 3951) - rompería la prohibición de reimpresión
+ *    - Si eliminas esta función, el sistema volverá a reimprimir pasos ya confirmados
+ * 
+ * UBICACIONES DONDE SE USA:
+ * - generateDiagnosticSteps() (línea ~4010)
+ * - handleBasicTestsStage() cuando se presiona BTN_BACK_TO_STEPS (línea ~4999)
+ * 
+ * @param {Array} steps - Array de pasos a filtrar (strings con descripción de cada paso)
+ * @param {object} session - Objeto de sesión que contiene:
+ *                          - stepsDone: Array con pasos confirmados (puede tener números, objetos con .index, o strings)
+ *                          - failedSteps: Array con pasos fallidos (puede tener números u objetos con .index)
+ *                          - stepProgress: Objeto con estados de pasos (ej: { basic_0: 'completed', basic_1: 'failed' })
+ * @returns {Array} Array de pasos filtrados (solo los que NO fueron confirmados ni fallaron)
  */
+function filterCompletedSteps(steps, session) {
+  // Validación inicial: Si no es un array válido o está vacío, retornar tal cual
+  // Esto previene errores si se llama con datos inválidos
+  // ❌ NO ELIMINAR esta validación - es crítica para evitar crashes
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return steps;
+  }
+  
+  // Obtener arrays de pasos confirmados y fallidos desde la sesión
+  // Si no existen, usar arrays vacíos para evitar errores
+  // ✅ SE PUEDE MODIFICAR: Agregar más campos de la sesión si se agregan nuevos estados de pasos
+  const stepsDone = session.stepsDone || [];           // Pasos que el usuario confirmó haber realizado
+  const stepProgress = session.stepProgress || {};     // Estados detallados de cada paso
+  const failedSteps = session.failedSteps || [];       // Pasos que el usuario reportó como fallidos
+  
+  // Filtrar el array de pasos: solo mantener los que NO fueron confirmados ni fallaron
+  // El método filter() itera sobre cada paso y su índice
+  // ❌ NO MODIFICAR: La lógica de filtrado es crítica para cumplir la prohibición de reimpresión
+  const filteredSteps = steps.filter((step, idx) => {
+    // PASO 1: Verificar si el paso está en stepsDone (ya fue confirmado por el usuario)
+    // stepsDone puede contener diferentes formatos:
+    // - Números: índice del paso (ej: 0, 1, 2)
+    // - Objetos: con propiedad .index (ej: { index: 0, timestamp: '...' })
+    // - Strings: texto del paso para comparación (ej: "revisar cable")
+    // ✅ SE PUEDE MODIFICAR: Agregar más formatos soportados si cambia la estructura de stepsDone
+    const isDone = stepsDone.some(done => {
+      // Caso 1: done es un número (índice directo)
+      // Comparar el índice del paso actual con el número en stepsDone
+      if (typeof done === 'number') {
+        return done === idx;  // Si el índice coincide, el paso está confirmado
+      }
+      // Caso 2: done es un objeto con propiedad .index
+      // Útil cuando se guarda metadata adicional (timestamp, etc.)
+      else if (typeof done === 'object' && done.index !== undefined) {
+        return done.index === idx;  // Comparar el índice del objeto con el índice actual
+      }
+      // Caso 3: done es un string (texto del paso)
+      // Comparar el texto del paso actual con el string guardado
+      // Usa comparación bidireccional (includes) para manejar variaciones de texto
+      // ✅ SE PUEDE MODIFICAR: Cambiar la lógica de matching si quieres ser más/menos estricto
+      //    Por ejemplo, usar comparación exacta: return step.toLowerCase() === done.toLowerCase()
+      else if (typeof done === 'string') {
+        // Comparación bidireccional: verifica si el texto del paso incluye el string guardado
+        // o si el string guardado incluye el texto del paso
+        // Esto permite matching flexible (ej: "cable" matchea con "revisar cable de alimentación")
+        return step.toLowerCase().includes(done.toLowerCase()) || 
+               done.toLowerCase().includes(step.toLowerCase());
+      }
+      // Si el formato no es reconocido, no considerar el paso como confirmado
+      return false;
+    });
+    
+    // PASO 2: Verificar si el paso está en failedSteps (fue reportado como fallido)
+    // La lógica es similar a stepsDone pero solo soporta números y objetos con .index
+    // ✅ SE PUEDE MODIFICAR: Agregar soporte para strings si cambia la estructura de failedSteps
+    const isFailed = failedSteps.some(failed => {
+      // Si failed es un número, comparar directamente con el índice
+      if (typeof failed === 'number') return failed === idx;
+      // Si failed es un objeto con .index, comparar el índice
+      if (typeof failed === 'object' && failed.index !== undefined) return failed.index === idx;
+      // Si no coincide con ningún formato reconocido, no considerar como fallido
+      return false;
+    });
+    
+    // PASO 3: Verificar en stepProgress si el paso tiene estado 'completed' o 'failed'
+    // stepProgress es un objeto que guarda el estado detallado de cada paso
+    // Formato: { basic_0: 'completed', basic_1: 'in_progress', basic_2: 'failed' }
+    // La key se forma como 'basic_' + índice del paso
+    // ✅ SE PUEDE MODIFICAR: Si cambia el formato de las keys (ej: 'step_0' en lugar de 'basic_0'),
+    //    actualizar esta línea. También puedes agregar más estados si es necesario.
+    const stepKey = `basic_${idx}`;  // Formar la key del paso (ej: 'basic_0', 'basic_1')
+    const progress = stepProgress[stepKey];  // Obtener el estado del paso (ej: 'completed', 'failed', 'in_progress')
+    // Verificar si el estado indica que el paso está completado o falló
+    // ✅ SE PUEDE MODIFICAR: Agregar más estados que indiquen que el paso está terminado
+    //    Por ejemplo: || progress === 'skipped' si quieres filtrar pasos omitidos
+    const isCompleted = progress === 'completed' || progress === 'failed';
+    
+    // PASO 4: Decidir si el paso debe incluirse en el resultado filtrado
+    // Retornar false si el paso está hecho o falló (para filtrarlo del resultado)
+    // Retornar true si el paso NO está hecho ni falló (para mantenerlo en el resultado)
+    // ❌ NO MODIFICAR: Esta lógica es la base de la prohibición de reimpresión
+    //    Si cambias esto, el sistema podría volver a mostrar pasos ya confirmados
+    return !isDone && !isFailed && !isCompleted;
+    // La negación (!) significa:
+    // - Si isDone es true → retorna false (filtrar el paso)
+    // - Si isFailed es true → retorna false (filtrar el paso)
+    // - Si isCompleted es true → retorna false (filtrar el paso)
+    // - Si todas son false → retorna true (mantener el paso)
+  });
+  
+  // Retornar el array filtrado con solo los pasos pendientes
+  return filteredSteps;
+}
+
 function generateDiagnosticSteps(problem = '', device = '', locale = 'es-AR', session = {}) {
   const problemToken = getProblemTokenFromSession(session, problem) || 'GENERICO';
   const playbook = PLAYBOOKS[problemToken] || PLAYBOOKS.GENERICO;
@@ -3917,7 +4050,7 @@ function generateDiagnosticSteps(problem = '', device = '', locale = 'es-AR', se
   const isAio = String(device || '').toLowerCase().includes('all');
   const isDesktop = String(device || '').toLowerCase().includes('pc');
 
-  return reordered.slice(0, 8).map((step, idx) => {
+  const generatedSteps = reordered.slice(0, 8).map((step, idx) => {
     let out = step;
     const low = step.toLowerCase();
     // Ajustes por dispositivo
@@ -3943,6 +4076,53 @@ function generateDiagnosticSteps(problem = '', device = '', locale = 'es-AR', se
     // Evitar duplicar en pasos cortos
     return out;
   });
+  
+  // 🔒 GUARD RAIL: Filtrar pasos ya confirmados/fallidos para evitar reimprimirlos
+  // 
+  // CONSTITUCIÓN DE TECNOS - PROHIBICIÓN DE REIMPRESIÓN
+  // 
+  // Esta sección es OBLIGATORIA y corrige el bug crítico de reinicio de flujo.
+  // Si el usuario ya confirmó haber realizado algunos pasos, NO debemos mostrarle
+  // todos los pasos nuevamente. Solo debemos mostrar los pasos pendientes.
+  // 
+  // PROPÓSITO:
+  // - Verificar si hay pasos confirmados en la sesión
+  // - Si hay pasos confirmados, filtrar los pasos generados para mostrar solo los pendientes
+  // - Si no hay pasos confirmados, retornar todos los pasos generados (comportamiento normal)
+  // 
+  // ✅ SE PUEDE MODIFICAR:
+  //    - El mensaje de log (línea 4010) para cambiar el formato del registro
+  //    - Agregar más validaciones antes de filtrar
+  // 
+  // ❌ NO MODIFICAR:
+  //    - La condición hasConfirmedSteps (línea 4008) - debe verificar stepsDone.length > 0
+  //    - La llamada a filterCompletedSteps (línea 4010) - es la función que hace el filtrado
+  //    - Si eliminas esta sección, el sistema volverá a mostrar todos los pasos aunque ya se confirmaron
+  // 
+  // UBICACIONES RELACIONADAS:
+  // - Esta función se llama desde handleAskDeviceStage() cuando se selecciona un dispositivo
+  // - También se llama desde otros lugares que necesitan generar pasos
+  // - Si cambias la lógica aquí, también revisa handleAskDeviceStage() línea ~4185
+  // 
+  // Verificar si hay pasos confirmados en la sesión
+  // session.stepsDone es un array que se llena cuando el usuario confirma haber realizado pasos
+  const hasConfirmedSteps = session.stepsDone && session.stepsDone.length > 0;
+  
+  if (hasConfirmedSteps) {
+    // Si hay pasos confirmados, filtrar los pasos generados
+    // Esto asegura que solo se muestren los pasos que el usuario aún NO ha probado
+    // ✅ SE PUEDE MODIFICAR: El mensaje de log si quieres cambiar el formato
+    logger.info(`[STEPS] Filtrando pasos ya confirmados. Pasos originales: ${generatedSteps.length}, Pasos confirmados: ${session.stepsDone.length}`);
+    
+    // Llamar a filterCompletedSteps() para eliminar los pasos ya confirmados/fallidos
+    // ❌ NO MODIFICAR: Debe usar filterCompletedSteps() - esta función contiene la lógica de filtrado
+    // Si cambias esta línea, el sistema podría volver a mostrar pasos ya confirmados
+    return filterCompletedSteps(generatedSteps, session);
+  }
+  
+  // Si no hay pasos confirmados, retornar todos los pasos generados
+  // Esto es el comportamiento normal cuando es la primera vez que se generan los pasos
+  return generatedSteps;
 }
 
 // ========================================================
@@ -4077,12 +4257,131 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           };
         }
         
+        // ========================================================
+        // 🔒 GUARD RAIL: PROHIBICIÓN DE REIMPRESIÓN DE PASOS
+        // ========================================================
+        // 
+        // CONSTITUCIÓN DE TECNOS - CORRECCIÓN CRÍTICA DEL BUG DE REINICIO
+        // 
+        // Esta sección previene que el sistema reimprima el bloque completo de pasos iniciales
+        // cuando el usuario ya confirmó haber realizado uno o más pasos.
+        // 
+        // PROPÓSITO:
+        // - Detectar si el usuario ya tiene progreso en los pasos (confirmados o fallidos)
+        // - Si hay progreso, NO generar todos los pasos nuevamente
+        // - En su lugar, ofrecer avanzar al siguiente nivel o continuar el diagnóstico
+        // 
+        // CONTEXTO:
+        // Este código se ejecuta cuando el usuario selecciona un dispositivo (en ASK_DEVICE stage).
+        // Normalmente, esto generaría y mostraría todos los pasos iniciales.
+        // Pero si el usuario ya confirmó algunos pasos, reimprimirlos sería perder progreso.
+        // 
+        // ✅ SE PUEDE MODIFICAR:
+        //    - Los mensajes de respuesta (líneas 4159-4161) para cambiar el texto mostrado al usuario
+        //    - El mensaje de log de advertencia (línea 4156) para cambiar el formato del registro
+        //    - La lógica de cambio de stage (líneas 4164-4166) si quieres un comportamiento diferente
+        // 
+        // ❌ NO MODIFICAR:
+        //    - Las condiciones hasConfirmedSteps y hasFailedSteps (líneas 4150-4151) - deben verificar ambos arrays
+        //    - La condición if (hasConfirmedSteps || hasFailedSteps) (línea 4153) - es la base del guard rail
+        //    - El return dentro del if (líneas 4171-4177) - previene que se ejecute el código de abajo
+        //    - Si eliminas esta sección completa, el bug de reimpresión volverá a ocurrir
+        // 
+        // UBICACIONES RELACIONADAS:
+        // - Este guard rail también existe en handleBasicTestsStage() cuando se presiona BTN_BACK_TO_STEPS (línea ~4986)
+        // - También en el fallback de handleBasicTestsStage() (línea ~5602)
+        // - Si cambias la lógica aquí, también actualiza esas ubicaciones para mantener consistencia
+        // 
+        // Verificar si ya hay pasos confirmados en la sesión
+        // session.stepsDone se llena cuando el usuario confirma haber realizado pasos
+        const hasConfirmedSteps = session.stepsDone && session.stepsDone.length > 0;
+        // Verificar si hay pasos que fallaron
+        // session.failedSteps se llena cuando el usuario reporta que un paso no funcionó
+        const hasFailedSteps = session.failedSteps && session.failedSteps.length > 0;
+        
+        // Si hay progreso (pasos confirmados o fallidos), bloquear la reimpresión
+        // ❌ NO CAMBIAR esta condición - es la base del guard rail
+        if (hasConfirmedSteps || hasFailedSteps) {
+          // Ya hay progreso, NO reimprimir pasos iniciales
+          // En su lugar, avanzar al siguiente nivel o continuar desde donde quedó
+          // ✅ SE PUEDE MODIFICAR: El mensaje de log si quieres cambiar el formato
+          logger.warn(`[ASK_DEVICE] 🚫 BLOQUEADO: Intento de reimprimir pasos cuando ya hay progreso. Pasos confirmados: ${session.stepsDone?.length || 0}, Pasos fallidos: ${session.failedSteps?.length || 0}`);
+          
+          // Generar mensaje al usuario indicando que ya hay progreso
+          // Este mensaje ofrece continuar al siguiente nivel en lugar de repetir pasos
+          // ✅ SE PUEDE MODIFICAR: El texto del mensaje para cambiar cómo se comunica al usuario
+          const continueReply = isEnglish
+            ? `I see you've already tried some steps. Let's continue with the next level of diagnosis or explore other solutions.`
+            : `Veo que ya probaste algunos pasos. Sigamos con el siguiente nivel de diagnóstico o exploremos otras soluciones.`;
+          
+          // Mantener en BASIC_TESTS pero no reimprimir pasos
+          // Solo cambiar el stage si no está ya en BASIC_TESTS
+          // ✅ SE PUEDE MODIFICAR: La lógica de cambio de stage si quieres un comportamiento diferente
+          if (session.stage !== STATES.BASIC_TESTS) {
+            changeStage(session, STATES.BASIC_TESTS);
+          }
+          
+          // Registrar el mensaje del bot en el transcript (sin botones porque no hay pasos que mostrar)
+          addBotMessageToTranscript(session.transcript, continueReply, session.stage, undefined);
+          await saveSessionAndTranscript(sessionId, session);
+          
+          // Retornar respuesta sin pasos para evitar reimpresión
+          // ⚠️ IMPORTANTE: NO incluir pasos en el objeto de retorno
+          // ❌ NO MODIFICAR: El objeto de retorno debe tener handled: true para indicar que se procesó
+          //    NO incluir buttons ni pasos para evitar que el frontend los muestre
+          return {
+            ok: true,
+            reply: continueReply,
+            stage: session.stage,
+            handled: true
+            // ⚠️ NO incluir pasos completos - evitar reimpresión
+          };
+        }
+        
+        // ========================================================
+        // GENERACIÓN DE PASOS (solo si NO hay pasos confirmados)
+        // ========================================================
+        // 
+        // Esta sección solo se ejecuta si NO hay pasos confirmados previamente.
+        // Si llegamos aquí, es seguro generar y mostrar todos los pasos iniciales.
+        // 
         // Hay problema guardado, generar y mostrar pasos
-        // Cambiar el stage a BASIC_TESTS
+        // Cambiar el stage a BASIC_TESTS para indicar que estamos en la etapa de pruebas básicas
         changeStage(session, STATES.BASIC_TESTS);
         
-        // Generar pasos de diagnóstico
+        // Generar pasos de diagnóstico usando la función generateDiagnosticSteps()
+        // Esta función ya tiene lógica interna para filtrar pasos confirmados si los hay
+        // Por eso es seguro llamarla aquí - si hay pasos confirmados, los filtrará automáticamente
+        // ✅ SE PUEDE MODIFICAR: Los parámetros pasados si cambias la firma de generateDiagnosticSteps()
         const steps = generateDiagnosticSteps(session.problem, session.device, locale, session);
+        
+        // Validación: Si después de filtrar no quedan pasos, avanzar al siguiente nivel
+        // Esto puede ocurrir si el usuario ya completó todos los pasos básicos
+        // ✅ SE PUEDE MODIFICAR: El mensaje mostrado al usuario cuando no quedan pasos
+        if (!steps || steps.length === 0) {
+          // ✅ SE PUEDE MODIFICAR: El mensaje de log
+          logger.warn(`[ASK_DEVICE] ⚠️ No quedan pasos pendientes después de filtrar. Avanzando al siguiente nivel.`);
+          
+          // Generar mensaje indicando que todos los pasos básicos están completos
+          // Ofrecer avanzar a diagnósticos más avanzados o conectar con un técnico
+          // ✅ SE PUEDE MODIFICAR: El texto del mensaje
+          const advanceReply = isEnglish
+            ? `You've completed all the basic steps. Let's move to more advanced diagnostics or connect you with a technician.`
+            : `Completaste todos los pasos básicos. Pasemos a diagnósticos más avanzados o conectemos con un técnico.`;
+          
+          // Registrar el mensaje en el transcript
+          addBotMessageToTranscript(session.transcript, advanceReply, session.stage, undefined);
+          await saveSessionAndTranscript(sessionId, session);
+          
+          // Retornar respuesta sin pasos (porque no quedan pendientes)
+          // ❌ NO MODIFICAR: handled debe ser true para indicar que se procesó correctamente
+          return {
+            ok: true,
+            reply: advanceReply,
+            stage: session.stage,
+            handled: true
+          };
+        }
         
         // Guardar los pasos en la sesión
         session.basicTests = steps;
@@ -4861,9 +5160,173 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ✅ SE PUEDE MODIFICAR: El mensaje de confirmación
     // ❌ NO MODIFICAR: Debe regenerar los pasos usando handleAskDeviceStage
     //
+    // ========================================================
+    // CASO 1: USUARIO PRESIONA "VOLVER A LOS PASOS"
+    // ========================================================
+    // 
+    // Este caso se activa cuando el usuario presiona el botón "⏪ Volver a los pasos"
+    // o "⏪ Volver atrás" durante la etapa BASIC_TESTS.
+    // 
+    // COMPORTAMIENTO CORRECTO (después de la corrección):
+    // - Si hay pasos confirmados: NO regenerar todos los pasos, mostrar solo los pendientes
+    // - Si no hay pasos confirmados: Regenerar todos los pasos normalmente (primera vez)
+    // 
+    // PROPÓSITO DEL GUARD RAIL:
+    // - Prevenir la reimpresión del bloque completo de pasos cuando el usuario ya tiene progreso
+    // - Mantener el contexto y no frustrar al usuario repitiendo pasos que ya confirmó
+    // 
+    // ✅ SE PUEDE MODIFICAR:
+    //    - Los mensajes mostrados al usuario (líneas ~5012-5014, ~5051-5053)
+    //    - El formato de los pasos mostrados (líneas ~5003-5010)
+    //    - Los botones incluidos (líneas ~5017-5037)
+    // 
+    // ❌ NO MODIFICAR:
+    //    - Las condiciones hasConfirmedSteps y hasFailedSteps (líneas 4986-4987)
+    //    - La lógica de filtrado con filterCompletedSteps (línea ~4999)
+    //    - Si eliminas el guard rail, el bug de reimpresión volverá
+    // 
+    // UBICACIONES RELACIONADAS:
+    // - Este mismo guard rail existe en handleAskDeviceStage() (línea ~4150)
+    // - También en el fallback de handleBasicTestsStage() (línea ~5602)
+    // - Si cambias la lógica aquí, actualiza también esas ubicaciones
+    // 
     if (buttonToken === 'BTN_BACK_TO_STEPS' || buttonToken === 'BTN_BACK') {
-      // Regenerar los pasos llamando a handleAskDeviceStage con el dispositivo ya guardado
-      // Pero primero necesitamos verificar que haya dispositivo y problema guardados
+      // 🔒 GUARD RAIL: NO regenerar pasos si ya hay pasos confirmados
+      // CONSTITUCIÓN DE TECNOS: Prohibición de reimprimir pasos cuando hay progreso
+      // 
+      // Verificar si hay pasos confirmados en la sesión
+      // session.stepsDone se llena cuando el usuario confirma haber realizado pasos
+      const hasConfirmedSteps = session.stepsDone && session.stepsDone.length > 0;
+      // Verificar si hay pasos que fallaron
+      // session.failedSteps se llena cuando el usuario reporta que un paso no funcionó
+      const hasFailedSteps = session.failedSteps && session.failedSteps.length > 0;
+      
+      // Si hay progreso (pasos confirmados o fallidos), NO regenerar todos los pasos
+      // ❌ NO CAMBIAR esta condición - es la base del guard rail
+      if (hasConfirmedSteps || hasFailedSteps) {
+        // Ya hay progreso, NO reimprimir pasos completos
+        // En su lugar, mostrar solo pasos pendientes o avanzar
+        // ✅ SE PUEDE MODIFICAR: El mensaje de log
+        logger.warn(`[BASIC_TESTS] 🚫 BLOQUEADO: BTN_BACK_TO_STEPS con pasos confirmados. Pasos confirmados: ${session.stepsDone?.length || 0}`);
+        
+        // Obtener pasos originales desde la sesión
+        // Los pasos pueden estar en session.tests.basic o session.basicTests (formatos compatibles)
+        // ✅ SE PUEDE MODIFICAR: Si cambias la estructura de almacenamiento de pasos en la sesión
+        const originalSteps = Array.isArray(session.tests?.basic) ? session.tests.basic : 
+                             Array.isArray(session.basicTests) ? session.basicTests : [];
+        
+        // Filtrar pasos ya confirmados/fallidos usando filterCompletedSteps()
+        // Esta función elimina los pasos que el usuario ya confirmó haber realizado
+        // ❌ NO MODIFICAR: Debe usar filterCompletedSteps() - contiene la lógica de filtrado
+        const pendingSteps = filterCompletedSteps(originalSteps, session);
+        
+        // Verificar si después de filtrar quedan pasos pendientes
+        if (pendingSteps && pendingSteps.length > 0) {
+          // CASO A: Hay pasos pendientes - mostrar solo esos pasos
+          // 
+          // Formatear cada paso pendiente con emoji, dificultad y tiempo estimado
+          // El formato debe ser consistente con cómo se muestran los pasos inicialmente
+          // ✅ SE PUEDE MODIFICAR: El formato de cada paso si quieres cambiar cómo se muestran
+          //    Por ejemplo, cambiar el orden de emoji/dificultad/tiempo
+          const stepsWithHelp = pendingSteps.map((step, idx) => {
+            const emoji = emojiForIndex(idx);  // Obtener emoji para el paso (1️⃣, 2️⃣, etc.)
+            const difficulty = getDifficultyForStep(idx, pendingSteps.length);  // Obtener dificultad (⭐, ⭐⭐, etc.)
+            const estimatedTime = estimateStepTime(step, idx, locale);  // Estimar tiempo (ej: "2 min")
+            const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
+            // Formato del paso: incluye emoji, dificultad, tiempo y el texto del paso
+            // El marcador [BTN_HELP_STEP_X] indica al frontend dónde insertar el botón de ayuda
+            return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n[BTN_HELP_STEP_${idx}]`;
+          });
+          // Unir todos los pasos con doble salto de línea para separación visual
+          const stepsText = stepsWithHelp.join('\n\n');
+          
+          // Generar mensaje al usuario indicando que se mostrarán solo los pasos pendientes
+          // ✅ SE PUEDE MODIFICAR: El texto del mensaje
+          const reply = isEnglish
+            ? `Here are the remaining steps you haven't tried yet:\n\n${stepsText}\n\nWhen you finish trying these steps, let me know the result.`
+            : `Acá están los pasos que aún no probaste:\n\n${stepsText}\n\nCuando termines de probar estos pasos, avisame el resultado.`;
+          
+          // Generar botones solo para los pasos pendientes
+          // Cada paso tiene un botón de ayuda correspondiente
+          const buttons = [];
+          pendingSteps.forEach((step, idx) => {
+            const emoji = emojiForIndex(idx);
+            // Botón de ayuda para cada paso pendiente
+            // ✅ SE PUEDE MODIFICAR: El texto del botón o la metadata si cambia el formato del frontend
+            buttons.push({
+              text: isEnglish ? `🆘 Help Step ${emoji}` : `🆘 Ayuda Paso ${emoji}`,
+              value: `BTN_HELP_STEP_${idx}`,  // Token del botón (usado por el backend para identificar qué paso es)
+              stepIndex: idx,  // Índice del paso (metadata para el frontend)
+              marker: `[BTN_HELP_STEP_${idx}]`,  // Marcador que el frontend debe reemplazar con el botón
+              size: 'small'  // Tamaño del botón (metadata para el frontend)
+            });
+          });
+          
+          // Botones finales para indicar el resultado de los pasos
+          // ✅ SE PUEDE MODIFICAR: Agregar más botones o cambiar los existentes
+          //    Pero recuerda actualizar el mapeo de botones en /api/chat si cambias los tokens
+          buttons.push({
+            text: isEnglish ? '❌ The Problem Persists' : '❌ El Problema Persiste',
+            value: 'BTN_PERSIST'  // Token: indica que el problema sigue después de probar los pasos
+          });
+          buttons.push({
+            text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
+            value: 'BTN_SOLVED'  // Token: indica que el problema se resolvió
+          });
+          
+          // Registrar el mensaje del bot con los botones en el transcript
+          addBotMessageToTranscript(session.transcript, reply, session.stage, buttons);
+          await saveSessionAndTranscript(sessionId, session);
+          
+          // Retornar respuesta con solo los pasos pendientes
+          // ❌ NO MODIFICAR: El objeto de retorno debe incluir buttons para que el frontend los muestre
+          return {
+            ok: true,
+            reply: reply,
+            stage: session.stage,
+            buttons: buttons,  // ⚠️ IMPORTANTE: Incluir buttons para que el frontend los renderice
+            handled: true
+          };
+        } else {
+          // CASO B: No hay pasos pendientes - todos los pasos ya fueron probados
+          // 
+          // Esto significa que el usuario ya probó todos los pasos básicos
+          // Debemos avanzar al siguiente nivel (diagnósticos avanzados o conectar con técnico)
+          // ✅ SE PUEDE MODIFICAR: El mensaje mostrado al usuario
+          const advanceReply = isEnglish
+            ? `You've completed all the basic steps. Let's move to more advanced diagnostics or connect you with a technician.`
+            : `Completaste todos los pasos básicos. Pasemos a diagnósticos más avanzados o conectemos con un técnico.`;
+          
+          // Registrar el mensaje en el transcript
+          addBotMessageToTranscript(session.transcript, advanceReply, session.stage, undefined);
+          await saveSessionAndTranscript(sessionId, session);
+          
+          // Retornar respuesta sin pasos (porque no quedan pendientes)
+          // ❌ NO MODIFICAR: handled debe ser true para indicar que se procesó correctamente
+          return {
+            ok: true,
+            reply: advanceReply,
+            stage: session.stage,
+            handled: true
+          };
+        }
+      }
+      
+      // ========================================================
+      // CASO: NO hay pasos confirmados - Regenerar pasos normalmente
+      // ========================================================
+      // 
+      // Este código solo se ejecuta si NO hay pasos confirmados previamente.
+      // Esto debería pasar solo la primera vez que el usuario presiona "Volver a los pasos".
+      // Después de que el usuario confirme algún paso, el guard rail de arriba bloqueará esta ruta.
+      // 
+      // ✅ SE PUEDE MODIFICAR: La lógica de regeneración de pasos si cambias cómo se generan
+      // 
+      // ❌ NO MODIFICAR: La llamada a handleAskDeviceStage() - es la función que genera los pasos
+      //    Si cambias esto, el flujo de regeneración de pasos podría romperse
+      // 
+      // NO hay pasos confirmados, permitir regenerar pasos normalmente
+      // (esto solo debería pasar la primera vez)
       if (session.device && session.problem) {
         // Telemetría: back a pasos
         pushBasicTestTelemetry(session, {
@@ -4879,7 +5342,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         );
         
         if (deviceCfg) {
-          // Llamar a handleAskDeviceStage para regenerar los pasos
+          // Llamar a handleAskDeviceStage para regenerar los pasos (solo si no hay pasos confirmados)
           return await handleAskDeviceStage(session, '', deviceCfg.device === 'pc' && deviceCfg.pcType === 'desktop' ? 'BTN_DEV_PC_DESKTOP' :
             deviceCfg.device === 'pc' && deviceCfg.pcType === 'all_in_one' ? 'BTN_DEV_PC_ALLINONE' :
             'BTN_DEV_NOTEBOOK', sessionId);
@@ -5395,8 +5858,105 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
       ? "I didn't understand. Please choose an option from the buttons above, or select a step to get help with."
       : "No te entendí. Por favor elegí una opción de los botones de arriba, o seleccioná un paso para obtener ayuda.";
     
-    // Regenerar los pasos para mostrar las opciones nuevamente
-    // (Esto se puede optimizar en el futuro para no regenerar todo)
+    // ========================================================
+    // 🔒 GUARD RAIL: PROHIBICIÓN DE REIMPRESIÓN EN FALLBACK
+    // ========================================================
+    // 
+    // CONSTITUCIÓN DE TECNOS - CORRECCIÓN CRÍTICA DEL BUG DE REINICIO
+    // 
+    // Este código previene que el fallback (cuando no se reconoce la acción del usuario)
+    // regenere todos los pasos si el usuario ya tiene progreso confirmado.
+    // 
+    // CONTEXTO:
+    // El fallback se ejecuta cuando el usuario escribe algo que no se reconoce como
+    // una acción válida (no es un botón, no es un comando reconocido, etc.)
+    // Originalmente, el código regeneraba todos los pasos para "ayudar" al usuario.
+    // Pero esto causaba el bug: si el usuario ya confirmó pasos, los volvía a mostrar todos.
+    // 
+    // COMPORTAMIENTO CORRECTO (después de la corrección):
+    // - Si hay pasos confirmados: NO regenerar pasos, mostrar solo botones de resultado
+    // - Si no hay pasos confirmados: Regenerar pasos normalmente (primera vez)
+    // 
+    // PROPÓSITO:
+    // - Mantener el progreso del usuario sin frustrarlo reimprimiendo pasos ya probados
+    // - Ofrecer solo las opciones relevantes (persiste/solucionado) si hay progreso
+    // 
+    // ✅ SE PUEDE MODIFICAR:
+    //    - Los botones mostrados cuando hay progreso (líneas ~5612-5619)
+    //    - El mensaje de log (línea 5607)
+    // 
+    // ❌ NO MODIFICAR:
+    //    - Las condiciones hasConfirmedSteps y hasFailedSteps (líneas 5602-5603)
+    //    - La condición if (hasConfirmedSteps || hasFailedSteps) (línea 5605)
+    //    - El return dentro del if (líneas 5625-5631) - previene que se ejecute el código de abajo
+    //    - Si eliminas este guard rail, el fallback volverá a regenerar pasos cuando hay progreso
+    // 
+    // UBICACIONES RELACIONADAS:
+    // - Este mismo guard rail existe en handleAskDeviceStage() (línea ~4150)
+    // - También en handleBasicTestsStage() cuando se presiona BTN_BACK_TO_STEPS (línea ~4986)
+    // - Si cambias la lógica aquí, también actualiza esas ubicaciones
+    // 
+    // Verificar si hay pasos confirmados en la sesión
+    const hasConfirmedSteps = session.stepsDone && session.stepsDone.length > 0;
+    // Verificar si hay pasos que fallaron
+    const hasFailedSteps = session.failedSteps && session.failedSteps.length > 0;
+    
+    // Si hay progreso (pasos confirmados o fallidos), NO regenerar todos los pasos
+    // ❌ NO CAMBIAR esta condición - es la base del guard rail
+    if (hasConfirmedSteps || hasFailedSteps) {
+      // Ya hay progreso, NO regenerar todos los pasos
+      // En su lugar, mostrar solo las opciones de resultado (persiste/solucionado)
+      // ✅ SE PUEDE MODIFICAR: El mensaje de log
+      logger.warn(`[BASIC_TESTS] 🚫 BLOQUEADO: Fallback con pasos confirmados. Mostrando solo opciones disponibles.`);
+      
+      // Mostrar opciones disponibles sin reimprimir pasos
+      // Solo ofrecer botones de resultado porque el usuario ya probó algunos pasos
+      const buttons = [];
+      // Verificar nuevamente si hay pasos confirmados (defensa en profundidad)
+      if (session.stepsDone && session.stepsDone.length > 0) {
+        // Botón para indicar que el problema persiste después de probar los pasos
+        // ✅ SE PUEDE MODIFICAR: Agregar más botones o cambiar los existentes
+        //    Pero recuerda actualizar el mapeo de botones en /api/chat si cambias los tokens
+        buttons.push({
+          text: isEnglish ? '❌ The Problem Persists' : '❌ El Problema Persiste',
+          value: 'BTN_PERSIST'  // Token: indica que el problema sigue
+        });
+        // Botón para indicar que el problema se solucionó
+        buttons.push({
+          text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
+          value: 'BTN_SOLVED'  // Token: indica que el problema se resolvió
+        });
+      }
+      
+      // Registrar el mensaje del bot (fallbackReply) con los botones en el transcript
+      addBotMessageToTranscript(session.transcript, fallbackReply, session.stage, buttons);
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Retornar respuesta con solo los botones de resultado (sin pasos)
+      // ❌ NO MODIFICAR: El objeto de retorno debe incluir buttons para que el frontend los muestre
+      return {
+        ok: true,
+        reply: fallbackReply,  // Mensaje de fallback (ej: "No te entendí, usa los botones")
+        stage: session.stage,
+        buttons: buttons,  // ⚠️ IMPORTANTE: Incluir buttons para que el frontend los renderice
+        handled: true
+      };
+    }
+    
+    // ========================================================
+    // CASO: NO hay pasos confirmados - Regenerar pasos normalmente
+    // ========================================================
+    // 
+    // Este código solo se ejecuta si NO hay pasos confirmados previamente.
+    // Esto debería pasar solo la primera vez que el fallback se ejecuta.
+    // Después de que el usuario confirme algún paso, el guard rail de arriba bloqueará esta ruta.
+    // 
+    // ✅ SE PUEDE MODIFICAR: La lógica de regeneración de pasos si cambias cómo se generan
+    // 
+    // ❌ NO MODIFICAR: La llamada a handleAskDeviceStage() - es la función que genera los pasos
+    //    Si cambias esto, el flujo de regeneración de pasos podría romperse
+    // 
+    // NO hay pasos confirmados, permitir regenerar pasos normalmente (solo primera vez)
     if (session.device && session.problem) {
       const deviceCfg = getDeviceFromButton(
         session.device === 'pc' && session.pcType === 'desktop' ? 'BTN_DEV_PC_DESKTOP' :
