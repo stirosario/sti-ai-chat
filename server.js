@@ -1006,9 +1006,6 @@ async function getSession(sessionId) {
     const fileContent = await fs.promises.readFile(sessionFile, 'utf8');
     const session = JSON.parse(fileContent);
     
-    // ⚠️ MEMORIA DE SESIÓN: Inicializar flags si no existen (sesiones antiguas)
-    ensureDecisionFlags(session);
-    
     return session;
   } catch (error) {
     logger.error(`[SESSION] ❌ Error cargando sesión ${sessionId}:`, error.message);
@@ -1024,1166 +1021,6 @@ async function getSession(sessionId) {
  * ❌ NO MODIFICAR: Debe ser un número positivo
  */
 const MAX_TRANSCRIPT_MESSAGES = 1000;
-
-/**
- * Agrega un mensaje del bot al transcript con registro obligatorio de botones
- * 
- * ⚠️ CRÍTICO: Esta función asegura que los botones mostrados por TECNOS queden
- * registrados en el log, incluso si el usuario no interactúa con ellos.
- * 
- * Los botones forman parte de la respuesta del bot y deben registrarse como
- * salida del bot, no como input del usuario.
- * 
- * @param {object} session - Sesión actual
- * @param {string} text - Texto del mensaje del bot
- * @param {Array} buttons - Array de botones mostrados (opcional)
- * @param {string} stage - Stage activo en ese momento (opcional, se toma de session.stage si no se proporciona)
- * @returns {void}
- */
-function addBotMessageToTranscript(session, text, buttons = null, stage = null) {
-  if (!session || !session.transcript) {
-    logger.error('[TRANSCRIPT] ❌ Sesión o transcript inválido');
-    return;
-  }
-  
-  const entry = {
-    who: 'bot',
-    text: text || '',
-    ts: nowIso(),
-    stage: stage || session.stage || 'unknown'
-  };
-  
-  // ⚠️ REGISTRO OBLIGATORIO DE BOTONES
-  // Si hay botones, registrarlos explícitamente en el transcript
-  if (buttons && Array.isArray(buttons) && buttons.length > 0) {
-    entry.buttons = buttons.map((btn, index) => ({
-      order: index + 1,
-      text: btn.text || btn.label || '',
-      value: btn.value || btn.token || '',
-      description: btn.description || null
-    }));
-    entry.buttonsCount = buttons.length;
-    
-    logger.info(`[TRANSCRIPT] Botón(es) registrado(s) para mensaje del bot: ${buttons.length} botón(es) en stage ${entry.stage}`);
-  }
-  
-  session.transcript.push(entry);
-}
-
-/**
- * Detecta palabras repetidas en los últimos mensajes del bot para evitar repetitividad léxica
- * 
- * MANDAMIENTO 12: Evitar repetitividad de palabras
- * Tecnos debe variar el lenguaje y evitar repetir términos como "perfecto", "frustrante", "entiendo", etc.
- * 
- * @param {object} session - Sesión actual
- * @param {string} proposedText - Texto propuesto para el bot
- * @param {number} lookbackMessages - Cantidad de mensajes anteriores a revisar (default: 5)
- * @returns {object} { hasRepetition: boolean, repeatedWords: Array, suggestions: Array }
- */
-function checkLexicalRepetition(session, proposedText, lookbackMessages = 5) {
-  if (!session || !session.transcript || !proposedText) {
-    return { hasRepetition: false, repeatedWords: [], suggestions: [] };
-  }
-  
-  // Palabras comunes que no deben repetirse frecuentemente
-  const sensitiveWords = [
-    'perfecto', 'perfect', 'perfecta', 'perfectas',
-    'entiendo', 'understand', 'entendí', 'understood',
-    'frustrante', 'frustrating', 'frustrado', 'frustrated',
-    'disculpa', 'sorry', 'disculpame', 'apologize',
-    'claro', 'clear', 'claramente', 'clearly',
-    'obvio', 'obvious', 'obviamente', 'obviously',
-    'genial', 'great', 'geniales', 'excellent',
-    'fantástico', 'fantastic', 'fantástica', 'wonderful',
-    'increíble', 'incredible', 'increíbles', 'amazing'
-  ];
-  
-  // Obtener últimos mensajes del bot
-  const botMessages = session.transcript
-    .filter(entry => entry.who === 'bot')
-    .slice(-lookbackMessages)
-    .map(entry => (entry.text || '').toLowerCase());
-  
-  // Normalizar texto propuesto
-  const normalizedProposed = proposedText.toLowerCase();
-  
-  // Detectar repeticiones
-  const repeatedWords = [];
-  const suggestions = [];
-  
-  sensitiveWords.forEach(word => {
-    const wordRegex = new RegExp(`\\b${word}\\b`, 'gi');
-    const countInHistory = botMessages.reduce((count, msg) => {
-      return count + (msg.match(wordRegex) || []).length;
-    }, 0);
-    const countInProposed = (normalizedProposed.match(wordRegex) || []).length;
-    
-    // Si la palabra aparece más de 2 veces en total (historia + propuesta), es repetitiva
-    if (countInHistory + countInProposed > 2) {
-      repeatedWords.push(word);
-      
-      // Generar sugerencias de reemplazo según el idioma
-      const locale = ensureSessionLocale(session);
-      const isEnglish = String(locale).toLowerCase().startsWith('en');
-      
-      if (word.includes('perfecto') || word.includes('perfect')) {
-        suggestions.push({
-          word: word,
-          replacements: isEnglish 
-            ? ['good', 'sounds good', 'alright', 'okay', 'fine']
-            : ['bien', 'joya', 'ok', 'de acuerdo', 'listo']
-        });
-      } else if (word.includes('entiendo') || word.includes('understand')) {
-        suggestions.push({
-          word: word,
-          replacements: isEnglish
-            ? ['I see', 'got it', 'I get it', 'noted', 'I hear you']
-            : ['tomado', 'anotado', 'claro', 'ok', 'joya']
-        });
-      } else if (word.includes('disculpa') || word.includes('sorry')) {
-        suggestions.push({
-          word: word,
-          replacements: isEnglish
-            ? ['my apologies', 'pardon', 'excuse me']
-            : ['perdón', 'perdoname', 'mil disculpas']
-        });
-      } else if (word.includes('claro') || word.includes('clear')) {
-        suggestions.push({
-          word: word,
-          replacements: isEnglish
-            ? ['sure', 'of course', 'absolutely', 'definitely']
-            : ['seguro', 'por supuesto', 'sin duda', 'obvio']
-        });
-      }
-    }
-  });
-  
-  return {
-    hasRepetition: repeatedWords.length > 0,
-    repeatedWords: repeatedWords,
-    suggestions: suggestions
-  };
-}
-
-/**
- * Detecta si el bot está repitiendo bloques completos de texto sin motivo
- * 
- * MANDAMIENTO 8: No repetir bloques sin motivo
- * Tecnos no reimprime menús o pasos completos innecesariamente.
- * 
- * @param {object} session - Sesión actual
- * @param {string} proposedText - Texto propuesto para el bot
- * @returns {object} { isRepetition: boolean, reason: string }
- */
-function checkBlockRepetition(session, proposedText) {
-  if (!session || !session.transcript || !proposedText) {
-    return { isRepetition: false, reason: null };
-  }
-  
-  // Obtener últimos mensajes del bot
-  const botMessages = session.transcript
-    .filter(entry => entry.who === 'bot')
-    .slice(-3)
-    .map(entry => (entry.text || '').trim());
-  
-  // Normalizar texto propuesto
-  const normalizedProposed = proposedText.trim();
-  
-  // Detectar si el texto propuesto es muy similar a un mensaje anterior (más del 80% de similitud)
-  for (const previousMsg of botMessages) {
-    if (previousMsg.length > 20) { // Solo comparar mensajes significativos
-      const similarity = calculateTextSimilarity(normalizedProposed, previousMsg);
-      if (similarity > 0.8) {
-        return {
-          isRepetition: true,
-          reason: `El mensaje propuesto es ${Math.round(similarity * 100)}% similar a un mensaje anterior`
-        };
-      }
-    }
-  }
-  
-  return { isRepetition: false, reason: null };
-}
-
-/**
- * Calcula la similitud entre dos textos usando el algoritmo de Jaccard
- * 
- * @param {string} text1 - Primer texto
- * @param {string} text2 - Segundo texto
- * @returns {number} Similitud entre 0 y 1
- */
-function calculateTextSimilarity(text1, text2) {
-  if (!text1 || !text2) return 0;
-  
-  // Normalizar textos
-  const normalize = (text) => {
-    return text.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  };
-  
-  const normalized1 = normalize(text1);
-  const normalized2 = normalize(text2);
-  
-  // Crear sets de palabras
-  const words1 = new Set(normalized1.split(' ').filter(w => w.length > 2));
-  const words2 = new Set(normalized2.split(' ').filter(w => w.length > 2));
-  
-  // Calcular intersección y unión
-  const intersection = new Set([...words1].filter(x => words2.has(x)));
-  const union = new Set([...words1, ...words2]);
-  
-  // Coeficiente de Jaccard
-  return union.size > 0 ? intersection.size / union.size : 0;
-}
-
-/**
- * Detecta disculpas innecesarias en el texto propuesto
- * 
- * MANDAMIENTO 17: No disculpas innecesarias
- * Tecnos no pide perdón por sistema, solo cuando corresponde.
- * 
- * @param {string} proposedText - Texto propuesto para el bot
- * @param {object} context - Contexto de la conversación
- * @returns {object} { hasUnnecessaryApology: boolean, reason: string }
- */
-function checkUnnecessaryApology(proposedText, context = {}) {
-  if (!proposedText) {
-    return { hasUnnecessaryApology: false, reason: null };
-  }
-  
-  const normalized = proposedText.toLowerCase();
-  
-  // Patrones de disculpas innecesarias (cuando no hay error real)
-  const apologyPatterns = [
-    /disculpa.*pero/i,
-    /sorry.*but/i,
-    /perdón.*pero/i,
-    /pardon.*but/i,
-    /lo siento.*pero/i,
-    /i'm sorry.*but/i,
-    /disculpame.*pero/i,
-    /excuse me.*but/i
-  ];
-  
-  // Si hay un error real, las disculpas son apropiadas
-  const hasRealError = context.hasError || context.isError || false;
-  
-  // Si no hay error real pero hay patrón de disculpa, es innecesaria
-  if (!hasRealError) {
-    for (const pattern of apologyPatterns) {
-      if (pattern.test(normalized)) {
-        return {
-          hasUnnecessaryApology: true,
-          reason: 'Disculpa innecesaria detectada sin contexto de error real'
-        };
-      }
-    }
-  }
-  
-  return { hasUnnecessaryApology: false, reason: null };
-}
-
-/**
- * Evalúa los 22 Mandamientos de Tecnos antes de generar una respuesta
- * 
- * ⚠️ CRÍTICO: Esta función debe ejecutarse ANTES de enviar cada respuesta del bot.
- * Si los 22 Mandamientos no influyen en la decisión real de cada respuesta, la tarea se considera fallida.
- * 
- * @param {object} session - Sesión actual
- * @param {string} proposedReply - Respuesta propuesta para el bot
- * @param {Array} proposedButtons - Botones propuestos (opcional)
- * @param {object} context - Contexto adicional (userText, buttonToken, etc.)
- * @returns {object} { 
- *   shouldEscalate: boolean,
- *   correctedReply: string,
- *   correctedButtons: Array,
- *   violations: Array,
- *   corrections: Array
- * }
- */
-function evaluateTecnosMandates(session, proposedReply, proposedButtons = null, context = {}) {
-  const locale = ensureSessionLocale(session);
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  const violations = [];
-  const corrections = [];
-  let correctedReply = proposedReply || '';
-  let correctedButtons = proposedButtons || [];
-  let shouldEscalate = false;
-  
-  // MANDAMIENTO 1: Prioridad al usuario
-  // Si el usuario pide hablar con un técnico, se escala de inmediato
-  // (Ya implementado con detectTechnicianIntent, pero verificamos aquí también)
-  if (context.userText && detectTechnicianIntent) {
-    const techIntent = detectTechnicianIntent(context.userText, locale, session);
-    if (techIntent && techIntent.requiresTechnician && techIntent.confidence === 'high') {
-      shouldEscalate = true;
-      violations.push({
-        mandate: 1,
-        name: 'Prioridad al usuario',
-        severity: 'critical',
-        description: 'Usuario pidió hablar con técnico - debe escalarse inmediatamente'
-      });
-    }
-  }
-  
-  // MANDAMIENTO 2: Nunca ignorar una intención humana
-  // (Ya implementado con detectTechnicianIntent)
-  
-  // MANDAMIENTO 3: Ante la duda, escalar
-  // Si hay ambigüedad entre pasos automáticos y técnico, se ofrece técnico
-  if (context.hasAmbiguity && !shouldEscalate) {
-    shouldEscalate = true;
-    violations.push({
-      mandate: 3,
-      name: 'Ante la duda, escalar',
-      severity: 'high',
-      description: 'Ambigüedad detectada - debe ofrecerse técnico'
-    });
-  }
-  
-  // MANDAMIENTO 4: Una sola voz, una sola identidad
-  // (Ya implementado con applyTecnosVoice)
-  
-  // MANDAMIENTO 5: Idioma correcto siempre
-  // (Ya implementado con ensureSessionLocale y applyTecnosVoice)
-  
-  // MANDAMIENTO 6: Español = Argentina real
-  // (Ya implementado con applyTecnosVoice)
-  
-  // MANDAMIENTO 7: Inglés = US friendly real
-  // (Ya implementado con applyTecnosVoice)
-  
-  // MANDAMIENTO 8: No repetir bloques sin motivo
-  const blockRepetition = checkBlockRepetition(session, correctedReply);
-  if (blockRepetition.isRepetition) {
-    violations.push({
-      mandate: 8,
-      name: 'No repetir bloques sin motivo',
-      severity: 'medium',
-      description: blockRepetition.reason
-    });
-    // Acortar o variar el mensaje si es repetición
-    if (correctedReply.length > 100) {
-      const sentences = correctedReply.split(/[.!?]\s+/);
-      if (sentences.length > 1) {
-        correctedReply = sentences.slice(0, Math.ceil(sentences.length / 2)).join('. ') + '.';
-        corrections.push('Mensaje acortado para evitar repetición de bloque completo');
-      }
-    }
-  }
-  
-  // MANDAMIENTO 9: No forzar caminos
-  // Si el usuario se traba o se frustra, ofrecer técnico
-  if (context.userFrustration || context.userStuck) {
-    if (!shouldEscalate) {
-      shouldEscalate = true;
-      violations.push({
-        mandate: 9,
-        name: 'No forzar caminos',
-        severity: 'high',
-        description: 'Usuario frustrado o trabado - debe ofrecerse técnico'
-      });
-    }
-  }
-  
-  // MANDAMIENTO 10: Seguridad primero
-  // (Ya implementado con detectTechnicianIntent para casos de riesgo)
-  
-  // MANDAMIENTO 11: Nada de respuestas genéricas de IA
-  // (Ya implementado con generateTechnicalResponse usando OpenAI)
-  
-  // MANDAMIENTO 12: Evitar repetitividad de palabras
-  const lexicalRepetition = checkLexicalRepetition(session, correctedReply);
-  if (lexicalRepetition.hasRepetition) {
-    violations.push({
-      mandate: 12,
-      name: 'Evitar repetitividad de palabras',
-      severity: 'medium',
-      description: `Palabras repetidas detectadas: ${lexicalRepetition.repeatedWords.join(', ')}`
-    });
-    
-    // Aplicar correcciones de palabras repetidas
-    lexicalRepetition.suggestions.forEach(suggestion => {
-      const wordRegex = new RegExp(`\\b${suggestion.word}\\b`, 'gi');
-      if (wordRegex.test(correctedReply)) {
-        const replacement = suggestion.replacements[Math.floor(Math.random() * suggestion.replacements.length)];
-        correctedReply = correctedReply.replace(wordRegex, replacement);
-        corrections.push(`Reemplazada palabra repetida "${suggestion.word}" por "${replacement}"`);
-      }
-    });
-  }
-  
-  // MANDAMIENTO 13: Preguntar lo mínimo necesario
-  // Verificar que no se hagan múltiples preguntas en un solo mensaje
-  const questionCount = (correctedReply.match(/\?/g) || []).length;
-  if (questionCount > 2) {
-    violations.push({
-      mandate: 13,
-      name: 'Preguntar lo mínimo necesario',
-      severity: 'low',
-      description: `Demasiadas preguntas en un solo mensaje (${questionCount})`
-    });
-    // Mantener solo las primeras 2 preguntas
-    const sentences = correctedReply.split(/\?/);
-    if (sentences.length > 2) {
-      correctedReply = sentences.slice(0, 2).join('?') + '?';
-      corrections.push('Mensaje acortado para hacer solo las preguntas esenciales');
-    }
-  }
-  
-  // MANDAMIENTO 14: Botones claros y consistentes
-  // (Ya implementado - los botones se generan con estructura clara)
-  
-  // MANDAMIENTO 15: Registrar lo que el usuario vio
-  // (Ya implementado con addBotMessageToTranscript)
-  
-  // MANDAMIENTO 16: No contradicciones
-  // Verificar que el mensaje no contradiga mensajes anteriores del bot
-  if (session.transcript && session.transcript.length > 0) {
-    const recentBotMessages = session.transcript
-      .filter(entry => entry.who === 'bot')
-      .slice(-3)
-      .map(entry => entry.text || '');
-    
-    // Detectar contradicciones básicas (ej: "sí" vs "no" en el mismo contexto)
-    const contradictionPatterns = [
-      { positive: /\b(sí|si|yes|correcto|right)\b/i, negative: /\b(no|not|incorrecto|wrong)\b/i },
-      { positive: /\b(puedo|can|puede|able)\b/i, negative: /\b(no puedo|cannot|unable)\b/i }
-    ];
-    
-    contradictionPatterns.forEach(pattern => {
-      const hasPositive = pattern.positive.test(correctedReply);
-      const hasNegativeInHistory = recentBotMessages.some(msg => pattern.negative.test(msg));
-      
-      if (hasPositive && hasNegativeInHistory) {
-        violations.push({
-          mandate: 16,
-          name: 'No contradicciones',
-          severity: 'medium',
-          description: 'Posible contradicción detectada con mensajes anteriores'
-        });
-      }
-    });
-  }
-  
-  // MANDAMIENTO 17: No disculpas innecesarias
-  const unnecessaryApology = checkUnnecessaryApology(correctedReply, context);
-  if (unnecessaryApology.hasUnnecessaryApology) {
-    violations.push({
-      mandate: 17,
-      name: 'No disculpas innecesarias',
-      severity: 'low',
-      description: unnecessaryApology.reason
-    });
-    
-    // Remover disculpas innecesarias
-    correctedReply = correctedReply
-      .replace(/\b(disculpa|sorry|perdón|pardon|lo siento|i'm sorry|disculpame)\s*,?\s*pero\s+/gi, '')
-      .replace(/\b(disculpa|sorry|perdón|pardon|lo siento|i'm sorry|disculpame)\s*,?\s*but\s+/gi, '')
-      .trim();
-    
-    corrections.push('Disculpas innecesarias removidas del mensaje');
-  }
-  
-  // MANDAMIENTO 18: Confirmar y avanzar
-  // Verificar que el mensaje confirme lo esencial y avance sin rodeos
-  if (correctedReply.length > 300 && !context.needsDetailedExplanation) {
-    violations.push({
-      mandate: 18,
-      name: 'Confirmar y avanzar',
-      severity: 'low',
-      description: 'Mensaje demasiado largo - debe ser más directo'
-    });
-    // Acortar si es muy largo y no necesita detalle
-    const sentences = correctedReply.split(/[.!?]\s+/);
-    if (sentences.length > 3) {
-      correctedReply = sentences.slice(0, 3).join('. ') + '.';
-      corrections.push('Mensaje acortado para ser más directo');
-    }
-  }
-  
-  // MANDAMIENTO 19: Escalamiento con salida real
-  // (Ya implementado con createTicketAndRespond y WhatsApp)
-  
-  // MANDAMIENTO 20: Respeto por el tiempo del usuario
-  // Verificar que los pasos propuestos sean cortos
-  if (context.proposedSteps && context.proposedSteps.length > 5) {
-    violations.push({
-      mandate: 20,
-      name: 'Respeto por el tiempo del usuario',
-      severity: 'medium',
-      description: `Demasiados pasos propuestos (${context.proposedSteps.length}) - debe ofrecerse técnico`
-    });
-    if (!shouldEscalate) {
-      shouldEscalate = true;
-    }
-  }
-  
-  // MANDAMIENTO 21: Cierre limpio y humano
-  // (Ya implementado en casos de ENDED)
-  
-  // MANDAMIENTO 22: OpenAI asesora, Tecnos decide
-  // (Ya implementado - OpenAI se usa para sugerencias, pero Tecnos decide)
-  
-  // Log de violaciones para auditoría
-  if (violations.length > 0) {
-    logger.warn(`[MANDATES] ⚠️ Violaciones detectadas: ${violations.length}`, {
-      sessionId: session.id || 'unknown',
-      violations: violations.map(v => `${v.mandate}: ${v.name}`),
-      corrections: corrections
-    });
-  }
-  
-  return {
-    shouldEscalate,
-    correctedReply,
-    correctedButtons,
-    violations,
-    corrections
-  };
-}
-
-// ========================================================
-// 🧠 MEMORIA DE SESIÓN OBLIGATORIA
-// ========================================================
-// 
-// CONSTITUCIÓN DE TECNOS - MANDAMIENTO 16: Registrar todo lo que el usuario ve
-// 
-// Tecnos NO debe decidir basándose solo en el último mensaje del usuario.
-// Debe recordar y utilizar durante la sesión:
-// - idioma elegido
-// - nombre del usuario
-// - problema detectado
-// - dispositivo
-// - pasos ofrecidos
-// - pasos confirmados como realizados (CRÍTICO: no asumir ejecución implícita)
-// - acciones no realizadas
-// - frustración o repetición
-// - si se ofreció WhatsApp
-// - decisiones previas del sistema
-//
-// ⚠️ CRÍTICO: Consultar un paso NO implica que el usuario lo haya realizado.
-// Un paso no confirmado es un paso no realizado.
-// Tecnos debe preguntar explícitamente si el paso se realizó y qué sucedió.
-//
-// ✅ SE PUEDE MODIFICAR: Agregar más flags de decisión si es necesario
-// ❌ NO MODIFICAR: La estructura base de decisionFlags (se usa en toda la app)
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Inicializa flags de decisión si no existen
- * 
- * Esta función asegura que toda sesión tenga un objeto decisionFlags
- * con todos los flags necesarios para recordar decisiones previas.
- * 
- * Se llama automáticamente cuando se carga una sesión o cuando se necesita
- * consultar/actualizar un flag.
- * 
- * @param {object} session - Objeto de sesión (puede ser null)
- * @returns {void}
- */
-function ensureDecisionFlags(session) {
-  if (!session) return;
-  if (!session.decisionFlags) {
-    session.decisionFlags = {
-      userRequestedTechnician: false,    // Usuario pidió técnico explícitamente
-      whatsappOffered: false,             // Ya se ofreció WhatsApp en esta sesión
-      userFrustrationDetected: false,     // Se detectó frustración del usuario
-      escalationBlockedByStage: false,   // Escalamiento bloqueado por etapa actual
-      ambiguousTechnicianIntent: false,  // Intención de técnico ambigua detectada
-      automaticFlowInterrupted: false,   // Flujo automático fue interrumpido
-      longStepsOffered: false,           // Ya se ofrecieron pasos largos
-      technicianDeclined: false,         // Usuario rechazó oferta de técnico
-      stepsRepeated: false,              // Pasos ya fueron repetidos
-      escalationAttempted: false        // Ya se intentó escalar (puede haber sido bloqueado)
-    };
-  }
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Consulta un flag de decisión
- */
-function getDecisionFlag(session, flagName) {
-  ensureDecisionFlags(session);
-  return session.decisionFlags?.[flagName] || false;
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Actualiza un flag de decisión
- */
-function setDecisionFlag(session, flagName, value) {
-  ensureDecisionFlags(session);
-  if (session.decisionFlags) {
-    session.decisionFlags[flagName] = value;
-    logger.info(`[MEMORY] 🧠 Flag actualizado: ${flagName} = ${value}`);
-  }
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Consulta si el usuario ya pidió técnico
- */
-function hasUserRequestedTechnician(session) {
-  return getDecisionFlag(session, 'userRequestedTechnician');
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Consulta si ya se ofreció WhatsApp
- */
-function hasWhatsAppBeenOffered(session) {
-  return getDecisionFlag(session, 'whatsappOffered');
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Consulta si se detectó frustración
- */
-function hasFrustrationBeenDetected(session) {
-  return getDecisionFlag(session, 'userFrustrationDetected');
-}
-
-/**
- * ⚠️ MEMORIA DE SESIÓN: Rastrea pasos confirmados vs no confirmados
- * 
- * CONSTITUCIÓN DE TECNOS - MEMORIA DE SESIÓN OBLIGATORIA
- * 
- * Consultar un paso NO implica que el usuario lo haya realizado.
- * Un paso no confirmado es un paso no realizado.
- * 
- * Tecnos debe preguntar explícitamente:
- * - si el paso se realizó
- * - qué sucedió al intentarlo
- * 
- * Asumir ejecución implícita es falla crítica.
- * 
- * Esta función inicializa el rastreo de pasos si no existe.
- * 
- * ✅ SE PUEDE MODIFICAR: Agregar más información a cada paso (timestamp, resultado, etc.)
- * ❌ NO MODIFICAR: La estructura base (se usa en toda la app para verificar pasos completados)
- * 
- * @param {object} session - Objeto de sesión
- * @returns {void}
- */
-function ensureStepsTracking(session) {
-  if (!session) return;
-  
-  // Inicializar stepsDone si no existe (pasos que el usuario confirmó haber completado)
-  if (!Array.isArray(session.stepsDone)) {
-    session.stepsDone = [];
-  }
-  
-  // Inicializar stepsOffered si no existe (pasos que Tecnos ofreció al usuario)
-  if (!Array.isArray(session.stepsOffered)) {
-    session.stepsOffered = [];
-  }
-  
-  // Inicializar stepsConfirmed si no existe (pasos confirmados explícitamente por el usuario)
-  // Formato: [{ stepIndex: number, confirmed: boolean, result: string, timestamp: string }]
-  if (!Array.isArray(session.stepsConfirmed)) {
-    session.stepsConfirmed = [];
-  }
-}
-
-/**
- * Registra que un paso fue ofrecido al usuario
- * 
- * Esta función se llama cuando Tecnos muestra un paso al usuario.
- * NO significa que el usuario lo haya realizado, solo que se le mostró.
- * 
- * @param {object} session - Objeto de sesión
- * @param {number} stepIndex - Índice del paso (0-based)
- * @param {string} stepText - Texto del paso ofrecido
- * @returns {void}
- */
-function recordStepOffered(session, stepIndex, stepText) {
-  ensureStepsTracking(session);
-  
-  // Verificar si el paso ya fue ofrecido
-  const alreadyOffered = session.stepsOffered.some(s => s.index === stepIndex);
-  if (!alreadyOffered) {
-    session.stepsOffered.push({
-      index: stepIndex,
-      text: stepText,
-      timestamp: nowIso()
-    });
-    logger.info(`[STEPS] Paso ${stepIndex} ofrecido al usuario`);
-  }
-}
-
-/**
- * Registra que un paso fue confirmado como realizado por el usuario
- * 
- * Esta función se llama cuando el usuario confirma explícitamente que realizó un paso.
- * Tecnos debe preguntar explícitamente antes de llamar esta función.
- * 
- * ⚠️ CRÍTICO: NO asumir que un paso fue realizado solo porque el usuario lo consultó.
- * 
- * @param {object} session - Objeto de sesión
- * @param {number} stepIndex - Índice del paso (0-based)
- * @param {boolean} completed - true si el paso fue completado, false si no
- * @param {string} result - Resultado o comentario del usuario sobre el paso
- * @returns {void}
- */
-function recordStepConfirmed(session, stepIndex, completed, result = '') {
-  ensureStepsTracking(session);
-  
-  // Verificar si el paso ya fue confirmado
-  const existingConfirmation = session.stepsConfirmed.find(c => c.stepIndex === stepIndex);
-  if (existingConfirmation) {
-    // Actualizar confirmación existente
-    existingConfirmation.completed = completed;
-    existingConfirmation.result = result;
-    existingConfirmation.timestamp = nowIso();
-  } else {
-    // Crear nueva confirmación
-    session.stepsConfirmed.push({
-      stepIndex: stepIndex,
-      completed: completed,
-      result: result,
-      timestamp: nowIso()
-    });
-  }
-  
-  // Si fue completado, agregarlo a stepsDone
-  if (completed && !session.stepsDone.includes(stepIndex)) {
-    session.stepsDone.push(stepIndex);
-  }
-  
-  logger.info(`[STEPS] Paso ${stepIndex} confirmado: ${completed ? 'completado' : 'no completado'}`);
-}
-
-/**
- * Consulta si un paso fue confirmado como realizado
- * 
- * Esta función verifica si el usuario confirmó explícitamente que realizó un paso.
- * 
- * ⚠️ CRÍTICO: Un paso no confirmado es un paso no realizado.
- * NO asumir ejecución implícita.
- * 
- * @param {object} session - Objeto de sesión
- * @param {number} stepIndex - Índice del paso (0-based)
- * @returns {boolean} true si el paso fue confirmado como completado
- */
-function isStepConfirmed(session, stepIndex) {
-  ensureStepsTracking(session);
-  const confirmation = session.stepsConfirmed.find(c => c.stepIndex === stepIndex);
-  return confirmation ? confirmation.completed === true : false;
-}
-
-/**
- * Consulta qué pasos fueron ofrecidos pero NO confirmados
- * 
- * Esta función retorna los pasos que Tecnos ofreció pero el usuario no confirmó haber realizado.
- * 
- * Tecnos debe preguntar explícitamente sobre estos pasos antes de continuar.
- * 
- * @param {object} session - Objeto de sesión
- * @returns {Array} Array de índices de pasos no confirmados
- */
-function getUnconfirmedSteps(session) {
-  ensureStepsTracking(session);
-  const offeredIndices = session.stepsOffered.map(s => s.index);
-  const confirmedIndices = session.stepsConfirmed
-    .filter(c => c.completed === true)
-    .map(c => c.stepIndex);
-  
-  return offeredIndices.filter(index => !confirmedIndices.includes(index));
-}
-
-// ========================================================
-// 🎓 SISTEMA LIANA - ROL EXPLICATIVO Y ASISTENTE
-// ========================================================
-// 
-// CONSTITUCIÓN DE TECNOS - ROLES FUNDAMENTALES
-// 
-// El sistema STI opera con dos roles claramente diferenciados:
-// - Tecnos: rol controlador y decisor (diagnóstico, flujo, escalamiento)
-// - Liana: rol explicativo y asistente (explicaciones, tutoriales, guías)
-// 
-// REGLA DE INVOCACIÓN (NO NEGOCIABLE):
-// - Liana solo aparece cuando Tecnos la invoca explícitamente
-// - Liana nunca aparece por iniciativa propia
-// - Liana NO tiene autoridad para cambiar diagnóstico, alterar flujo, decidir escalamiento
-// 
-// CUANDO TECNOS DELEGA A LIANA:
-// - Usuario pide explicación detallada
-// - Usuario no entiende un paso
-// - Paso requiere guía paso a paso
-// - Instalación de software requiere tutorial
-// - Configuración de hardware requiere asistencia
-// 
-// FLUJO DE CONTROL:
-// 1. Tecnos presenta a Liana: "Te voy a conectar con Liana para que te explique..."
-// 2. Liana explica: Genera explicación detallada, tutorial o guía
-// 3. Tecnos retoma el control: "Ahora que Liana te explicó, volvamos a..."
-// 
-// ⚠️ CRÍTICO: Si Liana toma decisiones o escala, el sistema está violando la Constitución.
-// 
-// ✅ SE PUEDE MODIFICAR: El contenido de las explicaciones de Liana
-// ❌ NO MODIFICAR: Liana NO puede decidir ni escalar (solo Tecnos lo hace)
-
-/**
- * Genera una explicación detallada usando Liana (rol explicativo)
- * 
- * Esta función se invoca cuando Tecnos decide que el usuario necesita
- * una explicación más detallada de un paso o concepto técnico.
- * 
- * Liana NO decide cuándo explicar: Tecnos decide y delega a Liana.
- * 
- * @param {string} topic - Tema o paso a explicar (ej: "sfc /scannow", "reiniciar PC")
- * @param {string} locale - Idioma del usuario ('es-AR' o 'en-US')
- * @param {object} context - Contexto adicional (problema, dispositivo, etc.)
- * @returns {Promise<string>} Explicación detallada generada por Liana
- */
-async function generateLianaExplanation(topic, locale, context = {}) {
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  // Si OpenAI está disponible, usarlo para generar explicación detallada
-  if (openai) {
-    try {
-      const systemPrompt = isEnglish
-        ? `You are Liana, a technical assistant that provides detailed, step-by-step explanations.
-Your role is to explain technical concepts clearly and help users understand how to perform specific tasks.
-You do NOT make decisions, you do NOT escalate, you do NOT diagnose.
-You ONLY explain and guide.
-
-Provide a clear, detailed explanation for: "${topic}"
-Context: Problem: ${context.problem || 'Not specified'}, Device: ${context.device || 'Not specified'}
-
-Format your response as a step-by-step guide with clear instructions.`
-        : `Sos Liana, una asistente técnica que brinda explicaciones detalladas paso a paso.
-Tu rol es explicar conceptos técnicos claramente y ayudar a los usuarios a entender cómo realizar tareas específicas.
-NO tomás decisiones, NO escalás, NO diagnosticás.
-SOLO explicás y guiás.
-
-Brindá una explicación clara y detallada para: "${topic}"
-Contexto: Problema: ${context.problem || 'No especificado'}, Dispositivo: ${context.device || 'No especificado'}
-
-Formateá tu respuesta como una guía paso a paso con instrucciones claras.`;
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Explain: ${topic}` }
-        ],
-        max_tokens: 500,
-        temperature: 0.7
-      });
-
-      const explanation = completion.choices[0]?.message?.content?.trim() || '';
-      if (explanation) {
-        logger.info(`[LIANA] Explicación generada para: ${topic}`);
-        return explanation;
-      }
-    } catch (error) {
-      logger.warn(`[LIANA] Error generando explicación con OpenAI: ${error.message}`);
-    }
-  }
-  
-  // Fallback: Explicación básica sin OpenAI
-  if (isEnglish) {
-    return `Here's a detailed explanation of ${topic}:\n\n[Liana would provide step-by-step instructions here. This is a fallback response when OpenAI is unavailable.]`;
-  } else {
-    return `Acá te explico detalladamente sobre ${topic}:\n\n[Liana brindaría instrucciones paso a paso acá. Esta es una respuesta de respaldo cuando OpenAI no está disponible.]`;
-  }
-}
-
-/**
- * Presenta a Liana al usuario (Tecnos delega explicación)
- * 
- * Esta función genera el mensaje de presentación cuando Tecnos decide
- * que Liana debe explicar algo al usuario.
- * 
- * ⚠️ CRÍTICO: Solo Tecnos puede invocar esta función.
- * Liana nunca se presenta a sí misma.
- * 
- * @param {string} locale - Idioma del usuario
- * @param {string} reason - Razón por la que Liana está siendo invocada
- * @returns {string} Mensaje de presentación de Liana
- */
-function presentLiana(locale, reason = '') {
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  if (isEnglish) {
-    return `I'm going to connect you with Liana, our technical assistant, who will explain this step in detail.\n\n${reason ? `Reason: ${reason}\n\n` : ''}Liana will guide you through the process step by step.`;
-  } else {
-    return `Te voy a conectar con Liana, nuestra asistente técnica, que te va a explicar este paso en detalle.\n\n${reason ? `Motivo: ${reason}\n\n` : ''}Liana te va a guiar paso a paso en el proceso.`;
-  }
-}
-
-/**
- * Retoma el control después de que Liana explica (Tecnos vuelve)
- * 
- * Esta función genera el mensaje de transición cuando Tecnos retoma
- * el control después de que Liana ha explicado algo.
- * 
- * ⚠️ CRÍTICO: Tecnos siempre retoma el control después de Liana.
- * Liana nunca continúa la conversación por su cuenta.
- * 
- * @param {string} locale - Idioma del usuario
- * @returns {string} Mensaje de retorno de Tecnos
- */
-function resumeTecnosControl(locale) {
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  if (isEnglish) {
-    return `Now that Liana has explained that, let's continue. Did you complete the step? What happened when you tried it?`;
-  } else {
-    return `Ahora que Liana te explicó eso, sigamos. ¿Completaste el paso? ¿Qué pasó cuando lo intentaste?`;
-  }
-}
-
-/**
- * Verifica si la respuesta ajustada requiere escalamiento forzado y lo ejecuta
- * ⚠️ DECISIÓN REAL: Interrumpe el flujo si los mandamientos lo requieren
- */
-async function checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, handlerName) {
-  if (adjustedResponse && adjustedResponse._forceEscalate) {
-    logger.warn(`[${handlerName}] 🚨 Mandamientos requieren escalamiento: ${adjustedResponse._escalationReason}`);
-    const escalationReason = {
-      requiresTechnician: true,
-      confidence: 'high',
-      type: adjustedResponse._escalationReason,
-      reason: `Mandamientos detectaron ${adjustedResponse._escalationReason} en ${handlerName}`
-    };
-    return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
-  }
-  return null; // No requiere escalamiento
-}
-
-/**
- * Aplica los 22 Mandamientos a una respuesta antes de retornarla
- * Esta función wrapper asegura que cada respuesta cumpla con los mandamientos
- * 
- * ⚠️ CRÍTICO: Debe llamarse ANTES de retornar cada respuesta del bot
- * 
- * @param {Object} response - Objeto de respuesta { ok, reply, stage, buttons, handled, ... }
- * @param {Object} session - Sesión del usuario
- * @param {string} userText - Texto del usuario que generó esta respuesta
- * @param {string|null} buttonToken - Token del botón si aplica
- * @returns {Object} Respuesta ajustada según los 22 Mandamientos (puede incluir _forceEscalate)
- */
-function applyMandatesToResponse(response, session, userText = '', buttonToken = null) {
-  // Si la respuesta no es exitosa, retornarla sin modificar
-  if (!response || !response.ok || !response.reply) {
-    return response;
-  }
-  
-  // ⚠️ EVALUACIÓN PREVIA: Detectar frustración/repetitividad ANTES de evaluar mandamientos
-  const transcript = session.transcript || [];
-  const recentBotMessages = transcript
-    .filter(entry => entry.who === 'bot')
-    .slice(-5)
-    .map(entry => entry.text || '')
-    .join(' ')
-    .toLowerCase();
-  
-  // ⚠️ SOSTENIBILIDAD STI: Detectar conversación larga o ineficiente
-  const totalMessages = transcript.length;
-  const botMessages = transcript.filter(entry => entry.who === 'bot').length;
-  const userMessages = transcript.filter(entry => entry.who === 'user').length;
-  const stepsShown = session.stepsDone?.length || 0;
-  const currentStage = session.stage || '';
-  
-  // Calcular tiempo estimado de conversación (asumiendo ~30 segundos por intercambio)
-  const estimatedMinutes = Math.floor((totalMessages * 30) / 60);
-  
-  // Detectar si estamos en BASIC_TESTS con múltiples pasos
-  const isInSteps = currentStage === 'BASIC_TESTS';
-  const hasMultipleSteps = stepsShown >= 3;
-  
-  // ⚠️ REGLA COMERCIAL: Ofrecer WhatsApp cuando la asistencia gratuita se vuelve ineficiente
-  const shouldOfferWhatsAppEarly = 
-    (botMessages >= 5) || // 5+ mensajes del bot = conversación larga
-    (userMessages >= 4 && session.fallbackCount >= 2) || // 4+ mensajes del usuario con 2+ fallbacks
-    (isInSteps && hasMultipleSteps && session.fallbackCount >= 1) || // En pasos, 3+ pasos mostrados y 1+ fallback
-    (estimatedMinutes >= 3) || // 3+ minutos de conversación
-    (session.fallbackCount >= 2 && currentStage === 'BASIC_TESTS'); // 2+ fallbacks en pasos
-  
-  // Detectar repetición léxica extrema (MANDAMIENTO 12)
-  const repetitiveWords = ['perfecto', 'entiendo', 'frustrante', 'claro', 'excelente', 'genial', 'bien', 'ok'];
-  const locale = ensureSessionLocale(session);
-  const wordsToCheck = String(locale).toLowerCase().startsWith('en') 
-    ? ['perfect', 'understand', 'frustrating', 'clear', 'excellent', 'great', 'ok', 'okay']
-    : repetitiveWords;
-  
-  let extremeRepetition = false;
-  for (const word of wordsToCheck) {
-    const count = (recentBotMessages.match(new RegExp(`\\b${word}\\b`, 'gi')) || []).length;
-    if (count >= 3) {
-      extremeRepetition = true;
-      logger.warn(`[MANDATES] 🔴 Repetición extrema detectada: "${word}" aparece ${count} veces`);
-      break;
-    }
-  }
-  
-  // ⚠️ MEMORIA DE SESIÓN: Consultar flags de frustración previos
-  ensureDecisionFlags(session);
-  const hasFrustrationFlag = hasFrustrationBeenDetected(session);
-  const hasUserRequestedTech = hasUserRequestedTechnician(session);
-  
-  // Detectar frustración por fallbacks (MANDAMIENTO 9)
-  const frustrationDetected = session.fallbackCount >= 3 || extremeRepetition || hasFrustrationFlag;
-  
-  // Si se detecta frustración, actualizar el flag
-  if (frustrationDetected && !hasFrustrationFlag) {
-    setDecisionFlag(session, 'userFrustrationDetected', true);
-  }
-  
-  // Detectar ambigüedad en el mensaje del usuario (MANDAMIENTO 3)
-  const hasAmbiguity = userText && (
-    /\b(no sé|no entiendo|no funciona|no puedo|help|ayuda|confundido|confused)\b/i.test(userText) ||
-    session.fallbackCount >= 2
-  );
-  
-  // ⚠️ REGLA: Si el usuario ya pidió técnico, forzar escalamiento
-  if (hasUserRequestedTech) {
-    logger.warn(`[MANDATES] 🧠 Usuario ya pidió técnico - forzando escalamiento`);
-    return {
-      ...response,
-      _forceEscalate: true,
-      _escalationReason: 'user_previously_requested',
-      reply: response.reply,
-      buttons: response.buttons || null
-    };
-  }
-  
-  // ⚠️ SOSTENIBILIDAD: Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp
-  if (shouldOfferWhatsAppEarly) {
-    logger.info(`[MANDATES] 💼 Ofreciendo WhatsApp temprano: botMsgs=${botMessages}, userMsgs=${userMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount}, minutos=${estimatedMinutes}`);
-  }
-  
-  // Evaluar los 22 Mandamientos
-  const evaluation = evaluateTecnosMandates(
-    session,
-    response.reply,
-    response.buttons || null,
-    {
-      userText,
-      buttonToken,
-      hasAmbiguity,
-      userFrustration: frustrationDetected,
-      userStuck: session.fallbackCount >= 5,
-      needsDetailedExplanation: false,
-      proposedSteps: null
-    }
-  );
-  
-  // ⚠️ DECISIÓN REAL: Si hay frustración/repetitividad/ambigüedad, FORZAR escalamiento
-  if (evaluation.shouldEscalate || frustrationDetected || (hasAmbiguity && session.fallbackCount >= 2)) {
-    logger.warn(`[MANDATES] 🚨 FORZANDO ESCALAMIENTO: frustración=${frustrationDetected}, ambigüedad=${hasAmbiguity}, fallbacks=${session.fallbackCount}`);
-    
-    // Retornar señal especial para que el handler interrumpa y escale
-    return {
-      ...response,
-      _forceEscalate: true,
-      _escalationReason: frustrationDetected ? 'frustration' : (hasAmbiguity ? 'ambiguity' : 'mandates'),
-      reply: evaluation.correctedReply || response.reply,
-      buttons: evaluation.correctedButtons || response.buttons || null
-    };
-  }
-  
-  // Aplicar correcciones de texto
-  let finalReply = evaluation.correctedReply || response.reply;
-  
-  // Aplicar tono de Tecnos (MANDAMIENTO 4, 5, 6, 7)
-  // ⚠️ FIX: No pasar variants si el texto ya está correcto, solo aplicar limpieza
-  if (finalReply && finalReply.trim().length > 0) {
-    finalReply = applyTecnosVoice(finalReply, locale);
-  } else {
-    // Si por alguna razón finalReply está vacío, usar el reply original
-    finalReply = response.reply || '';
-  }
-  
-  // ⚠️ SOSTENIBILIDAD STI: Modificar botones y ofrecer WhatsApp cuando corresponde
-  let finalButtons = evaluation.correctedButtons || response.buttons || null;
-  let shouldAllowWhatsApp = response.allowWhatsapp || false;
-  
-  // ⚠️ MEMORIA DE SESIÓN: Consultar si ya se ofreció WhatsApp
-  const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
-  
-  // Si la asistencia gratuita se vuelve ineficiente, ofrecer WhatsApp activamente
-  // ⚠️ REGLA: Si ya se ofreció WhatsApp antes, no volver a ofrecer pasos largos
-  if (shouldOfferWhatsAppEarly) {
-    shouldAllowWhatsApp = true;
-    
-    // Actualizar flag si no estaba activo
-    if (!hasWhatsAppBeenOffered) {
-      setDecisionFlag(session, 'whatsappOffered', true);
-    }
-    
-    // Si hay botones, agregar botón de WhatsApp al inicio si no existe
-    if (finalButtons && Array.isArray(finalButtons)) {
-      const isEnglish = String(locale).toLowerCase().startsWith('en');
-      const hasWhatsAppButton = finalButtons.some(btn => 
-        btn.value === 'BTN_WHATSAPP_TECNICO' || 
-        btn.token === 'BTN_WHATSAPP_TECNICO' ||
-        btn.value === 'BTN_CONNECT_TECH' ||
-        btn.token === 'BTN_CONNECT_TECH'
-      );
-      
-      if (!hasWhatsAppButton) {
-        const whatsappButton = {
-          text: isEnglish ? '💚 Talk to a Technician via WhatsApp' : '💚 Hablar con un Técnico por WhatsApp',
-          value: 'BTN_WHATSAPP_TECNICO',
-          description: isEnglish ? 'Get professional help via WhatsApp' : 'Obtener ayuda profesional por WhatsApp'
-        };
-        finalButtons = [whatsappButton, ...finalButtons];
-        logger.info(`[MANDATES] 💼 Botón de WhatsApp agregado por sostenibilidad (botMsgs=${botMessages}, steps=${stepsShown}, fallbacks=${session.fallbackCount}, yaOfrecido=${hasWhatsAppBeenOffered})`);
-      }
-    }
-    
-    // Modificar el mensaje para recomendar WhatsApp si estamos en pasos
-    if (isInSteps && hasMultipleSteps) {
-      const isEnglish = String(locale).toLowerCase().startsWith('en');
-      const recommendation = isEnglish
-        ? '\n\n💡 **Tip:** If these steps are taking too long or you prefer professional help, you can contact a technician via WhatsApp for faster assistance.'
-        : '\n\n💡 **Tip:** Si estos pasos están tomando mucho tiempo o preferís ayuda profesional, podés contactar a un técnico por WhatsApp para una asistencia más rápida.';
-      
-      // Agregar recomendación al final del mensaje si no está ya
-      if (!finalReply.includes('WhatsApp') && !finalReply.includes('técnico')) {
-        finalReply += recommendation;
-      }
-    }
-  }
-  
-  // Si hay repetición léxica extrema, también ofrecer WhatsApp
-  if (extremeRepetition && finalButtons && Array.isArray(finalButtons)) {
-    const isEnglish = String(locale).toLowerCase().startsWith('en');
-    const hasTechButton = finalButtons.some(btn => 
-      btn.value === 'BTN_TECH' || 
-      btn.token === 'BTN_TECH' ||
-      btn.value === 'BTN_WHATSAPP_TECNICO' ||
-      btn.token === 'BTN_WHATSAPP_TECNICO'
-    );
-    
-    if (!hasTechButton) {
-      shouldAllowWhatsApp = true;
-      const techButton = {
-        text: isEnglish ? '💚 Talk to a Technician via WhatsApp' : '💚 Hablar con un Técnico por WhatsApp',
-        value: 'BTN_WHATSAPP_TECNICO',
-        description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
-      };
-      finalButtons = [techButton, ...finalButtons];
-      logger.info(`[MANDATES] 🔄 Botón de WhatsApp agregado por repetición léxica extrema`);
-    }
-  }
-  
-  // Log de correcciones aplicadas
-  if (evaluation.corrections && evaluation.corrections.length > 0) {
-    logger.info(`[MANDATES] ✅ Correcciones aplicadas: ${evaluation.corrections.join(', ')}`);
-  }
-  
-  // Retornar respuesta ajustada con allowWhatsApp si corresponde
-  return {
-    ...response,
-    reply: finalReply,
-    buttons: finalButtons,
-    allowWhatsapp: shouldAllowWhatsApp || response.allowWhatsapp || false
-  };
-}
 
 /**
  * Guarda la sesión Y también guarda el transcript en formato texto plano
@@ -2584,20 +1421,20 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     };
   }
   
-  // ⚠️ FIX: userText puede estar vacío si el usuario hizo clic en un botón
-  // En ese caso, buttonToken contiene la información necesaria
-  if ((!userText || typeof userText !== 'string' || userText.trim().length === 0) && !buttonToken) {
-    logger.error('[ASK_LANGUAGE] ❌ userText y buttonToken inválidos o vacíos');
-    return {
-      ok: false,
-      error: 'Texto de usuario o botón inválido',
-      handled: true
-    };
+  // Asegurar que la sesión tenga las propiedades básicas necesarias
+  if (!session.transcript || !Array.isArray(session.transcript)) {
+    session.transcript = [];
+  }
+  if (!session.stage) {
+    session.stage = STATES.ASK_LANGUAGE;
+  }
+  if (session.gdprConsent === undefined) {
+    session.gdprConsent = null;
   }
   
   // Validar sessionId con la función unificada (formato A0000-Z9999)
   if (!isValidSessionId(sessionId)) {
-    logger.error('[ASK_LANGUAGE] ❌ sessionId inválido (formato A0000-Z9999)');
+    logger.error('[ASK_LANGUAGE] ❌ sessionId inválido (formato A0000-Z9999):', sessionId);
     return {
       ok: false,
       error: 'sessionId inválido',
@@ -2605,12 +1442,42 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
     };
   }
   
+  // Validar userText: si hay buttonToken, permitir procesar incluso si userText está vacío
+  // Si no hay buttonToken, entonces userText es requerido
+  if (!buttonToken && (!userText || typeof userText !== 'string' || userText.trim().length === 0)) {
+    logger.error('[ASK_LANGUAGE] ❌ userText inválido o vacío y no hay buttonToken');
+    return {
+      ok: false,
+      error: 'Texto de usuario inválido',
+      handled: true
+    };
+  }
+  
   try {
+    // Logging detallado para diagnóstico
+    logger.info(`[ASK_LANGUAGE] Iniciando handler:`, {
+      sessionId: sessionId,
+      hasSession: !!session,
+      sessionStage: session?.stage,
+      sessionGdprConsent: session?.gdprConsent,
+      userText: userText ? userText.substring(0, 50) : null,
+      buttonToken: buttonToken || null,
+      transcriptLength: session?.transcript?.length || 0
+    });
+    
     // Normalizar el texto del usuario a minúsculas para comparación
-    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto
-    const textToProcess = (userText && userText.trim().length > 0) 
+    // Esto permite que "Sí", "SI", "sí" sean tratados igual
+    // Si userText está vacío pero hay buttonToken, usar el buttonToken como texto
+    const textToProcess = (userText && typeof userText === 'string' && userText.trim().length > 0) 
       ? userText 
       : (buttonToken ? String(buttonToken) : '');
+    
+    // Validar que textToProcess sea un string antes de llamar a toLowerCase
+    if (typeof textToProcess !== 'string') {
+      logger.error(`[ASK_LANGUAGE] ❌ textToProcess no es string:`, typeof textToProcess, textToProcess);
+      throw new Error('textToProcess debe ser un string');
+    }
+    
     const lowerMsg = textToProcess.toLowerCase().trim();
     
     logger.info(`[ASK_LANGUAGE] Procesando: "${lowerMsg}" (buttonToken: ${buttonToken || 'none'})`);
@@ -2645,29 +1512,33 @@ async function handleAskLanguageStage(session, userText, buttonToken, sessionId)
       // El mensaje es bilingüe porque aún no sabemos qué idioma prefiere el usuario
       const reply = `🆔 **${sessionId}**\n\n✅ **Gracias por aceptar / Thank you for accepting**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
       
-      // Generar botones de selección de idioma
-      const languageButtons = [
-        { text: '(🇦🇷) Español 🌎', value: 'español' },
-        { text: '(🇺🇸) English 🌎', value: 'english' }
-      ];
+      // Asegurar que transcript existe antes de hacer push
+      if (!session.transcript || !Array.isArray(session.transcript)) {
+        session.transcript = [];
+      }
       
-      // Agregar mensaje al transcript CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, reply, languageButtons, session.stage);
+      // Agregar este mensaje al transcript (historial de la conversación)
+      session.transcript.push({ 
+        who: 'bot', 
+        text: reply, 
+        ts: nowIso(), 
+        stage: session.stage 
+      });
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      // Retornar respuesta con botones de selección de idioma
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Mantener ASK_LANGUAGE hasta que seleccione idioma
-        buttons: languageButtons,
+        buttons: [
+          { text: '(🇦🇷) Español 🌎', value: 'español' },
+          { text: '(🇺🇸) English 🌎', value: 'english' }
+        ],
         handled: true // Indica que este handler procesó la request
       };
-      // Usar buttonToken como userText si userText está vacío (cuando se hace clic en botón)
-      const textForMandates = (userText && userText.trim().length > 0) ? userText : (buttonToken || '');
-      return applyMandatesToResponse(response, session, textForMandates, buttonToken);
     }
     
     // ========================================
@@ -2702,18 +1573,20 @@ If you change your mind, you can restart the chat.
 
 📧 For inquiries without registration, write to us at: web@stia.com.ar`;
       
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      // Asegurar que transcript existe antes de hacer push
+      if (!session.transcript || !Array.isArray(session.transcript)) {
+        session.transcript = [];
+      }
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Mantener ASK_LANGUAGE (no avanzar)
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -2742,18 +1615,20 @@ If you change your mind, you can restart the chat.
         // Mensaje de confirmación en español
         const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
         
-        // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-        addBotMessageToTranscript(session, reply, null, session.stage);
+        // Asegurar que transcript existe antes de hacer push
+        if (!session.transcript || !Array.isArray(session.transcript)) {
+          session.transcript = [];
+        }
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sessionId, session);
         
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_NAME
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       
       // Detectar selección de Inglés
@@ -2767,18 +1642,20 @@ If you change your mind, you can restart the chat.
         // Mensaje de confirmación en inglés
         const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
         
-        // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-        addBotMessageToTranscript(session, reply, null, session.stage);
+        // Asegurar que transcript existe antes de hacer push
+        if (!session.transcript || !Array.isArray(session.transcript)) {
+          session.transcript = [];
+        }
+        
+        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sessionId, session);
         
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_NAME
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -2795,35 +1672,34 @@ If you change your mind, you can restart the chat.
       ? `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`
       : `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
     
-    // Generar botones según el estado actual
-    // Si ya aceptó GDPR, mostrar botones de idioma
-    // Si no, mostrar botones de aceptación/rechazo
-    const retryButtons = session.gdprConsent
-      ? [
-          // Botones de idioma (si ya aceptó GDPR)
-          { text: '(🇦🇷) Español 🌎', value: 'español' },
-          { text: '(🇺🇸) English 🌎', value: 'english' }
-        ]
-      : [
-          // Botones de aceptación/rechazo bilingües (si aún no aceptó GDPR)
-          { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
-          { text: 'No Acepto / No, I Decline ❌', value: 'no' }
-        ];
+    // Asegurar que transcript existe antes de hacer push
+    if (!session.transcript || !Array.isArray(session.transcript)) {
+      session.transcript = [];
+    }
     
-    // Agregar mensaje al transcript CON botones (registro obligatorio)
-    addBotMessageToTranscript(session, retry, retryButtons, session.stage);
-    
+    session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
     await saveSessionAndTranscript(sessionId, session);
     
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    // Retornar botones según el estado actual
+    // Si ya aceptó GDPR, mostrar botones de idioma
+    // Si no, mostrar botones de aceptación/rechazo
+    return {
       ok: true,
       reply: retry,
       stage: session.stage,
-      buttons: retryButtons,
+      buttons: session.gdprConsent
+        ? [
+            // Botones de idioma (si ya aceptó GDPR)
+            { text: '(🇦🇷) Español 🌎', value: 'español' },
+            { text: '(🇺🇸) English 🌎', value: 'english' }
+          ]
+        : [
+            // Botones de aceptación/rechazo bilingües (si aún no aceptó GDPR)
+            { text: 'Sí Acepto / Yes, I Accept ✔️', value: 'si' },
+            { text: 'No Acepto / No, I Decline ❌', value: 'no' }
+          ],
       handled: true
     };
-    return applyMandatesToResponse(response, session, userText, buttonToken);
     
   } catch (error) {
     // Manejo de errores robusto
@@ -2841,8 +1717,11 @@ If you change your mind, you can restart the chat.
       : "Lo siento, hubo un error procesando tu solicitud. Por favor, intentá de nuevo.";
     
     if (session) {
-      // Agregar mensaje del bot SIN botones (mensaje de error, no hay botones)
-      addBotMessageToTranscript(session, errorReply, null, session?.stage || STATES.ASK_LANGUAGE);
+      // Asegurar que transcript existe antes de hacer push
+      if (!session.transcript || !Array.isArray(session.transcript)) {
+        session.transcript = [];
+      }
+      session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
     }
     
     return {
@@ -3495,15 +2374,6 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  if (!userText || typeof userText !== 'string' || userText.trim().length === 0) {
-    logger.error('[ASK_NAME] ❌ userText inválido o vacío');
-    return {
-      ok: false,
-      error: 'Texto de usuario inválido',
-      handled: true
-    };
-  }
-  
   if (!isValidSessionId(sessionId)) {
     logger.error('[ASK_NAME] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
@@ -3513,49 +2383,28 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     };
   }
   
+  // Validar userText: si hay buttonToken, permitir procesar (aunque el nombre debe venir de userText)
+  // Si no hay buttonToken, entonces userText es requerido para obtener el nombre
+  if (!buttonToken && (!userText || typeof userText !== 'string' || userText.trim().length === 0)) {
+    logger.error('[ASK_NAME] ❌ userText inválido o vacío y no hay buttonToken');
+    return {
+      ok: false,
+      error: 'Texto de usuario inválido',
+      handled: true
+    };
+  }
+  
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
     const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     
-    logger.info(`[ASK_NAME] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
+    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto de respaldo
+    const textToProcess = (userText && typeof userText === 'string' && userText.trim().length > 0) 
+      ? userText 
+      : (buttonToken ? String(buttonToken) : '');
     
-    // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
-    // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
-    //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
-    //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[ASK_NAME] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[ASK_NAME] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[ASK_NAME] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
-        }
-      }
-    }
+    logger.info(`[ASK_NAME] Procesando: "${textToProcess}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
     // CASO 1: MENSAJE VACÍO
@@ -3565,23 +2414,20 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: El mensaje de error
     // ❌ NO MODIFICAR: Debe retornar un mensaje pidiendo el nombre
     //
-    if (!userText || userText.length === 0) {
+    if (!textToProcess || textToProcess.length === 0) {
       const reply = isEnglish
         ? "I didn't receive your message. Please try typing your name again."
         : "No recibí tu mensaje. Por favor, escribí tu nombre de nuevo.";
       
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -3597,7 +2443,7 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: Las reglas de validación en extractName()
     // ❌ NO MODIFICAR: Debe usar extractName() y isValidName()
     //
-    const nameResult = extractName(userText);
+    const nameResult = extractName(textToProcess);
     
     if (nameResult.valid && nameResult.name) {
       // ✅ NOMBRE VÁLIDO DETECTADO
@@ -3645,6 +2491,9 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
           ? `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
           : `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
       
+      // Agregar mensaje al transcript
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      
       // ========================================
       // GENERAR BOTONES DE PROBLEMAS FRECUENTES
       // ========================================
@@ -3675,27 +2524,17 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         'BTN_VIRUS'
       ], locale));
       
-      // Agregar mensaje al transcript CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, reply, problemButtons, session.stage);
-      
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      // Retornar respuesta exitosa con botones
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ASK_NEED
         buttons: problemButtons, // ⚠️ CRÍTICO: Incluir los botones de problemas frecuentes
         handled: true
       };
-      const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
-      
-      // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-      const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_NAME');
-      if (forcedEscalation) return forcedEscalation;
-      
-      return adjustedResponse;
     }
     
     // ========================================
@@ -3715,20 +2554,17 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
         : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".";
       
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
       logger.info(`[ASK_NAME] ⚠️ No se detectó nombre. Motivo: ${nameResult.reason}, Intentos: ${session.nameAttempts}`);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -3754,20 +2590,17 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
         ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
         : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?";
       
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
       logger.info(`[ASK_NAME] ⚠️ Límite de intentos alcanzado, continuando sin nombre`);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ASK_NEED
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -3780,14 +2613,14 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
     // ❌ NO MODIFICAR: Debe mantener el contexto del paso actual
     //
-    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
-      logger.info(`[ASK_NAME] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+    if (textToProcess && typeof textToProcess === 'string' && isTechnicalQuestion(textToProcess)) {
+      logger.info(`[ASK_NAME] Pregunta técnica detectada: "${textToProcess.substring(0, 50)}..."`);
       
       // Intentar generar respuesta con OpenAI
       let technicalReply = null;
       try {
         technicalReply = await generateTechnicalResponse(
-          userText,
+          textToProcess,
           locale,
           {
             userName: session.userName || 'usuario',
@@ -3821,14 +2654,12 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -3840,25 +2671,22 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: Las reglas de detección en looksClearlyNotName()
     // ❌ NO MODIFICAR: Debe incrementar nameAttempts
     //
-    if (looksClearlyNotName(userText)) {
+    if (looksClearlyNotName(textToProcess)) {
       session.nameAttempts = (session.nameAttempts || 0) + 1;
       
       const reply = isEnglish
         ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
         : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".";
       
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: reply,
         stage: session.stage,
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -3880,14 +2708,12 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     session.transcript.push({ who: 'bot', text: fallbackReply, ts: nowIso() });
     await saveSessionAndTranscript(sessionId, session);
     
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    return {
       ok: true,
       reply: fallbackReply,
       stage: session.stage,
       handled: true
     };
-    return applyMandatesToResponse(response, session, userText, buttonToken);
     
   } catch (error) {
     // Manejo de errores robusto
@@ -3900,8 +2726,8 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
     
     // Mensaje de error según el idioma del usuario
     const errorReply = session?.userLocale === 'en-US'
-      ? "I'm sorry, there was an error processing your name. Please try again."
-      : "Lo siento, hubo un error procesando tu nombre. Por favor, intentá de nuevo.";
+      ? "I'm sorry, there was an error processing your request. Please try again."
+      : "Lo siento, hubo un error procesando tu solicitud. Por favor, intentá de nuevo.";
     
     if (session) {
       session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
@@ -4115,20 +2941,22 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  if (!userText || typeof userText !== 'string' || userText.trim().length === 0) {
-    logger.error('[ASK_NEED] ❌ userText inválido o vacío');
-    return {
-      ok: false,
-      error: 'Texto de usuario inválido',
-      handled: true
-    };
-  }
-  
   if (!isValidSessionId(sessionId)) {
     logger.error('[ASK_NEED] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
       ok: false,
       error: 'sessionId inválido',
+      handled: true
+    };
+  }
+  
+  // Validar userText: si hay buttonToken, permitir procesar incluso si userText está vacío
+  // Si no hay buttonToken, entonces userText es requerido
+  if (!buttonToken && (!userText || typeof userText !== 'string' || userText.trim().length === 0)) {
+    logger.error('[ASK_NEED] ❌ userText inválido o vacío y no hay buttonToken');
+    return {
+      ok: false,
+      error: 'Texto de usuario inválido',
       handled: true
     };
   }
@@ -4139,44 +2967,12 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
-    logger.info(`[ASK_NEED] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
+    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto de respaldo
+    const textToProcess = (userText && typeof userText === 'string' && userText.trim().length > 0) 
+      ? userText 
+      : (buttonToken ? String(buttonToken) : '');
     
-    // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
-    // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
-    //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
-    //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[ASK_NEED] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[ASK_NEED] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[ASK_NEED] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
-        }
-      }
-    }
+    logger.info(`[ASK_NEED] Procesando: "${textToProcess}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
     // CASO 1: USUARIO SELECCIONÓ UN BOTÓN DE PROBLEMA
@@ -4226,28 +3022,24 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        
-        // Agregar mensaje del bot CON botones (registro obligatorio)
-        addBotMessageToTranscript(session, reply, deviceButtons, session.stage);
-        
-        // Agregar metadata adicional al último mensaje del bot
-        const lastBotEntry = session.transcript[session.transcript.length - 1];
-        if (lastBotEntry && lastBotEntry.who === 'bot') {
-          lastBotEntry.problemSelected = session.problem; // Metadata: problema seleccionado
-        }
+        session.transcript.push({
+          who: 'bot',
+          text: reply,
+          ts: nowIso(),
+          problemSelected: session.problem // Metadata: problema seleccionado
+        });
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        // Retornar respuesta exitosa con botones de dispositivos
+        return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons, // ⚠️ CRÍTICO: Incluir los botones de dispositivos
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -4268,7 +3060,7 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     // NOTA: Por ahora, si el usuario escribe, pedimos que use los botones
     // En el futuro, aquí se puede agregar detección inteligente de problemas
     //
-    const lowerText = userText.toLowerCase().trim();
+    const lowerText = textToProcess.toLowerCase().trim();
     
     // Detectar si el usuario mencionó un problema común
     // Patrones simples para detectar problemas mencionados en los botones
@@ -4317,31 +3109,27 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
         // Agregar mensajes al transcript
         session.transcript.push({
           who: 'user',
-          text: userText,
+          text: textToProcess,
           ts: nowIso()
         });
-        
-        // Agregar mensaje del bot CON botones (registro obligatorio)
-        addBotMessageToTranscript(session, reply, deviceButtons, session.stage);
-        
-        // Agregar metadata adicional al último mensaje del bot
-        const lastBotEntry = session.transcript[session.transcript.length - 1];
-        if (lastBotEntry && lastBotEntry.who === 'bot') {
-          lastBotEntry.problemDetected = session.problem; // Metadata: problema detectado
-        }
+        session.transcript.push({
+          who: 'bot',
+          text: reply,
+          ts: nowIso(),
+          problemDetected: session.problem // Metadata: problema detectado
+        });
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        // Retornar respuesta exitosa con botones de dispositivos
+        return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es ASK_DEVICE
           buttons: deviceButtons,
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
     }
     
@@ -4354,14 +3142,14 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
     // ❌ NO MODIFICAR: Debe mantener el contexto del problema
     //
-    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
-      logger.info(`[ASK_NEED] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+    if (textToProcess && typeof textToProcess === 'string' && isTechnicalQuestion(textToProcess)) {
+      logger.info(`[ASK_NEED] Pregunta técnica detectada: "${textToProcess.substring(0, 50)}..."`);
       
       // Intentar generar respuesta con OpenAI
       let technicalReply = null;
       try {
         technicalReply = await generateTechnicalResponse(
-          userText,
+          textToProcess,
           locale,
           {
             problem: session.problem || '',
@@ -4376,9 +3164,18 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
       if (technicalReply) {
         session.transcript.push({
           who: 'user',
-          text: userText,
+          text: textToProcess,
           ts: nowIso()
         });
+        session.transcript.push({
+          who: 'bot',
+          text: technicalReply,
+          ts: nowIso(),
+          questionType: 'technical',
+          aiGenerated: true
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
         
         // Mostrar botones de problemas para que pueda continuar
         const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
@@ -4390,27 +3187,13 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           'BTN_VIRUS'
         ], locale));
         
-        // Agregar mensaje del bot CON botones (registro obligatorio)
-        addBotMessageToTranscript(session, technicalReply, problemButtons, session.stage);
-        
-        // Agregar metadata adicional al último mensaje del bot
-        const lastBotEntry = session.transcript[session.transcript.length - 1];
-        if (lastBotEntry && lastBotEntry.who === 'bot') {
-          lastBotEntry.questionType = 'technical';
-          lastBotEntry.aiGenerated = true;
-        }
-        
-        await saveSessionAndTranscript(sessionId, session);
-        
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        return {
           ok: true,
           reply: technicalReply,
           stage: session.stage, // Sigue siendo ASK_NEED
           buttons: problemButtons, // Mostrar botones para continuar
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       // Si OpenAI falló, continuar con el fallback normal
     }
@@ -4443,31 +3226,26 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     // Agregar mensajes al transcript
     session.transcript.push({
       who: 'user',
-      text: userText,
+      text: textToProcess,
       ts: nowIso()
     });
-    
-    // Agregar mensaje del bot CON botones (registro obligatorio)
-    addBotMessageToTranscript(session, fallbackReply, problemButtons, session.stage);
+    session.transcript.push({
+      who: 'bot',
+      text: fallbackReply,
+      ts: nowIso()
+    });
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
     
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    // Retornar respuesta con botones de problemas frecuentes
+    return {
       ok: true,
       reply: fallbackReply,
       stage: session.stage, // Sigue siendo ASK_NEED
       buttons: problemButtons, // Mostrar botones de problemas frecuentes
       handled: true
     };
-    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
-    
-    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_NEED');
-    if (forcedEscalation) return forcedEscalation;
-    
-    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -5032,11 +3810,6 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  // userText puede ser opcional si se usa buttonToken
-  if (userText && (typeof userText !== 'string' || userText.trim().length === 0)) {
-    logger.warn('[ASK_DEVICE] ⚠️  userText inválido, pero puede continuar con buttonToken');
-  }
-  
   if (!isValidSessionId(sessionId)) {
     logger.error('[ASK_DEVICE] ❌ sessionId inválido (formato A0000-Z9999)');
     return {
@@ -5046,50 +3819,24 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     };
   }
   
+  // Validar userText: si hay buttonToken, permitir procesar incluso si userText está vacío
+  // Si no hay buttonToken, entonces userText es requerido
+  if (!buttonToken && (!userText || typeof userText !== 'string' || userText.trim().length === 0)) {
+    logger.warn('[ASK_DEVICE] ⚠️  userText inválido o vacío y no hay buttonToken');
+  }
+  
   try {
     // Obtener locale del usuario para mensajes en el idioma correcto
     const locale = ensureSessionLocale(session);
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
-    logger.info(`[ASK_DEVICE] Procesando: "${userText}" (buttonToken: ${buttonToken || 'none'})`);
+    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto de respaldo
+    const textToProcess = (userText && typeof userText === 'string' && userText.trim().length > 0) 
+      ? userText 
+      : (buttonToken ? String(buttonToken) : '');
     
-    // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
-    // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
-    //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
-    //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[ASK_DEVICE] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[ASK_DEVICE] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2); // En pasos avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[ASK_DEVICE] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
-        }
-      }
-    }
+    logger.info(`[ASK_DEVICE] Procesando: "${textToProcess}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
     // CASO 1: USUARIO SELECCIONÓ UN BOTÓN DE DISPOSITIVO
@@ -5138,18 +3885,15 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
               ? `Perfecto, ${whoLabel}. Entiendo que te refieres a ${deviceCfg.label}. Cuéntame, ¿qué problema presenta?`
               : `Perfecto, ${whoLabel}. Tomo que te referís a ${deviceCfg.label}. Contame, ¿qué problema presenta?`);
           
-          // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-          addBotMessageToTranscript(session, reply, null, session.stage);
+          session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSessionAndTranscript(sessionId, session);
           
-          // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-          const response = {
+          return {
             ok: true,
             reply: reply,
             stage: session.stage,
             handled: true
           };
-          return applyMandatesToResponse(response, session, userText, buttonToken);
         }
         
         // Hay problema guardado, generar y mostrar pasos
@@ -5164,10 +3908,6 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         session.tests = session.tests || {};
         session.tests.basic = Array.isArray(steps) ? steps : [];
         session.currentTestIndex = 0;
-        
-        // ⚠️ SOSTENIBILIDAD: Contar mensajes para decidir si ofrecer WhatsApp
-        const transcript = session.transcript || [];
-        const botMessages = transcript.filter(entry => entry.who === 'bot').length;
         
         // Generar mensaje de introducción con confirmación
         const who = session.userName ? getPersonalizedGreeting(
@@ -5208,11 +3948,7 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         
         // Formatear pasos con emojis, niveles de dificultad, tiempo estimado
         // Usar marcadores especiales [BTN_HELP_STEP_X] para que el frontend sepa dónde insertar cada botón
-        // ⚠️ MEMORIA DE SESIÓN: Registrar cada paso ofrecido al usuario
         const stepsWithHelp = steps.map((step, idx) => {
-          // Registrar que este paso fue ofrecido al usuario
-          recordStepOffered(session, idx, step);
-          
           const emoji = emojiForIndex(idx);
           const difficulty = getDifficultyForStep(idx, steps.length);
           const estimatedTime = estimateStepTime(step, idx, locale);
@@ -5231,47 +3967,6 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         
         // Generar botones: ayuda para cada paso + botones finales
         const buttons = [];
-        
-        // ⚠️ MEMORIA DE SESIÓN: Consultar flags antes de decidir
-        ensureDecisionFlags(session);
-        const hasUserRequestedTech = hasUserRequestedTechnician(session);
-        const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
-        const hasFrustration = hasFrustrationBeenDetected(session);
-        
-        // ⚠️ REGLA: Si el usuario ya pidió técnico, no ofrecer pasos largos
-        if (hasUserRequestedTech) {
-          logger.warn(`[BASIC_TESTS] 🧠 Usuario ya pidió técnico - no ofrecer pasos largos`);
-          // Interrumpir y escalar inmediatamente
-          const escalationReason = {
-            requiresTechnician: true,
-            confidence: 'high',
-            type: 'user_previously_requested',
-            reason: 'Usuario ya pidió técnico en esta sesión'
-          };
-          return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
-        }
-        
-        // ⚠️ SOSTENIBILIDAD STI: Si hay 3+ pasos, ofrecer WhatsApp al inicio
-        const hasMultipleSteps = steps.length >= 3;
-        // ⚠️ MEMORIA: Si ya se ofreció WhatsApp o hay frustración, ofrecer WhatsApp más temprano
-        const shouldOfferWhatsAppInSteps = hasMultipleSteps && (
-          hasWhatsAppBeenOffered ||  // Ya se ofreció antes
-          hasFrustration ||           // Hay frustración detectada
-          session.fallbackCount >= 1 || 
-          botMessages >= 4
-        );
-        
-        if (shouldOfferWhatsAppInSteps) {
-          setDecisionFlag(session, 'whatsappOffered', true);
-          setDecisionFlag(session, 'longStepsOffered', true);
-          const whatsappButton = {
-            text: isEnglish ? '💚 Get Professional Help via WhatsApp' : '💚 Obtener Ayuda Profesional por WhatsApp',
-            value: 'BTN_WHATSAPP_TECNICO',
-            description: isEnglish ? 'Skip steps and get direct help from a technician' : 'Saltar pasos y obtener ayuda directa de un técnico'
-          };
-          buttons.push(whatsappButton);
-          logger.info(`[BASIC_TESTS] 💼 Botón de WhatsApp agregado en pasos (${steps.length} pasos, fallbacks=${session.fallbackCount}, flags: whatsappOffered=${hasWhatsAppBeenOffered}, frustration=${hasFrustration})`);
-        }
         
         // Botones de ayuda para cada paso (el frontend debe insertarlos donde encuentre [BTN_HELP_STEP_X])
         steps.forEach((step, idx) => {
@@ -5315,35 +4010,25 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           text: buttonToken, // Guardar el token del botón para referencia
           ts: nowIso()
         });
-        
-        // Agregar mensaje del bot CON botones (registro obligatorio)
-        addBotMessageToTranscript(session, reply, buttons, session.stage);
-        
-        // Agregar metadata adicional al último mensaje del bot
-        const lastBotEntry = session.transcript[session.transcript.length - 1];
-        if (lastBotEntry && lastBotEntry.who === 'bot') {
-          lastBotEntry.deviceSelected = session.device; // Metadata: dispositivo seleccionado
-          lastBotEntry.stepsGenerated = steps.length; // Metadata: cantidad de pasos generados
-        }
+        session.transcript.push({
+          who: 'bot',
+          text: reply,
+          ts: nowIso(),
+          deviceSelected: session.device, // Metadata: dispositivo seleccionado
+          stepsGenerated: steps.length // Metadata: cantidad de pasos generados
+        });
         
         // Guardar la sesión actualizada
         await saveSessionAndTranscript(sessionId, session);
         
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        // Retornar respuesta exitosa con pasos y botones
+        return {
           ok: true,
           reply: reply,
           stage: session.stage, // Ahora es BASIC_TESTS
           buttons: buttons, // ⚠️ CRÍTICO: Incluir los botones de ayuda y resultado
           handled: true
         };
-        const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
-        
-        // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-        const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'BASIC_TESTS');
-        if (forcedEscalation) return forcedEscalation;
-        
-        return adjustedResponse;
       }
     }
     
@@ -5356,14 +4041,14 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     // ✅ SE PUEDE MODIFICAR: Agregar más palabras clave de detección
     // ❌ NO MODIFICAR: Debe mantener el contexto del dispositivo
     //
-    if (userText && typeof userText === 'string' && isTechnicalQuestion(userText)) {
-      logger.info(`[ASK_DEVICE] Pregunta técnica detectada: "${userText.substring(0, 50)}..."`);
+    if (textToProcess && typeof textToProcess === 'string' && isTechnicalQuestion(textToProcess)) {
+      logger.info(`[ASK_DEVICE] Pregunta técnica detectada: "${textToProcess.substring(0, 50)}..."`);
       
       // Intentar generar respuesta con OpenAI
       let technicalReply = null;
       try {
         technicalReply = await generateTechnicalResponse(
-          userText,
+          textToProcess,
           locale,
           {
             problem: session.problem || '',
@@ -5381,31 +4066,26 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           text: userText,
           ts: nowIso()
         });
+        session.transcript.push({
+          who: 'bot',
+          text: technicalReply,
+          ts: nowIso(),
+          questionType: 'technical',
+          aiGenerated: true
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
         
         // Mostrar botones de dispositivos para que pueda continuar
         const deviceButtons = getDeviceSelectionButtons(locale);
         
-        // Agregar mensaje del bot CON botones (registro obligatorio)
-        addBotMessageToTranscript(session, technicalReply, deviceButtons, session.stage);
-        
-        // Agregar metadata adicional al último mensaje del bot
-        const lastBotEntry = session.transcript[session.transcript.length - 1];
-        if (lastBotEntry && lastBotEntry.who === 'bot') {
-          lastBotEntry.questionType = 'technical';
-          lastBotEntry.aiGenerated = true;
-        }
-        
-        await saveSessionAndTranscript(sessionId, session);
-        
-        // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-        const response = {
+        return {
           ok: true,
           reply: technicalReply,
           stage: session.stage, // Sigue siendo ASK_DEVICE
           buttons: deviceButtons, // Mostrar botones para continuar
           handled: true
         };
-        return applyMandatesToResponse(response, session, userText, buttonToken);
       }
       // Si OpenAI falló, continuar con el fallback normal
     }
@@ -5431,31 +4111,26 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     // Agregar mensajes al transcript
     session.transcript.push({
       who: 'user',
-      text: userText,
+      text: textToProcess,
       ts: nowIso()
     });
-    
-    // Agregar mensaje del bot CON botones (registro obligatorio)
-    addBotMessageToTranscript(session, fallbackReply, deviceButtons, session.stage);
+    session.transcript.push({
+      who: 'bot',
+      text: fallbackReply,
+      ts: nowIso()
+    });
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
     
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    // Retornar respuesta con botones de dispositivos
+    return {
       ok: true,
       reply: fallbackReply,
       stage: session.stage, // Sigue siendo ASK_DEVICE
       buttons: deviceButtons, // Mostrar botones de dispositivos
       handled: true
     };
-    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
-    
-    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'ASK_DEVICE');
-    if (forcedEscalation) return forcedEscalation;
-    
-    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -5782,586 +4457,6 @@ function isTechnicalQuestion(text) {
 }
 
 /**
- * Detecta si el usuario tiene intención de hablar con un técnico (explícita o implícita)
- * 
- * CONSTITUCIÓN DE TECNOS - MANDAMIENTO 1, 2, 3: Prioridad al humano, nunca ignorar intención, ante la duda escalar
- * 
- * Esta función detecta intenciones explícitas (pedidos directos de técnico) e implícitas
- * (acciones que requieren intervención técnica). Tiene prioridad absoluta sobre cualquier
- * flujo automático, EXCEPTO durante etapas iniciales donde aplica ANTI-ESCALAMIENTO ERRÓNEO.
- * 
- * ⚠️ ANTI-ESCALAMIENTO ERRÓNEO (CRÍTICO):
- * Durante etapas de inicio (ASK_LANGUAGE, ASK_NAME):
- * - NO se puede escalar a técnico
- * - NO se puede ofrecer WhatsApp
- * - NO se puede generar handoff
- * 
- * Excepción única:
- * Pedido explícito e inequívoco del usuario solicitando técnico o WhatsApp.
- * 
- * Repetir un nombre, escribir una palabra suelta o mensajes sin verbo
- * NO constituye intención de técnico.
- * 
- * ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
- * ❌ NO MODIFICAR: La lógica de anti-escalamiento erróneo (es crítica para evitar falsos positivos)
- * 
- * @param {string} text - Texto del usuario
- * @param {string} locale - Idioma del usuario
- * @param {object} session - Sesión actual (para contexto y verificar stage)
- * @returns {object} { requiresTechnician: boolean, confidence: 'high'|'medium'|'low', reason: string, type: 'explicit'|'implicit'|'frustration'|'risk'|'hardware'|'blocked_by_stage' }
- */
-function detectTechnicianIntent(text, locale, session = {}) {
-  if (!text || typeof text !== 'string') {
-    return { requiresTechnician: false, confidence: 'low', reason: 'empty_text', type: null };
-  }
-  
-  const lowerText = text.toLowerCase().trim();
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  
-  // ========================================
-  // ⚠️ ANTI-ESCALAMIENTO ERRÓNEO (CRÍTICO)
-  // ========================================
-  // Durante etapas iniciales, solo escalar si hay pedido EXPLÍCITO e INEQUÍVOCO
-  // 
-  // Etapas bloqueadas: ASK_LANGUAGE, ASK_NAME
-  // En estas etapas, el usuario está en proceso de configuración inicial.
-  // Escalar por error aquí rompe la experiencia del usuario.
-  //
-  // ✅ SE PUEDE MODIFICAR: Agregar más etapas a la lista de bloqueadas si es necesario
-  // ❌ NO MODIFICAR: La lógica de bloqueo (es crítica para evitar escalamientos erróneos)
-  //
-  const currentStage = session.stage || '';
-  const blockedStages = ['ASK_LANGUAGE', 'ASK_NAME'];
-  const isBlockedStage = blockedStages.includes(currentStage);
-  
-  // Si estamos en etapa bloqueada, solo detectar pedidos EXPLÍCITOS e INEQUÍVOCOS
-  if (isBlockedStage) {
-    // Patrones de pedido EXPLÍCITO e INEQUÍVOCO (deben tener verbo de acción claro)
-    const explicitOnlyPatterns = isEnglish ? [
-      /\b(want|need|would like|can i|could i|may i)\s+(to\s+)?(talk|speak|contact|connect|get|have)\s+(with|to)\s+(a\s+)?(technician|tech|human|person|someone|support|professional|expert)/i,
-      /\b(want|need|would like)\s+(a|an)\s+(technician|tech|human|person|support|professional)/i,
-      /\b(open|create|generate|request)\s+(a\s+)?(ticket|support\s+ticket)/i,
-      /\b(whatsapp|phone|number|call|contact)\s+(support|technician|tech)/i
-    ] : [
-      /\b(quiero|necesito|me\s+gustaría|podría|podés|puedo)\s+(hablar|contactar|conectar|comunicar)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|especialista|persona|humano|soporte)/i,
-      /\b(quiero|necesito|me\s+gustaría)\s+(un|una)\s+(técnico|tecnico|profesional|soporte)/i,
-      /\b(quiero|necesito|generar|crear|abrir|pedir)\s+(un\s+)?(ticket|presupuesto)/i,
-      /\b(whatsapp|teléfono|telefono|número|numero|llamar|contactar)\s+(soporte|técnico|tecnico)/i
-    ];
-    
-    // Verificar si hay pedido explícito
-    let hasExplicitRequest = false;
-    for (const pattern of explicitOnlyPatterns) {
-      if (pattern.test(lowerText)) {
-        hasExplicitRequest = true;
-        break;
-      }
-    }
-    
-    // Si NO hay pedido explícito, bloquear escalamiento
-    if (!hasExplicitRequest) {
-      logger.info(`[TECHNICIAN_INTENT] ⚠️ Escalamiento bloqueado en etapa ${currentStage}: "${text.substring(0, 50)}..." (no es pedido explícito)`);
-      return {
-        requiresTechnician: false,
-        confidence: 'low',
-        reason: 'blocked_by_stage',
-        type: 'blocked_by_stage',
-        blockedStage: currentStage
-      };
-    }
-    
-    // Si hay pedido explícito, permitir escalamiento (excepción única)
-    logger.info(`[TECHNICIAN_INTENT] ✅ Pedido explícito detectado en etapa bloqueada ${currentStage}: "${text.substring(0, 50)}..."`);
-  }
-  
-  // ========================================
-  // A) PEDIDOS EXPLÍCITOS DE CONTACTO CON TÉCNICO
-  // ========================================
-  const explicitPatterns = isEnglish ? [
-    /\b(want|need|would like|can i|could i|may i)\s+(to\s+)?(talk|speak|contact|connect|get|have)\s+(with|to)\s+(a\s+)?(technician|tech|human|person|someone|support|professional|expert)/i,
-    /\b(want|need|would like)\s+(a|an)\s+(technician|tech|human|person|support|professional)/i,
-    /\b(can|could|may)\s+(someone|anyone|a\s+person|a\s+human)\s+(help|assist|support)/i,
-    /\b(want|need)\s+(human|real\s+person|professional)\s+(support|help|assistance)/i,
-    /\b(connect|transfer|pass|put)\s+(me\s+)?(with|to)\s+(a\s+)?(technician|tech|human|support)/i,
-    /\b(open|create|generate|request)\s+(a\s+)?(ticket|support\s+ticket)/i,
-    /\b(need|want|get)\s+(a\s+)?(quote|estimate|presupuesto)/i,
-    /\b(need|want|coordinate|schedule)\s+(on[\s-]?site|presencial|visit|appointment|turno)/i,
-    /\b(whatsapp|phone|number|call|contact)\s+(support|technician|tech)/i,
-    /\b(don'?t|do\s+not)\s+(want|wish)\s+(to\s+)?(continue|follow|use)\s+(with|the\s+)?(bot|automated|steps)/i
-  ] : [
-    /\b(quiero|necesito|me\s+gustaría|podría|podés|puedo)\s+(hablar|contactar|conectar|comunicar|hablar|atender|ver|revisar)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|especialista|persona|humano|alguien|soporte)/i,
-    /\b(quiero|necesito|me\s+gustaría)\s+(un|una)\s+(técnico|tecnico|profesional|especialista|persona|humano|soporte)/i,
-    /\b(podés|puedes|podría|puede)\s+(pasarme|pasar|conectar|transferir|poner)\s+(con|a)\s+(un\s+)?(técnico|tecnico|profesional|soporte)/i,
-    /\b(quiero|necesito|me\s+gustaría)\s+(soporte|ayuda|asistencia)\s+(humano|de\s+verdad|real|profesional)/i,
-    /\b(no\s+quiero|no\s+me\s+gusta)\s+(seguir|continuar|usar)\s+(con|el|la)\s+(bot|automático|pasos)/i,
-    /\b(quiero|necesito|generar|crear|abrir|pedir)\s+(un\s+)?(ticket|presupuesto|turno|visita|revisión)/i,
-    /\b(whatsapp|teléfono|telefono|número|numero|llamar|contactar)\s+(soporte|técnico|tecnico)/i,
-    /\b(necesito|quiero)\s+(asistencia|ayuda)\s+(presencial|en\s+casa|domicilio)/i,
-    /\b(esto|esto)\s+(lo|la)\s+(tiene|debe)\s+(que|de)\s+(ver|revisar|hacer)\s+(un\s+)?(técnico|tecnico|profesional)/i,
-    /\b(hay|existe)\s+(alguien|una\s+persona|un\s+humano)\s+(que\s+)?(me\s+)?(pueda|puede)\s+(ayudar|atender|asistir)/i
-  ];
-  
-  for (const pattern of explicitPatterns) {
-    if (pattern.test(lowerText)) {
-      return {
-        requiresTechnician: true,
-        confidence: 'high',
-        reason: 'explicit_request',
-        type: 'explicit'
-      };
-    }
-  }
-  
-  // ========================================
-  // B) PEDIDOS IMPLÍCITOS DE INTERVENCIÓN
-  // ========================================
-  const implicitPatterns = isEnglish ? [
-    /\b(can|could|will|would)\s+(you|someone)\s+(remote|connect|access|log\s+in|fix|repair|install|configure|set\s+up|do\s+it)\s+(for|to)\s+(me|my\s+computer)/i,
-    /\b(don'?t|do\s+not)\s+(know|understand|remember|get)\s+(how|what|where|why)/i,
-    /\b(afraid|scared|worried|fear)\s+(to|of|that)\s+(mess|break|damage|lose|delete)/i,
-    /\b(rather|prefer|want)\s+(a|an|someone|professional|expert)\s+(to\s+)?(do|handle|fix|take\s+care)/i,
-    /\b(too|very|really)\s+(complicated|complex|difficult|hard|confusing)/i,
-    /\b(can'?t|cannot|unable)\s+(continue|follow|do|complete|understand)/i,
-    /\b(need|want)\s+(help|assistance)\s+(setting|configuring|installing|fixing)/i,
-    /\b(someone|professional|expert)\s+(take|have)\s+(a\s+)?(look|see|check|review)/i,
-    /\b(lost|confused|stuck|don'?t\s+know\s+where)\s+(to\s+)?(go|continue|proceed)/i
-  ] : [
-    /\b(podés|puedes|podría|puede|me\s+podés|me\s+puedes)\s+(entrar|conectar|acceder|configurar|instalar|arreglar|reparar|hacer|revisar|optimizar)\s+(a|en|mi|mi\s+compu|mi\s+pc|mi\s+notebook)/i,
-    /\b(no\s+se|no\s+sé|no\s+entiendo|no\s+entendí|me\s+perdí|me\s+confundí)\s+(cómo|como|qué|que|dónde|donde|por\s+qué|porque)/i,
-    /\b(me\s+da|tengo|siento)\s+(miedo|temor|miedo)\s+(de|a|que)\s+(tocar|romper|perder|borrar|dañar|hacer\s+algo\s+mal)/i,
-    /\b(prefiero|quiero|mejor)\s+(que|que\s+lo|que\s+la)\s+(haga|haga|revisa|vea|arregle)\s+(alguien|un\s+profesional|un\s+técnico|alguien\s+que\s+sepa)/i,
-    /\b(muy|demasiado|realmente)\s+(complicado|complejo|difícil|difícil|confuso)/i,
-    /\b(no\s+puedo|no\s+sé|no\s+entiendo|no\s+seguir|me\s+perdí)/i,
-    /\b(necesito|quiero)\s+(ayuda|asistencia)\s+(para|con|en)\s+(configurar|instalar|arreglar|dejarlo\s+andando)/i,
-    /\b(alguien|un\s+profesional|un\s+técnico)\s+(lo|la|me)\s+(pueda|puede)\s+(revisar|ver|optimizar|arreglar)/i,
-    /\b(esto|esto)\s+(solo|solamente)\s+(no\s+puedo|no\s+sé|no\s+entiendo)/i
-  ];
-  
-  for (const pattern of implicitPatterns) {
-    if (pattern.test(lowerText)) {
-      return {
-        requiresTechnician: true,
-        confidence: 'high',
-        reason: 'implicit_request',
-        type: 'implicit'
-      };
-    }
-  }
-  
-  // ========================================
-  // C1) FRUSTRACIÓN O BLOQUEO DEL USUARIO
-  // ========================================
-  const frustrationPatterns = isEnglish ? [
-    /\b(tried|tested|did)\s+(everything|all|all\s+the\s+steps|all\s+steps)\s+(and|but|still)/i,
-    /\b(nothing|none)\s+(works|worked|helps|helped|fixed|changed)/i,
-    /\b(still|still)\s+(slow|same|broken|not\s+working|doesn'?t\s+work)/i,
-    /\b(didn'?t|did\s+not)\s+(fix|solve|work|help|change)/i,
-    /\b(can'?t|cannot)\s+(anymore|take|continue|do\s+this)/i,
-    /\b(tired|sick|fed\s+up)\s+(of|with)\s+(trying|testing|doing|this)/i,
-    /\b(back|returned|returning)\s+(to|at)\s+(the\s+)?(same|original)\s+(problem|issue)/i,
-    /\b(repeat|repeating|same)\s+(problem|issue|error)\s+(3|three|multiple|several|many)\s+(times)/i
-  ] : [
-    /\b(ya|ya)\s+(probé|intenté|hice|probé)\s+(todo|todos\s+los\s+pasos|todas\s+las\s+opciones)\s+(y|pero|y\s+sigue|y\s+todavía)/i,
-    /\b(nada|ninguna)\s+(funciona|funcionó|sirve|sirvió|ayuda|ayudó|soluciona|solucionó)/i,
-    /\b(sigue|todavía|aún)\s+(lento|igual|roto|sin\s+funcionar|no\s+funciona|igual)/i,
-    /\b(no\s+se|no)\s+(solucionó|arregló|funcionó|cambió|ayudó)/i,
-    /\b(no\s+puedo|ya\s+no\s+puedo)\s+(más|seguir|continuar|hacer\s+esto)/i,
-    /\b(estoy|me\s+siento)\s+(cansado|harto|frustrado)\s+(de|con)\s+(probar|intentar|hacer|esto)/i,
-    /\b(volví|volví|regresé)\s+(al|a\s+el)\s+(mismo|mismo)\s+(problema|error)/i,
-    /\b(repetir|repetiendo|mismo)\s+(problema|error)\s+(3|tres|varias|muchas)\s+(veces)/i
-  ];
-  
-  // Contar repeticiones del mismo problema
-  const problemRepetitions = session.problemRepetitions || 0;
-  const hasRepeatedProblem = problemRepetitions >= 3;
-  
-  for (const pattern of frustrationPatterns) {
-    if (pattern.test(lowerText) || hasRepeatedProblem) {
-      return {
-        requiresTechnician: true,
-        confidence: 'high',
-        reason: 'frustration_or_blocking',
-        type: 'frustration'
-      };
-    }
-  }
-  
-  // ========================================
-  // C2) RIESGO TÉCNICO O DE DATOS
-  // ========================================
-  const riskPatterns = isEnglish ? [
-    /\b(important|valuable|precious|work|job)\s+(files|data|documents|photos|pictures|information)/i,
-    /\b(afraid|worried|fear|scared)\s+(to|of|that)\s+(lose|losing|delete|deleting|losing|damage|damaging)/i,
-    /\b(files|documents)\s+(won'?t|will\s+not|don'?t|do\s+not)\s+(open|work|load)/i,
-    /\b(asking|asks|told|tells)\s+(me|to)\s+(format|delete|erase|wipe|remove\s+everything)/i,
-    /\b(strange|weird|suspicious|unusual|odd)\s+(message|popup|window|error)/i,
-    /\b(asking|asks|requesting|wants)\s+(me|to)\s+(pay|payment|money|credit\s+card)/i,
-    /\b(files|data)\s+(are|is)\s+(encrypted|locked|ransomware)/i,
-    /\b(blue\s+screen|bsod|fatal\s+error|critical\s+error|system\s+crash)/i,
-    /\b(won'?t|will\s+not|doesn'?t|does\s+not)\s+(boot|start|turn\s+on|load\s+windows)/i,
-    /\b(restarting|rebooting|shutting\s+down|turning\s+off)\s+(by\s+itself|automatically|on\s+its\s+own)/i
-  ] : [
-    /\b(tengo|tiene|hay)\s+(cosas|archivos|documentos|fotos|información|datos)\s+(importantes|valiosos|del\s+trabajo|del\s+laburo)/i,
-    /\b(me\s+da|tengo|siento)\s+(miedo|temor|preocupación)\s+(de|a|que)\s+(perder|borrar|eliminar|dañar)\s+(mis|mi)\s+(archivos|documentos|fotos|datos)/i,
-    /\b(archivos|documentos)\s+(no|no\s+se)\s+(abren|funcionan|cargan)/i,
-    /\b(me\s+pide|me\s+dice|me\s+salió)\s+(formatear|borrar|eliminar|borrar\s+todo|limpiar\s+todo)/i,
-    /\b(me\s+salió|apareció|veo)\s+(un|una)\s+(mensaje|ventana|error|popup)\s+(raro|extraño|sospechoso|raro)/i,
-    /\b(me\s+pide|me\s+solicita|me\s+pide)\s+(pagar|dinero|tarjeta|pago)/i,
-    /\b(archivos|datos)\s+(están|está)\s+(cifrados|bloqueados|encriptados|ransomware)/i,
-    /\b(pantalla\s+azul|error\s+grave|error\s+crítico|crash|se\s+cayó\s+el\s+sistema)/i,
-    /\b(no\s+arranca|no\s+inicia|no\s+prende|no\s+carga)\s+(windows|el\s+sistema)/i,
-    /\b(se\s+reinicia|se\s+apaga|se\s+apagó)\s+(solo|sola|automáticamente|de\s+golpe)/i
-  ];
-  
-  for (const pattern of riskPatterns) {
-    if (pattern.test(lowerText)) {
-      return {
-        requiresTechnician: true,
-        confidence: 'high',
-        reason: 'technical_risk_or_data_loss',
-        type: 'risk'
-      };
-    }
-  }
-  
-  // ========================================
-  // C3) HARDWARE O PROBLEMA FÍSICO
-  // ========================================
-  const hardwarePatterns = isEnglish ? [
-    /\b(won'?t|will\s+not|doesn'?t|does\s+not)\s+(turn\s+on|power\s+on|start|boot)/i,
-    /\b(turned\s+off|shut\s+down|died)\s+(and|but)\s+(won'?t|will\s+not|doesn'?t)\s+(turn\s+on|start)/i,
-    /\b(got|was)\s+(wet|soaked|water|liquid)/i,
-    /\b(fell|dropped|hit|damaged|broken)/i,
-    /\b(burning|burnt|smoke|smell|odor)\s+(smell|smoke|smell)/i,
-    /\b(strange|weird|loud|unusual|abnormal)\s+(noise|sound|beep|click)/i,
-    /\b(fan|ventilator)\s+(very|too|extremely)\s+(loud|noisy|strong)/i,
-    /\b(overheating|too\s+hot|very\s+hot|extremely\s+hot)/i,
-    /\b(screen|display|monitor)\s+(broken|cracked|shattered|black|no\s+image)/i,
-    /\b(sparks|sparking|smoke|fire)/i,
-    /\b(battery|power)\s+(won'?t|will\s+not|doesn'?t)\s+(charge|work)/i,
-    /\b(connector|port|plug)\s+(loose|broken|damaged|not\s+working)/i,
-    /\b(keyboard|mouse|keys|buttons)\s+(don'?t|do\s+not|won'?t|will\s+not)\s+(respond|work)/i,
-    /\b(port|connector|socket)\s+(broken|damaged|cracked)/i
-  ] : [
-    /\b(no\s+enciende|no\s+prende|no\s+arranca|no\s+inicia)/i,
-    /\b(se\s+apagó|se\s+cayó|se\s+apagó)\s+(y|pero|y\s+no)\s+(prende|enciende|arranca)/i,
-    /\b(se\s+mojó|le\s+cayó|entró)\s+(agua|líquido)/i,
-    /\b(se\s+cayó|se\s+golpeó|se\s+dañó|se\s+rompió)/i,
-    /\b(olor|huele)\s+(a|a\s+quemado|quemado)/i,
-    /\b(ruido|sonido|beep)\s+(raro|extraño|muy\s+fuerte|anormal)/i,
-    /\b(ventilador|fan)\s+(muy|demasiado|extremadamente)\s+(fuerte|ruidoso)/i,
-    /\b(se\s+calienta|muy\s+caliente|demasiado\s+caliente|extremadamente\s+caliente)/i,
-    /\b(pantalla|monitor)\s+(rota|rota|quebrada|negra|sin\s+imagen|no\s+da\s+imagen)/i,
-    /\b(chispas|chispeando|humo|fuego)/i,
-    /\b(batería|bateria)\s+(no\s+carga|no\s+funciona)/i,
-    /\b(conector|puerto|enchufe)\s+(flojo|roto|dañado|no\s+funciona)/i,
-    /\b(teclado|mouse|ratón|teclas|botones)\s+(no\s+responde|no\s+funciona)/i,
-    /\b(puerto|conector|enchufe)\s+(roto|dañado|quebrado)/i
-  ];
-  
-  for (const pattern of hardwarePatterns) {
-    if (pattern.test(lowerText)) {
-      return {
-        requiresTechnician: true,
-        confidence: 'high',
-        reason: 'hardware_or_physical_issue',
-        type: 'hardware'
-      };
-    }
-  }
-  
-  // Si no se detectó nada claro, retornar que no requiere técnico
-  return {
-    requiresTechnician: false,
-    confidence: 'low',
-    reason: 'no_match',
-    type: null
-  };
-}
-
-/**
- * Consulta a OpenAI para clasificar intenciones ambiguas que podrían requerir técnico
- * 
- * Esta función se usa cuando el mensaje no coincide claramente con los patrones,
- * pero podría indicar intención de técnico. OpenAI asesora, pero Tecnos decide.
- * 
- * @param {string} text - Texto del usuario
- * @param {string} locale - Idioma del usuario
- * @param {object} session - Sesión actual (para contexto)
- * @returns {Promise<object>} { requiresTechnician: boolean, openaiAdvice: 'ESCALAR'|'NO_ESCALAR', confidence: number, reasoning: string }
- */
-async function checkAmbiguousTechnicianIntent(text, locale, session = {}) {
-  if (!openai) {
-    logger.warn('[TECHNICIAN_INTENT] OpenAI no disponible, escalando por seguridad');
-    return {
-      requiresTechnician: true,
-      openaiAdvice: 'ESCALAR',
-      confidence: 0.5,
-      reasoning: 'OpenAI no disponible, escalando por principio de seguridad'
-    };
-  }
-  
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  const isEsAr = String(locale).toLowerCase() === 'es-ar';
-  
-  const systemPrompt = isEnglish
-    ? `You are an assistant that helps classify user messages to determine if they require human technician support.
-
-Analyze the user's message and determine if it indicates they want or need to speak with a human technician.
-
-Consider:
-- Explicit requests for technician/human support
-- Implicit requests (e.g., "can you do it for me", "I don't know how")
-- Frustration or repeated problems
-- Technical risks or data loss concerns
-- Hardware or physical issues
-- User insecurity or fear of breaking something
-
-Respond ONLY with a JSON object in this exact format:
-{
-  "requiresTechnician": true or false,
-  "confidence": 0.0 to 1.0,
-  "reasoning": "brief explanation"
-}
-
-If requiresTechnician is true, the advice is "ESCALAR". If false, the advice is "NO_ESCALAR".
-
-PRINCIPLE: When in doubt, prefer ESCALAR (true) over NO_ESCALAR (false).`
-    : (isEsAr
-      ? `Sos un asistente que ayuda a clasificar mensajes de usuarios para determinar si requieren soporte de un técnico humano.
-
-Analizá el mensaje del usuario y determiná si indica que quiere o necesita hablar con un técnico humano.
-
-Considerá:
-- Pedidos explícitos de técnico/soporte humano
-- Pedidos implícitos (ej: "podés hacerlo vos", "no sé cómo")
-- Frustración o problemas repetidos
-- Riesgos técnicos o pérdida de datos
-- Problemas de hardware o físicos
-- Inseguridad o miedo del usuario a romper algo
-
-Respondé SOLO con un objeto JSON en este formato exacto:
-{
-  "requiresTechnician": true o false,
-  "confidence": 0.0 a 1.0,
-  "reasoning": "explicación breve"
-}
-
-Si requiresTechnician es true, el consejo es "ESCALAR". Si es false, el consejo es "NO_ESCALAR".
-
-PRINCIPIO: Ante la duda, preferí ESCALAR (true) sobre NO_ESCALAR (false).`
-      : `Eres un asistente que ayuda a clasificar mensajes de usuarios para determinar si requieren soporte de un técnico humano.
-
-Analiza el mensaje del usuario y determina si indica que quiere o necesita hablar con un técnico humano.
-
-Considera:
-- Pedidos explícitos de técnico/soporte humano
-- Pedidos implícitos (ej: "puedes hacerlo tú", "no sé cómo")
-- Frustración o problemas repetidos
-- Riesgos técnicos o pérdida de datos
-- Problemas de hardware o físicos
-- Inseguridad o miedo del usuario a romper algo
-
-Responde SOLO con un objeto JSON en este formato exacto:
-{
-  "requiresTechnician": true o false,
-  "confidence": 0.0 a 1.0,
-  "reasoning": "explicación breve"
-}
-
-Si requiresTechnician es true, el consejo es "ESCALAR". Si es false, el consejo es "NO_ESCALAR".
-
-PRINCIPIO: Ante la duda, prefiere ESCALAR (true) sobre NO_ESCALAR (false).`);
-  
-  const userPrompt = isEnglish
-    ? `User message: "${text}"
-
-Context:
-- Problem: ${session.problem || 'Not specified'}
-- Device: ${session.device || 'Not specified'}
-- Stage: ${session.stage || 'unknown'}
-- Previous attempts: ${session.fallbackCount || 0}
-
-Analyze if this message indicates the user wants or needs human technician support.`
-    : `Mensaje del usuario: "${text}"
-
-Contexto:
-- Problema: ${session.problem || 'No especificado'}
-- Dispositivo: ${session.device || 'No especificado'}
-- Etapa: ${session.stage || 'unknown'}
-- Intentos previos: ${session.fallbackCount || 0}
-
-Analizá si este mensaje indica que el usuario quiere o necesita soporte de un técnico humano.`;
-  
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 200,
-      response_format: { type: 'json_object' }
-    });
-    
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error('OpenAI no retornó contenido');
-    }
-    
-    const parsed = JSON.parse(content);
-    const requiresTechnician = parsed.requiresTechnician === true;
-    const confidence = parsed.confidence || 0.5;
-    const reasoning = parsed.reasoning || 'No reasoning provided';
-    
-    return {
-      requiresTechnician: requiresTechnician,
-      openaiAdvice: requiresTechnician ? 'ESCALAR' : 'NO_ESCALAR',
-      confidence: confidence,
-      reasoning: reasoning
-    };
-  } catch (error) {
-    logger.error('[TECHNICIAN_INTENT] Error consultando OpenAI:', error);
-    // En caso de error, escalar por seguridad
-    return {
-      requiresTechnician: true,
-      openaiAdvice: 'ESCALAR',
-      confidence: 0.5,
-      reasoning: `Error consultando OpenAI: ${error.message}. Escalando por principio de seguridad.`
-    };
-  }
-}
-
-/**
- * Escala inmediatamente a técnico, interrumpiendo cualquier flujo actual
- * 
- * Esta función tiene prioridad absoluta y debe ser llamada cuando se detecta
- * intención de técnico. Interrumpe el flujo actual y ofrece contacto inmediato.
- * 
- * @param {object} session - Sesión actual
- * @param {string} userText - Texto del usuario que disparó el escalamiento
- * @param {string} sessionId - ID de la sesión
- * @param {object} detectionResult - Resultado de detectTechnicianIntent o checkAmbiguousTechnicianIntent
- * @param {object} res - Objeto de respuesta de Express (opcional, solo si se envía respuesta directa)
- * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons, allowWhatsapp, handled } o void si usa res.json()
- */
-async function escalateToTechnicianImmediately(session, userText, sessionId, detectionResult, res = null) {
-  const locale = ensureSessionLocale(session);
-  const isEnglish = String(locale).toLowerCase().startsWith('en');
-  const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
-  
-  // ⚠️ MEMORIA DE SESIÓN: Actualizar flags de decisión
-  ensureDecisionFlags(session);
-  setDecisionFlag(session, 'userRequestedTechnician', true);
-  setDecisionFlag(session, 'whatsappOffered', true);
-  setDecisionFlag(session, 'automaticFlowInterrupted', true);
-  setDecisionFlag(session, 'escalationAttempted', true);
-  
-  if (detectionResult.confidence === 'low' || detectionResult.type === 'ambiguous') {
-    setDecisionFlag(session, 'ambiguousTechnicianIntent', true);
-  }
-  
-  // Registrar el handoff para auditoría
-  const handoffRecord = {
-    timestamp: nowIso(),
-    userMessage: userText,
-    detectionType: detectionResult.type || 'ambiguous',
-    detectionReason: detectionResult.reason || 'unknown',
-    detectionConfidence: detectionResult.confidence || 'low',
-    openaiAdvice: detectionResult.openaiAdvice || null,
-    openaiReasoning: detectionResult.reasoning || null,
-    stage: session.stage,
-    problem: session.problem || null,
-    device: session.device || null,
-    previousAttempts: session.fallbackCount || 0
-  };
-  
-  // Guardar en la sesión para auditoría
-  if (!session.handoffRecords) {
-    session.handoffRecords = [];
-  }
-  session.handoffRecords.push(handoffRecord);
-  
-  logger.info(`[ESCALATE_IMMEDIATE] Handoff activado: ${JSON.stringify(handoffRecord)}`);
-  
-  // Cambiar a stage ESCALATE
-  changeStage(session, STATES.ESCALATE);
-  
-  // Generar mensaje de confirmación según el idioma
-  // ⚠️ CRÍTICO: No repetir "Anoté tu problema" ni mostrar pasos automáticos
-  // El mensaje debe ser directo y ofrecer contacto inmediato
-  let reply = '';
-  if (isEnglish) {
-    reply = `I understand you'd like to speak with a technician. I'll connect you with a human specialist who can help you directly.
-
-Use the button below to continue on WhatsApp.`;
-  } else if (isEsLatam) {
-    reply = `Entiendo que quieres hablar con un técnico. Te voy a conectar con un especialista humano que puede ayudarte directamente.
-
-Usa el botón de abajo para continuar por WhatsApp.`;
-  } else {
-    reply = `Entiendo que querés hablar con un técnico. Te voy a conectar con un especialista humano que puede ayudarte directamente.
-
-Usá el botón de abajo para continuar por WhatsApp.`;
-  }
-  
-  // Generar botones de escalamiento
-  const escalationButtons = [
-    {
-      text: isEnglish ? '📲 Connect via WhatsApp' : '📲 Conectar por WhatsApp',
-      value: 'BTN_WHATSAPP_TECNICO',
-      description: isEnglish ? 'Continue on WhatsApp' : 'Continuar por WhatsApp'
-    },
-    {
-      text: isEnglish ? '⏪ Go Back' : '⏪ Volver atrás',
-      value: 'BTN_BACK',
-      description: isEnglish ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
-    }
-  ];
-  
-  // Agregar mensajes al transcript
-  session.transcript.push({
-    who: 'user',
-    text: userText,
-    ts: nowIso(),
-    handoffTriggered: true
-  });
-  
-  // Agregar mensaje del bot CON botones (registro obligatorio)
-  addBotMessageToTranscript(session, reply, escalationButtons, session.stage);
-  
-  // Agregar metadata adicional al último mensaje del bot
-  const lastBotEntry = session.transcript[session.transcript.length - 1];
-  if (lastBotEntry && lastBotEntry.who === 'bot') {
-    lastBotEntry.handoffActivated = true;
-    lastBotEntry.handoffRecord = handoffRecord;
-  }
-  
-  // Guardar sesión
-  await saveSessionAndTranscript(sessionId, session);
-  
-  // Generar ticket y responder
-  // Si se pasa res, usar createTicketAndRespond directamente
-  if (res && typeof res.json === 'function') {
-    return await createTicketAndRespond(session, sessionId, res);
-  }
-  
-  // Si no se pasa res, retornar objeto para que el handler lo procese
-  // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-  const response = {
-    ok: true,
-    reply: reply,
-    stage: session.stage, // Ahora es ESCALATE
-    buttons: escalationButtons,
-    allowWhatsapp: true,
-    handled: true,
-    handoffActivated: true
-  };
-  return applyMandatesToResponse(response, session, userText || '', null);
-}
-
-/**
  * Genera una respuesta técnica usando OpenAI con el tono acordado
  * 
  * @param {string} question - Pregunta del usuario
@@ -6574,44 +4669,6 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     logger.info(`[BASIC_TESTS] Procesando: "${userText || 'button'}" (buttonToken: ${buttonToken || 'none'})`);
     
     // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (PRIORIDAD ABSOLUTA)
-    // ========================================
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
-    //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad sobre cualquier otro procesamiento
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
-    //
-    if (userText && typeof userText === 'string' && userText.trim().length > 0) {
-      // Detectar intención de técnico (explícita o implícita)
-      const techIntent = detectTechnicianIntent(userText, locale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[BASIC_TESTS] Intención de técnico detectada (${techIntent.type}): "${userText.substring(0, 50)}..."`);
-        return await escalateToTechnicianImmediately(session, userText, sessionId, techIntent);
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[BASIC_TESTS] Caso ambiguo detectado, consultando OpenAI: "${userText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(userText, locale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        // En BASIC_TESTS, ser más permisivo con la escalación
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 2) || // En pasos, 2 fallbacks ya es suficiente
-          (session.currentTestIndex && session.currentTestIndex >= 5); // Pasos avanzados (5+)
-        
-        if (shouldEscalate) {
-          logger.info(`[BASIC_TESTS] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount}, step: ${session.currentTestIndex})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          return await escalateToTechnicianImmediately(session, userText, sessionId, ambiguousResult);
-        }
-      }
-    }
-    
-    // ========================================
     // CASO 1: USUARIO HACE CLIC EN "VOLVER A LOS PASOS"
     // ========================================
     // Si el usuario quiere ver los pasos nuevamente, regenerarlos
@@ -6620,41 +4677,6 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe regenerar los pasos usando handleAskDeviceStage
     //
     if (buttonToken === 'BTN_BACK_TO_STEPS' || buttonToken === 'BTN_BACK') {
-      // ⚠️ MEMORIA DE SESIÓN: Consultar flags antes de regenerar pasos
-      ensureDecisionFlags(session);
-      const hasUserRequestedTech = hasUserRequestedTechnician(session);
-      const hasWhatsAppBeenOffered = hasWhatsAppBeenOffered(session);
-      const stepsRepeated = getDecisionFlag(session, 'stepsRepeated');
-      
-      // ⚠️ REGLA: Si el usuario ya pidió técnico, no volver a ofrecer pasos
-      if (hasUserRequestedTech) {
-        logger.warn(`[BASIC_TESTS] 🧠 Usuario ya pidió técnico - no volver a pasos`);
-        const escalationReason = {
-          requiresTechnician: true,
-          confidence: 'high',
-          type: 'user_previously_requested',
-          reason: 'Usuario ya pidió técnico, no volver a pasos'
-        };
-        return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
-      }
-      
-      // ⚠️ REGLA: Si ya se ofreció WhatsApp y se repiten pasos, ofrecer WhatsApp directamente
-      if (hasWhatsAppBeenOffered && stepsRepeated) {
-        logger.warn(`[BASIC_TESTS] 🧠 Pasos ya repetidos y WhatsApp ya ofrecido - escalar directamente`);
-        const escalationReason = {
-          requiresTechnician: true,
-          confidence: 'high',
-          type: 'steps_repeated_whatsapp_offered',
-          reason: 'Pasos repetidos y WhatsApp ya ofrecido'
-        };
-        return await escalateToTechnicianImmediately(session, userText || '', sessionId, escalationReason);
-      }
-      
-      // Marcar que se están repitiendo pasos
-      if (!stepsRepeated) {
-        setDecisionFlag(session, 'stepsRepeated', true);
-      }
-      
       // Regenerar los pasos llamando a handleAskDeviceStage con el dispositivo ya guardado
       // Pero primero necesitamos verificar que haya dispositivo y problema guardados
       if (session.device && session.problem) {
@@ -6684,8 +4706,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         ? "I couldn't regenerate the steps. Please start over by describing your problem."
         : "No pude regenerar los pasos. Por favor, empezá de nuevo describiendo tu problema.";
       
-      // Agregar mensaje del bot SIN botones (mensaje de error, no hay botones)
-      addBotMessageToTranscript(session, errorReply, null, session.stage);
+      session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
       return {
@@ -6771,51 +4792,26 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // Generar explicación detallada del paso
       // IMPORTANTE: explainStepWithAI espera un índice 1-based (como en el código antiguo)
       // Por lo tanto, debemos pasar stepNumber (1-based), no stepIdx (0-based)
-      // ⚠️ CONSTITUCIÓN DE TECNOS: Usar Liana para explicaciones detalladas
-      // Tecnos presenta a Liana, Liana explica, Tecnos retoma el control
-      const lianaPresentation = presentLiana(locale, `Explicación detallada del paso ${stepNumber}`);
-      
       let explanation = '';
       try {
-        // Generar explicación usando Liana (rol explicativo)
-        const lianaExplanation = await generateLianaExplanation(
+        explanation = await explainStepWithAI(
           stepText,
-          locale,
-          {
-            problem: session.problem || '',
-            device: session.device || '',
-            stepNumber: stepNumber
-          }
+          stepNumber, // Pasar stepNumber (1-based) - la función espera índice 1-based
+          session.device || '',
+          session.problem || '',
+          locale
         );
-        
-        // Combinar presentación de Tecnos + explicación de Liana
-        explanation = `${lianaPresentation}\n\n---\n\n**Liana:**\n\n${lianaExplanation}`;
       } catch (err) {
-        logger.error('[BASIC_TESTS] Error generando ayuda con Liana:', err);
-        // Fallback: usar explainStepWithAI si Liana falla
-        try {
-          explanation = await explainStepWithAI(
-            stepText,
-            stepNumber,
-            session.device || '',
-            session.problem || '',
-            locale
-          );
-          explanation = `${lianaPresentation}\n\n---\n\n**Liana:**\n\n${explanation}`;
-        } catch (fallbackErr) {
-          logger.error('[BASIC_TESTS] Error en fallback de ayuda:', fallbackErr);
-          explanation = isEnglish
-            ? `${lianaPresentation}\n\n---\n\n**Liana:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
-            : `${lianaPresentation}\n\n---\n\n**Liana:**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
-        }
+        logger.error('[BASIC_TESTS] Error generando ayuda:', err);
+        explanation = isEnglish
+          ? `**Help for Step ${stepNumber}:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
+          : `**🛠️ Ayuda — Paso ${stepNumber}**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
       }
       
-      // ⚠️ CONSTITUCIÓN DE TECNOS: Tecnos retoma el control después de Liana
-      // Preguntar EXPLÍCITAMENTE si el paso se completó (no asumir ejecución implícita)
-      const tecnosResume = resumeTecnosControl(locale);
-      
-      // Formatear el mensaje final con la pregunta explícita de Tecnos
-      const followUp = `\n\n---\n\n**Tecnos:**\n\n${tecnosResume}`;
+      // Formatear el mensaje final con la pregunta de seguimiento
+      const followUp = isEnglish
+        ? "\n\nAfter trying this, how did it go?"
+        : "\n\nDespués de probar esto, ¿cómo te fue?";
       
       // Añadir CTA para consultas adicionales
       const ctaHelp = isEnglish
@@ -6828,16 +4824,11 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       const buttons = [];
       
       // Botón "Lo pude solucionar"
-      // ⚠️ CONSTITUCIÓN DE TECNOS: Este botón confirma que el paso fue completado
       buttons.push({
         text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
         value: 'BTN_SOLVED',
         description: isEnglish ? 'The problem is gone' : 'El problema desapareció'
       });
-      
-      // ⚠️ MEMORIA DE SESIÓN: Registrar que se está preguntando sobre este paso
-      // El usuario aún no ha confirmado, pero se le está preguntando explícitamente
-      // Esto permite rastrear qué pasos fueron consultados pero no confirmados
       
       // Botón "Volver a los pasos" (siempre presente para respetar el flujo)
       buttons.push({
@@ -6860,28 +4851,24 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken, // Guardar el token del botón para referencia
         ts: nowIso()
       });
-      
-      // Agregar mensaje del bot CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, reply, buttons, session.stage);
-      
-      // Agregar metadata adicional al último mensaje del bot
-      const lastBotEntry = session.transcript[session.transcript.length - 1];
-      if (lastBotEntry && lastBotEntry.who === 'bot') {
-        lastBotEntry.helpStep = stepNumber; // Metadata: paso de ayuda mostrado
-      }
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts: nowIso(),
+        helpStep: stepNumber // Metadata: paso de ayuda mostrado
+      });
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      // Retornar respuesta exitosa con ayuda y botones
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Sigue siendo BASIC_TESTS
         buttons: buttons, // ⚠️ CRÍTICO: Incluir los botones de continuación
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -6893,11 +4880,6 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ❌ NO MODIFICAR: Debe cambiar a ENDED y desactivar waEligible
     //
     if (buttonToken === 'BTN_SOLVED' || /^\s*(s|si|sí|lo pude|lo pude solucionar|resuelto|solucionado)\b/i.test(userText || '')) {
-      // ⚠️ MEMORIA DE SESIÓN: Registrar paso como confirmado y completado
-      const currentStepIndex = session.currentTestIndex ?? session.lastHelpStep ?? 0;
-      recordStepConfirmed(session, currentStepIndex, true, 'Usuario confirmó que completó el paso y solucionó el problema');
-      logger.info(`[BASIC_TESTS] Paso ${currentStepIndex} confirmado como completado por el usuario`);
-      
       // Telemetría: marcado como solucionado
       pushBasicTestTelemetry(session, {
         action: 'solved',
@@ -6926,22 +4908,23 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken || userText,
         ts: nowIso()
       });
-      
-      // Agregar mensaje del bot SIN botones (no hay botones en este caso)
-      addBotMessageToTranscript(session, reply, null, session.stage);
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts: nowIso()
+      });
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      // Retornar respuesta exitosa
+      return {
         ok: true,
         reply: reply,
         stage: session.stage, // Ahora es ENDED
         buttons: [], // Sin botones, la conversación terminó
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -7005,9 +4988,11 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken || userText,
         ts: nowIso()
       });
-      
-      // Agregar mensaje del bot CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, reply, buttons, session.stage);
+      session.transcript.push({
+        who: 'bot',
+        text: reply,
+        ts: nowIso()
+      });
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
@@ -7034,8 +5019,8 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       //   ✅ CONTIENE: Solo el botón "Volver atrás" (BTN_BACK)
       //   ❌ NO INCLUIR: Botones de WhatsApp (se crean automáticamente en el frontend)
       // 
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      // Retornar respuesta exitosa
+      return {
         ok: true,                    // Indica que la operación fue exitosa
         reply: reply,                 // Mensaje de respuesta al usuario
         stage: session.stage,        // Estado actual: ESCALATE
@@ -7043,7 +5028,6 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         allowWhatsapp: true,         // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
         handled: true                // Indica que este handler procesó la request
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -7159,6 +5143,8 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
         aiGenerated: !!technicalReply && !technicalReply.includes('estoy teniendo problemas')
       });
       
+      await saveSessionAndTranscript(sessionId, session);
+      
       // Botones para continuar
       const buttons = [
         {
@@ -7173,27 +5159,13 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
         }
       ];
       
-      // Agregar mensaje del bot CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, technicalReply, buttons, session.stage);
-      
-      // Agregar metadata adicional al último mensaje del bot
-      const lastBotEntry = session.transcript[session.transcript.length - 1];
-      if (lastBotEntry && lastBotEntry.who === 'bot') {
-        lastBotEntry.questionType = 'technical';
-        lastBotEntry.aiGenerated = true;
-      }
-      
-      await saveSessionAndTranscript(sessionId, session);
-      
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return {
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         buttons: buttons,
         handled: true
       };
-      return applyMandatesToResponse(response, session, userText, buttonToken);
     }
     
     // ========================================
@@ -7239,20 +5211,12 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
     
     await saveSessionAndTranscript(sessionId, session);
     
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    return {
       ok: true,
       reply: fallbackReply,
       stage: session.stage,
       handled: true
     };
-    const adjustedResponse = applyMandatesToResponse(response, session, userText, buttonToken);
-    
-    // ⚠️ DECISIÓN REAL: Si los mandamientos requieren escalamiento, interrumpir y escalar
-    const forcedEscalation = await checkAndForceEscalationIfNeeded(adjustedResponse, session, userText, sessionId, 'BASIC_TESTS');
-    if (forcedEscalation) return forcedEscalation;
-    
-    return adjustedResponse;
     
   } catch (error) {
     // Manejo de errores robusto
@@ -7885,8 +5849,12 @@ async function createTicketAndRespond(session, sessionId, res) {
       description: isEn ? 'Go back to previous steps' : 'Volver a los pasos anteriores'
     });
     
-    // Agregar mensaje al transcript CON botones (registro obligatorio)
-    addBotMessageToTranscript(session, replyLines.join('\n\n'), buttons, session.stage);
+    // Agregar mensaje al transcript
+    session.transcript.push({
+      who: 'bot',
+      text: replyLines.join('\n\n'),
+      ts: ts
+    });
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
@@ -8337,17 +6305,14 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
         }
       ];
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return res.json({
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         buttons: buttons,
         allowWhatsapp: true,
         handled: true
-      };
-      const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
-      return res.json(adjustedResponse);
+      });
     }
     
     // ========================================
@@ -8390,9 +6355,11 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
       text: userText || '',
       ts: nowIso()
     });
-    
-    // Agregar mensaje del bot CON botones (registro obligatorio)
-    addBotMessageToTranscript(session, reply, buttons, session.stage);
+    session.transcript.push({
+      who: 'bot',
+      text: reply,
+      ts: nowIso()
+    });
     
     // Guardar la sesión actualizada
     await saveSessionAndTranscript(sessionId, session);
@@ -8418,17 +6385,15 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
     //   ✅ OBLIGATORIO: Indica que este handler procesó la request
     //   ❌ NO CAMBIAR A false: Causaría que el handler principal intente procesar de nuevo
     // 
-    // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-    const response = {
+    // Retornar respuesta con botones
+    return res.json({
       ok: true,                      // Indica que la operación fue exitosa
       reply: reply,                  // Mensaje de respuesta al usuario
       stage: session.stage,          // Estado actual: ESCALATE
       buttons: buttons,              // Solo BTN_BACK - NO incluir botones de WhatsApp
       allowWhatsapp: true,           // ⚠️ CRÍTICO: Frontend creará botón verde automáticamente
       handled: true                  // Indica que este handler procesó la request
-    };
-    const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
-    return res.json(adjustedResponse);
+    });
     
   } catch (error) {
     // Manejo de errores robusto
@@ -9344,19 +7309,6 @@ app.get('/api/greeting', async (req, res) => {
         device: null,
         action: null,
         urgency: 'normal'
-      },
-      // ⚠️ MEMORIA DE SESIÓN OBLIGATORIA: Flags de decisión que condicionan el comportamiento
-      decisionFlags: {
-        userRequestedTechnician: false,    // Usuario pidió técnico explícitamente
-        whatsappOffered: false,             // Ya se ofreció WhatsApp en esta sesión
-        userFrustrationDetected: false,     // Se detectó frustración del usuario
-        escalationBlockedByStage: false,   // Escalamiento bloqueado por etapa actual
-        ambiguousTechnicianIntent: false,  // Intención de técnico ambigua detectada
-        automaticFlowInterrupted: false,   // Flujo automático fue interrumpido
-        longStepsOffered: false,           // Ya se ofrecieron pasos largos
-        technicianDeclined: false,         // Usuario rechazó oferta de técnico
-        stepsRepeated: false,              // Pasos ya fueron repetidos
-        escalationAttempted: false        // Ya se intentó escalar (puede haber sido bloqueado)
       }
     };
     
@@ -9364,13 +7316,25 @@ app.get('/api/greeting', async (req, res) => {
     // Usa el locale detectado para mostrar el mensaje en el idioma correcto
     const greeting = buildLanguageSelectionGreeting(normalizedLocale);
     
-    // Agregar el mensaje inicial al transcript CON botones (registro obligatorio)
-    addBotMessageToTranscript(newSession, greeting.text, greeting.buttons || [], newSession.stage);
+    // Agregar el mensaje inicial al transcript
+    newSession.transcript.push({ 
+      who: 'bot', 
+      text: greeting.text, 
+      ts: nowIso() 
+    });
     
     // Guardar la sesión en el sistema de archivos
     await saveSessionAndTranscript(sessionId, newSession);
     
     logger.info(`[GREETING] ✅ Sesión creada: ${sessionId}, stage: ${newSession.stage}`);
+    
+    // Generar CSRF token para esta sesión
+    // El frontend espera recibir csrfToken en la respuesta del greeting
+    const csrfToken = crypto.randomBytes(32).toString('hex');
+    
+    // Guardar el CSRF token en la sesión para futuras validaciones
+    newSession.csrfToken = csrfToken;
+    await saveSessionAndTranscript(sessionId, newSession);
     
     // Retornar respuesta al frontend
     // El frontend usa esta respuesta para mostrar el mensaje y los botones
@@ -9380,6 +7344,7 @@ app.get('/api/greeting', async (req, res) => {
       reply: greeting.text,              // Mismo texto (compatibilidad)
       stage: newSession.stage,           // Estado actual: ASK_LANGUAGE
       sessionId: sessionId,              // ⚠️ CRÍTICO: El frontend necesita este ID para futuras requests
+      csrfToken: csrfToken,              // ⚠️ CRÍTICO: Token CSRF para validación de requests POST
       buttons: greeting.buttons || []    // Botones de aceptación/rechazo
     });
     
@@ -9496,41 +7461,22 @@ app.post('/api/chat', async (req, res) => {
         gdprConsent: null,
         gdprConsentDate: null,
         contextWindow: [],
-        detectedEntities: { device: null, action: null, urgency: 'normal' },
-        // ⚠️ MEMORIA DE SESIÓN OBLIGATORIA: Flags de decisión que condicionan el comportamiento
-        decisionFlags: {
-          userRequestedTechnician: false,
-          whatsappOffered: false,
-          userFrustrationDetected: false,
-          escalationBlockedByStage: false,
-          ambiguousTechnicianIntent: false,
-          automaticFlowInterrupted: false,
-          longStepsOffered: false,
-          technicianDeclined: false,
-          stepsRepeated: false,
-          escalationAttempted: false
-        }
+        detectedEntities: { device: null, action: null, urgency: 'normal' }
       };
       sessionLocale = ensureSessionLocale(session);
       
       // Mostrar mensaje de GDPR
       const greeting = buildLanguageSelectionGreeting(session.userLocale);
-      
-      // Agregar mensaje al transcript CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, greeting.text, greeting.buttons || [], session.stage);
-      
+      session.transcript.push({ who: 'bot', text: greeting.text, ts: nowIso() });
       await saveSessionAndTranscript(sessionId, session);
       
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return res.json({
         ok: true,
         reply: greeting.text,
         stage: session.stage,
         sessionId: sessionId,
         buttons: greeting.buttons || []
-      };
-      const adjustedResponse = applyMandatesToResponse(response, session, '', null);
-      return res.json(adjustedResponse);
+      });
     }
     
     // ========================================
@@ -9577,22 +7523,23 @@ app.post('/api/chat', async (req, res) => {
       const buttonDef = getButtonDefinition(buttonToken);
       
       // Mapear valores de botones a texto
-      // Prioridad: definición del botón > mapeo manual > token como texto
-      if (buttonDef && buttonDef.text) {
-        // Si el botón tiene definición con texto, usarlo
-        incomingText = buttonDef.text;
-      } else if (buttonToken === 'si' || buttonToken === 'yes') {
-        // Botones de GDPR
+      // Prioridad: mapeo manual específico > definición del botón > token como texto
+      // Los botones de GDPR e idioma deben usar el mapeo manual para garantizar reconocimiento
+      if (buttonToken === 'si' || buttonToken === 'yes') {
+        // Botones de GDPR - usar mapeo manual siempre
         incomingText = 'sí'; // Normalizar a "sí" para el handler
       } else if (buttonToken === 'no') {
-        // Botón de rechazo GDPR
+        // Botón de rechazo GDPR - usar mapeo manual siempre
         incomingText = 'no';
       } else if (buttonToken === 'español' || buttonToken === 'spanish') {
-        // Botones de selección de idioma
+        // Botones de selección de idioma - usar mapeo manual siempre
         incomingText = 'español';
       } else if (buttonToken === 'english' || buttonToken === 'inglés') {
-        // Botones de selección de idioma
+        // Botones de selección de idioma - usar mapeo manual siempre
         incomingText = 'english';
+      } else if (buttonDef && buttonDef.text) {
+        // Para otros botones, usar la definición si existe
+        incomingText = buttonDef.text;
       } else {
         // Si no hay mapeo específico, usar el valor del botón como texto
         // Esto permite que botones sin mapeo explícito funcionen igual
@@ -9623,71 +7570,6 @@ app.post('/api/chat', async (req, res) => {
     });
     
     logger.info(`[CHAT] Usuario (${sessionId}): "${incomingText.substring(0, 50)}${incomingText.length > 50 ? '...' : ''}"`);
-    
-    // ========================================
-    // DETECCIÓN OBLIGATORIA: INTENCIÓN DE TÉCNICO (CATCH-ALL - PRIORIDAD ABSOLUTA)
-    // ========================================
-    // Esta detección funciona como catch-all antes de procesar por stage.
-    // Si el usuario expresa intención de hablar con un técnico, interrumpir
-    // inmediatamente el flujo y escalar, sin importar en qué etapa estemos.
-    //
-    // ⚠️ CRÍTICO: Esta detección tiene prioridad absoluta sobre cualquier handler
-    // ✅ SE PUEDE MODIFICAR: Agregar más patrones de detección
-    // ❌ NO MODIFICAR: Debe interrumpir el flujo y escalar inmediatamente
-    //
-    if (incomingText && typeof incomingText === 'string' && incomingText.trim().length > 0 && !buttonToken) {
-      // Solo detectar en texto escrito, no en botones (los botones ya tienen su lógica)
-      const techIntent = detectTechnicianIntent(incomingText, sessionLocale, session);
-      
-      if (techIntent.requiresTechnician && techIntent.confidence === 'high') {
-        // Intención clara detectada, escalar inmediatamente
-        logger.info(`[CHAT] Intención de técnico detectada (${techIntent.type}) - Interrumpiendo flujo: "${incomingText.substring(0, 50)}..."`);
-        const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, techIntent, res);
-        // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
-        if (escalateResult && escalateResult.handled) {
-          return res.json({
-            ok: escalateResult.ok,
-            reply: escalateResult.reply,
-            stage: escalateResult.stage,
-            sessionId: sessionId,
-            buttons: escalateResult.buttons || [],
-            allowWhatsapp: escalateResult.allowWhatsapp || false
-          });
-        }
-        // Si ya se envió con res.json(), retornar
-        return;
-      } else if (techIntent.requiresTechnician === false && techIntent.confidence === 'low') {
-        // Caso ambiguo, consultar OpenAI
-        logger.info(`[CHAT] Caso ambiguo detectado, consultando OpenAI: "${incomingText.substring(0, 50)}..."`);
-        const ambiguousResult = await checkAmbiguousTechnicianIntent(incomingText, sessionLocale, session);
-        
-        // Decisión final: escalar si OpenAI lo recomienda O si hay indicadores de frustración/riesgo
-        const shouldEscalate = ambiguousResult.requiresTechnician || 
-          (session.fallbackCount >= 3) || // Muchos intentos fallidos
-          (session.stage === STATES.BASIC_TESTS && session.fallbackCount >= 2) || // En pasos avanzados
-          (session.stage === STATES.BASIC_TESTS && session.currentTestIndex && session.currentTestIndex >= 5); // Pasos muy avanzados
-        
-        if (shouldEscalate) {
-          logger.info(`[CHAT] Escalando caso ambiguo (OpenAI: ${ambiguousResult.openaiAdvice}, fallbacks: ${session.fallbackCount}, stage: ${session.stage})`);
-          ambiguousResult.type = 'ambiguous';
-          ambiguousResult.reason = 'ambiguous_with_indicators';
-          const escalateResult = await escalateToTechnicianImmediately(session, incomingText, sessionId, ambiguousResult, res);
-          // Si escalateToTechnicianImmediately usa res.json(), retornar undefined
-          if (escalateResult && escalateResult.handled) {
-            return res.json({
-              ok: escalateResult.ok,
-              reply: escalateResult.reply,
-              stage: escalateResult.stage,
-              sessionId: sessionId,
-              buttons: escalateResult.buttons || [],
-              allowWhatsapp: escalateResult.allowWhatsapp || false
-            });
-          }
-          // Si ya se envió con res.json(), retornar
-          return;
-        }
-      }
-    }
     
     // ========================================
     // PROCESAR SEGÚN EL STAGE ACTUAL
@@ -9952,6 +7834,15 @@ app.post('/api/chat', async (req, res) => {
         });
       }
       
+      session.transcript.push({
+        who: 'bot',
+        text: technicalReply,
+        ts: nowIso(),
+        questionType: 'technical_openai'
+      });
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
       // Botones para continuar según el stage actual
       const buttons = [];
       if (session.stage === STATES.BASIC_TESTS) {
@@ -9962,27 +7853,13 @@ app.post('/api/chat', async (req, res) => {
         });
       }
       
-      // Agregar mensaje del bot CON botones (registro obligatorio)
-      addBotMessageToTranscript(session, technicalReply, buttons.length > 0 ? buttons : null, session.stage);
-      
-      // Agregar metadata adicional al último mensaje del bot
-      const lastBotEntry = session.transcript[session.transcript.length - 1];
-      if (lastBotEntry && lastBotEntry.who === 'bot') {
-        lastBotEntry.questionType = 'technical_openai';
-      }
-      
-      await saveSessionAndTranscript(sessionId, session);
-      
-      // ⚠️ APLICAR 22 MANDAMIENTOS ANTES DE RETORNAR
-      const response = {
+      return res.json({
         ok: true,
         reply: technicalReply,
         stage: session.stage,
         sessionId: sessionId,
         buttons: buttons
-      };
-      const adjustedResponse = applyMandatesToResponse(response, session, userText || '', buttonToken || null);
-      return res.json(adjustedResponse);
+      });
     }
     
     // ========================================
