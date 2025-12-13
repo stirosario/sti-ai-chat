@@ -1676,10 +1676,13 @@ function applyMandatesToResponse(response, session, userText = '', buttonToken =
   let finalReply = evaluation.correctedReply || response.reply;
   
   // Aplicar tono de Tecnos (MANDAMIENTO 4, 5, 6, 7)
-  finalReply = applyTecnosVoice(finalReply, locale, {
-    'es-AR': finalReply,
-    'en-US': finalReply
-  });
+  // ⚠️ FIX: No pasar variants si el texto ya está correcto, solo aplicar limpieza
+  if (finalReply && finalReply.trim().length > 0) {
+    finalReply = applyTecnosVoice(finalReply, locale);
+  } else {
+    // Si por alguna razón finalReply está vacío, usar el reply original
+    finalReply = response.reply || '';
+  }
   
   // ⚠️ SOSTENIBILIDAD STI: Modificar botones y ofrecer WhatsApp cuando corresponde
   let finalButtons = evaluation.correctedButtons || response.buttons || null;
