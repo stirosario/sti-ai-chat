@@ -3543,6 +3543,68 @@ function getDifficultyForStep(stepIndex, totalSteps = 8) {
 }
 
 /**
+ * Formatea un paso individual con el formato visual OBLIGATORIO
+ * 
+ * CONSTITUCIÓN DE TECNOS - FORMATO OBLIGATORIO DE PASOS
+ * 
+ * Esta función garantiza que TODOS los pasos cumplan con el formato estándar:
+ * - Título en NEGRITA: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+ * - Formato obligatorio sin excepciones
+ * 
+ * PROPÓSITO:
+ * - Estandarizar el formato de todos los pasos mostrados al usuario
+ * - Cumplir con la orden operativa de formato visual obligatorio
+ * - Garantizar consistencia en toda la conversación
+ * 
+ * FORMATO OBLIGATORIO:
+ * ```
+ * **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+ * ⏱️ Tiempo estimado: X–Y minutos
+ * Descripción clara y concreta del paso
+ * ```
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - El formato del tiempo estimado
+ *    - El separador entre secciones
+ * 
+ * ❌ NO MODIFICAR:
+ *    - El título DEBE estar en negrita (**texto**)
+ *    - El formato del título: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+ *    - El guión largo (—) entre "Paso X" y "Dificultad" es OBLIGATORIO
+ *    - Si cambias el formato del título, la implementación será INVÁLIDA
+ * 
+ * @param {number} stepIndex - Índice del paso (0-based)
+ * @param {string} stepText - Texto descriptivo del paso
+ * @param {number} totalSteps - Total de pasos (para calcular dificultad)
+ * @param {string} locale - Locale para mensajes de tiempo
+ * @returns {string} Paso formateado con el formato obligatorio
+ */
+function formatStepWithMandatoryFormat(stepIndex, stepText, totalSteps = 8, locale = 'es-AR') {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  // Obtener emoji del paso (1️⃣, 2️⃣, etc.)
+  const emoji = emojiForIndex(stepIndex);
+  
+  // Obtener dificultad del paso (⭐, ⭐⭐, etc.)
+  const difficulty = getDifficultyForStep(stepIndex, totalSteps);
+  
+  // Obtener tiempo estimado
+  const estimatedTime = estimateStepTime(stepText, stepIndex, locale);
+  const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
+  
+  // FORMATO OBLIGATORIO: Título en negrita con guión largo
+  // ⚠️ CRÍTICO: Este formato es OBLIGATORIO y NO puede variarse
+  // El título DEBE estar en negrita (**texto**)
+  // El formato DEBE ser: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+  // El guión largo (—) es OBLIGATORIO entre "Paso X" y "Dificultad"
+  const title = `**Paso ${emoji} — Dificultad: ${difficulty.stars}**`;
+  
+  // Formato completo del paso
+  // Estructura: Título (negrita) → Tiempo → Descripción
+  return `${title}\n${timeLabel} ${estimatedTime}\n\n${stepText}`;
+}
+
+/**
  * Estima el tiempo por paso individual
  * 
  * Distribución de tiempo estimado:
@@ -4426,16 +4488,33 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           intro += `\n\n${proactiveTip}`;
         }
         
-        // Formatear pasos con emojis, niveles de dificultad, tiempo estimado
-        // Usar marcadores especiales [BTN_HELP_STEP_X] para que el frontend sepa dónde insertar cada botón
+        // ========================================================
+        // FORMATO OBLIGATORIO DE PASOS - CONSTITUCIÓN DE TECNOS
+        // ========================================================
+        // 
+        // IMPORTANTE: Todos los pasos DEBEN usar el formato obligatorio:
+        // **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+        // 
+        // ⚠️ CRÍTICO: El título DEBE estar en negrita (**texto**)
+        // El formato es OBLIGATORIO y no puede variarse
+        // 
+        // TEMPORALMENTE: Mostramos todos los pasos (a cambiar a UN paso por mensaje)
+        // TODO: Modificar para mostrar solo UN paso por mensaje según orden operativa
+        // 
+        // Formatear pasos con el formato obligatorio usando formatStepWithMandatoryFormat()
+        // Esta función garantiza que todos los pasos cumplan con el estándar visual
+        // ❌ NO MODIFICAR: Debe usar formatStepWithMandatoryFormat() para cumplir el formato obligatorio
         const stepsWithHelp = steps.map((step, idx) => {
-          const emoji = emojiForIndex(idx);
-          const difficulty = getDifficultyForStep(idx, steps.length);
-          const estimatedTime = estimateStepTime(step, idx, locale);
-          const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
+          // Usar la función helper que garantiza el formato obligatorio
+          // Esta función genera: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+          const formattedStep = formatStepWithMandatoryFormat(idx, step, steps.length, locale);
           // Agregar marcador especial para el botón de ayuda después de cada paso
-          return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n[BTN_HELP_STEP_${idx}]`;
+          // El frontend usa este marcador para insertar el botón de ayuda en el lugar correcto
+          return `${formattedStep}\n\n[BTN_HELP_STEP_${idx}]`;
         });
+        // Unir todos los pasos con doble salto de línea para separación visual
+        // ⚠️ TEMPORAL: Esto muestra todos los pasos juntos
+        // Según la orden operativa, debería mostrar solo UN paso por mensaje
         const stepsText = stepsWithHelp.join('\n\n');
         
         // Generar mensaje final
@@ -5224,18 +5303,26 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         if (pendingSteps && pendingSteps.length > 0) {
           // CASO A: Hay pasos pendientes - mostrar solo esos pasos
           // 
-          // Formatear cada paso pendiente con emoji, dificultad y tiempo estimado
-          // El formato debe ser consistente con cómo se muestran los pasos inicialmente
-          // ✅ SE PUEDE MODIFICAR: El formato de cada paso si quieres cambiar cómo se muestran
-          //    Por ejemplo, cambiar el orden de emoji/dificultad/tiempo
+          // ========================================================
+          // FORMATO OBLIGATORIO DE PASOS - CONSTITUCIÓN DE TECNOS
+          // ========================================================
+          // 
+          // IMPORTANTE: Todos los pasos DEBEN usar el formato obligatorio:
+          // **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+          // 
+          // ⚠️ CRÍTICO: El título DEBE estar en negrita (**texto**)
+          // El formato es OBLIGATORIO y no puede variarse
+          // 
+          // Formatear cada paso pendiente con el formato obligatorio
+          // Usar formatStepWithMandatoryFormat() para garantizar consistencia
+          // ❌ NO MODIFICAR: Debe usar formatStepWithMandatoryFormat() para cumplir el formato obligatorio
           const stepsWithHelp = pendingSteps.map((step, idx) => {
-            const emoji = emojiForIndex(idx);  // Obtener emoji para el paso (1️⃣, 2️⃣, etc.)
-            const difficulty = getDifficultyForStep(idx, pendingSteps.length);  // Obtener dificultad (⭐, ⭐⭐, etc.)
-            const estimatedTime = estimateStepTime(step, idx, locale);  // Estimar tiempo (ej: "2 min")
-            const timeLabel = isEnglish ? '⏱️ Estimated time:' : '⏱️ Tiempo estimado:';
-            // Formato del paso: incluye emoji, dificultad, tiempo y el texto del paso
-            // El marcador [BTN_HELP_STEP_X] indica al frontend dónde insertar el botón de ayuda
-            return `Paso ${emoji} Dificultad: ${difficulty.stars}\n\n${timeLabel} ${estimatedTime}\n\n${step}\n\n[BTN_HELP_STEP_${idx}]`;
+            // Usar la función helper que garantiza el formato obligatorio
+            // Esta función genera: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
+            const formattedStep = formatStepWithMandatoryFormat(idx, step, pendingSteps.length, locale);
+            // Agregar marcador especial para el botón de ayuda después de cada paso
+            // El frontend usa este marcador para insertar el botón de ayuda en el lugar correcto
+            return `${formattedStep}\n\n[BTN_HELP_STEP_${idx}]`;
           });
           // Unir todos los pasos con doble salto de línea para separación visual
           const stepsText = stepsWithHelp.join('\n\n');
