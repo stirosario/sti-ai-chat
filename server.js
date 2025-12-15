@@ -3316,7 +3316,28 @@ async function applyButtonSelector({
  */
 async function sendResponseWithButtonSelector(res, responseData, session, flags = {}) {
   try {
-    // Aplicar selector inteligente de botones
+    // ✅ HARD RULE: Stages determinísticos NO deben usar selector inteligente
+    // ASK_NAME debe retornar SIEMPRE buttons: [] (cero botones)
+    const deterministicStages = [STATES.ASK_NAME, STATES.ASK_LANGUAGE, STATES.ASK_USER_LEVEL, STATES.ASK_NEED, STATES.ASK_DEVICE];
+    
+    if (deterministicStages.includes(responseData.stage)) {
+      // Para stages determinísticos, forzar buttons según reglas específicas
+      let finalButtons = responseData.buttons || [];
+      
+      // ✅ CRÍTICO: ASK_NAME NO debe tener botones (solo texto)
+      if (responseData.stage === STATES.ASK_NAME) {
+        finalButtons = [];
+        console.log('[BUTTON_SELECTOR] ✅ HARD RULE: ASK_NAME - forzando buttons = [] (solo texto)');
+      }
+      
+      // Retornar respuesta SIN aplicar selector inteligente
+      return res.json({
+        ...responseData,
+        buttons: finalButtons
+      });
+    }
+    
+    // Para stages NO determinísticos, aplicar selector inteligente de botones
     const finalButtons = await applyButtonSelector({
       session,
       stage: responseData.stage,
