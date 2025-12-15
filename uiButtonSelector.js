@@ -188,13 +188,13 @@ function shouldUseAI(context) {
   const { stage } = context;
   
   // GATING: NO usar IA en estas etapas (botones fijos obligatorios)
-  const noAIS stages = [
+  const noAIStages = [
     'ASK_LANGUAGE',
     'CONSENT',
     'ASK_USER_LEVEL'
   ];
   
-  if (noAIS stages.includes(stage)) {
+  if (noAIStages.includes(stage)) {
     return false;
   }
   
