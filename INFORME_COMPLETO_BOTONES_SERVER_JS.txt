@@ -1,0 +1,1038 @@
+================================================================================
+INFORME COMPLETO DE BOTONES - server.js
+Proyecto: STI / Tecnos
+Fecha: 2025-01-XX
+================================================================================
+
+RESUMEN EJECUTIVO
+================================================================================
+
+Total de botones definidos: 50+
+Ubicación principal: server.js línea ~2977-3056 (EMBEDDED_CHAT.ui.buttons)
+Función de obtención: getButtonDefinition(token) - línea ~3080
+Función de construcción: buildUiButtonsFromTokens(tokens, locale) - línea ~3107
+
+Categorías:
+- Idioma: 2 botones
+- Problemas frecuentes: 6 botones
+- Dispositivos: 6 botones
+- Sistema operativo: 3 botones
+- Nivel de usuario: 3 botones
+- Navegación: 4 botones
+- Estado/Resultado: 5 botones
+- Ayuda por paso: 4 botones (más dinámicos BTN_HELP_STEP_X)
+- Acciones: 7 botones
+- Feedback: 2 botones
+- Básicos/Genéricos: 8 botones
+
+================================================================================
+BOTONES POR CATEGORÍA
+================================================================================
+
+CATEGORÍA 1: IDIOMA
+-------------------------------------------------------------------------------
+
+BTN_LANG_ES_AR
+- Token: 'BTN_LANG_ES_AR'
+- Label: '🇦🇷 Español (Argentina)'
+- Text: 'Español (Argentina)'
+- Ubicación definición: línea ~2989
+- Handler: handleAskLanguageStage() - línea ~2623+
+- Uso: Selección de idioma español en etapa ASK_LANGUAGE
+- Mapeo texto libre: "español", "spanish", "es"
+- Transición: ASK_LANGUAGE → ASK_NAME
+- Estado: ✅ ACTIVO
+
+BTN_LANG_EN
+- Token: 'BTN_LANG_EN'
+- Label: '🇬🇧 English'
+- Text: 'English'
+- Ubicación definición: línea ~2990
+- Handler: handleAskLanguageStage() - línea ~2623+
+- Uso: Selección de idioma inglés en etapa ASK_LANGUAGE
+- Mapeo texto libre: "english", "inglés", "en"
+- Transición: ASK_LANGUAGE → ASK_NAME
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 2: PROBLEMAS FRECUENTES
+-------------------------------------------------------------------------------
+
+BTN_NO_ENCIENDE
+- Token: 'BTN_NO_ENCIENDE'
+- Label: '🔌 El equipo no enciende'
+- Text: 'el equipo no enciende'
+- Ubicación definición: línea ~2995
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'el equipo no enciende' (ES) / 'the device does not turn on' (EN)
+- Mapeo texto libre: "no enciende", "no prende", "no arranca", "no inicia", "does not turn on", "wont start"
+- Ubicación mapeo texto: línea ~4586-4592
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+BTN_NO_INTERNET
+- Token: 'BTN_NO_INTERNET'
+- Label: '📡 Problemas de conexión a Internet'
+- Text: 'problemas de conexión a internet'
+- Ubicación definición: línea ~2996
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'problemas de conexión a internet' (ES) / 'internet connection problems' (EN)
+- Mapeo texto libre: "problemas de conexión", "no hay internet", "sin internet", "no conecta", "internet connection", "wifi"
+- Ubicación mapeo texto: línea ~4594-4599
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+BTN_LENTITUD
+- Token: 'BTN_LENTITUD'
+- Label: '🐢 Lentitud del sistema operativo o del equipo'
+- Text: 'lentitud del sistema'
+- Ubicación definición: línea ~2997
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'lentitud del sistema' (ES) / 'system slowness' (EN)
+- Mapeo texto libre: "lentitud", "lento", "muy lento", "muy lenta", "va lento", "slow", "slowness"
+- Ubicación mapeo texto: línea ~4601-4607
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+BTN_BLOQUEO
+- Token: 'BTN_BLOQUEO'
+- Label: '❄️ Bloqueo o cuelgue de programas'
+- Text: 'bloqueo de programas'
+- Ubicación definición: línea ~2998
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'bloqueo o cuelgue de programas' (ES) / 'program freezing or crashing' (EN)
+- Mapeo texto libre: "bloqueo", "se cuelga", "se congela", "freezing", "crashing"
+- Ubicación mapeo texto: línea ~4609-4613
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+BTN_PERIFERICOS
+- Token: 'BTN_PERIFERICOS'
+- Label: '🖨️ Problemas con periféricos externos'
+- Text: 'problemas con periféricos'
+- Ubicación definición: línea ~2999
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'problemas con periféricos externos' (ES) / 'external peripheral problems' (EN)
+- Mapeo texto libre: "periféricos", "periferico", "impresora", "printer", "teclado", "keyboard", "mouse"
+- Ubicación mapeo texto: línea ~4615-4620
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+BTN_VIRUS
+- Token: 'BTN_VIRUS'
+- Label: '🛡️ Infecciones de malware o virus'
+- Text: 'infecciones de virus'
+- Ubicación definición: línea ~3000
+- Handler: handleAskNeedStage() - línea ~4414+
+- Función mapeo: getProblemFromButton() - línea ~4232+
+- Problema mapeado: 'infecciones de malware o virus' (ES) / 'malware or virus infections' (EN)
+- Mapeo texto libre: "virus", "malware", "infección", "infection"
+- Ubicación mapeo texto: línea ~4622-4625
+- Transición: ASK_NEED → ASK_DEVICE
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 3: DISPOSITIVOS
+-------------------------------------------------------------------------------
+
+BTN_DEV_PC_DESKTOP
+- Token: 'BTN_DEV_PC_DESKTOP'
+- Label: 'PC de escritorio'
+- Text: 'pc de escritorio'
+- Ubicación definición: línea ~3006
+- Handler: handleAskDeviceStage() - línea ~6038+
+- Función mapeo: getDeviceFromButton() - línea ~5645+
+- Device mapeado: { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' }
+- Ubicación mapeo: línea ~5645-5680
+- Transición: ASK_DEVICE → BASIC_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_DEV_PC_ALLINONE
+- Token: 'BTN_DEV_PC_ALLINONE'
+- Label: 'PC All in One'
+- Text: 'pc all in one'
+- Ubicación definición: línea ~3007
+- Handler: handleAskDeviceStage() - línea ~6038+
+- Función mapeo: getDeviceFromButton() - línea ~5645+
+- Device mapeado: { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' }
+- Ubicación mapeo: línea ~5645-5680
+- Transición: ASK_DEVICE → BASIC_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_DEV_NOTEBOOK
+- Token: 'BTN_DEV_NOTEBOOK'
+- Label: 'Notebook'
+- Text: 'notebook'
+- Ubicación definición: línea ~3008
+- Handler: handleAskDeviceStage() - línea ~6038+
+- Función mapeo: getDeviceFromButton() - línea ~5645+
+- Device mapeado: { device: 'notebook', pcType: null, label: 'Notebook' }
+- Ubicación mapeo: línea ~5645-5680
+- Transición: ASK_DEVICE → BASIC_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_DESKTOP (Legacy)
+- Token: 'BTN_DESKTOP'
+- Label: 'Desktop 💻'
+- Text: 'desktop'
+- Ubicación definición: línea ~3003
+- Estado: ⚠️ LEGACY (usar BTN_DEV_PC_DESKTOP)
+
+BTN_ALLINONE (Legacy)
+- Token: 'BTN_ALLINONE'
+- Label: 'All-in-One 🖥️'
+- Text: 'all in one'
+- Ubicación definición: línea ~3004
+- Estado: ⚠️ LEGACY (usar BTN_DEV_PC_ALLINONE)
+
+BTN_NOTEBOOK (Legacy)
+- Token: 'BTN_NOTEBOOK'
+- Label: 'Notebook 💼'
+- Text: 'notebook'
+- Ubicación definición: línea ~3005
+- Estado: ⚠️ LEGACY (usar BTN_DEV_NOTEBOOK)
+
+CATEGORÍA 4: SISTEMA OPERATIVO
+-------------------------------------------------------------------------------
+
+BTN_OS_WINDOWS
+- Token: 'BTN_OS_WINDOWS'
+- Label: '🪟 Windows'
+- Text: 'Windows'
+- Ubicación definición: línea ~3011
+- Handler: No handler específico (se procesa en contexto de faltanDatosMinimos)
+- Uso: Selección de sistema operativo cuando se requiere (caseType: 'system')
+- Transición: ASK_OS → BASIC_TESTS o ADVANCED_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_OS_MACOS
+- Token: 'BTN_OS_MACOS'
+- Label: '🍏 macOS'
+- Text: 'macOS'
+- Ubicación definición: línea ~3012
+- Handler: No handler específico (se procesa en contexto de faltanDatosMinimos)
+- Uso: Selección de sistema operativo cuando se requiere (caseType: 'system')
+- Transición: ASK_OS → BASIC_TESTS o ADVANCED_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_OS_LINUX
+- Token: 'BTN_OS_LINUX'
+- Label: '🐧 Linux'
+- Text: 'Linux'
+- Ubicación definición: línea ~3013
+- Handler: No handler específico (se procesa en contexto de faltanDatosMinimos)
+- Uso: Selección de sistema operativo cuando se requiere (caseType: 'system')
+- Transición: ASK_OS → BASIC_TESTS o ADVANCED_TESTS
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 5: NIVEL DE USUARIO
+-------------------------------------------------------------------------------
+
+BTN_USER_LEVEL_BASIC
+- Token: 'BTN_USER_LEVEL_BASIC'
+- Label: '🟢 Básico — uso lo esencial, prefiero pasos simples' (ES)
+- Label EN: '🟢 Basic — I prefer simple steps'
+- Text: 'básico' (ES) / 'basic' (EN)
+- Ubicación definición: No está en EMBEDDED_CHAT (se genera dinámicamente)
+- Handler: handleAskUserLevelStage() - línea ~3935+
+- Ubicación generación: línea ~4015-4025 (ES), 4134-4136 (EN)
+- Mapeo texto libre: "básico", "basic" (case-insensitive)
+- Ubicación mapeo: línea ~4068
+- Transición: ASK_USER_LEVEL → ASK_NEED
+- Guarda en sesión: session.userLevel = 'basic'
+- Estado: ✅ ACTIVO
+
+BTN_USER_LEVEL_INTERMEDIATE
+- Token: 'BTN_USER_LEVEL_INTERMEDIATE'
+- Label: '🟡 Intermedio — entiendo configuraciones y pruebas comunes' (ES)
+- Label EN: '🟡 Intermediate — I can do common checks'
+- Text: 'intermedio' (ES) / 'intermediate' (EN)
+- Ubicación definición: No está en EMBEDDED_CHAT (se genera dinámicamente)
+- Handler: handleAskUserLevelStage() - línea ~3935+
+- Ubicación generación: línea ~4015-4025 (ES), 4134-4136 (EN)
+- Mapeo texto libre: "intermedio", "intermediate" (case-insensitive)
+- Ubicación mapeo: línea ~4070
+- Transición: ASK_USER_LEVEL → ASK_NEED
+- Guarda en sesión: session.userLevel = 'intermediate'
+- Estado: ✅ ACTIVO
+
+BTN_USER_LEVEL_ADVANCED
+- Token: 'BTN_USER_LEVEL_ADVANCED'
+- Label: '🔵 Avanzado — ya hice pruebas técnicas y ajustes' (ES)
+- Label EN: '🔵 Advanced — I already tried technical checks'
+- Text: 'avanzado' (ES) / 'advanced' (EN)
+- Ubicación definición: No está en EMBEDDED_CHAT (se genera dinámicamente)
+- Handler: handleAskUserLevelStage() - línea ~3935+
+- Ubicación generación: línea ~4015-4025 (ES), 4134-4136 (EN)
+- Mapeo texto libre: "avanzado", "advanced" (case-insensitive)
+- Ubicación mapeo: línea ~4072
+- Transición: ASK_USER_LEVEL → ASK_NEED
+- Guarda en sesión: session.userLevel = 'advanced'
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 6: NAVEGACIÓN
+-------------------------------------------------------------------------------
+
+BTN_BACK_TO_STEPS
+- Token: 'BTN_BACK_TO_STEPS'
+- Label: '⏪ Volver a los pasos'
+- Text: 'volver a los pasos'
+- Ubicación definición: línea ~3016
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7185+
+- Comportamiento:
+  * Si hay pasos confirmados: NO regenera, muestra solo pendientes
+  * Si NO hay pasos confirmados: Regenera pasos normalmente
+  * Verifica faltanDatosMinimos() antes de regenerar (FASE 1.1)
+- Transición: Mantiene BASIC_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_BACK
+- Token: 'BTN_BACK'
+- Label: '⏪ Volver atrás'
+- Text: 'volver atrás'
+- Ubicación definición: línea ~3017
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7185+ (mismo que BTN_BACK_TO_STEPS)
+- Comportamiento: Similar a BTN_BACK_TO_STEPS
+- Estado: ✅ ACTIVO
+
+BTN_CHANGE_TOPIC
+- Token: 'BTN_CHANGE_TOPIC'
+- Label: '🔄 Cambiar de tema'
+- Text: 'cambiar de tema'
+- Ubicación definición: línea ~3018
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BTN_MORE_INFO
+- Token: 'BTN_MORE_INFO'
+- Label: 'ℹ️ Más información'
+- Text: 'más información'
+- Ubicación definición: línea ~3019
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+CATEGORÍA 7: ESTADO/RESULTADO
+-------------------------------------------------------------------------------
+
+BTN_SOLVED
+- Token: 'BTN_SOLVED'
+- Label: '👍 Ya lo solucioné'
+- Text: 'lo pude solucionar'
+- Ubicación definición: línea ~3022
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7605+
+- Comportamiento:
+  * Muestra mensaje de celebración
+  * Muestra botones de feedback (👍/👎)
+  * NO cambia a ENDED todavía (espera feedback)
+  * Marca session.feedbackButtonsShown = true
+- Mapeo texto libre: "sí", "si", "lo pude", "lo pude solucionar", "resuelto", "solucionado"
+- Ubicación mapeo: línea ~7605
+- Prevención repetición: Aplicada (FASE 2.3)
+- Estado: ✅ ACTIVO
+
+BTN_PERSIST
+- Token: 'BTN_PERSIST'
+- Label: '❌ Todavía no funciona'
+- Text: 'el problema persiste'
+- Ubicación definición: línea ~3023
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7796+
+- Comportamiento:
+  * Verifica frustración real (hasRealFrustration)
+  * Si hay frustración válida: Escala a técnico (ESCALATE)
+  * Si NO hay frustración: Pide más información
+- Mapeo texto libre: "no", "n", "el problema persiste", "persiste", "todavía no", "aún no"
+- Ubicación mapeo: línea ~7796
+- Transición: BASIC_TESTS → ESCALATE (si frustración válida)
+- Estado: ✅ ACTIVO
+
+BTN_ADVANCED_TESTS
+- Token: 'BTN_ADVANCED_TESTS'
+- Label: '🔬 Pruebas Avanzadas'
+- Text: 'pruebas avanzadas'
+- Ubicación definición: línea ~3024
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: No handler específico encontrado (probablemente cambia a ADVANCED_TESTS stage)
+- Transición: BASIC_TESTS → ADVANCED_TESTS
+- Estado: ✅ ACTIVO
+
+BTN_MORE_TESTS
+- Token: 'BTN_MORE_TESTS'
+- Label: '🔍 Más pruebas'
+- Text: 'más pruebas'
+- Ubicación definición: línea ~3025
+- Mapeo: TOKEN_MAP en index.php mapea a BTN_ADVANCED_TESTS
+- Estado: ⚠️ ALIAS (mapea a BTN_ADVANCED_TESTS)
+
+BTN_TECH
+- Token: 'BTN_TECH'
+- Label: '🧑‍💻 Técnico real'
+- Text: 'hablar con técnico'
+- Ubicación definición: línea ~3026
+- Handler: Probablemente handleEscalateStage()
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 8: AYUDA POR PASO
+-------------------------------------------------------------------------------
+
+BTN_HELP_STEP_X (Dinámico)
+- Token: 'BTN_HELP_STEP_0', 'BTN_HELP_STEP_1', ..., 'BTN_HELP_STEP_N'
+- Label: Generado dinámicamente (ej: '🆘 Ayuda Paso 1️⃣')
+- Text: Generado dinámicamente
+- Ubicación definición: Generado dinámicamente en handleAskDeviceStage() y handleBasicTestsStage()
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7383+
+- Comportamiento:
+  * Extrae índice del paso del token (ej: "BTN_HELP_STEP_0" → 0)
+  * Genera explicación detallada usando explainStepWithAI()
+  * Muestra botones para continuar
+  * Registra en session.progress.lastStepSelected
+- Ubicación generación botones: línea ~7252-7262
+- Estado: ✅ ACTIVO
+
+BTN_HELP_1, BTN_HELP_2, BTN_HELP_3, BTN_HELP_4 (Legacy)
+- Tokens: 'BTN_HELP_1', 'BTN_HELP_2', 'BTN_HELP_3', 'BTN_HELP_4'
+- Labels: 'Ayuda paso 1', 'Ayuda paso 2', etc.
+- Ubicación definición: línea ~3029-3032
+- Estado: ⚠️ LEGACY (usar BTN_HELP_STEP_X dinámico)
+
+CATEGORÍA 9: ACCIONES
+-------------------------------------------------------------------------------
+
+BTN_CLOSE
+- Token: 'BTN_CLOSE'
+- Label: '🔚 Cerrar Chat'
+- Text: 'cerrar chat'
+- Ubicación definición: línea ~3036
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7066+
+- Comportamiento:
+  * Si feedbackRecorded === true: Cierra directamente
+  * Si feedbackRecorded !== true: Muestra feedback antes de cerrar
+  * Cambia a ENDED después de feedback
+- Mapeo texto libre: "cerrar chat"
+- Ubicación mapeo: línea ~7066
+- Prevención repetición: Aplicada (FASE 2.3)
+- Estado: ✅ ACTIVO
+
+BTN_WHATSAPP
+- Token: 'BTN_WHATSAPP'
+- Label: 'Enviar WhatsApp'
+- Text: 'enviar por whatsapp'
+- Ubicación definición: línea ~3037
+- Handler: Probablemente handleEscalateStage()
+- Estado: ⚠️ DEFINIDO (verificar uso)
+
+BTN_CONNECT_TECH
+- Token: 'BTN_CONNECT_TECH'
+- Label: '👨‍🏭 Conectar con Técnico'
+- Text: 'conectar con técnico'
+- Ubicación definición: línea ~3038
+- Handler: handleEscalateStage() - línea ~9486+
+- Comportamiento: Genera ticket y muestra botón de WhatsApp
+- Estado: ✅ ACTIVO
+
+BTN_WHATSAPP_TECNICO
+- Token: 'BTN_WHATSAPP_TECNICO'
+- Label: '💚 Hablar con un Técnico'
+- Text: 'hablar con un técnico'
+- Ubicación definición: línea ~3039
+- Handler: Frontend (appendWAButton) + createTicketAndRespond()
+- Comportamiento:
+  * Se crea dinámicamente en frontend cuando allowWhatsapp: true
+  * Abre WhatsApp con mensaje pre-llenado
+  * NO se envía como botón normal al backend
+- Estado: ✅ ACTIVO (generado en frontend)
+
+BTN_CONFIRM_TICKET
+- Token: 'BTN_CONFIRM_TICKET'
+- Label: 'Sí, generar ticket ✅'
+- Text: 'sí, generar ticket'
+- Ubicación definición: línea ~3040
+- Handler: Probablemente handleEscalateStage()
+- Estado: ⚠️ DEFINIDO (verificar uso)
+
+BTN_CANCEL
+- Token: 'BTN_CANCEL'
+- Label: 'Cancelar ❌'
+- Text: 'cancelar'
+- Ubicación definición: línea ~3041
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BTN_REPHRASE
+- Token: 'BTN_REPHRASE'
+- Label: 'Cambiar problema'
+- Text: 'cambiar problema'
+- Ubicación definición: línea ~3035
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+CATEGORÍA 10: FEEDBACK
+-------------------------------------------------------------------------------
+
+BTN_FEEDBACK_USEFUL
+- Token: 'BTN_FEEDBACK_USEFUL'
+- Label: '👍 La ayuda de Tecnos me fue útil' (ES) / '👍 Tecnos was helpful' (EN)
+- Text: Generado dinámicamente
+- Ubicación definición: No está en EMBEDDED_CHAT (se genera dinámicamente)
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7713+
+- Ubicación generación: línea ~7664-7675
+- Comportamiento:
+  * Guarda feedback con result: 'useful'
+  * Marca session.feedbackRecorded = true
+  * Cambia a ENDED
+  * Muestra mensaje de agradecimiento
+- Prevención repetición: Aplicada (FASE 2.3)
+- Guard rail: Bloquea si session.simulation === true
+- Estado: ✅ ACTIVO
+
+BTN_FEEDBACK_NOT_USEFUL
+- Token: 'BTN_FEEDBACK_NOT_USEFUL'
+- Label: '👎 La ayuda de Tecnos no me sirvió' (ES) / '👎 Tecnos was not helpful' (EN)
+- Text: Generado dinámicamente
+- Ubicación definición: No está en EMBEDDED_CHAT (se genera dinámicamente)
+- Handler: handleBasicTestsStage() - línea ~7161+
+- Ubicación procesamiento: línea ~7713+
+- Ubicación generación: línea ~7664-7675
+- Comportamiento:
+  * Guarda feedback con result: 'not_useful'
+  * Marca session.feedbackRecorded = true
+  * Cambia a ENDED
+  * Muestra mensaje de agradecimiento
+- Prevención repetición: Aplicada (FASE 2.3)
+- Guard rail: Bloquea si session.simulation === true
+- Estado: ✅ ACTIVO
+
+CATEGORÍA 11: BÁSICOS/GENÉRICOS
+-------------------------------------------------------------------------------
+
+BTN_SUCCESS
+- Token: 'BTN_SUCCESS'
+- Label: '✅ Funcionó'
+- Text: 'funcionó'
+- Ubicación definición: línea ~3044
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BTN_NEED_HELP
+- Token: 'BTN_NEED_HELP'
+- Label: '❓ Necesito ayuda'
+- Text: 'necesito ayuda'
+- Ubicación definición: línea ~3045
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BTN_YES
+- Token: 'BTN_YES'
+- Label: '✅ Sí'
+- Text: 'sí'
+- Ubicación definición: línea ~3046
+- Handler: Múltiples handlers (depende del contexto)
+- Estado: ✅ ACTIVO
+
+BTN_NO
+- Token: 'BTN_NO'
+- Label: '❌ No'
+- Text: 'no'
+- Ubicación definición: línea ~3047
+- Handler: Múltiples handlers (depende del contexto)
+- Estado: ✅ ACTIVO
+
+BTN_BASIC_YES
+- Token: 'BTN_BASIC_YES'
+- Label: 'Sí'
+- Text: 'sí'
+- Ubicación definición: línea ~3050
+- Estado: ⚠️ DEFINIDO (verificar uso vs BTN_YES)
+
+BTN_BASIC_NO
+- Token: 'BTN_BASIC_NO'
+- Label: 'No'
+- Text: 'no'
+- Ubicación definición: línea ~3051
+- Estado: ⚠️ DEFINIDO (verificar uso vs BTN_NO)
+
+BTN_ADVANCED
+- Token: 'BTN_ADVANCED'
+- Label: 'Avanzadas'
+- Text: 'avanzadas'
+- Ubicación definición: línea ~3052
+- Estado: ⚠️ DEFINIDO (verificar uso vs BTN_ADVANCED_TESTS)
+
+BTN_DEVICE_PC
+- Token: 'BTN_DEVICE_PC'
+- Label: 'PC'
+- Text: 'pc'
+- Ubicación definición: línea ~3053
+- Estado: ⚠️ LEGACY (usar BTN_DEV_PC_DESKTOP)
+
+BTN_DEVICE_NOTEBOOK
+- Token: 'BTN_DEVICE_NOTEBOOK'
+- Label: 'Notebook'
+- Text: 'notebook'
+- Ubicación definición: línea ~3054
+- Estado: ⚠️ LEGACY (usar BTN_DEV_NOTEBOOK)
+
+BTN_DEVICE_MONITOR
+- Token: 'BTN_DEVICE_MONITOR'
+- Label: 'Monitor'
+- Text: 'monitor'
+- Ubicación definición: línea ~3055
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BTN_OTHER
+- Token: 'BTN_OTHER'
+- Label: 'Otro'
+- Text: '' (vacío)
+- Ubicación definición: línea ~3056
+- Handler: No handler específico encontrado
+- Estado: ⚠️ DEFINIDO PERO NO IMPLEMENTADO
+
+BOTONES ESPECIALES (No en EMBEDDED_CHAT)
+-------------------------------------------------------------------------------
+
+'si' / 'yes' (GDPR)
+- Token: 'si' o 'yes'
+- Label: 'Sí Acepto / Yes, I Accept ✔️'
+- Text: 'sí'
+- Handler: handleAskLanguageStage() - línea ~2623+
+- Ubicación: línea ~2583, 2907
+- Comportamiento: Acepta GDPR y selecciona idioma
+- Estado: ✅ ACTIVO
+
+'no' (GDPR)
+- Token: 'no'
+- Label: 'No Acepto / No, I Decline ❌'
+- Text: 'no'
+- Handler: handleAskLanguageStage() - línea ~2623+
+- Ubicación: línea ~2584, 2908
+- Comportamiento: Rechaza GDPR, cierra chat
+- Estado: ✅ ACTIVO
+
+'español' / 'english' (Idioma)
+- Token: 'español' o 'english'
+- Label: '(🇦🇷) Español 🌎' o '(🇺🇸) English 🌎'
+- Text: 'español' o 'english'
+- Handler: handleAskLanguageStage() - línea ~2623+
+- Ubicación: línea ~2732-2733, 2902-2903
+- Estado: ✅ ACTIVO
+
+================================================================================
+FUNCIONES RELACIONADAS CON BOTONES
+================================================================================
+
+getButtonDefinition(token)
+- Ubicación: línea ~3080
+- Función: Busca definición de botón en EMBEDDED_CHAT.ui.buttons
+- Retorna: { token, label, text } o null
+- Uso: Obtener información completa de un botón por su token
+
+buildUiButtonsFromTokens(tokens, locale)
+- Ubicación: línea ~3107
+- Función: Construye array de botones desde tokens
+- Parámetros: Array de tokens, locale
+- Retorna: Array de { token, label, text }
+- Uso: Generar botones para mostrar al usuario
+
+getProblemFromButton(buttonToken)
+- Ubicación: línea ~4232
+- Función: Mapea token de problema a texto del problema
+- Retorna: { problem, problemEn } o null
+- Uso: Obtener texto del problema desde token de botón
+
+getDeviceFromButton(buttonToken)
+- Ubicación: línea ~5645
+- Función: Mapea token de dispositivo a configuración
+- Retorna: { device, pcType, label } o null
+- Uso: Obtener configuración de dispositivo desde token
+
+sortProblemButtons(buttons)
+- Ubicación: línea ~4269
+- Función: Ordena botones de problema por tasa de éxito histórica
+- Retorna: Array ordenado de botones
+- Uso: Mostrar problemas más exitosos primero
+
+================================================================================
+MAPEOS DE TEXTO LIBRE A BOTONES
+================================================================================
+
+Problemas (handleAskNeedStage - línea ~4550+):
+- "no enciende", "no prende", "no arranca", "no inicia" → BTN_NO_ENCIENDE
+- "problemas de conexión", "no hay internet", "sin internet", "no conecta", "wifi" → BTN_NO_INTERNET
+- "lentitud", "lento", "muy lento", "va lento" → BTN_LENTITUD
+- "bloqueo", "se cuelga", "se congela" → BTN_BLOQUEO
+- "periféricos", "impresora", "teclado", "mouse" → BTN_PERIFERICOS
+- "virus", "malware", "infección" → BTN_VIRUS
+
+Nivel de usuario (handleAskUserLevelStage - línea ~4068+):
+- "básico", "basic" → BTN_USER_LEVEL_BASIC
+- "intermedio", "intermediate" → BTN_USER_LEVEL_INTERMEDIATE
+- "avanzado", "advanced" → BTN_USER_LEVEL_ADVANCED
+
+Estado (handleBasicTestsStage):
+- "sí", "si", "lo pude solucionar", "resuelto", "solucionado" → BTN_SOLVED (línea ~7605)
+- "no", "el problema persiste", "persiste", "todavía no" → BTN_PERSIST (línea ~7796)
+- "cerrar chat" → BTN_CLOSE (línea ~7066)
+
+================================================================================
+UBICACIONES DE PROCESAMIENTO DE BOTONES
+================================================================================
+
+handleAskLanguageStage() - línea ~2623+
+- Procesa: 'si', 'yes', 'no', 'español', 'english'
+- Botones mostrados: GDPR (si/no), Idioma (español/english)
+
+handleAskNameStage() - línea ~3575+
+- No procesa botones específicos (solo texto libre)
+
+handleAskUserLevelStage() - línea ~3935+
+- Procesa: BTN_USER_LEVEL_BASIC, BTN_USER_LEVEL_INTERMEDIATE, BTN_USER_LEVEL_ADVANCED
+- Botones mostrados: Nivel de usuario (3 opciones)
+
+handleAskNeedStage() - línea ~4414+
+- Procesa: BTN_NO_ENCIENDE, BTN_NO_INTERNET, BTN_LENTITUD, BTN_BLOQUEO, BTN_PERIFERICOS, BTN_VIRUS
+- Botones mostrados: Problemas frecuentes (6 opciones)
+- Mapeo texto libre: Múltiples variantes por problema
+
+handleAskDeviceStage() - línea ~6038+
+- Procesa: BTN_DEV_PC_DESKTOP, BTN_DEV_PC_ALLINONE, BTN_DEV_NOTEBOOK
+- Botones mostrados: Dispositivos (3 opciones)
+- Genera pasos después de seleccionar dispositivo
+
+handleBasicTestsStage() - línea ~7161+
+- Procesa múltiples botones:
+  * BTN_CLOSE (línea ~7066)
+  * BTN_BACK_TO_STEPS, BTN_BACK (línea ~7185)
+  * BTN_HELP_STEP_X (línea ~7383)
+  * BTN_SOLVED (línea ~7605)
+  * BTN_FEEDBACK_USEFUL, BTN_FEEDBACK_NOT_USEFUL (línea ~7713)
+  * BTN_PERSIST (línea ~7796)
+  * BTN_ADVANCED_TESTS (probablemente)
+
+handleEscalateStage() - línea ~9486+
+- Procesa: BTN_CONNECT_TECH, BTN_WHATSAPP_TECNICO
+- Genera ticket y muestra botón de WhatsApp
+
+================================================================================
+ESTADOS DE BOTONES
+================================================================================
+
+✅ ACTIVO: Botón definido, handler implementado, en uso
+⚠️ DEFINIDO PERO NO IMPLEMENTADO: Botón definido pero sin handler específico
+⚠️ LEGACY: Botón antiguo, usar versión nueva
+⚠️ ALIAS: Botón que mapea a otro botón
+
+================================================================================
+ESTADÍSTICAS
+================================================================================
+
+Total botones en EMBEDDED_CHAT: 50
+Botones activos: ~35
+Botones legacy/no implementados: ~15
+Botones dinámicos: BTN_HELP_STEP_X (ilimitados)
+Botones especiales (no en EMBEDDED_CHAT): 4 (si, no, español, english)
+
+Categorías con más botones:
+1. Básicos/Genéricos: 8
+2. Acciones: 7
+3. Problemas frecuentes: 6
+4. Dispositivos: 6
+5. Navegación: 4
+6. Ayuda por paso: 4 (más dinámicos)
+
+================================================================================
+RECOMENDACIONES
+================================================================================
+
+1. Consolidar botones legacy:
+   - BTN_DESKTOP → BTN_DEV_PC_DESKTOP
+   - BTN_NOTEBOOK → BTN_DEV_NOTEBOOK
+   - BTN_ALLINONE → BTN_DEV_PC_ALLINONE
+   - BTN_DEVICE_PC → BTN_DEV_PC_DESKTOP
+   - BTN_DEVICE_NOTEBOOK → BTN_DEV_NOTEBOOK
+
+2. Implementar handlers faltantes:
+   - BTN_CHANGE_TOPIC
+   - BTN_MORE_INFO
+   - BTN_CANCEL
+   - BTN_REPHRASE
+   - BTN_SUCCESS
+   - BTN_NEED_HELP
+   - BTN_DEVICE_MONITOR
+   - BTN_OTHER
+
+3. Agregar a EMBEDDED_CHAT:
+   - BTN_USER_LEVEL_BASIC, BTN_USER_LEVEL_INTERMEDIATE, BTN_USER_LEVEL_ADVANCED
+   - BTN_FEEDBACK_USEFUL, BTN_FEEDBACK_NOT_USEFUL
+
+4. Documentar botones dinámicos:
+   - BTN_HELP_STEP_X (formato y rango)
+
+================================================================================
+DETALLES ADICIONALES DE HANDLERS
+================================================================================
+
+handleAskLanguageStage() - línea ~2623
+-------------------------------------------------------------------------------
+Botones procesados:
+- 'si', 'yes', 'sí' → Acepta GDPR, muestra botones de idioma
+- 'no' → Rechaza GDPR, cierra chat
+- 'español', 'english' → Selecciona idioma, avanza a ASK_NAME
+
+Botones mostrados:
+- GDPR: 'Sí Acepto / Yes, I Accept ✔️' (value: 'si'), 'No Acepto / No, I Decline ❌' (value: 'no')
+- Idioma: '(🇦🇷) Español 🌎' (value: 'español'), '(🇺🇸) English 🌎' (value: 'english')
+
+handleAskUserLevelStage() - línea ~3935
+-------------------------------------------------------------------------------
+Botones procesados:
+- BTN_USER_LEVEL_BASIC → session.userLevel = 'basic'
+- BTN_USER_LEVEL_INTERMEDIATE → session.userLevel = 'intermediate'
+- BTN_USER_LEVEL_ADVANCED → session.userLevel = 'advanced'
+
+Botones mostrados (generados dinámicamente):
+- ES: '🟢 Básico — uso lo esencial, prefiero pasos simples'
+- ES: '🟡 Intermedio — entiendo configuraciones y pruebas comunes'
+- ES: '🔵 Avanzado — ya hice pruebas técnicas y ajustes'
+- EN: '🟢 Basic — I prefer simple steps'
+- EN: '🟡 Intermediate — I can do common checks'
+- EN: '🔵 Advanced — I already tried technical checks'
+
+Mapeo texto libre:
+- "básico", "basic" → BTN_USER_LEVEL_BASIC
+- "intermedio", "intermediate" → BTN_USER_LEVEL_INTERMEDIATE
+- "avanzado", "advanced" → BTN_USER_LEVEL_ADVANCED
+
+handleAskNeedStage() - línea ~4414
+-------------------------------------------------------------------------------
+Botones procesados:
+- BTN_NO_ENCIENDE → session.problem = 'el equipo no enciende'
+- BTN_NO_INTERNET → session.problem = 'problemas de conexión a internet'
+- BTN_LENTITUD → session.problem = 'lentitud del sistema'
+- BTN_BLOQUEO → session.problem = 'bloqueo o cuelgue de programas'
+- BTN_PERIFERICOS → session.problem = 'problemas con periféricos externos'
+- BTN_VIRUS → session.problem = 'infecciones de malware o virus'
+
+Botones mostrados:
+- Ordenados por tasa de éxito histórica (sortProblemButtons)
+- 6 botones de problemas frecuentes
+
+Mapeo texto libre:
+- Múltiples variantes por problema (línea ~4586-4625)
+- Detecta sinónimos y variantes en español e inglés
+
+handleAskDeviceStage() - línea ~6038
+-------------------------------------------------------------------------------
+Botones procesados:
+- BTN_DEV_PC_DESKTOP → session.device = 'pc', session.pcType = 'desktop'
+- BTN_DEV_PC_ALLINONE → session.device = 'pc', session.pcType = 'all_in_one'
+- BTN_DEV_NOTEBOOK → session.device = 'notebook', session.pcType = null
+
+Botones mostrados:
+- 3 botones de dispositivos (PC escritorio, PC All-in-One, Notebook)
+- Generados con buildUiButtonsFromTokens()
+
+Mapeo texto libre:
+- "pc", "desktop", "computadora de escritorio" → BTN_DEV_PC_DESKTOP
+- "all in one", "all-in-one", "todo en uno" → BTN_DEV_PC_ALLINONE
+- "notebook", "laptop", "portátil" → BTN_DEV_NOTEBOOK
+
+Después de seleccionar dispositivo:
+- Genera pasos de diagnóstico (generateDiagnosticSteps)
+- Cambia a BASIC_TESTS
+
+handleBasicTestsStage() - línea ~7161
+-------------------------------------------------------------------------------
+Botones procesados (en orden de aparición):
+
+1. BTN_CLOSE (línea ~7201)
+   - Si feedbackRecorded === true: Cierra directamente
+   - Si feedbackRecorded !== true: Muestra feedback antes de cerrar
+   - Mapeo texto: "cerrar chat"
+
+2. BTN_BACK_TO_STEPS / BTN_BACK (línea ~7332)
+   - Si hay pasos confirmados: NO regenera, muestra solo pendientes
+   - Si NO hay pasos confirmados: Regenera pasos normalmente
+   - Verifica faltanDatosMinimos() antes de regenerar
+
+3. BTN_HELP_STEP_X (línea ~7584)
+   - Extrae índice del paso del token (ej: "BTN_HELP_STEP_0" → 0)
+   - Genera explicación detallada usando explainStepWithAI()
+   - Muestra botones para continuar
+   - Registra en session.progress.lastStepSelected
+
+4. BTN_SOLVED (línea ~7806)
+   - Muestra mensaje de celebración
+   - Muestra botones de feedback (👍/👎)
+   - NO cambia a ENDED todavía (espera feedback)
+   - Marca session.feedbackButtonsShown = true
+   - Mapeo texto: "sí", "si", "lo pude solucionar", "resuelto", "solucionado"
+
+5. BTN_FEEDBACK_USEFUL / BTN_FEEDBACK_NOT_USEFUL (línea ~7939)
+   - Guarda feedback con result: 'useful' o 'not_useful'
+   - Marca session.feedbackRecorded = true
+   - Cambia a ENDED
+   - Muestra mensaje de agradecimiento
+   - Guard rail: Bloquea si session.simulation === true
+
+6. BTN_PERSIST (línea ~8038)
+   - Verifica frustración real (hasRealFrustration)
+   - Si hay frustración válida: Escala a técnico (ESCALATE)
+   - Si NO hay frustración: Pide más información
+   - Mapeo texto: "no", "el problema persiste", "persiste", "todavía no"
+
+7. BTN_WHATSAPP_TECNICO / BTN_CONNECT_TECH (línea ~8177)
+   - Genera ticket
+   - Muestra botón de WhatsApp en frontend
+
+handleEscalateStage() - línea ~9486
+-------------------------------------------------------------------------------
+Botones procesados:
+- BTN_WHATSAPP_TECNICO / BTN_CONNECT_TECH → Genera ticket y muestra WhatsApp
+- BTN_BACK / BTN_BACK_TO_STEPS → Vuelve a pasos anteriores
+
+Botones mostrados:
+- Botón de WhatsApp (generado dinámicamente en frontend)
+- Botones de navegación (volver atrás)
+
+================================================================================
+BOTONES DINÁMICOS
+================================================================================
+
+BTN_HELP_STEP_X
+-------------------------------------------------------------------------------
+Formato: BTN_HELP_STEP_{indice}
+Ejemplos: BTN_HELP_STEP_0, BTN_HELP_STEP_1, BTN_HELP_STEP_2, ...
+
+Generación:
+- Se generan dinámicamente en generateDiagnosticSteps() (línea ~6444)
+- Se insertan como marcadores en el texto: [BTN_HELP_STEP_0]
+- El frontend debe reemplazar los marcadores con botones reales
+
+Procesamiento:
+- Handler: handleBasicTestsStage() - línea ~7584
+- Extrae índice: buttonToken.match(/BTN_HELP_STEP_(\d+)/)
+- Genera explicación: explainStepWithAI(stepIndex, session)
+- Muestra botones para continuar
+
+Ubicación en código:
+- Generación: línea ~6444, ~7252-7262, ~7385, ~7405
+- Procesamiento: línea ~7584-7650
+
+BTN_FEEDBACK_USEFUL / BTN_FEEDBACK_NOT_USEFUL
+-------------------------------------------------------------------------------
+Generación:
+- Se generan dinámicamente en handleBasicTestsStage() (línea ~7258-7263)
+- Solo se muestran cuando session.feedbackButtonsShown === false
+- Se ocultan después de hacer clic
+
+Labels:
+- ES: '👍 La ayuda de Tecnos me fue útil' / '👎 La ayuda de Tecnos no me sirvió'
+- EN: '👍 Tecnos was helpful' / '👎 Tecnos was not helpful'
+
+Procesamiento:
+- Handler: handleBasicTestsStage() - línea ~7939
+- Guarda feedback en session.feedback
+- Cambia a ENDED después de guardar
+
+================================================================================
+MAPEOS Y FUNCIONES DE CONVERSIÓN
+================================================================================
+
+getProblemFromButton(buttonToken) - línea ~4232
+-------------------------------------------------------------------------------
+Mapea tokens de problemas a texto descriptivo:
+- BTN_NO_ENCIENDE → { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' }
+- BTN_NO_INTERNET → { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems' }
+- BTN_LENTITUD → { problem: 'lentitud del sistema', problemEn: 'system slowness' }
+- BTN_BLOQUEO → { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing' }
+- BTN_PERIFERICOS → { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems' }
+- BTN_VIRUS → { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections' }
+
+getDeviceFromButton(buttonToken) - línea ~5645
+-------------------------------------------------------------------------------
+Mapea tokens de dispositivos a configuración:
+- BTN_DEV_PC_DESKTOP → { device: 'pc', pcType: 'desktop', label: 'PC de escritorio' }
+- BTN_DEV_PC_ALLINONE → { device: 'pc', pcType: 'all_in_one', label: 'PC All in One' }
+- BTN_DEV_NOTEBOOK → { device: 'notebook', pcType: null, label: 'Notebook' }
+
+sortProblemButtons(buttons) - línea ~4269
+-------------------------------------------------------------------------------
+Ordena botones de problemas por:
+1. Tasa de éxito histórica (PROBLEM_METRICS)
+2. Orden original si no hay métricas
+
+================================================================================
+GUARD RAILS Y VALIDACIONES
+================================================================================
+
+Simulación (session.simulation === true):
+- Bloquea: BTN_FEEDBACK_USEFUL, BTN_FEEDBACK_NOT_USEFUL
+- Permite: Todos los demás botones
+
+Validación de datos mínimos (faltanDatosMinimos):
+- Se verifica antes de mostrar pasos (FASE 1.1)
+- Se verifica antes de regenerar pasos (BTN_BACK_TO_STEPS)
+- Ubicación: handleAskDeviceStage() línea ~6109, handleBasicTestsStage() línea ~7480
+
+Prevención de repeticiones (FASE 2.3):
+- Aplicada a: BTN_SOLVED, BTN_PERSIST, BTN_CLOSE, BTN_FEEDBACK_*
+- Función: applyTecnosVoice() - línea ~923
+- Verifica: session.progress.lastBotMessages
+
+================================================================================
+INTEGRACIÓN CON FRONTEND
+================================================================================
+
+Normalización de botones (index.php):
+- LABEL_MAP: Mapea tokens a labels visibles
+- normalizeButtons(): Normaliza botones antes de mostrar
+- sendButton(): Envía token al backend
+
+Marcadores dinámicos:
+- [BTN_HELP_STEP_X]: Reemplazado por frontend con botón real
+- Frontend busca marcadores y genera botones correspondientes
+
+Botones de WhatsApp:
+- BTN_WHATSAPP_TECNICO: Generado dinámicamente en frontend
+- No se envía como botón normal, abre WhatsApp directamente
+- Ubicación frontend: appendWAButton()
+
+================================================================================
+ESTADÍSTICAS FINALES
+================================================================================
+
+Total botones en EMBEDDED_CHAT: 50
+Botones activos con handler: ~35
+Botones legacy/no implementados: ~15
+Botones dinámicos: 
+  - BTN_HELP_STEP_X: Ilimitados (uno por paso)
+  - BTN_FEEDBACK_*: 2 (generados dinámicamente)
+Botones especiales (no en EMBEDDED_CHAT): 4
+
+Handlers principales:
+- handleAskLanguageStage: 4 botones
+- handleAskUserLevelStage: 3 botones
+- handleAskNeedStage: 6 botones
+- handleAskDeviceStage: 3 botones
+- handleBasicTestsStage: 7+ botones (más dinámicos)
+- handleEscalateStage: 2 botones
+
+Funciones de mapeo:
+- getProblemFromButton: 6 problemas
+- getDeviceFromButton: 3 dispositivos
+- Mapeos de texto libre: 20+ variantes
+
+================================================================================
+FIN DEL INFORME
+================================================================================
+

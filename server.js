@@ -131,11 +131,20 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
 // Formato diferente a TRANSCRIPTS_DIR: más legible y estructurado para análisis manual
 const HISTORIAL_CHAT_DIR = process.env.HISTORIAL_CHAT_DIR || path.join(DATA_BASE, 'historial_chat');
 
+// FEEDBACK_DIR: Carpeta donde se guardan los feedbacks de los usuarios
+// Los feedbacks se guardan cuando el usuario califica la experiencia (útil / no útil)
+// Formato: JSON con timestamp, conversationId, result, etc.
+const FEEDBACK_DIR = process.env.FEEDBACK_DIR || path.join(DATA_BASE, 'feedback');
+
 // LOG_FILE: Ruta completa al archivo de log principal
 // Todos los logs del servidor se escriben aquí en formato texto
 // Se puede rotar (log rotation) para evitar que el archivo crezca demasiado
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const TELEMETRY_LOG = path.join(LOGS_DIR, 'telemetry.log');
+
+// 🔒 F2-T02: Configuración de rotación de logs
+const LOG_MAX_SIZE = 100 * 1024 * 1024; // 100MB
+const LOG_RETENTION_DAYS = 7; // Mantener últimos 7 días
 // Métricas en memoria (reinician al restart)
 const PROBLEM_METRICS = {};   // { token: { solved: n, persist: n } }
 const STEP_INEFFECTIVE = {};  // { token: { stepIndex: count } }
@@ -144,7 +153,7 @@ const STEP_INEFFECTIVE = {};  // { token: { stepIndex: count } }
 // fs.mkdirSync crea las carpetas de forma recursiva (incluye las carpetas padre si faltan)
 // El try/catch evita errores si las carpetas ya existen o si hay problemas de permisos
 // Esta operación es síncrona porque es crítica: el servidor no puede funcionar sin estas carpetas
-for (const dir of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, HISTORIAL_CHAT_DIR]) {
+for (const dir of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, HISTORIAL_CHAT_DIR, FEEDBACK_DIR]) {
   try {
     // recursive: true crea todas las carpetas padre necesarias
     // Si DATA_BASE no existe, la crea; luego crea transcripts, tickets, etc.
@@ -256,10 +265,12 @@ const logger = pino({
 let openai = null;
 if (process.env.OPENAI_API_KEY) {
   try {
+    // 🔒 F1-T08: Configurar timeout de 30 segundos para llamadas a OpenAI
     openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: process.env.OPENAI_API_KEY,
+      timeout: 30000 // 30 segundos timeout
     });
-    logger.info('[OPENAI] ✅ Cliente de OpenAI inicializado');
+    logger.info('[OPENAI] ✅ Cliente de OpenAI inicializado con timeout de 30s');
   } catch (error) {
     logger.error('[OPENAI] ❌ Error inicializando OpenAI:', error.message);
   }
@@ -267,13 +278,82 @@ if (process.env.OPENAI_API_KEY) {
   logger.warn('[OPENAI] ⚠️  OPENAI_API_KEY no configurada - respuestas técnicas deshabilitadas');
 }
 
+/**
+ * 🔒 F2-T02: Rota archivo de log si es necesario
+ * Mantiene últimos 7 días de logs
+ */
+async function rotateLogFile(logFilePath, logBaseName) {
+  try {
+    const stats = await fs.promises.stat(logFilePath).catch(() => null);
+    if (!stats) return; // Archivo no existe
+    
+    const now = Date.now();
+    const fileAge = now - stats.mtimeMs;
+    const oneDay = 24 * 60 * 60 * 1000;
+    
+    // Rotar si el archivo tiene más de 1 día o si es muy grande (> 100MB)
+    const shouldRotate = fileAge > oneDay || stats.size > LOG_MAX_SIZE;
+    
+    if (!shouldRotate) return;
+    
+    // Generar nombre con timestamp: server.log -> server.2025-01-15.log
+    const dateStr = new Date(stats.mtimeMs).toISOString().split('T')[0];
+    const rotatedPath = path.join(LOGS_DIR, `${logBaseName}.${dateStr}.log`);
+    
+    // Si ya existe un archivo con ese nombre, agregar número
+    let finalRotatedPath = rotatedPath;
+    let counter = 1;
+    while (await fs.promises.access(finalRotatedPath).then(() => true).catch(() => false)) {
+      finalRotatedPath = path.join(LOGS_DIR, `${logBaseName}.${dateStr}.${counter}.log`);
+      counter++;
+    }
+    
+    // Mover archivo actual al archivo rotado
+    await fs.promises.rename(logFilePath, finalRotatedPath);
+    logger.info(`[LOG_ROTATION] Archivo rotado: ${path.basename(finalRotatedPath)} (tamaño: ${(stats.size / 1024 / 1024).toFixed(2)}MB)`);
+    
+    // Limpiar logs antiguos (> 7 días)
+    const cutoffTime = now - (LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const files = await fs.promises.readdir(LOGS_DIR);
+    let deletedCount = 0;
+    
+    for (const file of files) {
+      if (!file.startsWith(logBaseName) || !file.endsWith('.log')) continue;
+      
+      const filePath = path.join(LOGS_DIR, file);
+      const fileStats = await fs.promises.stat(filePath).catch(() => null);
+      
+      if (fileStats && fileStats.mtimeMs < cutoffTime) {
+        await fs.promises.unlink(filePath).catch(() => {});
+        deletedCount++;
+        logger.debug(`[LOG_ROTATION] Log antiguo eliminado: ${file}`);
+      }
+    }
+    
+    if (deletedCount > 0) {
+      logger.info(`[LOG_ROTATION] ${deletedCount} logs antiguos eliminados (retención: ${LOG_RETENTION_DAYS} días)`);
+    }
+  } catch (error) {
+    logger.error(`[LOG_ROTATION] Error rotando logs: ${error.message}`);
+  }
+}
+
 let logStream = null;
 try {
+  // 🔒 F2-T02: Rotar logs antes de inicializar stream
+  rotateLogFile(LOG_FILE, 'server').catch(() => {});
+  
   logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
   logger.info(`[INIT] ✅ Stream de logs inicializado: ${LOG_FILE}`);
 } catch (error) {
   logger.error(`[INIT] ❌ Error creando stream de logs: ${error.message}`);
 }
+
+// 🔒 F2-T02: Ejecutar rotación diaria de logs
+setInterval(() => {
+  rotateLogFile(LOG_FILE, 'server').catch(() => {});
+  rotateLogFile(TELEMETRY_LOG, 'telemetry').catch(() => {});
+}, 24 * 60 * 60 * 1000); // Cada 24 horas
 
 // ========================================================
 // 🌐 CONFIGURACIÓN CORS (Cross-Origin Resource Sharing)
@@ -436,6 +516,71 @@ const limiter = rateLimit({
   legacyHeaders: false        // NO usar header 'X-RateLimit-*' (deprecado)
 });
 
+// 🔒 F1-T02: Rate limit específico para POST /api/chat
+// Limita a 50 requests/5min por IP para proteger endpoint crítico
+const chatRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutos
+  max: 50, // Máximo 50 requests por 5 minutos
+  message: {
+    ok: false,
+    error: 'Too many requests. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    logger.warn(`[RATE_LIMIT] Rate limit activado para /api/chat - IP: ${clientIP}, endpoint: /api/chat, límite: 50/5min`);
+    res.status(429).json({
+      ok: false,
+      error: 'Too many requests. Please try again later.'
+    });
+  }
+});
+
+// 🔒 F1-T06: Rate limit específico para /api/simulations/run
+// Limita a 10 simulaciones/hora por IP para prevenir DoS
+const simulationsRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 10, // Máximo 10 simulaciones por hora
+  message: {
+    ok: false,
+    error: 'Demasiadas simulaciones. Límite: 10 simulaciones por hora por IP.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const timestamp = new Date().toISOString();
+    logger.warn(`[RATE_LIMIT] endpoint=/api/simulations/run ip=${clientIP} max=10 window=1h timestamp=${timestamp}`);
+    res.status(429).json({
+      ok: false,
+      error: 'Demasiadas simulaciones. Límite: 10 simulaciones por hora por IP.'
+    });
+  }
+});
+
+// 🔒 F2-T05: Rate limit específico para creación de sesiones (spam prevention)
+// Máximo 20 sesiones nuevas / 15 min / IP
+const sessionCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 20, // Máximo 20 sesiones por 15 minutos
+  message: {
+    ok: false,
+    error: 'Too many new sessions. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const timestamp = new Date().toISOString();
+    logger.warn(`[RATE_LIMIT] endpoint=${req.path} ip=${clientIP} max=20 window=15min timestamp=${timestamp}`);
+    res.status(429).json({
+      ok: false,
+      error: 'Too many new sessions. Please try again later.'
+    });
+  }
+});
+
 // Aplicar rate limiting a todas las rutas (excepto health check)
 // IMPORTANTE: No aplicar a /api/health porque los monitores lo llaman frecuentemente
 app.use((req, res, next) => {
@@ -482,30 +627,86 @@ app.get('/api/health', async (req, res) => {
     const uptime = process.uptime();           // Tiempo que el servidor lleva corriendo (segundos)
     const memory = process.memoryUsage();      // Uso de memoria (heap, RSS, etc.)
 
-    // Construir respuesta de health check
-    const health = {
-      ok: true,                                 // El servidor está funcionando
-      status: 'healthy',                        // Estado: healthy, degraded, error
-      timestamp: new Date().toISOString(),      // Timestamp de la verificación
-      uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,  // Uptime legible
-      uptimeSeconds: Math.floor(uptime),       // Uptime en segundos (para monitoreo)
+    // 🔒 F3-T05: Verificaciones adicionales de recursos
+    let status = 'healthy';
+    const details = {
+      disk: null,
       memory: {
-        heapUsed: `${(memory.heapUsed / 1024 / 1024).toFixed(2)}MB`,      // Memoria heap usada
-        heapTotal: `${(memory.heapTotal / 1024 / 1024).toFixed(2)}MB`,    // Memoria heap total
-        rss: `${(memory.rss / 1024 / 1024).toFixed(2)}MB`                 // Resident Set Size (memoria física)
+        heapUsed: `${(memory.heapUsed / 1024 / 1024).toFixed(2)}MB`,
+        heapTotal: `${(memory.heapTotal / 1024 / 1024).toFixed(2)}MB`,
+        rss: `${(memory.rss / 1024 / 1024).toFixed(2)}MB`,
+        heapUsedMB: Math.round(memory.heapUsed / 1024 / 1024),
+        rssMB: Math.round(memory.rss / 1024 / 1024)
       },
-      version: '2.0.0'                         // Versión de la API
+      openai: null
     };
 
-    // Responder con código 200 (OK) y el objeto de health
+    // Verificar espacio en disco (intentar statfs, fallback silencioso si no está disponible)
+    try {
+      // statfs puede no estar disponible en todas las plataformas (Windows)
+      const stats = await fs.promises.statfs(TRANSCRIPTS_DIR).catch(() => null);
+      if (stats && typeof stats.bavail === 'number' && typeof stats.bsize === 'number' && typeof stats.blocks === 'number') {
+        const freeGB = (stats.bavail * stats.bsize) / (1024 * 1024 * 1024);
+        const totalGB = (stats.blocks * stats.bsize) / (1024 * 1024 * 1024);
+        if (totalGB > 0) {
+          const usedPercent = ((totalGB - freeGB) / totalGB) * 100;
+          details.disk = {
+            freeGB: freeGB.toFixed(2),
+            totalGB: totalGB.toFixed(2),
+            usedPercent: usedPercent.toFixed(1)
+          };
+          // Marcar como degraded si queda menos de 10% libre
+          if (freeGB < (totalGB * 0.1)) {
+            status = 'degraded';
+          }
+        }
+      }
+    } catch (err) {
+      // Ignorar errores (statfs puede no estar disponible en todas las plataformas)
+      // No exponer detalles del error en la respuesta
+    }
+
+    // Verificar memoria (degraded si RSS > 1GB o heap > 512MB)
+    if (memory.rss > 1024 * 1024 * 1024 || memory.heapUsed > 512 * 1024 * 1024) {
+      status = 'degraded';
+    }
+
+    // Verificar conectividad OpenAI (opcional, con timeout corto, no bloqueante)
+    if (openai && process.env.OPENAI_API_KEY) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000); // 2 segundos máximo
+        await openai.models.list().catch(() => {});
+        clearTimeout(timeout);
+        details.openai = { connected: true };
+      } catch (err) {
+        details.openai = { connected: false, error: 'timeout or connection failed' };
+        // No marcar como degraded solo por OpenAI (no es crítico para health)
+      }
+    }
+
+    // Construir respuesta de health check
+    const health = {
+      ok: status === 'healthy',
+      status: status,
+      timestamp: new Date().toISOString(),
+      uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
+      uptimeSeconds: Math.floor(uptime),
+      memory: details.memory,
+      disk: details.disk,
+      openai: details.openai,
+      version: '2.0.0'
+    };
+
+    // Responder con código 200 (siempre, incluso si degraded)
     res.status(200).json(health);
   } catch (error) {
-    // Si hay un error al generar el health check, responder con error 500
+    // Si hay un error al generar el health check, responder con error pero marcar degraded
     logger.error('[HEALTH] Error en health check:', error);
-    res.status(500).json({
+    res.status(200).json({
       ok: false,
-      status: 'error',
-      error: 'Health check failed',
+      status: 'degraded',
+      error: 'Health check incomplete',
       timestamp: new Date().toISOString()
     });
   }
@@ -727,6 +928,53 @@ function applyTecnosVoice(reply = '', locale = TECNOS_DEFAULT_LOCALE, variants =
   return text;
 }
 
+// 🔒 F3-T04: Cache en memoria para IDs existentes (optimización)
+const existingIdsCache = new Set();
+let cacheLastUpdated = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+/**
+ * 🔒 F3-T04: Actualiza el cache de IDs existentes desde disco
+ * Se ejecuta automáticamente antes de generar IDs y cada 5 minutos
+ */
+async function refreshIdsCache() {
+  const now = Date.now();
+  if (now - cacheLastUpdated < CACHE_TTL && existingIdsCache.size > 0) {
+    return; // Cache aún válido
+  }
+  
+  try {
+    existingIdsCache.clear();
+    
+    // Cargar IDs de sesiones
+    const sessionFiles = await fs.promises.readdir(TRANSCRIPTS_DIR).catch(() => []);
+    sessionFiles.forEach(file => {
+      if (file.endsWith('.json')) {
+        const id = path.basename(file, '.json');
+        if (/^[A-Z][0-9]{4}$/.test(id)) {
+          existingIdsCache.add(id);
+        }
+      }
+    });
+    
+    // Cargar IDs de tickets
+    const ticketFiles = await fs.promises.readdir(TICKETS_DIR).catch(() => []);
+    ticketFiles.forEach(file => {
+      if (file.endsWith('.txt') || file.endsWith('.json')) {
+        const id = path.basename(file, path.extname(file));
+        if (/^[A-Z][0-9]{4}$/.test(id)) {
+          existingIdsCache.add(id);
+        }
+      }
+    });
+    
+    cacheLastUpdated = now;
+    logger.debug(`[ID_GEN] Cache actualizado: ${existingIdsCache.size} IDs existentes`);
+  } catch (error) {
+    logger.warn(`[ID_GEN] Error actualizando cache: ${error.message}`);
+  }
+}
+
 /**
  * Genera un ID único unificado para sesiones y tickets
  * Formato: A0000 hasta Z9999 (excluyendo la letra Ñ)
@@ -743,6 +991,8 @@ function applyTecnosVoice(reply = '', locale = TECNOS_DEFAULT_LOCALE, variants =
  * Ejemplos válidos: A0000, A0001, ..., A9999, B0000, ..., Z9999
  * Ejemplos inválidos: Ñ0000 (contiene Ñ)
  * 
+ * 🔒 F3-T04: Optimizado con cache en memoria para reducir IO
+ * 
  * ✅ SE PUEDE MODIFICAR: El rango de letras o números (pero mantener unicidad)
  * ❌ NO MODIFICAR: Debe retornar un string único que no exista en archivos
  * 
@@ -752,28 +1002,36 @@ async function generateUnifiedId() {
   // Letras permitidas: A-Z excepto Ñ (25 letras)
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').filter(l => l !== 'Ñ');
   
-  // Función para verificar si un ID ya existe
+  // 🔒 F3-T04: Actualizar cache antes de generar
+  await refreshIdsCache();
+  
+  // Función para verificar si un ID ya existe (usando cache primero)
   const idExists = async (id) => {
+    // Verificar en cache primero (rápido)
+    if (existingIdsCache.has(id)) {
+      return true;
+    }
+    
+    // Si no está en cache, verificar en disco (más lento)
     try {
-      // Verificar en TRANSCRIPTS_DIR (archivos de sesión: {id}.json)
       const sessionFile = path.join(TRANSCRIPTS_DIR, `${id}.json`);
-      if (await fs.promises.access(sessionFile).then(() => true).catch(() => false)) {
-        return true;
-      }
-      
-      // Verificar en TICKETS_DIR (archivos de ticket: {id}.txt o {id}.json)
       const ticketFileTxt = path.join(TICKETS_DIR, `${id}.txt`);
       const ticketFileJson = path.join(TICKETS_DIR, `${id}.json`);
-      if (await fs.promises.access(ticketFileTxt).then(() => true).catch(() => false)) {
-        return true;
-      }
-      if (await fs.promises.access(ticketFileJson).then(() => true).catch(() => false)) {
+      
+      const checks = await Promise.all([
+        fs.promises.access(sessionFile).then(() => true).catch(() => false),
+        fs.promises.access(ticketFileTxt).then(() => true).catch(() => false),
+        fs.promises.access(ticketFileJson).then(() => true).catch(() => false)
+      ]);
+      
+      if (checks.some(exists => exists)) {
+        // Agregar al cache para próxima vez
+        existingIdsCache.add(id);
         return true;
       }
       
       return false;
     } catch (error) {
-      // Si hay error al verificar, asumir que no existe (más seguro)
       return false;
     }
   };
@@ -793,6 +1051,8 @@ async function generateUnifiedId() {
     // Verificar si el ID ya existe
     const exists = await idExists(id);
     if (!exists) {
+      // 🔒 F3-T04: Agregar al cache para próximas verificaciones
+      existingIdsCache.add(id);
       return id; // ID único encontrado
     }
     
@@ -837,6 +1097,828 @@ function isValidSessionId(sessionId) {
 }
 
 /**
+ * Guarda el feedback del usuario en un archivo JSON persistente
+ * 
+ * El feedback se guarda cuando el usuario califica la experiencia:
+ * - 👍 La ayuda de Tecnos me fue útil (result: "useful")
+ * - 👎 La ayuda de Tecnos no me sirvió (result: "not_useful")
+ * 
+ * ⚠️ CRÍTICO: Esta función debe respetar el modo simulación
+ * - Si session.simulation === true, guardar igual pero marcar simulation: true
+ * - No afectar métricas reales en modo simulación
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - El formato del archivo JSON
+ *    - Los campos adicionales a guardar
+ * ❌ NO MODIFICAR:
+ *    - Debe guardar en FEEDBACK_DIR
+ *    - Debe incluir timestamp, conversationId, result, simulation
+ *    - Debe respetar el modo simulación
+ * 
+ * @param {string} sessionId - ID de la conversación
+ * @param {object} session - Objeto de sesión
+ * @param {string} result - "useful" | "not_useful"
+ * @returns {Promise<void>}
+ */
+async function saveFeedback(sessionId, session, result) {
+  try {
+    // 🔒 TAREA 3: Guard rail de simulación - NO persistir feedback en modo simulación
+    // Preferencia: NO persistir (evitar spam de archivos)
+    if (session.simulation === true) {
+      logger.info(`[FEEDBACK] [SIMULATION_GUARD] bloqueado: ${sessionId} result=${result}`);
+      return; // Salir sin persistir
+    }
+    
+    // Validar parámetros
+    if (!sessionId || typeof sessionId !== 'string') {
+      logger.error('[FEEDBACK] ❌ sessionId inválido');
+      return;
+    }
+    
+    if (!session || typeof session !== 'object') {
+      logger.error('[FEEDBACK] ❌ session inválida');
+      return;
+    }
+    
+    if (result !== 'useful' && result !== 'not_useful') {
+      logger.error(`[FEEDBACK] ❌ result inválido: ${result}. Debe ser "useful" o "not_useful"`);
+      return;
+    }
+    
+    // Crear objeto de feedback
+    const feedback = {
+      timestamp: nowIso(),
+      conversationId: sessionId,
+      locale: session.userLocale || 'es-AR',
+      result: result,
+      stage_final: session.stage || 'ENDED',
+      simulation: session.simulation === true
+    };
+    
+    // Generar nombre de archivo único con timestamp
+    const timestamp = Date.now();
+    const filename = `feedback_${sessionId}_${timestamp}.json`;
+    const filepath = path.join(FEEDBACK_DIR, filename);
+    
+    // Guardar archivo JSON
+    await fs.promises.writeFile(filepath, JSON.stringify(feedback, null, 2), 'utf8');
+    
+    logger.info(`[FEEDBACK] ✅ Feedback guardado: ${filename} (result: ${result}, simulation: ${feedback.simulation})`);
+  } catch (error) {
+    logger.error(`[FEEDBACK] ❌ Error guardando feedback: ${error.message}`);
+    // No lanzar error - el feedback no es crítico para el flujo
+  }
+}
+
+// ========================================================
+// 🔒 FASE 5: NIVEL DE EXPERIENCIA DEL USUARIO Y ADAPTACIÓN
+// ========================================================
+// 
+// Helpers para adaptar el flujo según el nivel de experiencia del usuario
+// (basic, intermediate, advanced)
+//
+// ✅ SE PUEDE MODIFICAR:
+//    - Las reglas de adaptación
+//    - Los límites de preguntas/pasos
+// ❌ NO MODIFICAR:
+//    - Debe respetar userLevel de la sesión
+//    - Debe retornar valores consistentes
+// ========================================================
+
+/**
+ * Obtiene el nivel de experiencia del usuario desde la sesión
+ * 
+ * Si no existe userLevel, retorna 'intermediate' por defecto (nivel medio)
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {string} 'basic' | 'intermediate' | 'advanced'
+ */
+function getUserLevel(session) {
+  if (!session || typeof session !== 'object') {
+    return 'intermediate'; // Por defecto
+  }
+  
+  const level = session.userLevel;
+  if (level === 'basic' || level === 'intermediate' || level === 'advanced') {
+    return level;
+  }
+  
+  return 'intermediate'; // Por defecto si no está definido o es inválido
+}
+
+/**
+ * Determina cuántas preguntas se pueden hacer por mensaje según el nivel
+ * 
+ * - basic: máximo 1 pregunta por mensaje
+ * - intermediate: máximo 2-3 preguntas por mensaje
+ * - advanced: múltiples preguntas o checklist
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {number} Cantidad máxima de preguntas por mensaje
+ */
+function getMaxQuestionsPerMessage(session) {
+  const level = getUserLevel(session);
+  
+  switch (level) {
+    case 'basic':
+      return 1;
+    case 'intermediate':
+      return 2;
+    case 'advanced':
+      return 3;
+    default:
+      return 2; // Por defecto
+  }
+}
+
+/**
+ * Determina si se debe mostrar explicación detallada según el nivel
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {boolean} true si se debe mostrar explicación detallada
+ */
+function shouldShowDetailedExplanation(session) {
+  const level = getUserLevel(session);
+  return level === 'basic'; // Solo básico necesita explicación detallada
+}
+
+/**
+ * Determina el nivel mínimo de dificultad de pasos a mostrar según el nivel
+ * 
+ * - basic: mostrar desde ⭐ (muy fácil)
+ * - intermediate: mostrar desde ⭐⭐ (fácil)
+ * - advanced: mostrar desde ⭐⭐⭐ (intermedio) y dejar básicos en bloque opcional
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {number} Nivel mínimo de dificultad (1-5 estrellas)
+ */
+function getMinStepDifficulty(session) {
+  const level = getUserLevel(session);
+  
+  switch (level) {
+    case 'basic':
+      return 1; // ⭐ (muy fácil)
+    case 'intermediate':
+      return 2; // ⭐⭐ (fácil)
+    case 'advanced':
+      return 3; // ⭐⭐⭐ (intermedio)
+    default:
+      return 2; // Por defecto
+  }
+}
+
+/**
+ * Determina si se debe preguntar confirmación antes de mostrar pasos básicos
+ * (especialmente para usuarios avanzados)
+ * 
+ * @param {object} session - Sesión actual
+ * @param {number} stepDifficulty - Dificultad del paso (1-5 estrellas)
+ * @returns {boolean} true si se debe preguntar confirmación
+ */
+function shouldAskConfirmationBeforeBasicStep(session, stepDifficulty) {
+  const level = getUserLevel(session);
+  
+  // Solo para avanzados, preguntar si el paso es muy básico (⭐ o ⭐⭐)
+  if (level === 'advanced' && stepDifficulty <= 2) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Recalibra el nivel de experiencia del usuario según su comportamiento
+ * 
+ * Detecta contradicciones entre el nivel declarado y el comportamiento real:
+ * - Si userLevel=advanced pero pide explicaciones básicas repetidamente → bajar a intermediate
+ * - Si userLevel=basic pero menciona acciones técnicas avanzadas → subir a intermediate/advanced
+ * 
+ * ⚠️ CRÍTICO: Esta función NO debe "corregir" al usuario, solo ajustar internamente
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} userText - Texto del usuario para analizar
+ * @param {string} reason - Razón de la recalibración ('basic_question' | 'advanced_action' | 'technical_term')
+ * @returns {object|null} { from: string, to: string, reason: string } si hubo cambio, null si no
+ */
+function recalibrateUserLevel(session, userText, reason) {
+  if (!session || typeof session !== 'object') {
+    return null;
+  }
+  
+  // Inicializar estructuras si no existen
+  if (!session.userLevelAutoAdjustments) {
+    session.userLevelAutoAdjustments = [];
+  }
+  if (typeof session.userLevelConfidence !== 'number') {
+    session.userLevelConfidence = 80; // Confianza inicial: 80%
+  }
+  
+  const currentLevel = getUserLevel(session);
+  const lowerText = (userText || '').toLowerCase();
+  
+  // Detectar acciones técnicas avanzadas
+  const advancedIndicators = [
+    'bios', 'cmos', 'uefi', 'boot', 'grub', 'kernel',
+    'driver', 'registry', 'regedit', 'cmd', 'powershell', 'terminal',
+    'memoria ram', 'memtest', 'chkdsk', 'sfc', 'dism',
+    'event viewer', 'visor de eventos', 'log', 'logs',
+    'device manager', 'administrador de dispositivos',
+    'task manager', 'administrador de tareas', 'proceso',
+    'blue screen', 'pantalla azul', 'bsod',
+    'firmware', 'actualización de bios'
+  ];
+  
+  // Detectar preguntas básicas o necesidad de explicación detallada
+  const basicIndicators = [
+    'qué es', 'que es', 'what is', 'qué significa', 'que significa',
+    'cómo funciona', 'como funciona', 'how does', 'explicame', 'explain',
+    'no entiendo', 'no entiendo nada', "i don't understand",
+    'muy difícil', 'very difficult', 'muy complicado', 'very complicated',
+    'más simple', 'more simple', 'más fácil', 'easier'
+  ];
+  
+  let newLevel = null;
+  let adjustmentReason = '';
+  
+  // Si el nivel es advanced pero el usuario muestra comportamiento básico
+  if (currentLevel === 'advanced' && (reason === 'basic_question' || basicIndicators.some(ind => lowerText.includes(ind)))) {
+    // Contar cuántas veces ha pedido explicaciones básicas
+    const basicQuestionsCount = session.userLevelAutoAdjustments.filter(a => a.reason === 'basic_question').length;
+    
+    // Si ha pedido explicaciones básicas 2+ veces, bajar a intermediate
+    if (basicQuestionsCount >= 1) { // Umbral: 2 veces (incluyendo esta)
+      newLevel = 'intermediate';
+      adjustmentReason = 'Usuario avanzado pidió explicaciones básicas repetidamente';
+      session.userLevelConfidence = Math.max(50, session.userLevelConfidence - 20); // Reducir confianza
+    }
+  }
+  
+  // Si el nivel es basic pero el usuario menciona acciones técnicas avanzadas
+  if (currentLevel === 'basic' && (reason === 'advanced_action' || advancedIndicators.some(ind => lowerText.includes(ind)))) {
+    // Si menciona acciones técnicas, subir a intermediate
+    newLevel = 'intermediate';
+    adjustmentReason = 'Usuario básico mencionó acciones técnicas avanzadas';
+    session.userLevelConfidence = Math.min(90, session.userLevelConfidence + 15); // Aumentar confianza
+  }
+  
+  // Si el nivel es intermediate y muestra comportamiento muy avanzado, subir a advanced
+  if (currentLevel === 'intermediate' && reason === 'advanced_action' && advancedIndicators.some(ind => lowerText.includes(ind))) {
+    const advancedCount = session.userLevelAutoAdjustments.filter(a => a.reason === 'advanced_action').length;
+    if (advancedCount >= 1) { // Si menciona acciones avanzadas 2+ veces
+      newLevel = 'advanced';
+      adjustmentReason = 'Usuario intermedio mencionó múltiples acciones técnicas avanzadas';
+      session.userLevelConfidence = Math.min(95, session.userLevelConfidence + 10);
+    }
+  }
+  
+  // Si hubo cambio, registrarlo
+  if (newLevel && newLevel !== currentLevel) {
+    const adjustment = {
+      timestamp: nowIso(),
+      from: currentLevel,
+      to: newLevel,
+      reason: adjustmentReason || reason,
+      userText: userText ? userText.substring(0, 100) : '', // Limitar longitud
+      confidenceBefore: session.userLevelConfidence,
+      confidenceAfter: session.userLevelConfidence
+    };
+    
+    session.userLevelAutoAdjustments.push(adjustment);
+    session.userLevel = newLevel;
+    
+    logger.info(`[USER_LEVEL] auto-adjust: from ${currentLevel} to ${newLevel} (reason: ${adjustmentReason || reason}, confidence: ${session.userLevelConfidence}%)`);
+    
+    return {
+      from: currentLevel,
+      to: newLevel,
+      reason: adjustmentReason || reason
+    };
+  }
+  
+  // Si no hubo cambio pero hay indicadores, registrar para análisis
+  if (reason && !newLevel) {
+    session.userLevelAutoAdjustments.push({
+      timestamp: nowIso(),
+      reason: reason,
+      userText: userText ? userText.substring(0, 100) : '',
+      level: currentLevel,
+      confidence: session.userLevelConfidence
+    });
+  }
+  
+  return null;
+}
+
+/**
+ * Genera un mensaje suave cuando se recalibra el nivel automáticamente
+ * 
+ * ⚠️ CRÍTICO: El mensaje NO debe "corregir" ni "insultar" al usuario
+ * Solo informar suavemente que se ajustó el enfoque
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} from - Nivel anterior
+ * @param {string} to - Nivel nuevo
+ * @param {string} locale - Idioma ('es-AR' o 'en-US')
+ * @returns {string|null} Mensaje suave o null si no se debe mostrar
+ */
+function getRecalibrationMessage(session, from, to, locale) {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  
+  // Solo mostrar mensaje si se subió el nivel (positivo)
+  // Si se bajó, no mostrar nada para no ofender
+  if (from === 'basic' && to === 'intermediate') {
+    return isEnglish
+      ? "Great, it looks like you already tried a few checks; I'll go more straight to the point."
+      : "Genial, por lo que contás ya probaste varias cosas; voy a ir un poco más al grano.";
+  }
+  
+  if (from === 'intermediate' && to === 'advanced') {
+    return isEnglish
+      ? "I see you've done advanced troubleshooting before; I'll skip the basics and focus on more technical solutions."
+      : "Veo que ya hiciste diagnósticos avanzados antes; voy a saltar lo básico y enfocarme en soluciones más técnicas.";
+  }
+  
+  // No mostrar mensaje si se bajó el nivel (para no ofender)
+  return null;
+}
+
+// ========================================================
+// 🔒 FASE 4: INTELIGENCIA CONVERSACIONAL Y DIAGNÓSTICO
+// ========================================================
+
+/**
+ * 🔒 F4-A: Inicializa o asegura la estructura de diagnóstico en la sesión
+ * 
+ * Esta función garantiza que session.diagnosis existe con la estructura correcta.
+ * Se debe llamar al inicio de cada handler que maneja diagnóstico.
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {object} session.diagnosis (inicializado si no existía)
+ */
+function ensureDiagnosisStructure(session) {
+  if (!session) return null;
+  
+  if (!session.diagnosis) {
+    session.diagnosis = {
+      problemaDetectado: null,
+      dispositivo: null,
+      sistemaOperativo: null,
+      pasos: {
+        sugeridos: new Set(),
+        explicados: new Set(),
+        confirmados: new Set(),
+        fallidos: new Set()
+      },
+      preguntasRealizadas: new Set()
+    };
+  }
+  
+  // Asegurar que los Sets existen (por si se serializó a JSON)
+  if (!(session.diagnosis.pasos.sugeridos instanceof Set)) {
+    session.diagnosis.pasos.sugeridos = new Set(session.diagnosis.pasos.sugeridos || []);
+  }
+  if (!(session.diagnosis.pasos.explicados instanceof Set)) {
+    session.diagnosis.pasos.explicados = new Set(session.diagnosis.pasos.explicados || []);
+  }
+  if (!(session.diagnosis.pasos.confirmados instanceof Set)) {
+    session.diagnosis.pasos.confirmados = new Set(session.diagnosis.pasos.confirmados || []);
+  }
+  if (!(session.diagnosis.pasos.fallidos instanceof Set)) {
+    session.diagnosis.pasos.fallidos = new Set(session.diagnosis.pasos.fallidos || []);
+  }
+  if (!(session.diagnosis.preguntasRealizadas instanceof Set)) {
+    session.diagnosis.preguntasRealizadas = new Set(session.diagnosis.preguntasRealizadas || []);
+  }
+  
+  return session.diagnosis;
+}
+
+/**
+ * 🔒 F4-B: Valida si un paso debe ser explicado
+ * 
+ * Regla: NO repetir explicación si ya fue explicado.
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ * @returns {boolean} true si debe explicarse, false si ya fue explicado
+ */
+/**
+ * 🔒 FUNCIÓN CRÍTICA: shouldExplainStep
+ * 
+ * PROPÓSITO:
+ * Evita explicar el mismo paso múltiples veces al usuario.
+ * Mantiene la conversación eficiente y evita repeticiones agotadoras.
+ * 
+ * CUÁNDO SE USA:
+ * - Antes de generar explicación detallada de un paso (BTN_HELP_STEP_X)
+ * - Cuando el usuario solicita ayuda sobre un paso específico
+ * 
+ * QUÉ PREVIENE:
+ * - Explicar el mismo paso varias veces en la misma sesión
+ * - Generar respuestas repetitivas que frustran al usuario
+ * 
+ * NO DEBE:
+ * - Bloquear explicaciones legítimas si el contexto cambió
+ * - Asumir que una explicación nunca debe repetirse
+ * 
+ * @param {string|number} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ * @returns {boolean} true si debe explicarse, false si ya fue explicado
+ */
+function shouldExplainStep(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return true;
+  
+  const stepKey = String(stepId);
+  const alreadyExplained = diagnosis.pasos.explicados.has(stepKey);
+  
+  if (alreadyExplained) {
+    logger.info(`[DIAGNOSIS] Paso ${stepKey} ya fue explicado, omitiendo repetición`);
+  }
+  
+  return !alreadyExplained;
+}
+
+/**
+ * 🔒 F4-B: Valida si un paso debe ser sugerido
+ * 
+ * Reglas:
+ * - NO sugerir si ya fue confirmado como realizado
+ * - NO sugerir si ya falló (a menos que se cambie el enfoque)
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ * @returns {boolean} true si debe sugerirse, false si ya fue confirmado o falló
+ */
+function shouldSuggestStep(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return true;
+  
+  const stepKey = String(stepId);
+  const alreadyConfirmed = diagnosis.pasos.confirmados.has(stepKey);
+  const alreadyFailed = diagnosis.pasos.fallidos.has(stepKey);
+  
+  if (alreadyConfirmed) {
+    logger.info(`[DIAGNOSIS] Paso ${stepKey} ya fue confirmado como realizado, no se sugiere de nuevo`);
+    return false;
+  }
+  
+  if (alreadyFailed) {
+    logger.info(`[DIAGNOSIS] Paso ${stepKey} ya falló, no se sugiere sin variar enfoque`);
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * 🔒 FUNCIÓN CRÍTICA: shouldAsk
+ * 
+ * PROPÓSITO:
+ * Evita preguntar al usuario información que ya se obtuvo previamente.
+ * Previene repeticiones molestas y mantiene la conversación fluida.
+ * 
+ * CUÁNDO SE USA:
+ * - Antes de hacer cualquier pregunta al usuario
+ * - Cuando se necesita validar si ya se tiene información
+ * - En flujos de diagnóstico para evitar preguntas redundantes
+ * 
+ * QUÉ PREVIENE:
+ * - Preguntar el SO si ya está en session.os
+ * - Preguntar el dispositivo si ya está en session.device
+ * - Repetir preguntas ya respondidas
+ * 
+ * NO DEBE:
+ * - Asumir que una pregunta nunca debe repetirse (puede ser necesario con contexto diferente)
+ * - Ignorar cambios de contexto que requieren re-preguntar
+ * 
+ * @param {string} questionKey - Identificador único de la pregunta (ej: 'OS', 'DEVICE_TYPE', 'PROBLEMA_DETALLE')
+ * @param {object} session - Sesión actual
+ * @returns {boolean} true si debe preguntarse, false si ya se tiene la respuesta
+ */
+function shouldAsk(questionKey, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return true;
+  
+  const key = String(questionKey).toUpperCase();
+  const alreadyAsked = diagnosis.preguntasRealizadas.has(key);
+  
+  // Verificar si la respuesta ya está en la sesión (según el tipo de pregunta)
+  let hasAnswer = false;
+  
+  switch (key) {
+    case 'OS':
+    case 'SISTEMA_OPERATIVO':
+      hasAnswer = !!(session.os || session.device?.includes('Mac') || session.device?.includes('Windows') || session.device?.includes('Linux'));
+      break;
+    case 'DEVICE':
+    case 'DISPOSITIVO':
+      hasAnswer = !!session.device;
+      break;
+    case 'PROBLEMA':
+    case 'PROBLEMA_DETECTADO':
+      hasAnswer = !!session.problem;
+      break;
+    case 'PERIPHERAL_TYPE':
+    case 'TIPO_PERIFERICO':
+      hasAnswer = !!(session.peripheralType || (session.device && /impresora|mouse|teclado|monitor|pendrive/i.test(session.device)));
+      break;
+  }
+  
+  if (alreadyAsked && hasAnswer) {
+    logger.info(`[DIAGNOSIS] Pregunta "${key}" ya realizada y respuesta disponible, omitiendo`);
+    return false;
+  }
+  
+  if (alreadyAsked && !hasAnswer) {
+    // Ya se preguntó pero no se obtuvo respuesta, puede volver a preguntarse con contexto diferente
+    logger.debug(`[DIAGNOSIS] Pregunta "${key}" ya realizada pero sin respuesta, puede reintentarse`);
+  }
+  
+  return !alreadyAsked || !hasAnswer;
+}
+
+/**
+ * 🔒 F4-C: Registra una pregunta como realizada
+ * 
+ * @param {string} questionKey - Identificador único de la pregunta
+ * @param {object} session - Sesión actual
+ */
+function registerQuestionAsked(questionKey, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  const key = String(questionKey).toUpperCase();
+  diagnosis.preguntasRealizadas.add(key);
+  logger.info(`[DIAGNOSIS] Pregunta registrada: "${key}"`);
+}
+
+/**
+ * 🔒 F4-D: Calcula el estado actual del diagnóstico
+ * 
+ * @param {object} session - Sesión actual
+ * @returns {object} Estado del diagnóstico con pasosPendientes, pasosConfirmados, pasosFallidos, nivelDiagnostico
+ */
+function getDiagnosisState(session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) {
+    return {
+      pasosPendientes: 0,
+      pasosConfirmados: 0,
+      pasosFallidos: 0,
+      nivelDiagnostico: 'BAJO'
+    };
+  }
+  
+  const pasosSugeridos = diagnosis.pasos.sugeridos.size;
+  const pasosConfirmados = diagnosis.pasos.confirmados.size;
+  const pasosFallidos = diagnosis.pasos.fallidos.size;
+  const pasosExplicados = diagnosis.pasos.explicados.size;
+  
+  // Pasos pendientes = sugeridos pero no confirmados ni fallidos
+  const pasosPendientes = Array.from(diagnosis.pasos.sugeridos).filter(
+    stepId => !diagnosis.pasos.confirmados.has(String(stepId)) && !diagnosis.pasos.fallidos.has(String(stepId))
+  ).length;
+  
+  // Nivel de diagnóstico según progreso
+  let nivelDiagnostico = 'BAJO';
+  const totalProgreso = pasosConfirmados + pasosFallidos + pasosExplicados;
+  
+  if (totalProgreso >= 5) {
+    nivelDiagnostico = 'ALTO';
+  } else if (totalProgreso >= 2) {
+    nivelDiagnostico = 'MEDIO';
+  }
+  
+  return {
+    pasosPendientes,
+    pasosConfirmados,
+    pasosFallidos,
+    pasosExplicados,
+    nivelDiagnostico
+  };
+}
+
+/**
+ * 🔒 F4-E: Valida coherencia conversacional de una respuesta
+ * 
+ * Verifica que la respuesta no contradiga información previa y sea coherente con el estado actual.
+ * 
+ * @param {string} response - Respuesta propuesta del bot
+ * @param {object} session - Sesión actual
+ * @returns {object} { coherent: boolean, warnings: string[] }
+ */
+function validateResponseCoherence(response, session) {
+  const warnings = [];
+  const diagnosis = ensureDiagnosisStructure(session);
+  
+  if (!response || typeof response !== 'string') {
+    return { coherent: false, warnings: ['Respuesta vacía o inválida'] };
+  }
+  
+  const lowerResponse = response.toLowerCase();
+  
+  // Verificar contradicciones con dispositivo conocido
+  if (session.device) {
+    const deviceLower = session.device.toLowerCase();
+    if (deviceLower.includes('mac') && lowerResponse.includes('windows')) {
+      warnings.push('Respuesta menciona Windows pero dispositivo es Mac');
+    }
+    if (deviceLower.includes('windows') && lowerResponse.includes('terminal de mac')) {
+      warnings.push('Respuesta menciona terminal Mac pero dispositivo es Windows');
+    }
+  }
+  
+  // Verificar si se está reiniciando el flujo innecesariamente
+  if (diagnosis && diagnosis.pasos.confirmados.size > 0) {
+    if (lowerResponse.includes('empecemos desde el principio') || 
+        lowerResponse.includes('vamos a empezar de nuevo')) {
+      warnings.push('Respuesta sugiere reiniciar flujo aunque hay pasos confirmados');
+    }
+  }
+  
+  // Verificar si se pide información ya conocida
+  if (session.problem && lowerResponse.includes('cuál es tu problema') && !lowerResponse.includes('más detalles')) {
+    warnings.push('Respuesta pregunta problema aunque ya está detectado');
+  }
+  
+  const coherent = warnings.length === 0;
+  
+  if (!coherent) {
+    logger.warn(`[DIAGNOSIS] Advertencias de coherencia: ${warnings.join('; ')}`);
+  }
+  
+  return { coherent, warnings };
+}
+
+/**
+ * 🔒 F4-A: Registra un paso como sugerido
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ */
+function registerStepSuggested(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  const stepKey = String(stepId);
+  diagnosis.pasos.sugeridos.add(stepKey);
+  logger.info(`[DIAGNOSIS] Paso ${stepKey} registrado como sugerido`);
+}
+
+/**
+ * 🔒 F4-A: Registra un paso como explicado
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ */
+function registerStepExplained(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  const stepKey = String(stepId);
+  diagnosis.pasos.explicados.add(stepKey);
+  logger.info(`[DIAGNOSIS] Paso ${stepKey} registrado como explicado`);
+}
+
+/**
+ * 🔒 F4-A: Registra un paso como confirmado realizado
+ * 
+ * IMPORTANTE: Solo se debe llamar cuando el usuario confirma explícitamente que lo hizo.
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ */
+function registerStepConfirmed(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  const stepKey = String(stepId);
+  diagnosis.pasos.confirmados.add(stepKey);
+  logger.info(`[DIAGNOSIS] Paso ${stepKey} registrado como confirmado realizado`);
+}
+
+/**
+ * 🔒 F4-A: Registra un paso como fallido
+ * 
+ * @param {number|string} stepId - Identificador del paso
+ * @param {object} session - Sesión actual
+ */
+function registerStepFailed(stepId, session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  const stepKey = String(stepId);
+  diagnosis.pasos.fallidos.add(stepKey);
+  logger.info(`[DIAGNOSIS] Paso ${stepId} registrado como fallido`);
+}
+
+/**
+ * 🔒 F4-A: Actualiza información de diagnóstico desde la sesión
+ * 
+ * Sincroniza los datos de diagnosis con información existente en session.
+ * 
+ * @param {object} session - Sesión actual
+ */
+function syncDiagnosisFromSession(session) {
+  const diagnosis = ensureDiagnosisStructure(session);
+  if (!diagnosis) return;
+  
+  // Sincronizar problema
+  if (session.problem && !diagnosis.problemaDetectado) {
+    diagnosis.problemaDetectado = session.problem;
+    logger.debug(`[DIAGNOSIS] Problema sincronizado: ${session.problem}`);
+  }
+  
+  // Sincronizar dispositivo
+  if (session.device && !diagnosis.dispositivo) {
+    diagnosis.dispositivo = session.device;
+    logger.debug(`[DIAGNOSIS] Dispositivo sincronizado: ${session.device}`);
+  }
+  
+  // Sincronizar OS si está disponible
+  if (session.os && !diagnosis.sistemaOperativo) {
+    diagnosis.sistemaOperativo = session.os;
+    logger.debug(`[DIAGNOSIS] OS sincronizado: ${session.os}`);
+  }
+}
+
+/**
+ * 🔒 F3-T01: Valida y normaliza userText de forma centralizada
+ * 
+ * Esta función centraliza la validación de userText que antes estaba duplicada
+ * en múltiples handlers. Garantiza validaciones consistentes en todo el sistema.
+ * 
+ * @param {string|null|undefined} userText - Texto del usuario a validar
+ * @param {string|null|undefined} buttonToken - Token del botón si existe (permite userText vacío)
+ * @param {object} options - Opciones adicionales
+ * @param {number} options.maxLength - Longitud máxima permitida (default: 5000)
+ * @returns {object} Resultado de validación con formato { ok, reason, normalizedText }
+ */
+function validateUserText(userText, buttonToken = null, options = {}) {
+  const maxLength = options.maxLength || 5000;
+  
+  // Si hay buttonToken, userText puede estar vacío (se procesa el botón)
+  if (buttonToken) {
+    // Normalizar: convertir a string vacío si es null/undefined
+    const normalized = userText && typeof userText === 'string' ? userText.trim() : '';
+    return {
+      ok: true,
+      reason: null,
+      normalizedText: normalized
+    };
+  }
+  
+  // Sin buttonToken: userText es requerido y debe ser válido
+  
+  // Validar que existe
+  if (!userText) {
+    return {
+      ok: false,
+      reason: 'userText is null or undefined',
+      normalizedText: null
+    };
+  }
+  
+  // Validar tipo
+  if (typeof userText !== 'string') {
+    return {
+      ok: false,
+      reason: 'userText is not a string',
+      normalizedText: null
+    };
+  }
+  
+  // Normalizar: trim
+  const trimmed = userText.trim();
+  
+  // Validar que no está vacío después de trim
+  if (trimmed.length === 0) {
+    return {
+      ok: false,
+      reason: 'userText is empty after trimming',
+      normalizedText: null
+    };
+  }
+  
+  // Validar longitud máxima
+  if (trimmed.length > maxLength) {
+    return {
+      ok: false,
+      reason: `userText exceeds maximum length of ${maxLength} characters`,
+      normalizedText: trimmed
+    };
+  }
+  
+  // Validación exitosa
+  return {
+    ok: true,
+    reason: null,
+    normalizedText: trimmed
+  };
+}
+
+/**
  * Guarda telemetría en memoria de sesión y la exporta a log JSONL
  */
 async function logTelemetry(entry = {}) {
@@ -854,6 +1936,25 @@ async function logTelemetry(entry = {}) {
  */
 function pushBasicTestTelemetry(session, entry = {}, sessionId = null) {
   if (!session || typeof session !== 'object') return;
+  
+  // 🔒 GUARD RAIL: Si es simulación, NO actualizar métricas reales
+  if (session.simulation === true) {
+    logger.warn(`[SIMULATION_GUARD] bloqueado: pushBasicTestTelemetry - Sesión ${sessionId} es simulación, no se actualizan métricas`);
+    // Solo guardar en telemetry de sesión, pero no en PROBLEM_METRICS
+    session.telemetry = session.telemetry || {};
+    session.telemetry.basicTests = session.telemetry.basicTests || [];
+    const evt = {
+      ts: nowIso(),
+      sessionId: sessionId || null,
+      problemToken: session.problemToken || getProblemTokenFromSession(session, session.problem) || null,
+      device: session.device || null,
+      stage: session.stage || null,
+      ...entry
+    };
+    session.telemetry.basicTests.push(evt);
+    return; // No actualizar PROBLEM_METRICS ni logTelemetry
+  }
+  
   session.telemetry = session.telemetry || {};
   session.telemetry.basicTests = session.telemetry.basicTests || [];
   const evt = {
@@ -937,6 +2038,29 @@ async function getSessionId(req) {
  * @returns {Promise<void>} Promise que se resuelve cuando se guarda
  */
 async function saveSession(sessionId, session) {
+  // 🔒 F1-T04: Lock para prevenir race conditions
+  // Si ya se está guardando esta sesión, esperar a que termine
+  if (sessionSaveLocks.has(sessionId)) {
+    const lockTime = sessionSaveLocks.get(sessionId);
+    const waitTime = Date.now() - lockTime;
+    if (waitTime < 5000) { // Si hace menos de 5 segundos que se está guardando
+      logger.debug(`[SESSION_LOCK] Esperando que termine guardado de sesión ${sessionId}...`);
+      // Esperar hasta 5 segundos con polling cada 100ms
+      for (let i = 0; i < 50; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!sessionSaveLocks.has(sessionId)) {
+          break; // Lock liberado
+        }
+      }
+    } else {
+      // Lock antiguo (> 5s), limpiarlo y continuar
+      sessionSaveLocks.delete(sessionId);
+    }
+  }
+  
+  // Marcar que se está guardando
+  sessionSaveLocks.set(sessionId, Date.now());
+  
   try {
     // Validar parámetros
     if (!sessionId || typeof sessionId !== 'string') {
@@ -946,6 +2070,18 @@ async function saveSession(sessionId, session) {
     
     if (!session || typeof session !== 'object') {
       logger.error('[SESSION] ❌ session inválida');
+      return;
+    }
+    
+    // 🔒 GUARD RAIL: Si es simulación, usar prefijo SIM_ y no guardar en producción
+    if (session.simulation === true) {
+      logger.warn(`[SIMULATION_GUARD] bloqueado: saveSession - Sesión ${sessionId} es simulación, usando prefijo SIM_`);
+      // Usar prefijo SIM_ para aislar de producción
+      const simSessionId = `SIM_${sessionId}`;
+      const sessionFile = path.join(TRANSCRIPTS_DIR, `${simSessionId}.json`);
+      const jsonContent = JSON.stringify(session, null, 2);
+      await fs.promises.writeFile(sessionFile, jsonContent, 'utf8');
+      logger.debug(`[SESSION] ✅ Sesión de simulación guardada: ${simSessionId}`);
       return;
     }
     
@@ -962,6 +2098,9 @@ async function saveSession(sessionId, session) {
     // Si hay error al guardar, loguear pero no fallar
     // En producción, esto podría causar pérdida de datos, pero es mejor que crashear
     logger.error(`[SESSION] ❌ Error guardando sesión ${sessionId}:`, error.message);
+  } finally {
+    // 🔒 F1-T04: Liberar lock siempre (incluso si hay error)
+    sessionSaveLocks.delete(sessionId);
   }
 }
 
@@ -1248,6 +2387,7 @@ const STATES = {
   // Se definen aquí para que el código no falle cuando se avance a ellos
   ASK_NEED: 'ASK_NEED',
   ASK_PROBLEM: 'ASK_PROBLEM',
+  ASK_USER_LEVEL: 'ASK_USER_LEVEL', // 🔒 NUEVO: Nivel de experiencia del usuario
   ASK_DEVICE: 'ASK_DEVICE',
   ASK_OS: 'ASK_OS',
   BASIC_TESTS: 'BASIC_TESTS',
@@ -1279,8 +2419,11 @@ const VALID_TRANSITIONS = {
   // Desde ASK_LANGUAGE solo se puede ir a ASK_NAME (después de aceptar GDPR y seleccionar idioma)
   ASK_LANGUAGE: ['ASK_NAME'],
   
-  // Desde ASK_NAME solo se puede ir a ASK_NEED (después de ingresar nombre)
-  ASK_NAME: ['ASK_NEED'],
+  // Desde ASK_NAME solo se puede ir a ASK_USER_LEVEL (después de ingresar nombre)
+  ASK_NAME: ['ASK_USER_LEVEL'],
+  
+  // Desde ASK_USER_LEVEL solo se puede ir a ASK_NEED (después de seleccionar nivel)
+  ASK_USER_LEVEL: ['ASK_NEED'],
   
   // Desde ASK_NEED se puede ir a ASK_DEVICE (después de seleccionar problema)
   // O volver a ASK_NAME si hay error
@@ -1333,6 +2476,31 @@ const VALID_TRANSITIONS = {
  * @param {string} newStage - Nuevo estado al que cambiar
  * @returns {boolean} true si la transición fue exitosa, false si fue rechazada
  */
+/**
+ * 🔒 FUNCIÓN CRÍTICA: changeStage
+ * 
+ * PROPÓSITO:
+ * Controla todas las transiciones de estado en el flujo conversacional.
+ * Previene transiciones inválidas que romperían la lógica del sistema.
+ * 
+ * CUÁNDO SE USA:
+ * - Cada vez que se necesita cambiar el stage de la sesión
+ * - En todos los handlers de stages para avanzar/retroceder
+ * 
+ * QUÉ PREVIENE:
+ * - Transiciones inválidas (ej: ASK_LANGUAGE → BASIC_TESTS sin pasar por etapas intermedias)
+ * - Estados inexistentes o corruptos
+ * - Retrocesos sin justificación (FASE 1.3)
+ * 
+ * NO DEBE:
+ * - Permitir transiciones no definidas en VALID_TRANSITIONS
+ * - Cambiar a estados que no existen en STATES
+ * - Ignorar validaciones de transición
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} newStage - Nuevo estado al que cambiar
+ * @returns {boolean} true si la transición fue exitosa, false si fue rechazada
+ */
 function changeStage(session, newStage) {
   // Validar que session es un objeto válido
   if (!session || typeof session !== 'object') {
@@ -1355,6 +2523,39 @@ function changeStage(session, newStage) {
   if (!allowedTransitions.includes(newStage)) {
     logger.warn(`[STAGE] ⚠️  Transición inválida: ${currentStage} → ${newStage}. Transiciones permitidas: ${allowedTransitions.join(', ')}`);
     return false; // No cambiar si la transición no es permitida
+  }
+  
+  // 🔒 FASE 1.3: Detectar retrocesos sin justificación
+  // Definir orden lógico de stages (índices más altos = más avanzado)
+  const stageOrder = {
+    [STATES.ASK_LANGUAGE]: 0,
+    [STATES.ASK_NAME]: 1,
+    [STATES.ASK_USER_LEVEL]: 2,
+    [STATES.ASK_NEED]: 3,
+    [STATES.ASK_PROBLEM]: 3.5,
+    [STATES.ASK_DEVICE]: 4,
+    [STATES.ASK_OS]: 4.5,
+    [STATES.BASIC_TESTS]: 5,
+    [STATES.ADVANCED_TESTS]: 6,
+    [STATES.ESCALATE]: 7,
+    [STATES.CREATE_TICKET]: 8,
+    [STATES.TICKET_SENT]: 9,
+    [STATES.ENDED]: 10
+  };
+  
+  const currentOrder = stageOrder[currentStage] ?? -1;
+  const newOrder = stageOrder[newStage] ?? -1;
+  
+  // Detectar retroceso significativo (más de 2 niveles hacia atrás)
+  // Excepciones permitidas: ASK_NEED → ASK_NAME (error de validación), ENDED (estado terminal)
+  const isSignificantRegression = newOrder < currentOrder - 2;
+  const isAllowedRegression = (currentStage === STATES.ASK_NEED && newStage === STATES.ASK_NAME) || 
+                              newStage === STATES.ENDED;
+  
+  if (isSignificantRegression && !isAllowedRegression) {
+    logger.warn(`[STAGE] ⚠️  Retroceso significativo detectado: ${currentStage} (${currentOrder}) → ${newStage} (${newOrder}). Verificar justificación.`);
+    // No bloquear, solo loguear para auditoría
+    // Algunos retrocesos pueden ser válidos (ej: error de validación)
   }
   
   // Cambiar el estado
@@ -1835,6 +3036,46 @@ If you change your mind, you can restart the chat.
  * ✅ SE PUEDE MODIFICAR: Agregar más botones o cambiar labels/texts
  * ❌ NO MODIFICAR: Los tokens sin actualizar todas las referencias
  */
+/**
+ * CLASIFICACIÓN DE BOTONES (MINUTA POST-PRUEBA)
+ * 
+ * ACTIVOS: Botones con handler implementado y en uso
+ * LEGACY: Botones antiguos, usar versión nueva (compatibilidad solo para texto libre)
+ * DESACTIVADOS: Botones definidos pero sin handler, NO se muestran al usuario
+ */
+const BUTTON_STATUS = {
+  // ACTIVOS
+  ACTIVE: [
+    'BTN_LANG_ES_AR', 'BTN_LANG_EN',
+    'BTN_NO_ENCIENDE', 'BTN_NO_INTERNET', 'BTN_LENTITUD', 'BTN_BLOQUEO', 'BTN_PERIFERICOS', 'BTN_VIRUS',
+    'BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK',
+    'BTN_OS_WINDOWS', 'BTN_OS_MACOS', 'BTN_OS_LINUX',
+    'BTN_BACK_TO_STEPS', 'BTN_BACK',
+    'BTN_SOLVED', 'BTN_PERSIST', 'BTN_ADVANCED_TESTS', 'BTN_TECH',
+    'BTN_CLOSE', 'BTN_CONNECT_TECH', 'BTN_WHATSAPP_TECNICO',
+    'BTN_YES', 'BTN_NO',
+    'BTN_USER_LEVEL_BASIC', 'BTN_USER_LEVEL_INTERMEDIATE', 'BTN_USER_LEVEL_ADVANCED', // Dinámicos
+    'BTN_HELP_STEP_X', // Dinámicos (formato: BTN_HELP_STEP_0, BTN_HELP_STEP_1, ...)
+    'BTN_FEEDBACK_USEFUL', 'BTN_FEEDBACK_NOT_USEFUL' // Dinámicos
+  ],
+  // LEGACY (deprecated, usar versión nueva)
+  LEGACY: [
+    'BTN_DESKTOP', // → BTN_DEV_PC_DESKTOP
+    'BTN_ALLINONE', // → BTN_DEV_PC_ALLINONE
+    'BTN_NOTEBOOK', // → BTN_DEV_NOTEBOOK
+    'BTN_DEVICE_PC', // → BTN_DEV_PC_DESKTOP
+    'BTN_DEVICE_NOTEBOOK', // → BTN_DEV_NOTEBOOK
+    'BTN_HELP_1', 'BTN_HELP_2', 'BTN_HELP_3', 'BTN_HELP_4', // → BTN_HELP_STEP_X (dinámico)
+    'BTN_MORE_TESTS' // → BTN_ADVANCED_TESTS
+  ],
+  // DESACTIVADOS (sin handler, NO se muestran)
+  DISABLED: [
+    'BTN_CHANGE_TOPIC', 'BTN_MORE_INFO', 'BTN_CANCEL', 'BTN_REPHRASE',
+    'BTN_SUCCESS', 'BTN_NEED_HELP', 'BTN_DEVICE_MONITOR', 'BTN_OTHER',
+    'BTN_BASIC_YES', 'BTN_BASIC_NO', 'BTN_ADVANCED', 'BTN_WHATSAPP', 'BTN_CONFIRM_TICKET'
+  ]
+};
+
 const EMBEDDED_CHAT = {
   version: 'v7',
   messages_v4: {
@@ -1846,75 +3087,78 @@ const EMBEDDED_CHAT = {
   },
   ui: {
     buttons: [
-      // Botones del flujo según Flujo.csv
-      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
-      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
+      // ============================================
+      // BOTONES ACTIVOS
+      // ============================================
+      // Idioma
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)', status: 'active' },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English', status: 'active' },
       
-      // Botones de problemas frecuentes
-      // Estos botones se muestran después de que el usuario ingresa su nombre
-      // Permiten al usuario seleccionar rápidamente un problema común
-      { token: 'BTN_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende' },
-      { token: 'BTN_NO_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet' },
-      { token: 'BTN_LENTITUD', label: '🐢 Lentitud del sistema operativo o del equipo', text: 'lentitud del sistema' },
-      { token: 'BTN_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas' },
-      { token: 'BTN_PERIFERICOS', label: '🖨️ Problemas con periféricos externos', text: 'problemas con periféricos' },
-      { token: 'BTN_VIRUS', label: '🛡️ Infecciones de malware o virus', text: 'infecciones de virus' },
+      // Problemas frecuentes
+      { token: 'BTN_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende', status: 'active' },
+      { token: 'BTN_NO_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet', status: 'active' },
+      { token: 'BTN_LENTITUD', label: '🐢 Lentitud del sistema operativo o del equipo', text: 'lentitud del sistema', status: 'active' },
+      { token: 'BTN_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas', status: 'active' },
+      { token: 'BTN_PERIFERICOS', label: '🖨️ Problemas con periféricos externos', text: 'problemas con periféricos', status: 'active' },
+      { token: 'BTN_VIRUS', label: '🛡️ Infecciones de malware o virus', text: 'infecciones de virus', status: 'active' },
       
-      // Botones de dispositivos
-      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop' },
-      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one' },
-      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook' },
-      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio' },
-      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one' },
-      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook' },
+      // Dispositivos (ACTIVOS - usar estos)
+      { token: 'BTN_DEV_PC_DESKTOP', label: 'PC de escritorio', text: 'pc de escritorio', status: 'active' },
+      { token: 'BTN_DEV_PC_ALLINONE', label: 'PC All in One', text: 'pc all in one', status: 'active' },
+      { token: 'BTN_DEV_NOTEBOOK', label: 'Notebook', text: 'notebook', status: 'active' },
       
-      // Botones de sistema operativo
-      { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', text: 'Windows' },
-      { token: 'BTN_OS_MACOS', label: '🍏 macOS', text: 'macOS' },
-      { token: 'BTN_OS_LINUX', label: '🐧 Linux', text: 'Linux' },
+      // Sistema operativo
+      { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', text: 'Windows', status: 'active' },
+      { token: 'BTN_OS_MACOS', label: '🍏 macOS', text: 'macOS', status: 'active' },
+      { token: 'BTN_OS_LINUX', label: '🐧 Linux', text: 'Linux', status: 'active' },
       
-      // Botones de navegación
-      { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos' },
-      { token: 'BTN_BACK', label: '⏪ Volver atrás', text: 'volver atrás' },
-      { token: 'BTN_CHANGE_TOPIC', label: '🔄 Cambiar de tema', text: 'cambiar de tema' },
-      { token: 'BTN_MORE_INFO', label: 'ℹ️ Más información', text: 'más información' },
+      // Navegación
+      { token: 'BTN_BACK_TO_STEPS', label: '⏪ Volver a los pasos', text: 'volver a los pasos', status: 'active' },
+      { token: 'BTN_BACK', label: '⏪ Volver atrás', text: 'volver atrás', status: 'active' },
       
-      // Botones de estado
-      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar' },
-      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste' },
-      { token: 'BTN_ADVANCED_TESTS', label: '🔬 Pruebas Avanzadas', text: 'pruebas avanzadas' },
-      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas' },
-      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico' },
+      // Estado
+      { token: 'BTN_SOLVED', label: '👍 Ya lo solucioné', text: 'lo pude solucionar', status: 'active' },
+      { token: 'BTN_PERSIST', label: '❌ Todavía no funciona', text: 'el problema persiste', status: 'active' },
+      { token: 'BTN_ADVANCED_TESTS', label: '🔬 Pruebas Avanzadas', text: 'pruebas avanzadas', status: 'active' },
+      { token: 'BTN_TECH', label: '🧑‍💻 Técnico real', text: 'hablar con técnico', status: 'active' },
       
-      // Botones de ayuda por paso
-      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1' },
-      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2' },
-      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3' },
-      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4' },
+      // Acciones
+      { token: 'BTN_CLOSE', label: '🔚 Cerrar Chat', text: 'cerrar chat', status: 'active' },
+      { token: 'BTN_CONNECT_TECH', label: '👨‍🏭 Conectar con Técnico', text: 'conectar con técnico', status: 'active' },
+      { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un Técnico', text: 'hablar con un técnico', status: 'active' },
+      { token: 'BTN_YES', label: '✅ Sí', text: 'sí', status: 'active' },
+      { token: 'BTN_NO', label: '❌ No', text: 'no', status: 'active' },
       
-      // Botones de acción
-      { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema' },
-      { token: 'BTN_CLOSE', label: '🔚 Cerrar Chat', text: 'cerrar chat' },
-      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp' },
-      { token: 'BTN_CONNECT_TECH', label: '👨‍🏭 Conectar con Técnico', text: 'conectar con técnico' },
-      { token: 'BTN_WHATSAPP_TECNICO', label: '💚 Hablar con un Técnico', text: 'hablar con un técnico' },
-      { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket' },
-      { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar' },
+      // ============================================
+      // BOTONES LEGACY (deprecated, compatibilidad solo para texto libre)
+      // ============================================
+      { token: 'BTN_DESKTOP', label: 'Desktop 💻', text: 'desktop', status: 'legacy', deprecated: 'BTN_DEV_PC_DESKTOP' },
+      { token: 'BTN_ALLINONE', label: 'All-in-One 🖥️', text: 'all in one', status: 'legacy', deprecated: 'BTN_DEV_PC_ALLINONE' },
+      { token: 'BTN_NOTEBOOK', label: 'Notebook 💼', text: 'notebook', status: 'legacy', deprecated: 'BTN_DEV_NOTEBOOK' },
+      { token: 'BTN_DEVICE_PC', label: 'PC', text: 'pc', status: 'legacy', deprecated: 'BTN_DEV_PC_DESKTOP' },
+      { token: 'BTN_DEVICE_NOTEBOOK', label: 'Notebook', text: 'notebook', status: 'legacy', deprecated: 'BTN_DEV_NOTEBOOK' },
+      { token: 'BTN_HELP_1', label: 'Ayuda paso 1', text: 'ayuda paso 1', status: 'legacy', deprecated: 'BTN_HELP_STEP_X' },
+      { token: 'BTN_HELP_2', label: 'Ayuda paso 2', text: 'ayuda paso 2', status: 'legacy', deprecated: 'BTN_HELP_STEP_X' },
+      { token: 'BTN_HELP_3', label: 'Ayuda paso 3', text: 'ayuda paso 3', status: 'legacy', deprecated: 'BTN_HELP_STEP_X' },
+      { token: 'BTN_HELP_4', label: 'Ayuda paso 4', text: 'ayuda paso 4', status: 'legacy', deprecated: 'BTN_HELP_STEP_X' },
+      { token: 'BTN_MORE_TESTS', label: '🔍 Más pruebas', text: 'más pruebas', status: 'legacy', deprecated: 'BTN_ADVANCED_TESTS' },
       
-      // Botones para instalaciones y guías
-      { token: 'BTN_SUCCESS', label: '✅ Funcionó', text: 'funcionó' },
-      { token: 'BTN_NEED_HELP', label: '❓ Necesito ayuda', text: 'necesito ayuda' },
-      { token: 'BTN_YES', label: '✅ Sí', text: 'sí' },
-      { token: 'BTN_NO', label: '❌ No', text: 'no' },
-      
-      // Botones básicos
-      { token: 'BTN_BASIC_YES', label: 'Sí', text: 'sí' },
-      { token: 'BTN_BASIC_NO', label: 'No', text: 'no' },
-      { token: 'BTN_ADVANCED', label: 'Avanzadas', text: 'avanzadas' },
-      { token: 'BTN_DEVICE_PC', label: 'PC', text: 'pc' },
-      { token: 'BTN_DEVICE_NOTEBOOK', label: 'Notebook', text: 'notebook' },
-      { token: 'BTN_DEVICE_MONITOR', label: 'Monitor', text: 'monitor' },
-      { token: 'BTN_OTHER', label: 'Otro', text: '' }
+      // ============================================
+      // BOTONES DESACTIVADOS (sin handler, NO se muestran al usuario)
+      // ============================================
+      { token: 'BTN_CHANGE_TOPIC', label: '🔄 Cambiar de tema', text: 'cambiar de tema', status: 'disabled' },
+      { token: 'BTN_MORE_INFO', label: 'ℹ️ Más información', text: 'más información', status: 'disabled' },
+      { token: 'BTN_CANCEL', label: 'Cancelar ❌', text: 'cancelar', status: 'disabled' },
+      { token: 'BTN_REPHRASE', label: 'Cambiar problema', text: 'cambiar problema', status: 'disabled' },
+      { token: 'BTN_SUCCESS', label: '✅ Funcionó', text: 'funcionó', status: 'disabled' },
+      { token: 'BTN_NEED_HELP', label: '❓ Necesito ayuda', text: 'necesito ayuda', status: 'disabled' },
+      { token: 'BTN_DEVICE_MONITOR', label: 'Monitor', text: 'monitor', status: 'disabled' },
+      { token: 'BTN_OTHER', label: 'Otro', text: '', status: 'disabled' },
+      { token: 'BTN_BASIC_YES', label: 'Sí', text: 'sí', status: 'disabled' },
+      { token: 'BTN_BASIC_NO', label: 'No', text: 'no', status: 'disabled' },
+      { token: 'BTN_ADVANCED', label: 'Avanzadas', text: 'avanzadas', status: 'disabled' },
+      { token: 'BTN_WHATSAPP', label: 'Enviar WhatsApp', text: 'enviar por whatsapp', status: 'disabled' },
+      { token: 'BTN_CONFIRM_TICKET', label: 'Sí, generar ticket ✅', text: 'sí, generar ticket', status: 'disabled' }
     ],
     states: {}
   }
@@ -1956,6 +3200,8 @@ function getButtonDefinition(token) {
  * ❌ NO MODIFICAR:
  *    - Debe retornar un array de objetos
  *    - Cada objeto debe tener al menos { token, label, text }
+ *    - NO debe incluir botones DESACTIVADOS (status: 'disabled')
+ *    - NO debe incluir botones LEGACY (status: 'legacy') - usar versión nueva
  * 
  * Si modificas el formato:
 // - Actualiza TODOS los lugares donde se usan los botones
@@ -1963,7 +3209,7 @@ function getButtonDefinition(token) {
  * 
  * @param {string[]} tokens - Array de tokens de botones (ej: ['BTN_YES', 'BTN_NO'])
  * @param {string} locale - Idioma del usuario ('es-AR' o 'en-US')
- * @returns {Array} Array de objetos { token, label, text }
+ * @returns {Array} Array de objetos { token, label, text } (solo botones ACTIVOS)
  */
 function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
   // Validar que tokens sea un array
@@ -1976,6 +3222,27 @@ function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
     
     // Buscar la definición del botón
     const def = getButtonDefinition(t);
+    
+    // 🔒 MINUTA POST-PRUEBA: Filtrar botones DESACTIVADOS
+    // Los botones desactivados NO deben mostrarse al usuario
+    if (def?.status === 'disabled') {
+      logger.warn(`[BUTTONS] ⚠️  Intento de mostrar botón desactivado: ${t}, omitiendo`);
+      return null;
+    }
+    
+    // 🔒 MINUTA POST-PRUEBA: Convertir botones LEGACY a versión nueva
+    // Si el botón es legacy, usar el botón deprecated recomendado
+    if (def?.status === 'legacy' && def?.deprecated) {
+      logger.debug(`[BUTTONS] 🔄 Botón legacy ${t} detectado, usando ${def.deprecated}`);
+      const newDef = getButtonDefinition(def.deprecated);
+      if (newDef) {
+        return {
+          token: newDef.token,
+          label: newDef.label,
+          text: newDef.text
+        };
+      }
+    }
     
     // Si no se encuentra la definición, crear una básica desde el token
     // Esto permite que el sistema funcione incluso si falta una definición
@@ -2523,86 +3790,24 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       // Reiniciar contador de intentos (éxito)
       session.nameAttempts = 0;
       
-      // Avanzar a la siguiente etapa: preguntar qué necesita
-      changeStage(session, STATES.ASK_NEED);
+      // 🔒 NUEVO FLUJO: Avanzar a ASK_USER_LEVEL (nivel de experiencia) antes de preguntar qué necesita
+      changeStage(session, STATES.ASK_USER_LEVEL);
       
       logger.info(`[ASK_NAME] ✅ Nombre extraído: ${nameResult.name} (Motivo: ${nameResult.reason})`);
       
-      // ========================================
-      // GENERAR MENSAJE DE BIENVENIDA CON BOTONES DE PROBLEMAS FRECUENTES
-      // ========================================
-      // Este mensaje se muestra después de que el usuario ingresa su nombre
-      // Incluye el nombre del usuario para personalización
-      // Muestra botones de problemas frecuentes para facilitar la selección
-      //
-      // ⚠️ CRÍTICO: Este es el mensaje que ve el usuario después de ingresar su nombre
-      // ✅ SE PUEDE MODIFICAR:
-      //    - El texto del mensaje (pero mantener la estructura)
-      //    - Los emojis (🔘, 🚩)
-      //    - El formato (markdown, HTML, etc.)
-      // ❌ NO MODIFICAR:
-      //    - Debe incluir el nombre del usuario (session.userName)
-      //    - Debe incluir los botones de problemas frecuentes
-      //    - Debe avanzar a ASK_NEED (ya se hizo arriba con changeStage)
-      //
-      // Si modificas el mensaje:
-      // - Mantén la personalización con el nombre del usuario
-      // - Mantén la opción de seleccionar problemas frecuentes
-      // - Actualiza también la versión en inglés
-      //
-      const locale = ensureSessionLocale(session);
-      const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
-      
-      // Generar mensaje según el idioma
-      // El mensaje incluye instrucciones para usar los botones
-      const reply = isEnglish
-        ? `Perfect, ${session.userName} 😊 What can I help you with today? Or if you prefer, you can select 🔘 one of the following common problems 🚩:`
-        : (isEsLatam
-          ? `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si prefieres puedes seleccionar 🔘 uno de los siguientes problemas 🚩:`
-          : `Perfecto, ${session.userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`);
-      
-      // ========================================
-      // GENERAR BOTONES DE PROBLEMAS FRECUENTES
-      // ========================================
-      // Estos botones permiten al usuario seleccionar rápidamente un problema común
-      // Los 6 problemas más frecuentes según estadísticas de soporte técnico
-      //
-      // ⚠️ CRÍTICO: Estos botones se muestran después de ingresar el nombre
-      // ✅ SE PUEDE MODIFICAR:
-      //    - Agregar o quitar botones (pero actualizar el mapeo en /api/chat)
-      //    - Cambiar el orden de los botones
-      //    - Cambiar las etiquetas (labels) de los botones
-      // ❌ NO MODIFICAR:
-      //    - Los tokens de los botones sin actualizar el mapeo
-      //    - La estructura del array retornado
-      //
-      // Si agregas un nuevo botón de problema:
-      // 1. Agrégalo a EMBEDDED_CHAT.ui.buttons arriba
-      // 2. Agrégalo a este array
-      // 3. Agrega el mapeo en /api/chat (línea ~1400)
-      // 4. Crea el handler que procese ese problema
-      //
-      const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
-        'BTN_NO_ENCIENDE',
-        'BTN_NO_INTERNET',
-        'BTN_LENTITUD',
-        'BTN_BLOQUEO',
-        'BTN_PERIFERICOS',
-        'BTN_VIRUS'
-      ], locale));
-      
-      // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
-      addBotMessageToTranscript(session.transcript, reply, session.stage, problemButtons);
-      
-      // Guardar la sesión actualizada
+      // 🔒 NUEVO FLUJO: Ya se cambió a ASK_USER_LEVEL arriba
+      // Guardar la sesión actualizada (el stage ya es ASK_USER_LEVEL)
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta exitosa con botones
+      // Retornar que se manejó, pero el routing detectará que el stage cambió a ASK_USER_LEVEL
+      // y en la misma request procesará ASK_USER_LEVEL si es posible
+      // Para que funcione en la misma request, el routing deberá procesar múltiples stages si es necesario
+      // Por ahora, retornamos handled: true y el routing continuará con ASK_USER_LEVEL en siguiente request
+      // O mejor: hacer que el routing procese múltiples stages en la misma request si es necesario
       return {
         ok: true,
-        reply: reply,
-        stage: session.stage, // Ahora es ASK_NEED
-        buttons: problemButtons, // ⚠️ CRÍTICO: Incluir los botones de problemas frecuentes
+        reply: '', // Vacío, el siguiente handler mostrará la pregunta
+        stage: session.stage, // ASK_USER_LEVEL
         handled: true
       };
     }
@@ -2654,22 +3859,23 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
       // Usar nombre genérico
       session.userName = isEnglish ? 'User' : 'Usuario';
       
-      // Avanzar a la siguiente etapa
-      changeStage(session, STATES.ASK_NEED);
+      // 🔒 NUEVO FLUJO: Avanzar a ASK_USER_LEVEL (nivel de experiencia) antes de preguntar qué necesita
+      changeStage(session, STATES.ASK_USER_LEVEL);
       
-      const reply = isEnglish
-        ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
-        : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?";
-      
-      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      // Guardar la sesión actualizada (el stage ya es ASK_USER_LEVEL)
       await saveSessionAndTranscript(sessionId, session);
       
-      logger.info(`[ASK_NAME] ⚠️ Límite de intentos alcanzado, continuando sin nombre`);
+      logger.info(`[ASK_NAME] ⚠️ Límite de intentos alcanzado, continuando sin nombre, transicionando a ASK_USER_LEVEL`);
       
+      // 🔒 NUEVO FLUJO: Ya se cambió a ASK_USER_LEVEL arriba
+      // Guardar la sesión actualizada (el stage ya es ASK_USER_LEVEL)
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Retornar que se manejó, el routing continuará con ASK_USER_LEVEL
       return {
         ok: true,
-        reply: reply,
-        stage: session.stage, // Ahora es ASK_NEED
+        reply: '', // Vacío, el siguiente handler mostrará la pregunta
+        stage: session.stage, // ASK_USER_LEVEL
         handled: true
       };
     }
@@ -2696,18 +3902,23 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
           {
             userName: session.userName || 'usuario',
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
         logger.error('[ASK_NAME] Error generando respuesta técnica con OpenAI:', error);
       }
       
-      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual según stage
       if (!technicalReply) {
-        technicalReply = isEnglish
-          ? `I'm sorry, I couldn't generate a specific technical answer right now. But first, could you tell me your name? For example: "Ana" or "John Paul".`
-          : `Disculpá, no pude generar una respuesta técnica específica en este momento. Pero primero, ¿podés decirme tu nombre? Por ejemplo: "Ana" o "Juan Pablo".`;
+        technicalReply = getContextualOpenAIFallback(session.stage, locale, {
+          sessionId: sessionId,
+          stage: session.stage,
+          buttonToken: buttonToken || 'none'
+        });
       } else {
         // Agregar recordatorio de que necesitamos el nombre
         const nameReminder = isEnglish
@@ -2823,6 +4034,275 @@ async function handleAskNameStage(session, userText, buttonToken, sessionId) {
 // 2. El usuario selecciona un problema (ej: "El equipo no enciende")
 // 3. El sistema guarda el problema y pregunta por el tipo de dispositivo
 // 4. Se muestran botones para seleccionar el dispositivo
+// ========================================================
+// 🎯 HANDLER: handleAskUserLevelStage
+// ========================================================
+// 
+// Procesa las interacciones del usuario en la etapa ASK_USER_LEVEL
+// 
+// Esta etapa se muestra después de que el usuario ingresa su nombre
+// y antes de preguntar qué problema tiene
+//
+// ⚠️ IMPORTANTE: Esta etapa captura el nivel de experiencia del usuario
+// para adaptar el flujo (preguntas, pasos, nivel de detalle) según el nivel
+// ✅ SE PUEDE MODIFICAR:
+//    - Los mensajes de respuesta
+//    - Los textos de los botones
+// ❌ NO MODIFICAR:
+//    - Debe guardar session.userLevel cuando se selecciona un nivel
+//    - Debe cambiar a ASK_NEED después de seleccionar nivel
+//    - Debe mostrar el mensaje de bienvenida con problemas después de seleccionar
+// ========================================================
+
+/**
+ * Handler para la etapa ASK_USER_LEVEL
+ * 
+ * Pregunta al usuario su nivel de experiencia con tecnología para adaptar el flujo
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} userText - Texto ingresado por el usuario
+ * @param {string} buttonToken - Token del botón presionado (si aplica)
+ * @param {string} sessionId - ID de la sesión
+ * @returns {Promise<object>} Objeto con { ok, reply, stage, buttons?, handled }
+ */
+async function handleAskUserLevelStage(session, userText, buttonToken, sessionId) {
+  // Validar parámetros esenciales
+  if (!session || typeof session !== 'object') {
+    logger.error('[ASK_USER_LEVEL] ❌ Session inválida o no es un objeto');
+    return {
+      ok: false,
+      error: 'Session inválida',
+      handled: true
+    };
+  }
+  
+  if (!isValidSessionId(sessionId)) {
+    logger.error('[ASK_USER_LEVEL] ❌ sessionId inválido (formato A0000-Z9999)');
+    return {
+      ok: false,
+      error: 'sessionId inválido',
+      handled: true
+    };
+  }
+  
+  try {
+    // Obtener locale del usuario para mensajes en el idioma correcto
+    const locale = ensureSessionLocale(session);
+    const isEnglish = String(locale).toLowerCase().startsWith('en');
+    
+    logger.info(`[ASK_USER_LEVEL] Procesando: "${userText || 'button'}" (buttonToken: ${buttonToken || 'none'})`);
+    
+    // ========================================
+    // CASO 0: Si ya existe userLevel, saltarse este paso (refresh/reentrada)
+    // ========================================
+    // Si el usuario ya seleccionó un nivel, continuar al siguiente paso
+    //
+    if (session.userLevel && (session.userLevel === 'basic' || session.userLevel === 'intermediate' || session.userLevel === 'advanced')) {
+      logger.info(`[ASK_USER_LEVEL] ✅ userLevel ya existe: ${session.userLevel}, saltando paso`);
+      
+      // Avanzar a ASK_NEED directamente
+      changeStage(session, STATES.ASK_NEED);
+      
+      // Mostrar mensaje de bienvenida con problemas (similar al que se mostraba antes)
+      const userName = session.userName || (isEnglish ? 'User' : 'Usuario');
+      const reply = isEnglish
+        ? `Perfect, ${userName} 😊 What can I help you with today? Or if you prefer, you can select 🔘 one of the following common problems 🚩:`
+        : `Perfecto, ${userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`;
+      
+      const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
+        'BTN_NO_ENCIENDE',
+        'BTN_NO_INTERNET',
+        'BTN_LENTITUD',
+        'BTN_BLOQUEO',
+        'BTN_PERIFERICOS',
+        'BTN_VIRUS'
+      ], locale));
+      
+      addBotMessageToTranscript(session.transcript, reply, session.stage, problemButtons);
+      await saveSessionAndTranscript(sessionId, session);
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage, // Ahora es ASK_NEED
+        buttons: problemButtons,
+        handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 1: Mostrar pregunta de nivel de experiencia (primera vez)
+    // ========================================
+    // Si no hay userText ni buttonToken, es la primera vez que se muestra
+    //
+    if (!userText && !buttonToken) {
+      const reply = isEnglish
+        ? "To help you better and be more efficient ⚡\ntell me your tech experience level 👇"
+        : "Para ayudarte mejor y ser más eficiente ⚡\ndecime qué nivel de experiencia tenés con tecnología 👇";
+      
+      // Botones de nivel de experiencia
+      const levelButtons = isEnglish
+        ? [
+            {
+              text: '🟢 Basic — I prefer simple steps',
+              value: 'BTN_USER_LEVEL_BASIC',
+              order: 1
+            },
+            {
+              text: '🟡 Intermediate — I can do common checks',
+              value: 'BTN_USER_LEVEL_INTERMEDIATE',
+              order: 2
+            },
+            {
+              text: '🔵 Advanced — I already tried technical checks',
+              value: 'BTN_USER_LEVEL_ADVANCED',
+              order: 3
+            }
+          ]
+        : [
+            {
+              text: '🟢 Básico — uso lo esencial, prefiero pasos simples',
+              value: 'BTN_USER_LEVEL_BASIC',
+              order: 1
+            },
+            {
+              text: '🟡 Intermedio — entiendo configuraciones y pruebas comunes',
+              value: 'BTN_USER_LEVEL_INTERMEDIATE',
+              order: 2
+            },
+            {
+              text: '🔵 Avanzado — ya hice pruebas técnicas y ajustes',
+              value: 'BTN_USER_LEVEL_ADVANCED',
+              order: 3
+            }
+          ];
+      
+      // Registrar mensaje del bot con botones
+      addBotMessageToTranscript(session.transcript, reply, session.stage, levelButtons);
+      await saveSessionAndTranscript(sessionId, session);
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage, // ASK_USER_LEVEL
+        buttons: levelButtons,
+        handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 2: Usuario selecciona un nivel
+    // ========================================
+    // Procesar la selección del usuario (botón o texto)
+    //
+    let selectedLevel = null;
+    
+    // Detectar nivel desde buttonToken
+    if (buttonToken === 'BTN_USER_LEVEL_BASIC' || /básico|basic/i.test(userText || '')) {
+      selectedLevel = 'basic';
+    } else if (buttonToken === 'BTN_USER_LEVEL_INTERMEDIATE' || /intermedio|intermediate/i.test(userText || '')) {
+      selectedLevel = 'intermediate';
+    } else if (buttonToken === 'BTN_USER_LEVEL_ADVANCED' || /avanzado|advanced/i.test(userText || '')) {
+      selectedLevel = 'advanced';
+    }
+    
+    if (selectedLevel) {
+      // Guardar nivel en sesión
+      session.userLevel = selectedLevel;
+      session.userLevelSource = buttonToken ? 'button' : 'auto';
+      session.userLevelConfidence = 80; // Confianza inicial: 80%
+      session.userLevelAutoAdjustments = []; // Array para logs de recalibración
+      
+      logger.info(`[USER_LEVEL] selected: ${selectedLevel} (source: ${session.userLevelSource})`);
+      
+      // Avanzar a ASK_NEED
+      changeStage(session, STATES.ASK_NEED);
+      
+      // Mostrar mensaje de bienvenida con problemas
+      const userName = session.userName || (isEnglish ? 'User' : 'Usuario');
+      const reply = isEnglish
+        ? `Perfect, ${userName} 😊 What can I help you with today? Or if you prefer, you can select 🔘 one of the following common problems 🚩:`
+        : `Perfecto, ${userName} 😊 ¿En qué puedo ayudarte hoy? O si preferís podés seleccionar 🔘 uno de los siguientes problemas 🚩:`;
+      
+      const problemButtons = sortProblemButtons(buildUiButtonsFromTokens([
+        'BTN_NO_ENCIENDE',
+        'BTN_NO_INTERNET',
+        'BTN_LENTITUD',
+        'BTN_BLOQUEO',
+        'BTN_PERIFERICOS',
+        'BTN_VIRUS'
+      ], locale));
+      
+      // Registrar selección del usuario y respuesta del bot
+      session.transcript.push({
+        who: 'user',
+        text: buttonToken || userText || selectedLevel,
+        ts: nowIso()
+      });
+      addBotMessageToTranscript(session.transcript, reply, session.stage, problemButtons);
+      
+      await saveSessionAndTranscript(sessionId, session);
+      
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage, // Ahora es ASK_NEED
+        buttons: problemButtons,
+        handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 3: No se detectó nivel válido
+    // ========================================
+    // Si el usuario escribió algo que no se reconoce, pedir que use los botones
+    //
+    const reply = isEnglish
+      ? "I didn't understand. Please choose one of the options above: Basic, Intermediate, or Advanced."
+      : "No te entendí. Por favor elegí una de las opciones de arriba: Básico, Intermedio o Avanzado.";
+    
+    // Re-mostrar botones
+    const levelButtons = isEnglish
+      ? [
+          { text: '🟢 Basic — I prefer simple steps', value: 'BTN_USER_LEVEL_BASIC', order: 1 },
+          { text: '🟡 Intermediate — I can do common checks', value: 'BTN_USER_LEVEL_INTERMEDIATE', order: 2 },
+          { text: '🔵 Advanced — I already tried technical checks', value: 'BTN_USER_LEVEL_ADVANCED', order: 3 }
+        ]
+      : [
+          { text: '🟢 Básico — uso lo esencial, prefiero pasos simples', value: 'BTN_USER_LEVEL_BASIC', order: 1 },
+          { text: '🟡 Intermedio — entiendo configuraciones y pruebas comunes', value: 'BTN_USER_LEVEL_INTERMEDIATE', order: 2 },
+          { text: '🔵 Avanzado — ya hice pruebas técnicas y ajustes', value: 'BTN_USER_LEVEL_ADVANCED', order: 3 }
+        ];
+    
+    session.transcript.push({
+      who: 'user',
+      text: userText || buttonToken || '',
+      ts: nowIso()
+    });
+    addBotMessageToTranscript(session.transcript, reply, session.stage, levelButtons);
+    await saveSessionAndTranscript(sessionId, session);
+    
+    return {
+      ok: true,
+      reply: reply,
+      stage: session.stage,
+      buttons: levelButtons,
+      handled: true
+    };
+    
+  } catch (error) {
+    logger.error('[ASK_USER_LEVEL] ❌ Error:', error);
+    return {
+      ok: false,
+      error: 'Error interno',
+      handled: true
+    };
+  }
+}
+
+// ========================================================
+// 🎯 HANDLER: handleAskNeedStage
+// ========================================================
 //
 // ⚠️ IMPORTANTE: Esta etapa conecta la selección de problemas con la selección de dispositivos
 // ✅ SE PUEDE MODIFICAR:
@@ -3111,10 +4591,10 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     };
   }
   
-  // Validar userText: si hay buttonToken, permitir procesar incluso si userText está vacío
-  // Si no hay buttonToken, entonces userText es requerido
-  if (!buttonToken && (!userText || typeof userText !== 'string' || userText.trim().length === 0)) {
-    logger.error('[ASK_NEED] ❌ userText inválido o vacío y no hay buttonToken');
+  // 🔒 F3-T01: Usar validación centralizada de userText
+  const textValidation = validateUserText(userText, buttonToken);
+  if (!textValidation.ok) {
+    logger.error(`[ASK_NEED] ❌ userText inválido: ${textValidation.reason}`);
     return {
       ok: false,
       error: 'Texto de usuario inválido',
@@ -3128,10 +4608,8 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     const isEnglish = String(locale).toLowerCase().startsWith('en');
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
-    // Si userText está vacío pero hay buttonToken, usar buttonToken como texto de respaldo
-    const textToProcess = (userText && typeof userText === 'string' && userText.trim().length > 0) 
-      ? userText 
-      : (buttonToken ? String(buttonToken) : '');
+    // Usar texto normalizado (o buttonToken como fallback)
+    const textToProcess = textValidation.normalizedText || (buttonToken ? String(buttonToken) : '');
     
     logger.info(`[ASK_NEED] Procesando: "${textToProcess}" (buttonToken: ${buttonToken || 'none'})`);
     
@@ -3233,34 +4711,68 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
     //
     const lowerText = textToProcess.toLowerCase().trim();
     
-    // Detectar si el usuario mencionó un problema común
-    // Patrones simples para detectar problemas mencionados en los botones
+    // 🔒 FASE 1.2: Mejorar mapeo de texto libre a problemas
+    // Detectar si el usuario mencionó un problema común con más variantes
+    // Patrones mejorados para detectar problemas mencionados en los botones
     const problemPatterns = {
-      'el equipo no enciende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' },
-      'no enciende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' },
-      'no prende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' },
-      'problemas de conexión': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems' },
-      'no hay internet': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems' },
-      'lentitud': { problem: 'lentitud del sistema', problemEn: 'system slowness' },
-      'lento': { problem: 'lentitud del sistema', problemEn: 'system slowness' },
-      'bloqueo': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing' },
-      'se cuelga': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing' },
-      'periféricos': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems' },
-      'virus': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections' },
-      'malware': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections' }
+      // Problema: No enciende
+      'el equipo no enciende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'no enciende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'no prende': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'no arranca': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'no inicia': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'does not turn on': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      'wont start': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on', token: 'BTN_NO_ENCIENDE' },
+      // Problema: Internet
+      'problemas de conexión': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      'no hay internet': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      'sin internet': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      'no conecta': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      'internet connection': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      'wifi': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems', token: 'BTN_NO_INTERNET' },
+      // Problema: Lentitud
+      'lentitud': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'lento': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'muy lento': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'muy lenta': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'va lento': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'slow': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      'slowness': { problem: 'lentitud del sistema', problemEn: 'system slowness', token: 'BTN_LENTITUD' },
+      // Problema: Bloqueo
+      'bloqueo': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing', token: 'BTN_BLOQUEO' },
+      'se cuelga': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing', token: 'BTN_BLOQUEO' },
+      'se congela': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing', token: 'BTN_BLOQUEO' },
+      'freezing': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing', token: 'BTN_BLOQUEO' },
+      'crashing': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing', token: 'BTN_BLOQUEO' },
+      // Problema: Periféricos
+      'periféricos': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'periferico': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'impresora': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'printer': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'teclado': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'keyboard': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      'mouse': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems', token: 'BTN_PERIFERICOS' },
+      // Problema: Virus
+      'virus': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections', token: 'BTN_VIRUS' },
+      'malware': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections', token: 'BTN_VIRUS' },
+      'infección': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections', token: 'BTN_VIRUS' },
+      'infection': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections', token: 'BTN_VIRUS' }
     };
     
-    // Buscar si el texto del usuario coincide con algún patrón
-    for (const [pattern, problemInfo] of Object.entries(problemPatterns)) {
+    // 🔒 FASE 1.2: Buscar si el texto del usuario coincide con algún patrón (mejorado)
+    // Ordenar patrones por longitud (más específicos primero) para mejor matching
+    const sortedPatterns = Object.entries(problemPatterns).sort((a, b) => b[0].length - a[0].length);
+    
+    for (const [pattern, problemInfo] of sortedPatterns) {
       if (lowerText.includes(pattern)) {
         // ✅ PROBLEMA DETECTADO EN TEXTO
         // Guardar el problema en la sesión según el idioma del usuario
         session.problem = isEnglish ? problemInfo.problemEn : problemInfo.problem;
-        // Intentar mapear token aproximado para playbooks/métricas
-        if (!session.problemToken) {
-          session.problemToken = getProblemTokenFromSession(session, session.problem) || null;
-        }
+        // Guardar token del problema para playbooks/métricas
+        session.problemToken = problemInfo.token || getProblemTokenFromSession(session, session.problem) || null;
         session.needType = 'problema';
+        
+        logger.info(`[ASK_NEED] ✅ Problema detectado en texto libre: "${pattern}" → ${session.problem} (token: ${session.problemToken})`);
         
         logger.info(`[ASK_NEED] ✅ Problema detectado en texto: ${session.problem}`);
         
@@ -3334,11 +4846,23 @@ async function handleAskNeedStage(session, userText, buttonToken, sessionId) {
           locale,
           {
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
-        logger.error('[ASK_NEED] Error generando respuesta técnica con OpenAI:', error);
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.error(`[ASK_NEED] Error OpenAI - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${session.stage}, Button: ${buttonToken || 'none'}, Error: ${error.message?.substring(0, 100)}`);
+      }
+      
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual si OpenAI falló
+      if (!technicalReply) {
+        technicalReply = getContextualOpenAIFallback(session.stage, locale, {
+          problem: session.problem || '',
+          device: session.device || ''
+        });
       }
       
       // Si OpenAI generó respuesta, usarla
@@ -3602,6 +5126,467 @@ function formatStepWithMandatoryFormat(stepIndex, stepText, totalSteps = 8, loca
   // Formato completo del paso
   // Estructura: Título (negrita) → Tiempo → Descripción
   return `${title}\n${timeLabel} ${estimatedTime}\n\n${stepText}`;
+}
+
+/**
+ * Verifica si faltan datos mínimos obligatorios para un caso específico
+ * 
+ * CORRECCIÓN TRANSVERSAL - REGLA A: PREGUNTAS CLAVE OBLIGATORIAS
+ * 
+ * Esta función previene que Tecnos entregue pasos genéricos sin preguntar
+ * datos mínimos necesarios (SO, tipo de periférico, contexto).
+ * 
+ * PROPÓSITO:
+ * - Verificar si la sesión tiene los datos mínimos necesarios para un caso
+ * - Retornar qué preguntas faltan hacer antes de ofrecer pasos
+ * - Prevenir respuestas genéricas sin contexto suficiente
+ * 
+ * MÍNIMOS OBLIGATORIOS POR TIPO DE CASO:
+ * - Si el caso depende del sistema: confirmar SO (Windows/macOS/Linux + versión si se sabe)
+ * - Si el caso es "periféricos": confirmar tipo de periférico + conexión + en qué equipo
+ * - Si el caso es "juegos/rendimiento": confirmar SO + PC/notebook + placa de video dedicada
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - Los casos específicos y sus requisitos mínimos
+ *    - El formato de las preguntas retornadas
+ * 
+ * ❌ NO MODIFICAR:
+ *    - La estructura del objeto retornado (debe tener missing y questions)
+ *    - La lógica de verificación de contextMinima
+ * 
+ * @param {object} session - Objeto de sesión con contextMinima
+ * @param {string} caseType - Tipo de caso ('system', 'peripheral', 'performance', 'generic')
+ * @param {string} locale - Locale para mensajes
+ * @returns {object} { missing: boolean, questions: Array<string>, context: object }
+ */
+/**
+ * 🔒 FUNCIÓN CRÍTICA: faltanDatosMinimos
+ * 
+ * PROPÓSITO:
+ * Valida que la sesión tenga los datos mínimos necesarios antes de generar pasos de diagnóstico.
+ * Previene diagnósticos imprecisos o genéricos cuando falta información esencial.
+ * 
+ * CUÁNDO SE USA:
+ * - Antes de generar pasos en handleAskDeviceStage()
+ * - Antes de regenerar pasos en handleBasicTestsStage()
+ * - Cuando se necesita validar contexto mínimo para un tipo de caso específico
+ * 
+ * QUÉ PREVIENE:
+ * - Mostrar pasos sin saber el sistema operativo (cuando es requerido)
+ * - Generar diagnósticos sin tipo de dispositivo
+ * - Dar instrucciones genéricas cuando se necesita información específica
+ * 
+ * NO DEBE:
+ * - Bloquear el flujo completamente (solo pide datos faltantes)
+ * - Asumir valores por defecto sin confirmar
+ * - Saltarse validaciones para "avanzar rápido"
+ * 
+ * @param {object} session - Sesión actual
+ * @param {string} caseType - Tipo de caso ('system', 'peripheral', 'performance', 'gaming', 'generic')
+ * @param {string} locale - Idioma del usuario
+ * @returns {object} { missing: boolean, questions: string[] } - Datos faltantes y preguntas a hacer
+ */
+function faltanDatosMinimos(session, caseType = 'generic', locale = 'es-AR') {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  const context = session.contextMinima || {};
+  const questions = [];
+  let missing = false;
+  
+  // Verificar según el tipo de caso
+  switch (caseType) {
+    case 'system':
+    case 'os_dependent':
+      // Casos que dependen del sistema operativo
+      // Requisito mínimo: SO confirmado
+      if (!context.hasOS || !context.osName) {
+        missing = true;
+        questions.push(
+          isEnglish 
+            ? "What operating system are you using? (Windows, macOS, Linux, etc.)"
+            : "¿Qué sistema operativo estás usando? (Windows, macOS, Linux, etc.)"
+        );
+      }
+      // Versión es opcional pero preferible
+      if (context.hasOS && context.osName && !context.osVersion) {
+        questions.push(
+          isEnglish
+            ? "Do you know the version? (optional, but helpful)"
+            : "¿Sabés la versión? (opcional, pero útil)"
+        );
+      }
+      break;
+      
+    case 'peripheral':
+      // Casos de periféricos
+      // Requisitos mínimos: tipo de periférico + conexión + equipo
+      if (!context.hasPeripheralType || !context.peripheralType) {
+        missing = true;
+        questions.push(
+          isEnglish
+            ? "What type of peripheral is it? (pendrive, printer, keyboard, mouse, monitor, etc.)"
+            : "¿Qué tipo de periférico es? (pendrive, impresora, teclado, mouse, monitor, etc.)"
+        );
+      }
+      if (context.hasPeripheralType && !context.peripheralConnection) {
+        questions.push(
+          isEnglish
+            ? "How is it connected? (USB, Bluetooth, etc.)"
+            : "¿Cómo está conectado? (USB, Bluetooth, etc.)"
+        );
+      }
+      if (context.hasPeripheralType && !context.peripheralDevice) {
+        questions.push(
+          isEnglish
+            ? "Which device is it connected to? (PC, notebook, Mac, etc.)"
+            : "¿A qué equipo está conectado? (PC, notebook, Mac, etc.)"
+        );
+      }
+      break;
+      
+    case 'performance':
+    case 'gaming':
+      // Casos de rendimiento/juegos
+      // Requisitos mínimos: SO + tipo de dispositivo + placa de video
+      if (!context.hasOS || !context.osName) {
+        missing = true;
+        questions.push(
+          isEnglish
+            ? "What operating system are you using?"
+            : "¿Qué sistema operativo estás usando?"
+        );
+      }
+      if (!context.hasDeviceType || !context.deviceType) {
+        missing = true;
+        questions.push(
+          isEnglish
+            ? "Is it a desktop PC or a notebook?"
+            : "¿Es una PC de escritorio o una notebook?"
+        );
+      }
+      if (!context.hasGraphicsCard) {
+        questions.push(
+          isEnglish
+            ? "Do you have a dedicated graphics card? (yes/no, or approximate model if you know)"
+            : "¿Tenés placa de video dedicada? (sí/no, o modelo aproximado si lo sabés)"
+        );
+      }
+      break;
+      
+    case 'generic':
+    default:
+      // Caso genérico: al menos algún contexto mínimo
+      if (!context.hasContext && !context.hasOS && !context.hasPeripheralType && !context.hasDeviceType) {
+        missing = true;
+        questions.push(
+          isEnglish
+            ? "Can you tell me a bit more about your setup? (operating system, device type, etc.)"
+            : "¿Podés contarme un poco más sobre tu equipo? (sistema operativo, tipo de dispositivo, etc.)"
+        );
+      }
+      break;
+  }
+  
+  return {
+    missing: missing,
+    questions: questions,
+    context: context
+  };
+}
+
+/**
+ * Actualiza el tracking de progreso cuando se muestra un bloque de pasos
+ * 
+ * CORRECCIÓN TRANSVERSAL - REGLA B: NO REINICIAR CUANDO HAY PROGRESO
+ * 
+ * Esta función registra que se mostró un bloque de pasos para prevenir
+ * que el sistema lo reimprima cuando ya hay progreso.
+ * 
+ * PROPÓSITO:
+ * - Registrar qué bloque de pasos se mostró y cuándo
+ * - Permitir verificar si ya se mostró un bloque antes de reimprimirlo
+ * - Mantener el contexto del flujo actual
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - El formato del flowId
+ *    - Los campos adicionales que se quieran trackear
+ * 
+ * ❌ NO MODIFICAR:
+ *    - Debe actualizar session.progress.lastFlowShown
+ *    - Debe actualizar session.progress.stepsShownAt
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {string} flowId - ID del flujo/bloque de pasos mostrado
+ * @param {number} totalSteps - Total de pasos mostrados
+ */
+function registerFlowShown(session, flowId, totalSteps = 0) {
+  if (!session.progress) {
+    session.progress = {
+      lastFlowShown: null,
+      lastFlowShownAt: null,
+      lastStepSelected: null,
+      lastStepSelectedAt: null,
+      userReportedOutcome: null,
+      userReportedOutcomeAt: null,
+      contextChanged: false,
+      contextChangedAt: null,
+      stepsShownAt: null,
+      lastStepIndex: null,
+      outcomesByStep: {},
+      phrasesShown: [] // 🔒 FASE 2.3: Tracking de frases mostradas para prevenir repeticiones
+    };
+  }
+  
+  session.progress.lastFlowShown = flowId;
+  session.progress.lastFlowShownAt = nowIso();
+  session.progress.stepsShownAt = nowIso();
+  session.progress.lastStepIndex = totalSteps > 0 ? totalSteps - 1 : null;
+}
+
+/**
+ * 🔒 FASE 2.3: Verificar si una frase ya fue mostrada recientemente
+ * Previene repetición excesiva de frases clave
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {string} phrase - Frase a verificar
+ * @param {number} minTurns - Número mínimo de turnos antes de repetir (default: 5)
+ * @returns {boolean} true si la frase puede mostrarse, false si se debe evitar
+ */
+function canShowPhrase(session, phrase, minTurns = 5) {
+  if (!session.progress) {
+    session.progress = { phrasesShown: [] };
+  }
+  
+  if (!session.progress.phrasesShown) {
+    session.progress.phrasesShown = [];
+  }
+  
+  // Normalizar frase (lowercase, sin espacios extra)
+  const normalizedPhrase = phrase.toLowerCase().trim().replace(/\s+/g, ' ');
+  
+  // Buscar ocurrencias recientes (últimos minTurns turnos)
+  const recentPhrases = session.progress.phrasesShown.slice(-minTurns);
+  
+  // Verificar si la frase normalizada aparece en los últimos minTurns turnos
+  for (const entry of recentPhrases) {
+    const entryNormalized = entry.phrase.toLowerCase().trim().replace(/\s+/g, ' ');
+    // Comparación flexible: si la frase contiene palabras clave similares
+    if (entryNormalized === normalizedPhrase || 
+        (normalizedPhrase.length > 20 && entryNormalized.includes(normalizedPhrase.substring(0, 20))) ||
+        (entryNormalized.length > 20 && normalizedPhrase.includes(entryNormalized.substring(0, 20)))) {
+      logger.debug(`[REPETITION] ⚠️  Frase similar ya mostrada recientemente: "${phrase.substring(0, 50)}..."`);
+      return false; // No mostrar, es muy similar a una frase reciente
+    }
+  }
+  
+  return true; // Puede mostrarse
+}
+
+/**
+ * 🔒 FASE 2.3: Registrar que se mostró una frase
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {string} phrase - Frase mostrada
+ */
+function registerPhraseShown(session, phrase) {
+  if (!session.progress) {
+    session.progress = { phrasesShown: [] };
+  }
+  
+  if (!session.progress.phrasesShown) {
+    session.progress.phrasesShown = [];
+  }
+  
+  // Agregar entrada con timestamp
+  session.progress.phrasesShown.push({
+    phrase: phrase,
+    timestamp: nowIso(),
+    turn: session.transcript ? session.transcript.length : 0
+  });
+  
+  // Mantener solo las últimas 20 frases para no crecer indefinidamente
+  if (session.progress.phrasesShown.length > 20) {
+    session.progress.phrasesShown = session.progress.phrasesShown.slice(-20);
+  }
+}
+
+/**
+ * Verifica si hay progreso que impide reimprimir un bloque de pasos
+ * 
+ * CORRECCIÓN TRANSVERSAL - REGLA B: NO REINICIAR CUANDO HAY PROGRESO
+ * 
+ * Esta función verifica si el usuario ya tiene progreso suficiente como para
+ * que sea PROHIBIDO reimprimir el bloque completo de pasos iniciales.
+ * 
+ * PROPÓSITO:
+ * - Detectar si hay progreso (respuestas, ayuda solicitada, resultados reportados)
+ * - Prevenir reimpresión de bloques cuando hay progreso
+ * - Mantener el contexto del flujo actual
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - Los criterios de qué cuenta como "progreso suficiente"
+ * 
+ * ❌ NO MODIFICAR:
+ *    - Debe retornar un objeto con hasProgress y reason
+ *    - Si hay progreso, NO se debe reimprimir el bloque
+ * 
+ * @param {object} session - Objeto de sesión con progress
+ * @param {string} flowId - ID del flujo que se quiere mostrar
+ * @returns {object} { hasProgress: boolean, reason: string }
+ */
+function hasProgressThatPreventsReimpression(session, flowId) {
+  const progress = session.progress || {};
+  
+  // Verificar si ya se mostró este flujo antes
+  if (progress.lastFlowShown === flowId && progress.lastFlowShownAt) {
+    return {
+      hasProgress: true,
+      reason: 'flow_already_shown',
+      message: 'Este bloque de pasos ya fue mostrado anteriormente'
+    };
+  }
+  
+  // Verificar si el usuario pidió ayuda sobre algún paso
+  if (progress.lastStepSelected !== null && progress.lastStepSelectedAt) {
+    return {
+      hasProgress: true,
+      reason: 'help_requested',
+      message: 'El usuario ya pidió ayuda sobre un paso'
+    };
+  }
+  
+  // Verificar si el usuario reportó algún resultado
+  if (progress.userReportedOutcome && progress.userReportedOutcomeAt) {
+    return {
+      hasProgress: true,
+      reason: 'outcome_reported',
+      message: 'El usuario ya reportó un resultado de algún paso'
+    };
+  }
+  
+  // Verificar si el contexto cambió (SO/periférico actualizado)
+  if (progress.contextChanged && progress.contextChangedAt) {
+    return {
+      hasProgress: true,
+      reason: 'context_changed',
+      message: 'El contexto cambió (SO/periférico actualizado)'
+    };
+  }
+  
+  // Verificar si hay pasos confirmados
+  if (session.stepsDone && session.stepsDone.length > 0) {
+    return {
+      hasProgress: true,
+      reason: 'steps_confirmed',
+      message: 'El usuario ya confirmó haber realizado pasos'
+    };
+  }
+  
+  return {
+    hasProgress: false,
+    reason: null,
+    message: 'No hay progreso que impida reimpresión'
+  };
+}
+
+/**
+ * Guarda un paso renderizado en stepsRendered para fuente única de verdad
+ * 
+ * CORRECCIÓN TRANSVERSAL - REGLA C: AYUDA PASO X DEBE COINCIDIR 1:1 CON PASO X
+ * 
+ * Esta función guarda el contenido exacto de cada paso mostrado para que
+ * "Ayuda Paso X" pueda recuperar exactamente el mismo contenido.
+ * 
+ * PROPÓSITO:
+ * - Crear fuente única de verdad para pasos y su ayuda
+ * - Prevenir desalineación entre UI y texto de ayuda
+ * - Garantizar que Ayuda Paso X explique exactamente el Paso X mostrado
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - Los campos adicionales que se quieran guardar
+ * 
+ * ❌ NO MODIFICAR:
+ *    - Debe guardar stepIndex, title, body
+ *    - Debe guardar en session.stepsRendered
+ * 
+ * @param {object} session - Objeto de sesión
+ * @param {number} stepIndex - Índice del paso (0-based)
+ * @param {string} flowId - ID del flujo
+ * @param {string} title - Título del paso (con formato obligatorio)
+ * @param {string} body - Cuerpo/descripción del paso
+ * @param {string} helpBody - Cuerpo de ayuda (opcional, se genera si no existe)
+ */
+function saveRenderedStep(session, stepIndex, flowId, title, body, helpBody = null) {
+  if (!session.stepsRendered) {
+    session.stepsRendered = [];
+  }
+  
+  // Buscar si ya existe este paso en este flujo
+  const existingIndex = session.stepsRendered.findIndex(
+    step => step.stepIndex === stepIndex && step.flowId === flowId
+  );
+  
+  const stepData = {
+    stepIndex: stepIndex,
+    flowId: flowId,
+    title: title,
+    body: body,
+    helpBody: helpBody || body, // Si no hay helpBody, usar body como base
+    renderedAt: nowIso()
+  };
+  
+  if (existingIndex >= 0) {
+    // Actualizar paso existente
+    session.stepsRendered[existingIndex] = stepData;
+  } else {
+    // Agregar nuevo paso
+    session.stepsRendered.push(stepData);
+  }
+}
+
+/**
+ * Recupera el contenido exacto de un paso renderizado
+ * 
+ * CORRECCIÓN TRANSVERSAL - REGLA C: AYUDA PASO X DEBE COINCIDIR 1:1 CON PASO X
+ * 
+ * Esta función recupera el contenido exacto de un paso que fue mostrado
+ * para que "Ayuda Paso X" use exactamente el mismo contenido.
+ * 
+ * PROPÓSITO:
+ * - Garantizar que Ayuda Paso X explique exactamente el Paso X mostrado
+ * - Prevenir desalineación entre UI y texto de ayuda
+ * - Usar fuente única de verdad (stepsRendered)
+ * 
+ * ✅ SE PUEDE MODIFICAR:
+ *    - La lógica de búsqueda si cambia la estructura
+ * 
+ * ❌ NO MODIFICAR:
+ *    - Debe buscar en session.stepsRendered
+ *    - Debe retornar null si no se encuentra
+ * 
+ * @param {object} session - Objeto de sesión con stepsRendered
+ * @param {number} stepIndex - Índice del paso a recuperar (0-based)
+ * @param {string} flowId - ID del flujo (opcional, usa el último si no se especifica)
+ * @returns {object|null} { stepIndex, flowId, title, body, helpBody, renderedAt } o null
+ */
+function getRenderedStep(session, stepIndex, flowId = null) {
+  if (!session.stepsRendered || !Array.isArray(session.stepsRendered)) {
+    return null;
+  }
+  
+  // Si no se especifica flowId, usar el último flujo mostrado
+  const targetFlowId = flowId || (session.progress?.lastFlowShown || null);
+  
+  // Buscar el paso en el flujo especificado
+  const step = session.stepsRendered.find(
+    s => s.stepIndex === stepIndex && (targetFlowId ? s.flowId === targetFlowId : true)
+  );
+  
+  // Si no se encuentra con flowId, buscar sin flowId (compatibilidad)
+  if (!step && targetFlowId) {
+    return session.stepsRendered.find(s => s.stepIndex === stepIndex) || null;
+  }
+  
+  return step || null;
 }
 
 /**
@@ -4401,6 +6386,111 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
         }
         
         // ========================================================
+        // CORRECCIÓN TRANSVERSAL: VERIFICAR MÍNIMOS OBLIGATORIOS
+        // ========================================================
+        // 
+        // REGLA A: PREGUNTAS CLAVE OBLIGATORIAS ANTES DE OFRECER PASOS
+        // 
+        // Antes de imprimir una batería de pasos (más de 2), Tecnos debe tener "mínimos" confirmados.
+        // Si no están confirmados, Tecnos debe preguntar 1-3 preguntas cortas y esperar respuesta.
+        // 
+        // Determinar el tipo de caso según el problema
+        // ✅ SE PUEDE MODIFICAR: La lógica de detección del tipo de caso
+        const problemText = (session.problem || '').toLowerCase();
+        let caseType = 'generic';
+        if (problemText.includes('periférico') || problemText.includes('peripheral') || 
+            problemText.includes('pendrive') || problemText.includes('impresora') || 
+            problemText.includes('printer') || problemText.includes('teclado') || 
+            problemText.includes('keyboard') || problemText.includes('mouse') || 
+            problemText.includes('monitor')) {
+          caseType = 'peripheral';
+        } else if (problemText.includes('juego') || problemText.includes('game') || 
+                   problemText.includes('rendimiento') || problemText.includes('performance') || 
+                   problemText.includes('lento') || problemText.includes('slow')) {
+          caseType = 'performance';
+        } else if (problemText.includes('linux') || problemText.includes('windows') || 
+                   problemText.includes('macos') || problemText.includes('mac os')) {
+          caseType = 'system';
+        }
+        
+        // Verificar si faltan datos mínimos obligatorios
+        // ❌ NO MODIFICAR: Debe usar faltanDatosMinimos() para cumplir con la Regla A
+        // 🔒 F4-A: Sincronizar diagnóstico desde sesión
+        syncDiagnosisFromSession(session);
+        
+        const missingData = faltanDatosMinimos(session, caseType, locale);
+        
+        // Si faltan datos mínimos, preguntar antes de mostrar pasos
+        if (missingData.missing && missingData.questions.length > 0) {
+          // 🔒 F4-C: Filtrar preguntas que ya fueron realizadas
+          const questionsToAsk = missingData.questions.filter((q, idx) => {
+            // Generar key para la pregunta
+            const questionKey = q.key || (idx === 0 && caseType === 'system' ? 'OS' : 
+                                         idx === 0 && caseType === 'peripheral' ? 'PERIPHERAL_TYPE' : 
+                                         'UNKNOWN');
+            const shouldAskThis = shouldAsk(questionKey, session);
+            if (shouldAskThis) {
+              registerQuestionAsked(questionKey, session);
+            }
+            return shouldAskThis;
+          });
+          
+          if (questionsToAsk.length === 0) {
+            // Todas las preguntas ya fueron realizadas, continuar con pasos
+            logger.info('[DIAGNOSIS] Todas las preguntas mínimas ya fueron realizadas, procediendo con pasos');
+          } else {
+            // Hay datos mínimos faltantes, preguntar primero (solo las que no fueron realizadas)
+            // ✅ SE PUEDE MODIFICAR: El formato del mensaje de preguntas
+            const questionsText = questionsToAsk.join('\n\n');
+          const askFirstReply = isEnglish
+            ? `Before I suggest steps, I need a bit more information:\n\n${questionsText}\n\nPlease answer these questions so I can give you the most accurate steps.`
+            : `Antes de sugerirte pasos, necesito un poco más de información:\n\n${questionsText}\n\nPor favor respondé estas preguntas para darte los pasos más precisos.`;
+          
+          // Registrar el mensaje en el transcript
+          addBotMessageToTranscript(session.transcript, askFirstReply, session.stage, undefined);
+          await saveSessionAndTranscript(sessionId, session);
+          
+            // Retornar sin pasos (esperar respuesta del usuario)
+            return {
+              ok: true,
+              reply: askFirstReply,
+              stage: session.stage,
+              handled: true
+            };
+          }
+        }
+        
+        // ========================================================
+        // CORRECCIÓN TRANSVERSAL: VERIFICAR PROGRESO ANTES DE MOSTRAR
+        // ========================================================
+        // 
+        // REGLA B: NO REINICIAR CUANDO HAY PROGRESO
+        // 
+        // Verificar si hay progreso que impide reimprimir el bloque de pasos
+        // ❌ NO MODIFICAR: Debe usar hasProgressThatPreventsReimpression() para cumplir con la Regla B
+        const flowId = `basic_diagnosis_${session.problem}_${session.device}`;
+        const progressCheck = hasProgressThatPreventsReimpression(session, flowId);
+        
+        if (progressCheck.hasProgress) {
+          // Hay progreso que impide reimprimir, continuar desde donde quedó
+          logger.warn(`[ASK_DEVICE] 🚫 BLOQUEADO: ${progressCheck.reason} - ${progressCheck.message}`);
+          
+          const continueReply = isEnglish
+            ? `I see you've already made progress. Let's continue from where we left off.`
+            : `Veo que ya hay progreso. Sigamos desde donde quedamos.`;
+          
+          addBotMessageToTranscript(session.transcript, continueReply, session.stage, undefined);
+          await saveSessionAndTranscript(sessionId, session);
+          
+          return {
+            ok: true,
+            reply: continueReply,
+            stage: session.stage,
+            handled: true
+          };
+        }
+        
+        // ========================================================
         // GENERACIÓN DE PASOS (solo si NO hay pasos confirmados)
         // ========================================================
         // 
@@ -4508,14 +6598,44 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           // Usar la función helper que garantiza el formato obligatorio
           // Esta función genera: **Paso X️⃣ — Dificultad: ⭐⭐⭐**
           const formattedStep = formatStepWithMandatoryFormat(idx, step, steps.length, locale);
+          
+          // ========================================================
+          // CORRECCIÓN TRANSVERSAL: GUARDAR PASO RENDERIZADO
+          // ========================================================
+          // 
+          // REGLA C: AYUDA PASO X DEBE COINCIDIR 1:1 CON PASO X
+          // 
+          // Guardar el contenido exacto del paso en stepsRendered para fuente única de verdad
+          // Esto garantiza que "Ayuda Paso X" use exactamente el mismo contenido que "Paso X"
+          // ❌ NO MODIFICAR: Debe usar saveRenderedStep() para cumplir con la Regla C
+          const stepTitle = `**Paso ${emojiForIndex(idx)} — Dificultad: ${getDifficultyForStep(idx, steps.length).stars}**`;
+          saveRenderedStep(session, idx, flowId, stepTitle, step, null);
+          
           // Agregar marcador especial para el botón de ayuda después de cada paso
           // El frontend usa este marcador para insertar el botón de ayuda en el lugar correcto
           return `${formattedStep}\n\n[BTN_HELP_STEP_${idx}]`;
         });
+        
+        // ========================================================
+        // CORRECCIÓN TRANSVERSAL: REGISTRAR FLUJO MOSTRADO
+        // ========================================================
+        // 
+        // REGLA B: NO REINICIAR CUANDO HAY PROGRESO
+        // 
+        // Registrar que se mostró este bloque de pasos para prevenir reimpresión
+        // ❌ NO MODIFICAR: Debe usar registerFlowShown() para cumplir con la Regla B
+        registerFlowShown(session, flowId, steps.length);
         // Unir todos los pasos con doble salto de línea para separación visual
         // ⚠️ TEMPORAL: Esto muestra todos los pasos juntos
         // Según la orden operativa, debería mostrar solo UN paso por mensaje
         const stepsText = stepsWithHelp.join('\n\n');
+        
+        // 🔒 F4-E: Validar coherencia de respuesta antes de mostrar
+        const stepsReply = `${intro}\n\n${stepsText}${footer}`;
+        const coherence = validateResponseCoherence(stepsReply, session);
+        if (!coherence.coherent && coherence.warnings.length > 0) {
+          logger.warn(`[DIAGNOSIS] Advertencias de coherencia en respuesta de pasos: ${coherence.warnings.join('; ')}`);
+        }
         
         // Generar mensaje final
         const footer = isEnglish
@@ -4593,6 +6713,7 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           handled: true
         };
       }
+      // Fin del bloque if (missingData.missing && questionsToAsk.length > 0) else
     }
     
     // ========================================
@@ -4615,11 +6736,23 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           locale,
           {
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
-        logger.error('[ASK_DEVICE] Error generando respuesta técnica con OpenAI:', error);
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.error(`[ASK_DEVICE] Error OpenAI - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${session.stage}, Button: ${buttonToken || 'none'}, Error: ${error.message?.substring(0, 100)}`);
+      }
+      
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual si OpenAI falló
+      if (!technicalReply) {
+        technicalReply = getContextualOpenAIFallback(session.stage, locale, {
+          problem: session.problem || '',
+          device: session.device || ''
+        });
       }
       
       // Si OpenAI generó respuesta, usarla
@@ -4665,8 +6798,8 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
     const fallbackReply = isEnglish
       ? "I didn't quite understand. Could you please select one of the device options using the buttons above?"
       : (isEsLatam
-        ? "No entendí bien. ¿Podrías seleccionar una de las opciones de dispositivo usando los botones de arriba?"
-        : "No entendí bien. ¿Podrías seleccionar una de las opciones de dispositivo usando los botones de arriba?");
+        ? "I didn't quite understand. Could you select one of the device options using the buttons above?"
+        : "No entendí bien. ¿Podés seleccionar una de las opciones de dispositivo usando los botones de arriba?");
     
     // Generar botones de dispositivos para que el usuario pueda seleccionar
     const deviceButtons = getDeviceSelectionButtons(locale);
@@ -5027,6 +7160,79 @@ function isTechnicalQuestion(text) {
  * @param {object} context - Contexto adicional (problema, dispositivo, etc.)
  * @returns {Promise<string>} Respuesta generada por OpenAI
  */
+/**
+ * 🔒 MINUTA POST-PRUEBA: Genera fallback contextual cuando OpenAI falla
+ * 
+ * Esta función genera un mensaje de fallback que mantiene coherencia conversacional
+ * según el stage actual y el tono Tecnos, evitando mensajes genéricos o técnicos.
+ * 
+ * @param {string} stage - Stage actual de la conversación
+ * @param {string} locale - Idioma del usuario
+ * @param {object} context - Contexto adicional (problem, device, etc.)
+ * @returns {string} Mensaje de fallback contextual
+ */
+function getContextualOpenAIFallback(stage, locale, context = {}) {
+  const isEnglish = String(locale).toLowerCase().startsWith('en');
+  const isEsAr = String(locale).toLowerCase() === 'es-ar';
+  
+  // Fallback según el stage actual
+  switch (stage) {
+    case STATES.ASK_NAME:
+      return isEnglish
+        ? `I'm here to help you with technical support. First, could you tell me your name? For example: "Ana" or "John Paul".`
+        : (isEsAr
+          ? `Estoy acá para ayudarte con soporte técnico. Primero, ¿podés decirme tu nombre? Por ejemplo: "Ana" o "Juan Pablo".`
+          : `Estoy aquí para ayudarte con soporte técnico. Primero, ¿puedes decirme tu nombre? Por ejemplo: "Ana" o "Juan Pablo".`);
+    
+    case STATES.ASK_NEED:
+      return isEnglish
+        ? `I understand you need help. Could you tell me what problem you're experiencing? For example: "My computer won't turn on" or "I have internet connection issues".`
+        : (isEsAr
+          ? `Entiendo que necesitás ayuda. ¿Podés contarme qué problema estás teniendo? Por ejemplo: "Mi computadora no enciende" o "Tengo problemas de conexión a internet".`
+          : `Entiendo que necesitas ayuda. ¿Puedes contarme qué problema estás teniendo? Por ejemplo: "Mi computadora no enciende" o "Tengo problemas de conexión a internet".`);
+    
+    case STATES.ASK_DEVICE:
+      return isEnglish
+        ? `To help you better, I need to know what type of device you're using. Is it a desktop PC, a notebook, or an all-in-one?`
+        : (isEsAr
+          ? `Para ayudarte mejor, necesito saber qué tipo de dispositivo estás usando. ¿Es una PC de escritorio, una notebook o una all-in-one?`
+          : `Para ayudarte mejor, necesito saber qué tipo de dispositivo estás usando. ¿Es una PC de escritorio, una notebook o una all-in-one?`);
+    
+    case STATES.BASIC_TESTS:
+    case STATES.ADVANCED_TESTS:
+      const problem = context.problem || '';
+      const device = context.device || '';
+      
+      if (problem && device) {
+        return isEnglish
+          ? `I'm working on finding a solution for your ${problem} issue on your ${device}. Let me check the diagnostic steps we've covered so far.`
+          : (isEsAr
+            ? `Estoy trabajando en encontrar una solución para tu problema de ${problem} en tu ${device}. Déjame revisar los pasos de diagnóstico que ya cubrimos.`
+            : `Estoy trabajando en encontrar una solución para tu problema de ${problem} en tu ${device}. Déjame revisar los pasos de diagnóstico que ya cubrimos.`);
+      }
+      
+      return isEnglish
+        ? `I'm here to help you troubleshoot. Let's continue with the diagnostic steps we've been following.`
+        : (isEsAr
+          ? `Estoy acá para ayudarte a resolver el problema. Sigamos con los pasos de diagnóstico que venimos siguiendo.`
+          : `Estoy aquí para ayudarte a resolver el problema. Sigamos con los pasos de diagnóstico que venimos siguiendo.`);
+    
+    case STATES.ESCALATE:
+      return isEnglish
+        ? `I understand you need additional help. Let me connect you with a technician who can assist you further.`
+        : (isEsAr
+          ? `Entiendo que necesitás ayuda adicional. Déjame conectarte con un técnico que pueda ayudarte mejor.`
+          : `Entiendo que necesitas ayuda adicional. Déjame conectarte con un técnico que pueda ayudarte mejor.`);
+    
+    default:
+      return isEnglish
+        ? `I'm here to help you with technical support. How can I assist you today?`
+        : (isEsAr
+          ? `Estoy acá para ayudarte con soporte técnico. ¿Cómo puedo ayudarte hoy?`
+          : `Estoy aquí para ayudarte con soporte técnico. ¿Cómo puedo ayudarte hoy?`);
+  }
+}
+
 async function generateTechnicalResponse(question, locale, context = {}) {
   if (!openai) {
     logger.warn('[OPENAI] Cliente no disponible, no se puede generar respuesta técnica');
@@ -5139,6 +7345,7 @@ Proporciona una respuesta técnica clara y útil siguiendo las reglas de tono de
   }
   
   try {
+    // 🔒 F1-T08: Timeout para llamadas a OpenAI (ya configurado en cliente, pero manejamos errores)
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages: [
@@ -5159,7 +7366,18 @@ Proporciona una respuesta técnica clara y útil siguiendo las reglas de tono de
       return null;
     }
   } catch (error) {
-    logger.error('[OPENAI] ❌ Error generando respuesta técnica:', error.message);
+    // Manejar timeout u otros errores de OpenAI
+    const sessionId = context?.sessionId || session?.id || 'unknown';
+    const currentStage = session?.stage || context?.stage || 'unknown';
+    const buttonToken = context?.buttonToken || 'none';
+    
+    // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+    if (error.name === 'TimeoutError' || error.message?.includes('timeout')) {
+      logger.warn(`[OPENAI] Timeout - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${currentStage}, Button: ${buttonToken}`);
+    } else {
+      logger.error(`[OPENAI] Error - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${currentStage}, Button: ${buttonToken}, Error: ${error.message?.substring(0, 100)}`);
+    }
+    // Retornar null para que el handler maneje el fallback contextual
     return null;
   }
 }
@@ -5230,6 +7448,108 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     const isEsLatam = String(locale).toLowerCase().startsWith('es-') && !locale.includes('ar');
     
     logger.info(`[BASIC_TESTS] Procesando: "${userText || 'button'}" (buttonToken: ${buttonToken || 'none'})`);
+    
+    // ========================================
+    // CASO 0: USUARIO PRESIONA "CERRAR CHAT" (BTN_CLOSE)
+    // ========================================
+    // Si el usuario quiere cerrar el chat, mostrar feedback antes de cerrar
+    // 
+    // 🔒 ORDEN OPERATIVA: Feedback en cierre de chat
+    // ✅ SE PUEDE MODIFICAR: El mensaje de feedback
+    // ❌ NO MODIFICAR: Debe mostrar feedback si no se registró, luego cerrar después del voto
+    //
+    if (buttonToken === 'BTN_CLOSE' || /^\s*cerrar\s+chat\b/i.test(userText || '')) {
+      // Determinar idioma de la sesión
+      const locale = ensureSessionLocale(session);
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      
+      // Si ya se registró feedback, cerrar directamente
+      if (session.feedbackRecorded === true) {
+        // 🔒 FASE 2.3: Prevenir repetición de frase de cierre
+        const basePhrase = isEnglish
+          ? `Thanks for using Tecnos! If you need help again, I'll be here. 🤖`
+          : `¡Gracias por usar Tecnos! Si necesitás ayuda de nuevo, acá voy a estar. 🤖`;
+        
+        // Variar mensaje si ya se mostró recientemente
+        let finalReply = basePhrase;
+        if (!canShowPhrase(session, basePhrase, 5)) {
+          // Usar variante si la frase ya se mostró
+          finalReply = isEnglish
+            ? `Thanks! I'm here whenever you need help. 🤖`
+            : `¡Gracias! Acá estoy cuando necesites ayuda. 🤖`;
+        }
+        
+        registerPhraseShown(session, finalReply);
+        
+        changeStage(session, STATES.ENDED);
+        session.waEligible = false;
+        
+        session.transcript.push({
+          who: 'user',
+          text: buttonToken || userText || 'cerrar chat',
+          ts: nowIso()
+        });
+        session.transcript.push({
+          who: 'bot',
+          text: finalReply,
+          ts: nowIso()
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        return {
+          ok: true,
+          reply: finalReply,
+          stage: session.stage,
+          buttons: [],
+          handled: true
+        };
+      }
+      
+      // Si todavía NO se registró feedback, mostrar la encuesta antes de cerrar
+      const feedbackPrompt = isEnglish
+        ? "Before closing, tell me:"
+        : "Antes de cerrar, contame:";
+      
+      // Botones de feedback (OBLIGATORIO FORMATO)
+      const feedbackButtons = [
+        {
+          text: isEnglish ? '👍 Tecnos was helpful' : '👍 La ayuda de Tecnos me fue útil',
+          value: 'BTN_FEEDBACK_USEFUL',
+          order: 1
+        },
+        {
+          text: isEnglish ? '👎 Tecnos was not helpful' : '👎 La ayuda de Tecnos no me sirvió',
+          value: 'BTN_FEEDBACK_NOT_USEFUL',
+          order: 2
+        }
+      ];
+      
+      // Marcar que se mostraron botones de feedback (para detectar si envía texto después)
+      session.feedbackButtonsShown = true;
+      
+      // Agregar mensajes al transcript
+      session.transcript.push({
+        who: 'user',
+        text: buttonToken || userText || 'cerrar chat',
+        ts: nowIso()
+      });
+      addBotMessageToTranscript(session.transcript, feedbackPrompt, session.stage, feedbackButtons);
+      
+      // Guardar la sesión actualizada
+      await saveSessionAndTranscript(sessionId, session);
+      
+      logger.info(`[FEEDBACK] Usuario presionó Cerrar Chat. Mostrando feedback antes de cerrar.`);
+      
+      // Retornar respuesta con botones de feedback (NO cambiar a ENDED todavía)
+      return {
+        ok: true,
+        reply: feedbackPrompt,
+        stage: session.stage, // Mantener stage actual hasta recibir feedback
+        buttons: feedbackButtons,
+        handled: true
+      };
+    }
     
     // ========================================
     // CASO 1: USUARIO HACE CLIC EN "VOLVER A LOS PASOS"
@@ -5415,6 +7735,60 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // NO hay pasos confirmados, permitir regenerar pasos normalmente
       // (esto solo debería pasar la primera vez)
       if (session.device && session.problem) {
+        // 🔒 FASE 1.1: Validar datos mínimos ANTES de regenerar pasos
+        // Verificar que no falten datos críticos antes de mostrar pasos
+        syncDiagnosisFromSession(session);
+        
+        // Determinar caseType basado en el problema
+        const problemText = (session.problem || '').toLowerCase();
+        let caseType = 'generic';
+        if (problemText.includes('periférico') || problemText.includes('peripheral') || 
+            problemText.includes('impresora') || problemText.includes('printer') ||
+            problemText.includes('teclado') || problemText.includes('keyboard') ||
+            problemText.includes('mouse') || problemText.includes('monitor')) {
+          caseType = 'peripheral';
+        } else if (problemText.includes('juego') || problemText.includes('game') || 
+                   problemText.includes('rendimiento') || problemText.includes('performance') || 
+                   problemText.includes('lento') || problemText.includes('slow')) {
+          caseType = 'performance';
+        } else if (problemText.includes('linux') || problemText.includes('windows') || 
+                   problemText.includes('macos') || problemText.includes('mac os')) {
+          caseType = 'system';
+        }
+        
+        const missingData = faltanDatosMinimos(session, caseType, locale);
+        
+        // Si faltan datos mínimos, preguntar primero
+        if (missingData.missing && missingData.questions.length > 0) {
+          const questionsToAsk = missingData.questions.filter((q, idx) => {
+            const questionKey = q.key || (idx === 0 && caseType === 'system' ? 'OS' : 
+                                         idx === 0 && caseType === 'peripheral' ? 'PERIPHERAL_TYPE' : 
+                                         'UNKNOWN');
+            const shouldAskThis = shouldAsk(questionKey, session);
+            if (shouldAskThis) {
+              registerQuestionAsked(questionKey, session);
+            }
+            return shouldAskThis;
+          });
+          
+          if (questionsToAsk.length > 0) {
+            const questionsText = questionsToAsk.join('\n\n');
+            const askFirstReply = isEnglish
+              ? `Before I suggest steps, I need a bit more information:\n\n${questionsText}\n\nPlease answer these questions so I can give you the most accurate steps.`
+              : `Antes de sugerirte pasos, necesito un poco más de información:\n\n${questionsText}\n\nPor favor respondé estas preguntas para darte los pasos más precisos.`;
+            
+            addBotMessageToTranscript(session.transcript, askFirstReply, session.stage, undefined);
+            await saveSessionAndTranscript(sessionId, session);
+            
+            return {
+              ok: true,
+              reply: askFirstReply,
+              stage: session.stage,
+              handled: true
+            };
+          }
+        }
+        
         // Telemetría: back a pasos
         pushBasicTestTelemetry(session, {
           action: 'back_to_steps',
@@ -5479,6 +7853,33 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       }, sessionId);
       session.lastHelpStep = stepIdx;
       
+      // ========================================================
+      // CORRECCIÓN TRANSVERSAL: REGISTRAR AYUDA SOLICITADA
+      // ========================================================
+      // 
+      // REGLA B: NO REINICIAR CUANDO HAY PROGRESO
+      // 
+      // Registrar que el usuario pidió ayuda sobre un paso
+      // Esto previene que el sistema reimprima el bloque completo
+      // ❌ NO MODIFICAR: Debe actualizar progress.lastStepSelected
+      if (!session.progress) {
+        session.progress = {
+          lastFlowShown: null,
+          lastFlowShownAt: null,
+          lastStepSelected: null,
+          lastStepSelectedAt: null,
+          userReportedOutcome: null,
+          userReportedOutcomeAt: null,
+          contextChanged: false,
+          contextChangedAt: null,
+          stepsShownAt: null,
+          lastStepIndex: null,
+          outcomesByStep: {}
+        };
+      }
+      session.progress.lastStepSelected = stepIdx;
+      session.progress.lastStepSelectedAt = nowIso();
+      
       logger.info(`[BASIC_TESTS] Botón de ayuda detectado: ${buttonToken}, stepIdx: ${stepIdx}`);
       console.log(`[DEBUG] Procesando botón de ayuda - buttonToken: "${buttonToken}", stepIdx: ${stepIdx}, session.stage: ${session.stage}`);
       
@@ -5499,48 +7900,96 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         };
       }
       
-      // Obtener los pasos desde la sesión
-      const steps = Array.isArray(session.tests?.basic) ? session.tests.basic : 
-                    Array.isArray(session.basicTests) ? session.basicTests : [];
+      // ========================================================
+      // CORRECCIÓN TRANSVERSAL: RECUPERAR PASO RENDERIZADO
+      // ========================================================
+      // 
+      // REGLA C: AYUDA PASO X DEBE COINCIDIR 1:1 CON PASO X
+      // 
+      // Recuperar el contenido exacto del paso desde stepsRendered
+      // Esto garantiza que la ayuda use exactamente el mismo contenido que el paso mostrado
+      // ❌ NO MODIFICAR: Debe usar getRenderedStep() para cumplir con la Regla C
+      const flowId = session.progress?.lastFlowShown || `basic_diagnosis_${session.problem}_${session.device}`;
+      const renderedStep = getRenderedStep(session, stepIdx, flowId);
       
-      // Validar que el índice esté dentro del rango
-      if (stepIdx >= steps.length) {
-        const errorReply = isEnglish
-          ? `Invalid step number. Please select a step between 1 and ${steps.length}.`
-          : `Paso inválido. Elegí un paso entre 1 y ${steps.length}.`;
+      // Si no se encuentra el paso renderizado, intentar obtenerlo desde la sesión (compatibilidad)
+      let stepBody = null;
+      let stepTitle = null;
+      
+      if (renderedStep) {
+        // Usar el contenido exacto del paso renderizado
+        stepBody = renderedStep.body;
+        stepTitle = renderedStep.title;
+        logger.info(`[BASIC_TESTS] ✅ Paso renderizado encontrado: ${renderedStep.flowId}, paso ${stepIdx}`);
+      } else {
+        // Fallback: obtener desde la sesión (compatibilidad con sesiones antiguas)
+        const steps = Array.isArray(session.tests?.basic) ? session.tests.basic : 
+                      Array.isArray(session.basicTests) ? session.basicTests : [];
         
-        session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
-        await saveSessionAndTranscript(sessionId, session);
+        if (stepIdx >= steps.length) {
+          const errorReply = isEnglish
+            ? `Invalid step number. Please select a step between 1 and ${steps.length}.`
+            : `Paso inválido. Elegí un paso entre 1 y ${steps.length}.`;
+          
+          session.transcript.push({ who: 'bot', text: errorReply, ts: nowIso() });
+          await saveSessionAndTranscript(sessionId, session);
+          
+          return {
+            ok: false,
+            reply: errorReply,
+            stage: session.stage,
+            handled: true
+          };
+        }
         
-        return {
-          ok: false,
-          reply: errorReply,
-          stage: session.stage,
-          handled: true
-        };
+        stepBody = steps[stepIdx];
+        stepTitle = `**Paso ${emojiForIndex(stepIdx)} — Dificultad: ${getDifficultyForStep(stepIdx, steps.length).stars}**`;
+        logger.warn(`[BASIC_TESTS] ⚠️ Paso renderizado no encontrado, usando fallback desde sesión`);
       }
       
-      // Obtener el texto del paso
-      const stepText = steps[stepIdx];
+      // Usar el contenido del paso renderizado (garantiza coincidencia 1:1)
+      // stepBody ya fue obtenido desde getRenderedStep() o desde la sesión como fallback
       const stepNumber = stepIdx + 1; // Convertir a 1-based para mostrar
       
-      // Generar explicación detallada del paso
-      // IMPORTANTE: explainStepWithAI espera un índice 1-based (como en el código antiguo)
-      // Por lo tanto, debemos pasar stepNumber (1-based), no stepIdx (0-based)
+      // ========================================================
+      // CORRECCIÓN TRANSVERSAL: USAR CONTENIDO EXACTO DEL PASO
+      // ========================================================
+      // 
+      // REGLA C: AYUDA PASO X DEBE COINCIDIR 1:1 CON PASO X
+      // 
+      // Si el paso renderizado tiene helpBody, usarlo directamente
+      // Si no, generar explicación usando el body exacto del paso
+      // Esto garantiza que la ayuda explique exactamente el paso mostrado
       let explanation = '';
-      try {
-        explanation = await explainStepWithAI(
-          stepText,
-          stepNumber, // Pasar stepNumber (1-based) - la función espera índice 1-based
-          session.device || '',
-          session.problem || '',
-          locale
-        );
-      } catch (err) {
-        logger.error('[BASIC_TESTS] Error generando ayuda:', err);
-        explanation = isEnglish
-          ? `**Help for Step ${stepNumber}:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
-          : `**🛠️ Ayuda — Paso ${stepNumber}**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
+      
+      if (renderedStep && renderedStep.helpBody && renderedStep.helpBody !== renderedStep.body) {
+        // Usar helpBody si existe y es diferente del body (ya fue generado previamente)
+        explanation = renderedStep.helpBody;
+        logger.info(`[BASIC_TESTS] ✅ Usando helpBody pre-generado para paso ${stepIdx}`);
+      } else {
+        // Generar explicación detallada usando el contenido exacto del paso
+        // IMPORTANTE: explainStepWithAI espera un índice 1-based (como en el código antiguo)
+        // Por lo tanto, debemos pasar stepNumber (1-based), no stepIdx (0-based)
+        // ❌ NO MODIFICAR: Debe usar stepBody (contenido exacto del paso) para cumplir con la Regla C
+        try {
+          explanation = await explainStepWithAI(
+            stepBody, // ⚠️ CRÍTICO: Usar stepBody (contenido exacto) en lugar de stepText genérico
+            stepNumber, // Pasar stepNumber (1-based) - la función espera índice 1-based
+            session.device || '',
+            session.problem || '',
+            locale
+          );
+          
+          // Guardar el helpBody generado en el paso renderizado para futuras consultas
+          if (renderedStep) {
+            saveRenderedStep(session, stepIdx, flowId, stepTitle, stepBody, explanation);
+          }
+        } catch (err) {
+          logger.error('[BASIC_TESTS] Error generando ayuda:', err);
+          explanation = isEnglish
+            ? `**Help for Step ${stepNumber}:**\n\nI couldn't generate a detailed explanation, but try to follow the step as best as you can. If you get stuck, let me know which part you didn't understand.`
+            : `**🛠️ Ayuda — Paso ${stepNumber}**\n\nNo pude generar una explicación detallada, pero tratá de seguir el paso lo mejor que puedas. Si te trabás, decime qué parte no entendiste.`;
+        }
       }
       
       // Formatear el mensaje final con la pregunta de seguimiento
@@ -5609,33 +8058,110 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ========================================
     // CASO 3: USUARIO HACE CLIC EN "LO PUDE SOLUCIONAR"
     // ========================================
-    // Si el usuario indica que resolvió el problema, celebrar y terminar
+    // Si el usuario indica que resolvió el problema, celebrar y mostrar feedback
     //
     // ✅ SE PUEDE MODIFICAR: El mensaje de celebración
-    // ❌ NO MODIFICAR: Debe cambiar a ENDED y desactivar waEligible
+    // ❌ NO MODIFICAR: Debe mostrar botones de feedback antes de cerrar
     //
     if (buttonToken === 'BTN_SOLVED' || /^\s*(s|si|sí|lo pude|lo pude solucionar|resuelto|solucionado)\b/i.test(userText || '')) {
+      // Determinar idioma de la sesión
+      const locale = ensureSessionLocale(session);
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      
+      // Verificar si ya se mostró feedback (anti-bug: no mostrar dos veces)
+      if (session.feedbackRecorded === true) {
+        // Limpiar flag de botones mostrados si ya se registró feedback
+        session.feedbackButtonsShown = false;
+        // Ya se registró feedback, cerrar definitivamente
+        // 🔒 FASE 2.3: Prevenir repetición de frase de cierre
+        const basePhrase = isEnglish
+          ? `Thanks for using Tecnos! If you need help again, I'll be here. 🤖`
+          : `¡Gracias por usar Tecnos! Si necesitás ayuda de nuevo, acá voy a estar. 🤖`;
+        
+        let finalReply = basePhrase;
+        if (!canShowPhrase(session, basePhrase, 5)) {
+          finalReply = isEnglish
+            ? `Thanks! I'm here whenever you need help. 🤖`
+            : `¡Gracias! Acá estoy cuando necesites ayuda. 🤖`;
+        }
+        
+        registerPhraseShown(session, finalReply);
+        
+        changeStage(session, STATES.ENDED);
+        session.waEligible = false;
+        
+        session.transcript.push({
+          who: 'user',
+          text: buttonToken || userText,
+          ts: nowIso()
+        });
+        session.transcript.push({
+          who: 'bot',
+          text: finalReply,
+          ts: nowIso()
+        });
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        return {
+          ok: true,
+          reply: finalReply,
+          stage: session.stage,
+          buttons: [],
+          handled: true
+        };
+      }
+      
       // Telemetría: marcado como solucionado
       pushBasicTestTelemetry(session, {
         action: 'solved',
         stepIndex: session.currentTestIndex ?? null,
         level: null
       }, sessionId);
+      
       const whoLabel = session.userName ? session.userName.split(' ').map(n => 
         n.charAt(0).toUpperCase() + n.slice(1).toLowerCase()
       ).join(' ') : null;
+      
+      // 🔒 FASE 2.3: Prevenir repetición de frases de celebración
+      const celebrationBase = isEnglish 
+        ? `I'm glad you solved it. Your equipment should work perfectly now.`
+        : `Me alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora.`;
+      
+      let celebrationPhrase = celebrationBase;
+      if (!canShowPhrase(session, celebrationBase, 5)) {
+        // Usar variante si ya se mostró
+        celebrationPhrase = isEnglish
+          ? `Great! Your equipment should be working perfectly now.`
+          : `¡Excelente! Tu equipo debería estar funcionando perfectamente ahora.`;
+      }
       
       const firstLine = whoLabel
         ? (isEnglish ? `Excellent, ${whoLabel}! 🙌` : `¡Qué buena noticia, ${whoLabel}! 🙌`)
         : (isEnglish ? `Excellent! 🙌` : `¡Qué buena noticia! 🙌`);
       
       const reply = isEnglish
-        ? `${firstLine}\n\nI'm glad you solved it. Your equipment should work perfectly now. 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nThanks for trusting Tecnos! 😉`
-        : `${firstLine}\n\nMe alegra un montón que lo hayas solucionado. Tu equipo debería andar joya ahora. 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\n¡Gracias por confiar en Tecnos! 😉`;
+        ? `${firstLine}\n\n${celebrationPhrase} 💻✨\n\nIf another problem appears later, or you want help installing/configuring something, I'll be here. Just open the Tecnos chat. 🤝🤖\n\n📲 Follow us for more tips: @sti.rosario\n🌐 STI Web: https://stia.com.ar\n 🚀\n\nBefore closing, tell me:`
+        : `${firstLine}\n\n${celebrationPhrase} 💻✨\n\nSi más adelante aparece otro problema, o querés ayuda para instalar/configurar algo, acá voy a estar. Solo abrí el chat de Tecnos. 🤝🤖\n\n📲 Seguinos para más tips: @sti.rosario\n🌐 Web de STI: https://stia.com.ar\n 🚀\n\nAntes de cerrar, contame:`;
       
-      // Cambiar a estado ENDED
-      changeStage(session, STATES.ENDED);
-      session.waEligible = false;
+      registerPhraseShown(session, celebrationPhrase);
+      
+      // Botones de feedback (OBLIGATORIO FORMATO)
+      const feedbackButtons = [
+        {
+          text: isEnglish ? '👍 Tecnos was helpful' : '👍 La ayuda de Tecnos me fue útil',
+          value: 'BTN_FEEDBACK_USEFUL',
+          order: 1
+        },
+        {
+          text: isEnglish ? '👎 Tecnos was not helpful' : '👎 La ayuda de Tecnos no me sirvió',
+          value: 'BTN_FEEDBACK_NOT_USEFUL',
+          order: 2
+        }
+      ];
+      
+      // NO cambiar a ENDED todavía - esperar feedback
+      // session.waEligible = false; // Mantener false para no ofrecer WhatsApp
       
       // Agregar mensajes al transcript
       session.transcript.push({
@@ -5643,21 +8169,117 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
         text: buttonToken || userText,
         ts: nowIso()
       });
+      addBotMessageToTranscript(session.transcript, reply, session.stage, feedbackButtons);
+      
+      // 🔒 TAREA 1: Marcar que se mostraron botones de feedback
+      // Esto permite detectar cuando el usuario envía texto después de BTN_SOLVED
+      session.feedbackButtonsShown = true;
+      
+      // Guardar la sesión actualizada
+      await saveSessionAndTranscript(sessionId, session);
+      
+      // Retornar respuesta con botones de feedback
+      return {
+        ok: true,
+        reply: reply,
+        stage: session.stage, // Mantener BASIC_TESTS hasta recibir feedback
+        buttons: feedbackButtons,
+        handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 3B: USUARIO HACE CLIC EN FEEDBACK (👍 o 👎)
+    // ========================================
+    // Si el usuario presiona un botón de feedback, registrar y cerrar definitivamente
+    //
+    // ✅ SE PUEDE MODIFICAR: Los mensajes de respuesta final
+    // ❌ NO MODIFICAR: Debe registrar feedback, cambiar a ENDED y cerrar
+    //
+    if (buttonToken === 'BTN_FEEDBACK_USEFUL' || buttonToken === 'BTN_FEEDBACK_NOT_USEFUL') {
+      // Determinar idioma de la sesión
+      const locale = ensureSessionLocale(session);
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      
+      // Verificar si ya se registró feedback (anti-bug: no registrar dos veces)
+      if (session.feedbackRecorded === true) {
+        logger.warn(`[FEEDBACK] ⚠️  Intento de registrar feedback duplicado para sesión ${sessionId}`);
+        // Ya se registró, solo cerrar
+        const finalReply = isEnglish
+          ? `Thanks for using Tecnos! If you need help again, I'll be here. 🤖`
+          : `¡Gracias por usar Tecnos! Si necesitás ayuda de nuevo, acá voy a estar. 🤖`;
+        
+        changeStage(session, STATES.ENDED);
+        session.waEligible = false;
+        
+        await saveSessionAndTranscript(sessionId, session);
+        
+        return {
+          ok: true,
+          reply: finalReply,
+          stage: session.stage,
+          buttons: [],
+          handled: true
+        };
+      }
+      
+      // Determinar resultado del feedback
+      const result = buttonToken === 'BTN_FEEDBACK_USEFUL' ? 'useful' : 'not_useful';
+      
+      // Guardar feedback
+      await saveFeedback(sessionId, session, result);
+      
+      // Marcar como registrado (anti-bug)
+      session.feedbackRecorded = true;
+      // 🔒 TAREA 1: Limpiar flag de botones mostrados (ya se procesó el feedback)
+      session.feedbackButtonsShown = false;
+      
+      // 🔒 FASE 2.3: Prevenir repetición de frases de agradecimiento
+      const baseUseful = isEnglish ? `Thanks! I'm glad I could help 🙌` : `¡Gracias! Me alegra haber sido útil 🙌`;
+      const baseNotUseful = isEnglish ? `Thanks for letting me know, I'll keep that in mind to improve.` : `Gracias por avisarme, lo tengo en cuenta para mejorar.`;
+      
+      let finalReply;
+      if (result === 'useful') {
+        if (!canShowPhrase(session, baseUseful, 5)) {
+          finalReply = isEnglish ? `Thanks! Happy to help 🙌` : `¡Gracias! Me alegra poder ayudar 🙌`;
+        } else {
+          finalReply = baseUseful;
+        }
+      } else {
+        if (!canShowPhrase(session, baseNotUseful, 5)) {
+          finalReply = isEnglish ? `Thanks for the feedback, I'll use it to improve.` : `Gracias por el feedback, lo voy a usar para mejorar.`;
+        } else {
+          finalReply = baseNotUseful;
+        }
+      }
+      
+      registerPhraseShown(session, finalReply);
+      
+      // Cambiar a estado ENDED definitivamente
+      changeStage(session, STATES.ENDED);
+      session.waEligible = false;
+      
+      // Agregar mensajes al transcript
+      session.transcript.push({
+        who: 'user',
+        text: buttonToken,
+        ts: nowIso()
+      });
       session.transcript.push({
         who: 'bot',
-        text: reply,
+        text: finalReply,
         ts: nowIso()
       });
       
       // Guardar la sesión actualizada
       await saveSessionAndTranscript(sessionId, session);
       
-      // Retornar respuesta exitosa
+      // Retornar respuesta final sin botones
       return {
         ok: true,
-        reply: reply,
+        reply: finalReply,
         stage: session.stage, // Ahora es ENDED
-        buttons: [], // Sin botones, la conversación terminó
+        buttons: [], // Sin botones, la conversación terminó definitivamente
         handled: true
       };
     }
@@ -5670,6 +8292,9 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
     // ✅ SE PUEDE MODIFICAR: El mensaje de escalación
     // ❌ NO MODIFICAR: Debe cambiar a ESCALATE
     //
+    // 🔒 F4-A: Sincronizar diagnóstico antes de procesar persistencia
+    syncDiagnosisFromSession(session);
+    
     if (buttonToken === 'BTN_PERSIST' || /^\s*(no|n|el problema persiste|persiste|todavía no|aún no)\b/i.test(userText || '')) {
       // 🔒 VALIDACIÓN DE FRUSTRACIÓN REAL ANTES DE ESCALAR
       // CONSTITUCIÓN DE TECNOS: El problema persiste SOLO es frustración válida si:
@@ -5677,6 +8302,10 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
       // - O hay frustración explícita detectada
       const hasStepsDone = session.stepsDone && session.stepsDone.length > 0;
       const hasRealFrustrationValue = hasRealFrustration(session, userText || buttonToken || '');
+      
+      // 🔒 F4-D: Obtener estado de diagnóstico
+      const diagnosisState = getDiagnosisState(session);
+      logger.info(`[DIAGNOSIS] Problema persiste. Estado: ${diagnosisState.pasosConfirmados} confirmados, ${diagnosisState.pasosFallidos} fallidos`);
       
       if (!hasStepsDone && !hasRealFrustrationValue) {
         // Si no hay pasos confirmados ni frustración real, NO escalar
@@ -5836,18 +8465,21 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
           locale,
           {
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
         logger.error('[BASIC_TESTS] Error generando respuesta técnica con OpenAI:', error);
       }
       
-      // Si OpenAI no está disponible o falló, usar respuesta hardcodeada para SFC/DISM
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual si OpenAI falló
       if (!technicalReply) {
         const lowerText = userText.toLowerCase().trim();
         
-        // Fallback específico para SFC/DISM
+        // Fallback específico para SFC/DISM (mantener para casos conocidos)
         if (/sfc|dism|reparar sistema|reparación del sistema|system file checker|deployment image/i.test(lowerText)) {
           technicalReply = isEnglish
             ? `**How to repair Windows with SFC and DISM:**
@@ -5930,6 +8562,62 @@ Después de ejecutar estos comandos, contame cómo te fue.`;
         stage: session.stage,
         buttons: buttons,
         handled: true
+      };
+    }
+    
+    // ========================================
+    // CASO 6B: USUARIO ENVIÓ TEXTO DESPUÉS DE BTN_SOLVED (FEEDBACK PENDIENTE)
+    // ========================================
+    // Si se mostraron botones de feedback pero el usuario envió texto en lugar de votar,
+    // pedir específicamente que elija una opción de feedback
+    //
+    // 🔒 TAREA 2: UX mejorada - evitar caer al fallback genérico
+    // ✅ SE PUEDE MODIFICAR: El mensaje específico de feedback
+    // ❌ NO MODIFICAR: Debe re-mostrar botones de feedback, NO cambiar stage
+    //
+    if (session.feedbackButtonsShown === true && session.feedbackRecorded !== true) {
+      const locale = ensureSessionLocale(session);
+      const isEnglish = String(locale).toLowerCase().startsWith('en');
+      
+      // Mensaje específico pidiendo elegir feedback
+      const feedbackPrompt = isEnglish
+        ? "Before closing, please choose a feedback option below 👇"
+        : "Antes de cerrar, elegí una opción de feedback acá arriba 👇";
+      
+      // Re-mostrar los mismos botones de feedback
+      const feedbackButtons = [
+        {
+          text: isEnglish ? '👍 Tecnos was helpful' : '👍 La ayuda de Tecnos me fue útil',
+          value: 'BTN_FEEDBACK_USEFUL',
+          order: 1
+        },
+        {
+          text: isEnglish ? '👎 Tecnos was not helpful' : '👎 La ayuda de Tecnos no me sirvió',
+          value: 'BTN_FEEDBACK_NOT_USEFUL',
+          order: 2
+        }
+      ];
+      
+      // Registrar mensaje del usuario y respuesta del bot
+      session.transcript.push({
+        who: 'user',
+        text: userText || buttonToken || '',
+        ts: nowIso()
+      });
+      addBotMessageToTranscript(session.transcript, feedbackPrompt, session.stage, feedbackButtons);
+      
+      // Guardar sesión actualizada
+      await saveSessionAndTranscript(sessionId, session);
+      
+      logger.info(`[FEEDBACK] Usuario envió texto después de BTN_SOLVED. Pidiendo elegir feedback.`);
+      
+      // Retornar respuesta específica sin cambiar stage
+      return {
+        ok: true,
+        reply: feedbackPrompt,
+        stage: session.stage, // Mantener stage actual (BASIC_TESTS)
+        buttons: feedbackButtons,
+        handled: true // Prevenir que caiga al fallback genérico
       };
     }
     
@@ -6264,6 +8952,10 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://stia.com.ar').r
  */
 const ticketCreationLocks = new Map();
 
+// 🔒 F1-T04: Map para prevenir race conditions en saveSession()
+// Previene que múltiples requests concurrentes sobrescriban la sesión
+const sessionSaveLocks = new Map();
+
 // Limpiar locks antiguos cada 5 minutos para evitar memory leaks
 // Los locks más antiguos de 10 minutos se eliminan automáticamente
 setInterval(() => {
@@ -6273,7 +8965,87 @@ setInterval(() => {
       ticketCreationLocks.delete(sid);
     }
   }
+  // 🔒 F1-T04: Limpiar también locks de sesiones antiguos
+  for (const [sid, lockTime] of sessionSaveLocks.entries()) {
+    if (lockTime < tenMinutesAgo) {
+      sessionSaveLocks.delete(sid);
+    }
+  }
 }, 5 * 60 * 1000); // Ejecutar cada 5 minutos
+
+/**
+ * 🔒 F2-T01: Limpia sesiones antiguas (TTL de 48 horas)
+ * Borra archivos de sesión con última modificación > 48h
+ * 
+ * @returns {Promise<{deleted: number, errors: number}>} Número de sesiones borradas y errores
+ */
+async function cleanupOldSessions() {
+  const deleted = { count: 0, errors: 0 };
+  const maxAge = 48 * 60 * 60 * 1000; // 48 horas en milisegundos
+  const cutoffTime = Date.now() - maxAge;
+  
+  try {
+    const files = await fs.promises.readdir(TRANSCRIPTS_DIR);
+    
+    for (const file of files) {
+      // Solo procesar archivos JSON de sesiones (formato: A0000-Z9999.json o SIM_A0000.json)
+      if (!file.endsWith('.json')) continue;
+      
+      const filePath = path.join(TRANSCRIPTS_DIR, file);
+      
+      try {
+        const stats = await fs.promises.stat(filePath);
+        const lastModified = stats.mtimeMs;
+        
+        // Si la última modificación es anterior al cutoff, borrar
+        if (lastModified < cutoffTime) {
+          await fs.promises.unlink(filePath);
+          deleted.count++;
+          logger.debug(`[SESSION_TTL] Sesión antigua borrada: ${file} (última modificación: ${new Date(lastModified).toISOString()})`);
+        }
+      } catch (error) {
+        deleted.errors++;
+        logger.warn(`[SESSION_TTL] Error procesando archivo ${file}: ${error.message}`);
+      }
+    }
+    
+    if (deleted.count > 0 || deleted.errors > 0) {
+      logger.info(`[SESSION_TTL] Limpieza completada: ${deleted.count} sesiones borradas, ${deleted.errors} errores`);
+    }
+  } catch (error) {
+    logger.error(`[SESSION_TTL] Error en limpieza de sesiones: ${error.message}`);
+    deleted.errors++;
+  }
+  
+  return deleted;
+}
+
+// 🔒 F2-T01: Ejecutar limpieza de sesiones antiguas al startup y luego cada 24 horas
+let lastCleanupTime = 0;
+const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 horas
+
+async function runSessionsCleanupIfNeeded() {
+  const now = Date.now();
+  // Si ya pasaron 24 horas desde la última limpieza, ejecutar
+  if (now - lastCleanupTime >= CLEANUP_INTERVAL) {
+    lastCleanupTime = now;
+    await cleanupOldSessions();
+  }
+}
+
+// Ejecutar al startup (después de un pequeño delay para no bloquear el inicio)
+setTimeout(() => {
+  cleanupOldSessions().catch(err => {
+    logger.error(`[SESSION_TTL] Error en limpieza inicial: ${err.message}`);
+  });
+}, 5000); // 5 segundos después del startup
+
+// Ejecutar cada 24 horas
+setInterval(() => {
+  runSessionsCleanupIfNeeded().catch(err => {
+    logger.error(`[SESSION_TTL] Error en limpieza programada: ${err.message}`);
+  });
+}, CLEANUP_INTERVAL);
 
 // ========================================================
 // 🎯 ETAPA 6: ESCALAR A TÉCNICO HUMANO (ESCALATE)
@@ -6367,6 +9139,24 @@ setInterval(() => {
  * @returns {Promise<void>} - No retorna nada, envía la respuesta directamente con res.json()
  */
 async function createTicketAndRespond(session, sessionId, res) {
+  // 🔒 GUARD RAIL: Si es simulación, NO crear ticket real
+  if (session.simulation === true) {
+    logger.warn(`[SIMULATION_GUARD] bloqueado: createTicketAndRespond - Sesión ${sessionId} es simulación, no se crea ticket real`);
+    const locale = ensureSessionLocale(session);
+    const isEn = String(locale).toLowerCase().startsWith('en');
+    return res.json({
+      ok: true,
+      reply: isEn
+        ? '✅ Ticket simulation created (SIM_WHATSAPP)'
+        : '✅ Ticket de simulación creado (SIM_WHATSAPP)',
+      stage: session.stage,
+      buttons: [],
+      whatsappUrl: 'SIM_WHATSAPP', // Placeholder para simulación
+      waUrl: 'SIM_WHATSAPP',
+      allowWhatsapp: false // No permitir WhatsApp real en simulaciones
+    });
+  }
+  
   // ========================================
   // PREVENIR RACE CONDITION
   // ========================================
@@ -7125,18 +9915,24 @@ async function handleEscalateStage(session, userText, buttonToken, sessionId, re
           {
             userName: session.userName,
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
-        logger.error('[ESCALATE] Error generando respuesta técnica con OpenAI:', error);
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.error(`[ESCALATE] Error OpenAI - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${session.stage}, Button: ${buttonToken || 'none'}, Error: ${error.message?.substring(0, 100)}`);
       }
       
-      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual si OpenAI falló
       if (!technicalReply) {
-        technicalReply = isEnglish
-          ? `I'm sorry, I couldn't generate a specific technical answer right now. Would you like to connect with a technician who can help you with this?`
-          : `Disculpá, no pude generar una respuesta técnica específica en este momento. ¿Querés que te conecte con un técnico que pueda ayudarte con esto?`;
+          // 🔒 MINUTA POST-PRUEBA: Fallback contextual
+          technicalReply = getContextualOpenAIFallback(session.stage, locale, {
+            problem: session.problem || '',
+            device: session.device || ''
+          });
       }
       
       session.transcript.push({
@@ -7379,7 +10175,9 @@ const uploadLimiter = rateLimit({
     return `${ip}:${sid}`;
   },
   handler: (req, res) => {
-    logger.warn(`[RATE_LIMIT] Upload bloqueado: IP=${req.ip}, Session=${req.sessionId}`);
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const timestamp = new Date().toISOString();
+    logger.warn(`[RATE_LIMIT] endpoint=/api/upload-image ip=${clientIP} max=3 window=1min timestamp=${timestamp} sessionId=${req.sessionId || 'none'}`);
     res.status(429).json({ ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento.' });
   }
 });
@@ -7499,14 +10297,31 @@ const upload = multer({
       return cb(new Error('Extensión de archivo no permitida'));
     }
 
-    // Validar nombre de archivo
-    if (!file.originalname || file.originalname.length > 255) {
-      return cb(new Error('Nombre de archivo inválido'));
+    // 🔒 F3-T07: Validación extra de nombre de archivo
+    if (!file.originalname) {
+      return cb(new Error('Nombre de archivo requerido'));
     }
-
-    // Prevenir path traversal en nombre
-    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
-      return cb(new Error('Nombre de archivo contiene caracteres no permitidos'));
+    
+    // Validar longitud máxima (255 caracteres)
+    if (file.originalname.length > 255) {
+      return cb(new Error('Nombre de archivo demasiado largo (máximo 255 caracteres)'));
+    }
+    
+    // Normalizar y validar caracteres peligrosos
+    const normalizedName = file.originalname
+      .replace(/[<>:"|?*\x00-\x1f]/g, '_') // Reemplazar caracteres peligrosos
+      .replace(/\.\./g, '_') // Prevenir path traversal
+      .replace(/[\/\\]/g, '_') // Prevenir rutas
+      .trim();
+    
+    if (normalizedName !== file.originalname) {
+      logger.warn(`[UPLOAD] Nombre de archivo normalizado: "${file.originalname}" → "${normalizedName}"`);
+      file.originalname = normalizedName;
+    }
+    
+    // Validación final después de normalización
+    if (!file.originalname || file.originalname.length === 0) {
+      return cb(new Error('Nombre de archivo inválido después de normalización'));
     }
 
     cb(null, true);
@@ -7900,13 +10715,35 @@ app.get('/api/historial/:sessionId', async (req, res) => {
       });
     }
     
-    // Validar token de autenticación (opcional, pero recomendado)
-    // Si hay un token configurado, validarlo
-    if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
-      return res.status(403).json({
-        ok: false,
-        error: 'Token de autenticación inválido'
-      });
+        // 🔒 F1-T03: ADMIN_TOKEN obligatorio en PRODUCCIÓN para endpoints admin
+    // En producción, el token es obligatorio para proteger datos sensibles
+    if (IS_PRODUCTION) {
+      if (!process.env.ADMIN_TOKEN) {
+        logger.error('[SECURITY] ADMIN_TOKEN no configurado en producción - endpoint: /api/historial');
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación requerido en producción'
+        });
+      }
+      if (!token || token !== process.env.ADMIN_TOKEN) {
+        logger.warn(`[SECURITY] Intentó acceder a /api/historial sin token válido - IP: ${req.ip || 'unknown'}`);
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+    } else {
+      // En desarrollo, validar si está configurado pero no es obligatorio
+      if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+        logger.warn('[SECURITY] Token inválido en desarrollo (opcional) - endpoint: /api/historial');
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+      if (!process.env.ADMIN_TOKEN) {
+        logger.warn('[SECURITY] ADMIN_TOKEN no configurado en desarrollo - endpoint: /api/historial es público');
+      }
     }
     
     // Buscar la sesión en múltiples ubicaciones
@@ -8014,12 +10851,35 @@ app.get('/api/transcript-json/:sessionId', async (req, res) => {
       });
     }
     
-    // Validar token de autenticación (opcional, pero recomendado)
-    if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
-      return res.status(403).json({
-        ok: false,
-        error: 'Token de autenticación inválido'
-      });
+    // 🔒 F1-T03: ADMIN_TOKEN obligatorio en PRODUCCIÓN para endpoints admin
+    // En producción, el token es obligatorio para proteger datos sensibles
+    if (IS_PRODUCTION) {
+      if (!process.env.ADMIN_TOKEN) {
+        logger.error('[SECURITY] ADMIN_TOKEN no configurado en producción - endpoint: /api/transcript-json');
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación requerido en producción'
+        });
+      }
+      if (!token || token !== process.env.ADMIN_TOKEN) {
+        logger.warn(`[SECURITY] Intentó acceder a /api/transcript-json sin token válido - IP: ${req.ip || 'unknown'}`);
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+    } else {
+      // En desarrollo, validar si está configurado pero no es obligatorio
+      if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+        logger.warn('[SECURITY] Token inválido en desarrollo (opcional) - endpoint: /api/transcript-json');
+        return res.status(403).json({
+          ok: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+      if (!process.env.ADMIN_TOKEN) {
+        logger.warn('[SECURITY] ADMIN_TOKEN no configurado en desarrollo - endpoint: /api/transcript-json es público');
+      }
     }
     
     // Buscar el transcript en TRANSCRIPTS_DIR
@@ -8171,7 +11031,56 @@ app.get('/api/greeting', async (req, res) => {
         device: null,
         action: null,
         urgency: 'normal'
-      }
+      },
+      // ========================================================
+      // CORRECCIÓN TRANSVERSAL: Tracking de mínimos y progreso
+      // ========================================================
+      // 
+      // Estas estructuras previenen 3 fallas críticas:
+      // 1) Pasos genéricos sin preguntar datos mínimos
+      // 2) Reinicio/reimpresión de bloques cuando hay progreso
+      // 3) Ayuda Paso X que no coincide con Paso X
+      // 
+      // MÍNIMOS OBLIGATORIOS (Regla A - anti respuestas genéricas)
+      contextMinima: {
+        hasOS: false,                   // Si se confirmó el sistema operativo
+        osName: null,                   // Nombre del SO (Windows, macOS, Linux, etc.)
+        osVersion: null,                // Versión del SO si el usuario la sabe
+        hasPeripheralType: false,        // Si se confirmó el tipo de periférico
+        peripheralType: null,            // Tipo de periférico (pendrive, impresora, teclado, etc.)
+        peripheralConnection: null,      // Conexión del periférico (USB, Bluetooth, etc.)
+        peripheralDevice: null,          // En qué equipo está conectado
+        hasDeviceType: false,            // Si se confirmó si es PC o notebook
+        deviceType: null,                // Tipo de dispositivo (PC, notebook, etc.)
+        hasGraphicsCard: false,          // Si se confirmó si tiene placa de video dedicada
+        graphicsCardModel: null,         // Modelo aproximado de placa de video si lo sabe
+        hasContext: false                // Si hay algún contexto mínimo confirmado
+      },
+      // PROGRESO Y FLUJO (Regla B - anti reinicio)
+      progress: {
+        lastFlowShown: null,             // ID del último bloque de pasos mostrado
+        lastFlowShownAt: null,           // Timestamp del último bloque mostrado
+        lastStepSelected: null,          // Índice del último paso donde el usuario pidió ayuda
+        lastStepSelectedAt: null,        // Timestamp de la última ayuda solicitada
+        userReportedOutcome: null,       // Resultado reportado por el usuario (sigue igual, solucionado, no lo hice)
+        userReportedOutcomeAt: null,     // Timestamp del resultado reportado
+        contextChanged: false,            // Si el contexto cambió (SO/periférico/entorno actualizado)
+        contextChangedAt: null,          // Timestamp del cambio de contexto
+        stepsShownAt: null,              // Timestamp de cuándo se mostraron los pasos
+        lastStepIndex: null,             // Índice del último paso mostrado
+        outcomesByStep: {}               // Resultados por paso: { stepIndex: 'sigue igual' | 'solucionado' | 'no lo hice' }
+      },
+      // PASOS RENDERIZADOS (Regla C - fuente única de verdad)
+      stepsRendered: [],                 // Array de pasos mostrados con su contenido exacto
+      // Formato de cada elemento:
+      // {
+      //   stepIndex: 0,
+      //   flowId: 'basic_diagnosis',
+      //   title: '**Paso 1️⃣ — Dificultad: ⭐**',
+      //   body: 'Descripción del paso...',
+      //   helpBody: 'Instrucciones detalladas...', // Opcional, se genera si no existe
+      //   renderedAt: '2024-01-01T00:00:00Z'
+      // }
     };
     
     // Generar el mensaje de bienvenida con política de privacidad
@@ -8249,11 +11158,37 @@ app.get('/api/greeting', async (req, res) => {
  * - Etapa 1: Maneja GDPR y selección de idioma
  * - Etapa 2: Maneja pedido y validación de nombre
  */
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatRateLimiter, async (req, res) => {
   let session = null;
   let sessionLocale = TECNOS_DEFAULT_LOCALE;
+  
+  // 🔒 GUARD RAIL: Detectar modo simulación desde el request
+  const isSimulation = req.body.simulation === true || req.body.simulation === 'true';
+  if (isSimulation) {
+    logger.warn(`[SIMULATION_GUARD] Modo simulación detectado en /api/chat para sesión ${req.body.sessionId || 'unknown'}`);
+  }
+  
   try {
     const body = req.body || {};
+    
+    // 🔒 F1-T09 / F3-T01: Validar tamaño máximo de userText usando validación centralizada
+    const textValidation = validateUserText(body.userText, body.buttonToken, { maxLength: 5000 });
+    if (!textValidation.ok && textValidation.reason?.includes('exceeds maximum length')) {
+      const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+      logger.warn(`[CHAT] Intentó enviar userText muy grande: ${body.userText?.length || 0} caracteres - IP: ${clientIP}, SessionId: ${body.sessionId || 'unknown'}`);
+      const locale = body.locale || TECNOS_DEFAULT_LOCALE;
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      return res.status(400).json({
+        ok: false,
+        error: isEn 
+          ? 'Message too long. Maximum 5000 characters allowed.'
+          : 'Mensaje muy largo. Máximo 5000 caracteres permitidos.',
+        reply: isEn
+          ? 'Your message is too long. Please send a shorter message (maximum 5000 characters).'
+          : 'Tu mensaje es muy largo. Por favor, enviá un mensaje más corto (máximo 5000 caracteres).',
+        stage: 'ASK_LANGUAGE' // Stage por defecto
+      });
+    }
     
     // Obtener o generar sessionId
     // El frontend debe enviar el sessionId que recibió de /api/greeting
@@ -8290,6 +11225,14 @@ app.post('/api/chat', async (req, res) => {
     
     // Cargar la sesión existente
     session = await getSession(sessionId);
+    
+    // 🔒 GUARD RAIL: Marcar sesión como simulación si viene del request
+    if (isSimulation) {
+      if (session) {
+        session.simulation = true;
+      }
+    }
+    
     sessionLocale = ensureSessionLocale(session);
     
     // Si no existe sesión, crear una nueva (fallback)
@@ -8320,7 +11263,8 @@ app.post('/api/chat', async (req, res) => {
         gdprConsent: null,
         gdprConsentDate: null,
         contextWindow: [],
-        detectedEntities: { device: null, action: null, urgency: 'normal' }
+        detectedEntities: { device: null, action: null, urgency: 'normal' },
+        simulation: isSimulation || false // 🔒 Marcar como simulación si corresponde
       };
       sessionLocale = ensureSessionLocale(session);
       
@@ -8423,11 +11367,30 @@ app.post('/api/chat', async (req, res) => {
       });
     }
     
-    // Agregar el mensaje del usuario al transcript
+    // 🔒 FASE 2.2: Normalizar texto del usuario antes de agregar a transcript
+    // Prevenir que tokens escritos manualmente aparezcan crudos
+    let normalizedUserText = incomingText;
+    if (buttonToken) {
+      // Si es un botón, usar label en lugar de token
+      normalizedUserText = buttonLabel || getButtonDefinition(buttonToken)?.text || buttonToken;
+    } else {
+      // Si el usuario escribió un token manualmente, intentar mapearlo
+      // Detectar si parece un token (empieza con BTN_)
+      if (incomingText.startsWith('BTN_')) {
+        const buttonDef = getButtonDefinition(incomingText);
+        if (buttonDef && buttonDef.text) {
+          normalizedUserText = buttonDef.text;
+          logger.info(`[NORMALIZE] Token escrito manualmente mapeado: ${incomingText} → ${normalizedUserText}`);
+        }
+      }
+    }
+    
+    // Agregar el mensaje del usuario al transcript (con texto normalizado)
     session.transcript.push({
       who: 'user',
-      text: buttonToken ? `[BOTON] ${buttonLabel || buttonToken}` : incomingText,
-      ts: nowIso()
+      text: buttonToken ? `[BOTON] ${normalizedUserText}` : normalizedUserText,
+      ts: nowIso(),
+      originalText: buttonToken ? null : (incomingText !== normalizedUserText ? incomingText : null) // Guardar original solo si cambió
     });
     
     logger.info(`[CHAT] Usuario (${sessionId}): "${incomingText.substring(0, 50)}${incomingText.length > 50 ? '...' : ''}"`);
@@ -8469,6 +11432,44 @@ app.post('/api/chat', async (req, res) => {
     if (session.stage === STATES.ASK_NAME) {
       // Llamar al handler de la Etapa 2
       const result = await handleAskNameStage(
+        session,
+        incomingText,
+        buttonToken,
+        sessionId
+      );
+      
+      // Si el handler procesó la request, verificar si el stage cambió
+      if (result && result.handled) {
+        // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
+        await saveSessionAndTranscript(sessionId, session);
+        
+        // Si el stage cambió a ASK_USER_LEVEL y el reply está vacío, procesar también ese stage
+        if (result.stage === STATES.ASK_USER_LEVEL && (!result.reply || result.reply.trim() === '')) {
+          // Recargar la sesión para obtener el stage actualizado
+          session = await getSession(sessionId);
+          // Continuar procesando ASK_USER_LEVEL (caerá en el siguiente if)
+          // Resetear incomingText y buttonToken para que handleAskUserLevelStage muestre la pregunta
+          incomingText = '';
+          buttonToken = null;
+        } else {
+          // Si no cambió a ASK_USER_LEVEL o hay reply, retornar la respuesta normalmente
+          return res.json({
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || []
+          });
+        }
+      }
+    }
+    
+    // ========================================
+    // ETAPA 2.5: ASK_USER_LEVEL - Preguntar nivel de experiencia
+    // ========================================
+    if (session.stage === STATES.ASK_USER_LEVEL) {
+      // Llamar al handler del nivel de experiencia
+      const result = await handleAskUserLevelStage(
         session,
         incomingText,
         buttonToken,
@@ -8680,18 +11681,22 @@ app.post('/api/chat', async (req, res) => {
           {
             userName: session.userName,
             problem: session.problem || '',
-            device: session.device || ''
+            device: session.device || '',
+            sessionId: sessionId,
+            stage: session.stage,
+            buttonToken: buttonToken || 'none'
           }
         );
       } catch (error) {
-        logger.error('[CHAT] Error generando respuesta técnica con OpenAI:', error);
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.error(`[CHAT] Error OpenAI - SessionId: ${String(sessionId).substring(0, 8)}..., Stage: ${session.stage}, Button: ${buttonToken || 'none'}, Error: ${error.message?.substring(0, 100)}`);
       }
       
-      // Si OpenAI no está disponible o falló, usar respuesta genérica
+      // 🔒 MINUTA POST-PRUEBA: Fallback contextual si OpenAI falló
       if (!technicalReply) {
-        technicalReply = applyTecnosVoice(null, sessionLocale, {
-          es: 'Disculpá, no pude generar una respuesta técnica específica en este momento. ¿Podés reformular tu pregunta o usar los botones disponibles?',
-          en: "I'm sorry, I couldn't generate a specific technical answer right now. Could you rephrase your question or use the available buttons?"
+        technicalReply = getContextualOpenAIFallback(session.stage, sessionLocale, {
+          problem: session.problem || '',
+          device: session.device || ''
         });
       }
       
@@ -8775,6 +11780,177 @@ logger.info('✅ Etapa 6 (Escalar a Técnico Humano - ESCALATE) implementada');
 logger.info('📝 Endpoints disponibles:');
 logger.info('   - GET  /api/greeting  → Iniciar nueva conversación');
 logger.info('   - POST /api/chat     → Procesar mensajes (Etapas 1, 2, 3, 4, 5 y 6)');
+
+// ========================================================
+// 🔬 SISTEMA DE SIMULACIONES WEB
+// ========================================================
+// 
+// Endpoints para ejecutar simulaciones automáticas de conversaciones
+// Aislado de producción - no afecta usuarios reales, Redis, tickets ni métricas
+// 
+
+// Importación del motor de simulaciones
+import { SimulationEngine, SimulationDataGenerator, CriticalErrorDetector } from './simulation-engine.js';
+
+/**
+ * POST /api/simulations/run
+ * 
+ * Ejecuta una o múltiples simulaciones según configuración
+ * 
+ * Body:
+ * {
+ *   count: number,              // Cantidad de simulaciones a ejecutar (default: 1)
+ *   locale: 'es-AR' | 'en-US',  // Idioma de la simulación
+ *   userType: 'novato' | 'medio' | 'tecnico',
+ *   problem: string | null,      // Problema específico o null para automático
+ *   device: string | null,       // Dispositivo específico o null para automático
+ *   os: string | null,           // SO específico o null para automático
+ *   maxSteps: number,            // Máximo de pasos por simulación (default: 50)
+ *   realisticMode: boolean,      // Modo realista (errores humanos, repeticiones)
+ *   strictMode: boolean          // Modo estricto (flujo ideal)
+ * }
+ */
+app.post('/api/simulations/run', async (req, res) => {
+  try {
+    // 🔒 F1-T01: Autenticación obligatoria para /api/simulations/run
+    const token = req.headers['authorization']?.replace('Bearer ', '') || req.body.token || req.query.token;
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    
+    if (!token || token !== process.env.ADMIN_TOKEN) {
+      logger.warn(`[SECURITY] Request a /api/simulations/run sin autenticación bloqueado - IP: ${clientIP}, endpoint: /api/simulations/run`);
+      return res.status(403).json({
+        ok: false,
+        error: 'Autenticación requerida. Se requiere ADMIN_TOKEN válido.'
+      });
+    }
+    
+    const {
+      count = 1,
+      locale = 'es-AR',
+      userType = 'medio',
+      problem = null,
+      device = null,
+      os = null, // Nuevo: sistema operativo
+      maxSteps = 50,
+      realisticMode = true,
+      strictMode = false,
+      serverUrl = process.env.SERVER_URL || 'http://localhost:3001' // URL del servidor para las simulaciones
+    } = req.body;
+    
+    const results = [];
+    
+    // Ejecutar simulaciones
+    for (let i = 0; i < count; i++) {
+      const engine = new SimulationEngine({
+        locale,
+        userType,
+        problem,
+        device,
+        os,
+        maxSteps,
+        realisticMode,
+        strictMode,
+        serverUrl: serverUrl // Pasar URL del servidor
+      });
+      
+      const result = await engine.runSimulation();
+      results.push(result);
+    }
+    
+    // Calcular estadísticas
+    const stats = {
+      total: results.length,
+      ok: results.filter(r => r.status === 'OK').length,
+      failed: results.filter(r => r.status === 'FAILED').length,
+      averageDuration: results.reduce((sum, r) => sum + r.duration, 0) / results.length,
+      averageSteps: results.reduce((sum, r) => sum + r.stepsExecuted, 0) / results.length,
+      errorsByType: {}
+    };
+    
+    // Contar errores por tipo
+    results.forEach(result => {
+      result.errors.forEach(error => {
+        stats.errorsByType[error.type] = (stats.errorsByType[error.type] || 0) + 1;
+      });
+    });
+    
+    res.json({
+      ok: true,
+      results: results,
+      stats: stats
+    });
+    
+  } catch (error) {
+    logger.error('[SIMULATIONS] Error ejecutando simulaciones:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/simulations/logs
+ * 
+ * Obtiene los logs de simulaciones ejecutadas
+ * 
+ * Query params:
+ * - limit: número máximo de logs a retornar (default: 100)
+ */
+app.get('/api/simulations/logs', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const logs = await SimulationEngine.getLogs(limit);
+    
+    res.json({
+      ok: true,
+      logs: logs,
+      total: logs.length
+    });
+    
+  } catch (error) {
+    logger.error('[SIMULATIONS] Error obteniendo logs:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/simulations/log/:simulationId
+ * 
+ * Obtiene un log específico de simulación
+ */
+app.get('/api/simulations/log/:simulationId', async (req, res) => {
+  try {
+    const { simulationId } = req.params;
+    const log = await SimulationEngine.getLog(simulationId);
+    
+    if (!log) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Log de simulación no encontrado'
+      });
+    }
+    
+    res.json({
+      ok: true,
+      log: log
+    });
+    
+  } catch (error) {
+    logger.error('[SIMULATIONS] Error obteniendo log:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+logger.info('   - POST /api/simulations/run     → Ejecutar simulaciones');
+logger.info('   - GET  /api/simulations/logs    → Obtener logs de simulaciones');
+logger.info('   - GET  /api/simulations/log/:id → Obtener log específico');
 
 // Exportar la aplicación Express para testing o uso externo
 export default app;

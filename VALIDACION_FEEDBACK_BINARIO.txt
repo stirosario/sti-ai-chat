@@ -1,0 +1,320 @@
+================================================================================
+VALIDACIÓN END-TO-END - FEEDBACK BINARIO (👍 / 👎)
+================================================================================
+Fecha: 2025-01-XX
+Alcance: Backend (server.js) + Frontend (index.php)
+Tipo: Validación técnica - NO se realizaron cambios salvo bugs detectados
+
+================================================================================
+RESUMEN EJECUTIVO
+================================================================================
+
+Estado General: PARCIAL (con 1 limitación de UX detectada y 1 riesgo identificado)
+
+✅ FUNCIONA CORRECTAMENTE:
+- BTN_SOLVED muestra botones de feedback y NO cambia a ENDED
+- BTN_FEEDBACK_* guarda feedback y cierra correctamente
+- Anti-duplicado funciona (session.feedbackRecorded)
+- Frontend renderiza y envía eventos correctamente
+- UX de botones (separación, disable) funciona
+
+⚠️ LIMITACIÓN DE UX DETECTADA:
+- Escenario A (texto después de BTN_SOLVED): El texto cae en fallback genérico
+  que muestra BTN_SOLVED de nuevo (funciona pero mensaje no es específico para feedback).
+
+⚠️ RIESGO IDENTIFICADO:
+- Modo simulación: Guarda archivos en data/feedback sin guard rail.
+  Propone guard rail mínimo.
+
+================================================================================
+PARTE 1 — VALIDACIÓN BACKEND (server.js)
+================================================================================
+
+1) BTN_SOLVED - Mostrar feedback buttons y NO cambiar a ENDED
+
+✅ CUMPLE
+├─ Archivo: server.js
+├─ Línea: ~7024-7115
+├─ Evidencia:
+│   - Línea 7030: Verifica session.feedbackRecorded antes de procesar
+│   - Línea 7094: Comentario "NO cambiar a ENDED todavía - esperar feedback"
+│   - Línea 7112: stage: session.stage (mantiene BASIC_TESTS, NO cambia a ENDED)
+│   - Línea 7081-7092: Crea feedbackButtons con los 2 botones correctos
+│   - Línea 7113: Retorna buttons: feedbackButtons
+└─ Estado: ✅ OK
+
+Mensaje devuelto:
+- Español: "Antes de cerrar, contame:" (línea 7078)
+- Inglés: "Before closing, tell me:" (línea 7077)
+- ✅ Incluye el mensaje de celebración + pregunta de feedback
+
+Botones devueltos:
+- Botón 1: { text: "👍 La ayuda de Tecnos me fue útil", value: "BTN_FEEDBACK_USEFUL", order: 1 }
+- Botón 2: { text: "👎 La ayuda de Tecnos no me sirvió", value: "BTN_FEEDBACK_NOT_USEFUL", order: 2 }
+- ✅ Orden correcto (1 y 2)
+- ⚠️ NOTA: El frontend renderiza con separación visual automática (.sti-options)
+  No hay especificación explícita de "espacio entre botones" en backend, pero
+  el CSS del frontend aplica margen automático entre botones.
+
+2) BTN_FEEDBACK_USEFUL / BTN_FEEDBACK_NOT_USEFUL - Guardar y cerrar
+
+✅ CUMPLE
+├─ Archivo: server.js
+├─ Línea: ~7126-7193
+├─ Evidencia:
+│   - Línea 7132: Verifica session.feedbackRecorded (anti-duplicado)
+│   - Línea 7157: await saveFeedback(sessionId, session, result)
+│   - Línea 7160: session.feedbackRecorded = true (marca como registrado)
+│   - Línea 7168: changeStage(session, STATES.ENDED) (cierra definitivamente)
+│   - Línea 7191: buttons: [] (sin botones, cierra)
+└─ Estado: ✅ OK
+
+Guardado de feedback:
+├─ Función: saveFeedback() (línea ~1123)
+├─ Campos guardados:
+│   ✅ timestamp: nowIso() (línea 1143)
+│   ✅ conversationId: sessionId (línea 1144)
+│   ✅ locale: session.userLocale || 'es-AR' (línea 1145)
+│   ✅ result: 'useful' | 'not_useful' (línea 1146)
+│   ✅ stage_final: session.stage || 'ENDED' (línea 1147)
+│   ✅ simulation: session.simulation === true (línea 1148)
+└─ Estado: ✅ OK
+
+Archivo único por conversación:
+├─ Formato: feedback_{sessionId}_{timestamp}.json (línea 1153)
+├─ ⚠️ NOTA: Usa timestamp para hacer único el nombre, pero session.feedbackRecorded
+│   previene guardar múltiples veces en la misma sesión (línea 7132, 7160)
+└─ Estado: ✅ OK (anti-duplicado funciona a nivel de sesión)
+
+3) ESCENARIOS BORDE
+
+A) Usuario presiona BTN_SOLVED y luego envía texto ("gracias") en lugar de votar
+
+⚠️ COMPORTAMIENTO PARCIAL (no es bug crítico, pero no es ideal)
+├─ Archivo: server.js
+├─ Línea: ~7475+ (CASO 7: FALLBACK)
+├─ Descripción:
+│   Si el usuario presiona BTN_SOLVED (se muestran feedback buttons),
+│   pero luego envía texto libre (ej: "gracias"), el código NO detecta
+│   específicamente que está esperando feedback.
+│   
+│   Comportamiento actual:
+│   - El handler BTN_SOLVED solo se activa si:
+│     * buttonToken === 'BTN_SOLVED' (línea 7024)
+│     * O userText coincide con regex de "lo pude solucionar" (línea 7024)
+│   - Si el usuario envía texto libre después, NO entra en BTN_SOLVED
+│   - Cae en el fallback genérico (CASO 7, línea ~7475)
+│   
+│   Análisis del fallback:
+│   - Si hay pasos confirmados (línea 7531), el fallback muestra botones
+│     BTN_PERSIST y BTN_SOLVED (línea 7545-7553)
+│   - Si el usuario presiona BTN_SOLVED de nuevo, funcionará (se mostrarán feedback buttons)
+│   - PERO: El mensaje del fallback dice "No te entendí, usa los botones" en lugar
+│     de "Por favor, elegí una opción de feedback"
+│   
+│   ⚠️ LIMITACIÓN: No hay detección explícita de "estoy esperando feedback",
+│   pero el comportamiento funciona parcialmente porque el fallback muestra BTN_SOLVED.
+│   
+│   ❌ MEJORA SUGERIDA: Validar específicamente si se mostraron feedback buttons
+│   pero aún no hay feedback registrado, para dar un mensaje más claro.
+├─ Impacto: BAJO-MEDIO (funciona pero UX no es ideal)
+├─ Recomendación (OPCIONAL - mejora de UX):
+│   Agregar validación en handleBasicTestsStage antes del fallback (línea ~7474):
+│   ```
+│   // Si se mostraron feedback buttons pero aún no hay feedback registrado
+│   if (session.feedbackButtonsShown && !session.feedbackRecorded) {
+│     const locale = ensureSessionLocale(session);
+│     const isEnglish = String(locale).toLowerCase().startsWith('en');
+│     const reply = isEnglish
+│       ? "Please choose one of the feedback options above to continue. 👍 or 👎"
+│       : "Por favor, elegí una de las opciones de feedback de arriba para continuar. 👍 o 👎";
+│     // Volver a mostrar feedback buttons
+│     const feedbackButtons = [
+│       { text: isEnglish ? '👍 Tecnos was helpful' : '👍 La ayuda de Tecnos me fue útil',
+│         value: 'BTN_FEEDBACK_USEFUL', order: 1 },
+│       { text: isEnglish ? '👎 Tecnos was not helpful' : '👎 La ayuda de Tecnos no me sirvió',
+│         value: 'BTN_FEEDBACK_NOT_USEFUL', order: 2 }
+│     ];
+│     addBotMessageToTranscript(session.transcript, reply, session.stage, feedbackButtons);
+│     await saveSessionAndTranscript(sessionId, session);
+│     return { ok: true, reply, stage: session.stage, buttons: feedbackButtons, handled: true };
+│   }
+│   ```
+│   
+│   Y en BTN_SOLVED (línea ~7103), agregar:
+│   `session.feedbackButtonsShown = true;`
+└─ Estado: ⚠️ COMPORTAMIENTO PARCIAL - Mejora opcional de UX (no crítico)
+
+B) Usuario presiona BTN_SOLVED y refresca página / reabre
+
+✅ CUMPLE
+├─ Archivo: server.js
+├─ Línea: ~7030, ~7132
+├─ Evidencia:
+│   - Línea 7030: if (session.feedbackRecorded === true) → cierra sin mostrar feedback
+│   - Línea 7132: if (session.feedbackRecorded === true) → no guarda feedback duplicado
+│   - session.feedbackRecorded persiste en la sesión guardada
+└─ Estado: ✅ OK
+
+Si el usuario refresca después de votar:
+- session.feedbackRecorded = true persiste
+- Si vuelve a presionar BTN_SOLVED → línea 7030 detecta y cierra (línea 7056: buttons: [])
+- Si intenta votar de nuevo → línea 7132 detecta y no guarda duplicado
+
+✅ Funciona correctamente
+
+C) Modo simulación
+
+⚠️ RIESGO IDENTIFICADO
+├─ Archivo: server.js
+├─ Línea: ~1148, ~1154
+├─ Descripción:
+│   saveFeedback() marca simulation: true en el objeto feedback (línea 1148),
+│   pero GUARDA el archivo en FEEDBACK_DIR (data/feedback) igual que producción.
+│   
+│   Problemas potenciales:
+│   - Simulaciones pueden generar muchos archivos de feedback
+│   - No hay guard rail que bloquee guardado en modo simulación
+│   - Archivos se mezclan con feedback real (aunque tienen simulation: true)
+├─ Impacto: BAJO-MEDIO (spam de archivos en simulaciones)
+├─ Recomendación (GUARD RAIL MÍNIMO):
+│   En saveFeedback() (línea ~1123), agregar:
+│   ```
+│   // 🔒 GUARD RAIL: En modo simulación, no persistir feedback (o usar carpeta separada)
+│   if (session.simulation === true) {
+│     logger.info(`[FEEDBACK] [SIMULATION_GUARD] Feedback de simulación NO persistido: ${result} para ${sessionId}`);
+│     // Opción 1: No guardar nada (recomendado)
+│     return;
+│     // Opción 2: Guardar en carpeta separada (si se quiere mantener logs)
+│     // const filepath = path.join(path.join(DATA_BASE, 'feedback_sim'), filename);
+│   }
+│   ```
+└─ Estado: ⚠️ RIESGO - Requiere guard rail mínimo
+
+================================================================================
+PARTE 2 — VALIDACIÓN FRONTEND (index.php + JS del chat)
+================================================================================
+
+4) Renderizado de botones de feedback
+
+✅ CUMPLE
+├─ Archivo: index.php
+├─ Línea: ~1837-1919 (renderButtons), ~1707-1835 (normalizeButtons)
+├─ Evidencia:
+│   - Línea 2000: normalizeButtons(data.ui || data.options || data?.buttons || data?.options)
+│   - Línea 1843: buttonList.forEach(btn => { ... }) renderiza cada botón
+│   - Línea 1859: title.textContent = btn.label || btn.text || btn.value
+│   - Línea 1878: b.dataset.value = btn.value || btn.label
+│   - normalizeButtons() NO tiene BTN_FEEDBACK_* en LABEL_MAP, pero funciona
+│     porque usa btn.value directamente cuando no hay mapeo
+└─ Estado: ✅ OK
+
+El frontend renderiza exactamente lo que viene del backend:
+- text: "👍 La ayuda de Tecnos me fue útil" → se muestra como está
+- value: "BTN_FEEDBACK_USEFUL" → se guarda en dataset.value
+- order: 1 o 2 → se respeta el orden del array
+
+Envío de eventos:
+├─ Línea 1910: sendButton(b.dataset.value, title.textContent)
+├─ Línea 1952-1958: payload = { action: 'button', value, label, sessionId, csrfToken }
+└─ Estado: ✅ OK
+
+El frontend envía:
+- value: "BTN_FEEDBACK_USEFUL" o "BTN_FEEDBACK_NOT_USEFUL" (correcto)
+- label: texto visible (solo para debugging, backend no lo usa)
+- ✅ NO transforma el value antes de enviarlo
+
+5) UX de botones
+
+✅ CUMPLE
+├─ Archivo: index.php
+├─ Línea: ~1841-1842, ~1901, ~1837-1919
+├─ Evidencia:
+│   - Línea 1841: wrap.className = 'sti-options' (CSS aplica separación automática)
+│   - Línea 1840: if (containerRow.querySelector('.sti-options')) return; (previene duplicados)
+│   - Línea 1901: wrap.querySelectorAll('.sti-opt-btn').forEach(x => x.disabled = true)
+│     (deshabilita botones después de click para evitar doble envío)
+└─ Estado: ✅ OK
+
+Separación visual:
+- CSS .sti-options aplica margen/padding automático entre botones
+- Los botones aparecen como dos opciones claras
+- ⚠️ NOTA: No hay especificación explícita de "espacio entre botones" en backend,
+  pero el CSS del frontend maneja esto correctamente
+
+Prevención de doble click:
+- Línea 1901: Deshabilita todos los botones después de click
+- Línea 1879: addEventListener con ev.preventDefault() y ev.stopPropagation()
+- ✅ Funciona correctamente
+
+================================================================================
+RESUMEN DE ESTADO POR COMPONENTE
+================================================================================
+
+BACKEND (server.js):
+├─ BTN_SOLVED muestra feedback: ✅ OK
+├─ BTN_FEEDBACK_* guarda y cierra: ✅ OK
+├─ Anti-duplicado: ✅ OK
+├─ Escenario A (texto después): ❌ BUG
+├─ Escenario B (refresh): ✅ OK
+└─ Escenario C (simulación): ⚠️ RIESGO
+
+FRONTEND (index.php):
+├─ Renderizado de botones: ✅ OK
+├─ Envío de eventos: ✅ OK
+├─ UX (separación, disable): ✅ OK
+└─ Transformación de payload: ✅ OK (no transforma)
+
+================================================================================
+LIMITACIONES Y RIESGOS DETECTADOS
+================================================================================
+
+LIMITACIÓN #1: Texto libre después de BTN_SOLVED no pide feedback específicamente
+├─ Severidad: BAJA-MEDIA (funciona pero UX no es ideal)
+├─ Ubicación: server.js línea ~7475+ (CASO 7: FALLBACK de handleBasicTestsStage)
+├─ Descripción: Si usuario envía texto después de ver feedback buttons,
+│                cae en fallback genérico que muestra BTN_SOLVED de nuevo.
+│                Funciona pero el mensaje no es específico para feedback.
+├─ Mejora recomendada (OPCIONAL): Agregar validación antes del fallback para
+│                                   detectar si se mostraron feedback buttons
+│                                   pero no hay feedback, y responder específicamente.
+│                                   Agregar flag session.feedbackButtonsShown = true en BTN_SOLVED.
+└─ Cambio mínimo: ~15 líneas en handleBasicTestsStage (mejora opcional de UX)
+
+RIESGO #1: Simulación guarda feedback en producción
+├─ Severidad: BAJA-MEDIA
+├─ Ubicación: server.js línea ~1154 (saveFeedback)
+├─ Descripción: Simulaciones guardan archivos en data/feedback sin guard rail.
+├─ Fix recomendado: Agregar guard rail en saveFeedback() para no persistir
+│                     si session.simulation === true (o usar carpeta separada).
+└─ Cambio mínimo: ~5 líneas en saveFeedback()
+
+================================================================================
+CONCLUSIÓN FINAL
+================================================================================
+
+Estado: PARCIAL
+
+✅ El sistema funciona correctamente para el flujo principal (BTN_SOLVED → votar → cerrar)
+✅ El frontend está correctamente integrado
+⚠️ Hay 1 limitación de UX en escenario borde (texto después de BTN_SOLVED - funciona pero no es ideal)
+⚠️ Hay 1 riesgo en modo simulación (spam de archivos)
+
+RECOMENDACIONES:
+
+1. MEDIA PRIORIDAD: Mejora opcional de UX para Escenario A
+   - Agregar validación en handleBasicTestsStage para detectar feedback buttons mostrados
+   - Agregar flag session.feedbackButtonsShown = true en BTN_SOLVED
+   - Mejora el mensaje cuando usuario envía texto después de BTN_SOLVED
+
+2. MEDIA PRIORIDAD: Agregar guard rail para simulación
+   - Bloquear guardado de feedback si simulation === true
+   - O usar carpeta separada (feedback_sim)
+
+3. BAJA PRIORIDAD: Documentar que frontend maneja separación visual
+   - No requiere cambios, solo documentación
+
+================================================================================
+FIN DEL INFORME
+================================================================================
+

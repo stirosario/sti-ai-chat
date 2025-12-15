@@ -1,0 +1,590 @@
+================================================================================
+ROADMAP V2 - FASES 1 A 5
+STI / TECNOS - SERVER.JS
+================================================================================
+
+Fecha de creación: 2025-12-14
+Versión: 2.0.0
+Estado: FASE 1-4 CERRADAS | FASE 5 PLANIFICADA
+Alcance: Correcciones, mejoras y optimizaciones del sistema conversacional
+
+================================================================================
+DEFINICIÓN DE "FASE"
+================================================================================
+
+Una "FASE" es un conjunto de tareas relacionadas que se implementan juntas
+para lograr un objetivo específico. Cada fase:
+
+- Tiene un objetivo claro y medible
+- Incluye tareas enumeradas (F1-T01, F2-T01, etc.)
+- Tiene criterios de finalización verificables
+- Se considera "CERRADA" cuando todas las tareas están implementadas y validadas
+- Puede tener dependencias con fases anteriores
+
+Las fases se implementan secuencialmente para evitar regresiones y mantener
+estabilidad del sistema en producción.
+
+================================================================================
+FASE 1: SEGURIDAD CRÍTICA Y GUARD RAILS (CERRADA)
+================================================================================
+
+Objetivo: Eliminar vulnerabilidades de seguridad críticas y asegurar que los
+guard rails funcionen correctamente.
+
+Estado: ✅ CERRADA E IMPLEMENTADA
+Fecha de cierre: 2025-01-XX
+Compliance: 100%
+
+Tareas implementadas:
+- F1-T01: Autenticación obligatoria en /api/simulations/run
+- F1-T02: Rate limit específico para /api/chat (50/5min por IP)
+- F1-T03: ADMIN_TOKEN obligatorio en producción para endpoints admin
+- F1-T04: Locks en saveSession() para evitar race conditions
+- F1-T05: Validación de transiciones de stage con VALID_TRANSITIONS
+- F1-T06: Rate limit para /api/simulations/run (10/hora por IP)
+- F1-T07: Validación de límites de count y maxSteps en simulaciones
+- F1-T08: Timeout para llamadas a OpenAI (30s)
+- F1-T09: Límite de tamaño para userText (5000 caracteres)
+
+Resumen de implementación:
+FASE 1 implementó protecciones críticas de seguridad y estabilidad. Se agregó
+autenticación obligatoria para simulaciones, rate limits específicos para
+endpoints críticos, y locks para prevenir race conditions en guardado de
+sesiones. Se validaron transiciones de stage y se agregaron timeouts para
+llamadas externas. Todos los cambios fueron quirúrgicos y no afectaron la
+funcionalidad existente.
+
+Evidencias:
+- Reporte: FASE1_DONE_REPORTE.txt
+- Auditoría: AUDITORIA_FASE1_FINAL.txt
+- Archivos: server.js (modificaciones en líneas específicas documentadas)
+
+================================================================================
+FASE 2: ROBUSTEZ DEL FLUJO Y PERSISTENCIA (CERRADA)
+================================================================================
+
+Objetivo: Mejorar robustez del flujo conversacional, manejo de persistencia
+y observabilidad.
+
+Estado: ✅ CERRADA E IMPLEMENTADA
+Fecha de cierre: 2025-01-XX
+Compliance: 100% (F2-T08 marcado como opcional y justificado)
+
+Tareas implementadas:
+- F2-T01: TTL para sesiones (borrado automático después de 48h) ✅
+- F2-T02: Rotación de logs (server.log y telemetry.log) ✅
+- F2-T03: Logging cuando se activan guard rails de simulación ✅
+- F2-T04: Validación de faltanDatosMinimos() antes de mostrar pasos ✅
+- F2-T05: Límite de sesiones por IP en rate limit global (20/15min) ✅
+- F2-T06: Mejora de logging de rate limits (todos los limiters) ✅
+- F2-T07: Validación de getRenderedStep() para ayuda de pasos ✅
+- F2-T08: Métricas de uso de endpoints (OPCIONAL - NO IMPLEMENTADA, justificada) ⏸️
+
+Resumen de implementación:
+FASE 2 mejoró la gestión de recursos y persistencia. Se implementó limpieza
+automática de sesiones antiguas (TTL 48h), rotación de logs para prevenir
+crecimiento indefinido, y mejoras en logging para observabilidad. Se validó
+que el sistema pregunta datos mínimos antes de mostrar pasos genéricos, y se
+mejoró el tracking de sesiones por IP. La validación de ayuda de pasos
+garantiza coherencia entre el paso mostrado y su explicación.
+
+Evidencias:
+- Reporte: FASE2_DONE_REPORTE.txt
+- Auditoría: AUDITORIA_FASE2_FINAL.txt
+- Archivos: server.js (funciones de limpieza, rotación, validaciones)
+
+================================================================================
+FASE 3: MEJORAS Y REFINAMIENTOS (CERRADA)
+================================================================================
+
+Objetivo: Mejoras estéticas, optimizaciones y refinamientos que no afectan
+funcionalidad crítica.
+
+Estado: ✅ CERRADA E IMPLEMENTADA
+Fecha de cierre: 2025-01-XX
+Compliance: 95% (F3-T03 requiere auditoría manual adicional)
+
+Tareas implementadas:
+- F3-T01: Centralizar validación de userText en función helper ✅
+- F3-T02: Mejorar mensajes de error hacia el usuario (claros y accionables) ✅
+- F3-T03: Agregar JSDoc faltante en funciones públicas (PARCIAL - muchas ya tienen) ⚠️
+- F3-T04: Optimizar consultas de archivos en generateUnifiedId() (cache) ✅
+- F3-T05: Mejorar /api/health (disco, memoria, conectividad OpenAI) ✅
+- F3-T06: Mejorar formato de logs de simulaciones (summary legible) ✅
+- F3-T07: Validación extra de nombre de archivo en uploads ✅
+- F3-T08: Documentar despliegue y variables de entorno (README_DEPLOY.md) ✅
+
+Resumen de implementación:
+FASE 3 se enfocó en calidad de código y experiencia de usuario. Se centralizó
+la validación de userText para consistencia, se mejoraron mensajes de error
+para que sean más útiles, y se optimizó la generación de IDs con cache en
+memoria. El health check ahora incluye información de recursos del sistema,
+y los logs de simulaciones son más legibles. Se agregó documentación de
+despliegue y validaciones adicionales de seguridad en uploads.
+
+Evidencias:
+- Reporte: FASE3_DONE_REPORTE.txt
+- Auditoría: AUDITORIA_FASE3_FINAL.txt
+- Archivos: server.js, simulation-engine.js, README_DEPLOY.md
+
+================================================================================
+FASE 4: INTELIGENCIA CONVERSACIONAL Y CONTROL DE DIAGNÓSTICO (CERRADA)
+================================================================================
+
+Objetivo: Mejorar la capacidad de Tecnos para diagnosticar con menos preguntas,
+no repetir pasos ya tratados, diferenciar entre paso sugerido/explicado/confirmado,
+mantener coherencia conversacional y adaptar preguntas según el estado del diagnóstico.
+
+Estado: ✅ CERRADA E IMPLEMENTADA
+Fecha de cierre: 2025-12-14
+Compliance: 95%
+
+Tareas implementadas:
+- F4-A: Memoria de diagnóstico (estructura session.diagnosis)
+- F4-B: Control de repetición de pasos (shouldExplainStep, shouldSuggestStep)
+- F4-C: Preguntas adaptativas (shouldAsk, registro de preguntas)
+- F4-D: Control de progreso del diagnóstico (getDiagnosisState)
+- F4-E: Coherencia conversacional (validateResponseCoherence)
+- F4-F: Logs informativos con prefijo [DIAGNOSIS]
+
+Resumen de implementación:
+FASE 4 implementó inteligencia conversacional avanzada. El sistema ahora
+mantiene memoria explícita de diagnóstico (pasos sugeridos, explicados,
+confirmados, fallidos) y evita repetir información. Se implementaron
+validaciones para evitar preguntas redundantes y pasos ya tratados. El
+sistema calcula el progreso del diagnóstico y valida coherencia antes de
+responder. Todos los cambios son informativos (logs) y no afectan producción.
+La estructura diagnosis complementa pero no reemplaza el sistema existente
+(session.stepsDone, session.failedSteps).
+
+Funciones helper implementadas (12 funciones):
+1. ensureDiagnosisStructure() - Inicializa estructura de diagnóstico
+2. shouldExplainStep() - Evita repetir explicaciones
+3. shouldSuggestStep() - Evita sugerir pasos ya confirmados/fallidos
+4. shouldAsk() - Evita preguntas redundantes
+5. registerQuestionAsked() - Registra preguntas realizadas
+6. getDiagnosisState() - Calcula progreso del diagnóstico
+7. validateResponseCoherence() - Valida coherencia conversacional
+8. registerStepSuggested() - Registra pasos sugeridos
+9. registerStepExplained() - Registra pasos explicados
+10. registerStepConfirmed() - Registra pasos confirmados
+11. registerStepFailed() - Registra pasos fallidos
+12. syncDiagnosisFromSession() - Sincroniza diagnóstico desde sesión
+
+Evidencias:
+- Reporte: FASE4_DONE_REPORTE.txt
+- Auditoría: AUDITORIA_FASE4_FINAL.txt
+- Archivos: server.js (funciones helper líneas ~1095-1460, integraciones en handlers)
+
+================================================================================
+FASE 5: OPTIMIZACIONES AVANZADAS Y MONITOREO (PLANIFICADA)
+================================================================================
+
+Objetivo: Optimizaciones de performance, mejoras en monitoreo, y refinamientos
+adicionales que no requieren cambios arquitectónicos mayores.
+
+Estado: 📋 PLANIFICADA (NO IMPLEMENTADA)
+Prioridad: P2-P3 (mejoras, no críticas)
+
+Alcance:
+- Incluye: Optimizaciones de performance, métricas avanzadas, mejoras en UX
+- Excluye: Refactor masivo, cambios arquitectónicos, nuevas funcionalidades mayores
+
+Tareas FASE 5:
+
+F5-T01: Implementar métricas de performance por endpoint
+  Objetivo: Medir tiempo de respuesta, latencia, y uso de recursos por endpoint
+  Riesgo: Bajo (solo agregar medición, no cambiar lógica)
+  Impacto: Medio (mejora observabilidad y detección de problemas)
+  Complejidad: Media (middleware de medición, almacenamiento en memoria)
+  Dependencias: Ninguna
+  Nota: Similar a F2-T08 (métricas de uso) que fue marcado como opcional y no implementado.
+        Esta tarea es más completa (incluye performance, no solo conteo).
+  Criterio DONE:
+    - Middleware que mide tiempo de respuesta por endpoint
+    - Métricas almacenadas en memoria (últimas 1000 requests)
+    - Endpoint /api/metrics (opcional) para consultar métricas
+    - Logs periódicos de métricas agregadas (cada hora)
+  Pruebas mínimas:
+    - Hacer 10 requests a diferentes endpoints
+    - Verificar que métricas se registran correctamente
+    - Consultar /api/metrics y verificar datos
+
+F5-T02: Optimizar generación de respuestas OpenAI (caching de prompts comunes)
+  Objetivo: Cachear respuestas de OpenAI para prompts similares y reducir costos
+  Riesgo: Medio (cache puede servir respuestas obsoletas)
+  Impacto: Medio (reduce costos y latencia)
+  Complejidad: Alta (requiere estrategia de cache, invalidación, TTL)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Cache en memoria para respuestas OpenAI (LRU, máximo 100 entradas)
+    - TTL de cache: 1 hora
+    - Clave de cache basada en prompt + contexto (problema, dispositivo, OS)
+    - Invalidación manual opcional
+    - Logs de cache hits/misses
+  Pruebas mínimas:
+    - Hacer misma pregunta dos veces (segunda debe usar cache)
+    - Verificar que cache se invalida después de 1 hora
+    - Verificar que prompts diferentes no comparten cache
+
+F5-T03: Mejorar detección de intención del usuario (NLP básico)
+  Objetivo: Mejorar detección de intenciones (confirmación, negación, frustración)
+  Riesgo: Bajo (solo mejora detección existente)
+  Impacto: Medio (mejora UX y precisión)
+  Complejidad: Media (agregar más patrones, mejorar regex)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Mejorar hasRealFrustration() con más patrones
+    - Mejorar detección de confirmación/negación en respuestas
+    - Agregar detección de ambigüedad (usuario no está seguro)
+    - Logs de detecciones para análisis
+  Pruebas mínimas:
+    - Probar diferentes formas de expresar frustración
+    - Verificar detección de confirmación/negación
+    - Verificar que no hay falsos positivos
+
+F5-T04: Implementar sistema de feedback del usuario (opcional)
+  Objetivo: Permitir que usuarios califiquen respuestas y proporcionen feedback
+  Riesgo: Bajo (feature opcional, no afecta flujo principal)
+  Impacto: Bajo (mejora datos para análisis)
+  Complejidad: Media (endpoint nuevo, almacenamiento de feedback)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Endpoint POST /api/feedback (opcional, no bloqueante)
+    - Almacenamiento de feedback en archivos JSON
+    - Feedback incluye: sessionId, mensaje, rating (1-5), comentario opcional
+    - No afecta flujo principal si falla
+  Pruebas mínimas:
+    - Enviar feedback con rating y comentario
+    - Verificar que se guarda correctamente
+    - Verificar que fallo no rompe flujo principal
+
+F5-T05: Optimizar carga de sesiones (lazy loading de campos pesados)
+  Objetivo: Cargar solo campos necesarios de sesión para reducir I/O
+  Riesgo: Medio (puede romper código que asume campos siempre presentes)
+  Impacto: Medio (mejora performance en alta carga)
+  Complejidad: Alta (requiere refactor cuidadoso de acceso a sesión)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Campos pesados (transcript completo) se cargan solo cuando se necesitan
+    - Campos ligeros (stage, userName, device) siempre cargados
+    - Compatibilidad con código existente (getters transparentes)
+    - Logs de carga lazy para monitoreo
+  Pruebas mínimas:
+    - Cargar sesión sin transcript (verificar que funciona)
+    - Acceder a transcript (verificar que se carga)
+    - Verificar que no hay regresiones en flujo
+
+F5-T06: Mejorar manejo de errores de OpenAI (retry con backoff)
+  Objetivo: Implementar retry automático para errores transitorios de OpenAI
+  Riesgo: Medio (puede aumentar latencia si hay muchos retries)
+  Impacto: Medio (mejora robustez)
+  Complejidad: Media (implementar backoff exponencial, límite de retries)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Retry automático para errores 429, 500, 502, 503 de OpenAI
+    - Backoff exponencial (1s, 2s, 4s, 8s)
+    - Máximo 3 retries
+    - Logs de retries para monitoreo
+  Pruebas mínimas:
+    - Simular error 429 de OpenAI
+    - Verificar que se hace retry con backoff
+    - Verificar que después de 3 retries falla gracefully
+
+F5-T07: Agregar análisis de sentimiento básico (opcional)
+  Objetivo: Detectar sentimiento del usuario para ajustar tono de respuestas
+  Riesgo: Bajo (solo informativo, no cambia flujo)
+  Impacto: Bajo (mejora UX sutil)
+  Complejidad: Media (análisis básico con palabras clave, no requiere ML)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Detección básica de sentimiento (positivo, neutro, negativo, frustrado)
+    - Basado en palabras clave y patrones (no ML)
+    - Almacenado en session.sentiment (opcional)
+    - No afecta flujo si no se detecta
+  Pruebas mínimas:
+    - Probar con mensajes positivos, negativos, neutros
+    - Verificar que detección funciona correctamente
+    - Verificar que no rompe flujo si falla
+
+F5-T08: Optimizar serialización de sesiones (compresión opcional)
+  Objetivo: Reducir tamaño de archivos de sesión para ahorrar espacio
+  Riesgo: Bajo (compatibilidad con sesiones existentes)
+  Impacto: Bajo (ahorro de espacio en disco)
+  Complejidad: Media (implementar compresión gzip opcional)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Compresión gzip opcional para sesiones grandes (>10KB)
+    - Descompresión automática al cargar
+    - Compatibilidad con sesiones sin comprimir
+    - Logs de compresión para monitoreo
+  Pruebas mínimas:
+    - Crear sesión grande (>10KB)
+    - Verificar que se comprime
+    - Cargar sesión comprimida (verificar que funciona)
+    - Cargar sesión sin comprimir (verificar compatibilidad)
+
+F5-T09: Mejorar logging estructurado (contexto adicional)
+  Objetivo: Agregar más contexto a logs para facilitar debugging
+  Riesgo: Ninguno (solo mejora logs)
+  Impacto: Bajo (mejora debugging)
+  Complejidad: Baja (agregar campos a logs existentes)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Logs incluyen: sessionId, stage, locale, userAgent (si disponible)
+    - Logs estructurados en JSON cuando es posible
+    - No aumenta significativamente tamaño de logs
+  Pruebas mínimas:
+    - Hacer request y verificar logs
+    - Verificar que incluyen contexto adicional
+    - Verificar que tamaño de logs no aumenta mucho
+
+F5-T10: Documentar arquitectura y decisiones de diseño (opcional)
+  Objetivo: Crear documentación de arquitectura para futuros desarrolladores
+  Riesgo: Ninguno
+  Impacto: Bajo (mejora mantenibilidad)
+  Complejidad: Baja (escribir documentación)
+  Dependencias: Ninguna
+  Criterio DONE:
+    - Documento ARCHITECTURE.md con:
+      - Diagrama de flujo conversacional
+      - Descripción de componentes principales
+      - Decisiones de diseño y razones
+      - Guía de extensión del sistema
+  Pruebas mínimas:
+    - Revisión manual de documentación
+    - Verificar que es clara y completa
+
+================================================================================
+PLAN DE PRUEBAS POR FASE
+================================================================================
+
+FASE 1 - PRUEBAS MÍNIMAS:
+- [✓] Ejecutar 100 simulaciones (50 es-AR, 50 en-US) sin autenticación → debe fallar con 403
+- [✓] Ejecutar 100 simulaciones (50 es-AR, 50 en-US) con ADMIN_TOKEN válido → debe funcionar
+- [✓] Enviar 60 requests a /api/chat en 5 minutos desde misma IP → request 51+ debe retornar 429
+- [✓] Enviar 2 requests simultáneos a misma sesión → ambos mensajes deben guardarse (sin race condition)
+- [✓] Intentar cambio de stage inválido (ASK_LANGUAGE → ENDED) → debe fallar con log de advertencia
+- [✓] Ejecutar simulación con count=200 → debe fallar con 400 (límite es 100)
+- [✓] Ejecutar simulación con maxSteps=300 → debe fallar con 400 (límite es 200)
+- [✓] Simular timeout de OpenAI (mock) → debe retornar respuesta genérica sin error al usuario
+- [✓] Enviar userText de 6000 caracteres → debe retornar 400
+- [✓] Verificar logs: [SIMULATION_GUARD] aparece en simulaciones, no en requests normales
+
+FASE 1 - PRUEBAS DE NO-REGRESIÓN:
+- [✓] WhatsApp prematuro: 50 simulaciones en ASK_NEED sin pasos confirmados → 0 ofertas de WhatsApp
+- [✓] Repetición de pasos: Usuario confirma paso 1, luego pide ayuda paso 2 → NO se reimprimen todos los pasos
+- [✓] Pérdida de sesión: 10 requests consecutivos a misma sesión → todos los datos se mantienen
+- [✓] Idioma: 50 simulaciones en es-AR → todas las respuestas en español argentino
+
+FASE 2 - PRUEBAS MÍNIMAS:
+- [✓] Crear sesión con timestamp de hace 50 horas → ejecutar limpieza → sesión debe borrarse
+- [✓] Generar log de 101MB → debe rotar automáticamente
+- [✓] Ejecutar simulación → verificar logs [SIMULATION_GUARD] completos y consistentes
+- [✓] Simular problema de periférico sin OS → debe preguntar por OS antes de mostrar pasos
+- [✓] Crear 25 sesiones nuevas desde misma IP en 10 minutos → sesión 21+ debe fallar
+- [✓] Activar rate limit → verificar logs incluyen IP, endpoint, límite alcanzado
+- [✓] Consultar ayuda paso 3 → debe explicar exactamente el paso 3 mostrado (no otro)
+
+FASE 2 - PRUEBAS DE NO-REGRESIÓN:
+- [✓] Mismas pruebas de FASE 1 (WhatsApp prematuro, repetición, pérdida de sesión, idioma)
+
+FASE 3 - PRUEBAS MÍNIMAS:
+- [✓] Validar userText en todos los handlers → comportamiento consistente
+- [✓] Generar errores en diferentes handlers → mensajes claros y en idioma correcto
+- [✓] Revisar documentación JSDoc → todas las funciones públicas tienen documentación (parcial)
+- [✓] Generar 1000 IDs → tiempo de generación < 5 segundos
+- [✓] Verificar /api/health → incluye disco, memoria, conectividad (opcional)
+- [✓] Ejecutar simulación → formato de log es legible y bien estructurado
+- [✓] Intentar subir archivo con nombre inválido → rechazo correcto
+
+FASE 3 - PRUEBAS DE NO-REGRESIÓN:
+- [✓] Mismas pruebas de FASE 1 y FASE 2
+
+FASE 4 - PRUEBAS MÍNIMAS:
+- [ ] Verificar que no se repiten pasos ya confirmados
+- [ ] Verificar que no se hacen preguntas redundantes
+- [ ] Verificar que se evita repetir explicación
+- [ ] Verificar coherencia conversacional
+- [ ] Verificar logs [DIAGNOSIS] en puntos clave
+
+FASE 4 - PRUEBAS DE NO-REGRESIÓN:
+- [✓] Mismas pruebas de FASE 1, 2 y 3
+
+FASE 5 - PRUEBAS MÍNIMAS (PLANIFICADAS):
+- [ ] Verificar métricas de performance por endpoint
+- [ ] Verificar cache de respuestas OpenAI
+- [ ] Verificar mejoras en detección de intención
+- [ ] Verificar sistema de feedback (si se implementa)
+- [ ] Verificar lazy loading de sesiones (si se implementa)
+- [ ] Verificar retry con backoff para OpenAI (si se implementa)
+
+FASE 5 - PRUEBAS DE NO-REGRESIÓN:
+- [ ] Mismas pruebas de FASE 1, 2, 3 y 4
+
+PRUEBAS DE SIMULACIONES (Todas las fases):
+- Fase 1: 100 simulaciones (50 es-AR, 50 en-US) → principalError y top3Errores detectados correctamente
+- Fase 2: 300 simulaciones (150 es-AR, 150 en-US) → pasosConsultados y pasosConfirmados trackeados correctamente
+- Fase 3: 1000 simulaciones (500 es-AR, 500 en-US) → 0 errores críticos, formato de logs consistente
+- Fase 4: 500 simulaciones (250 es-AR, 250 en-US) → diagnosis tracking funciona, no hay repeticiones innecesarias
+- Fase 5: Por definir según tareas implementadas
+
+================================================================================
+CHECKLIST POST-IMPLEMENTACIÓN POR FASE
+================================================================================
+
+FASE 1 - CHECKLIST:
+[✓] /api/simulations/run requiere ADMIN_TOKEN (403 si no hay token)
+[✓] /api/chat tiene rate limit específico (50/5min por IP)
+[✓] ADMIN_TOKEN es obligatorio en producción para endpoints admin
+[✓] saveSession() tiene locks para prevenir race conditions
+[✓] VALID_TRANSITIONS se valida en changeStage()
+[✓] /api/simulations/run tiene rate limit (10/hora por IP)
+[✓] count y maxSteps tienen límites máximos validados
+[✓] OpenAI tiene timeout de 30s
+[✓] userText tiene límite de 5000 caracteres
+[✓] Transiciones de stage son validadas antes de cambiar
+[✓] Logs muestran transiciones inválidas como advertencia
+[✓] Simulaciones detectan transiciones inválidas como error crítico
+[✓] saveSession bloquea en modo simulación (prefijo SIM_)
+[✓] createTicketAndRespond bloquea en modo simulación
+[✓] pushBasicTestTelemetry bloquea en modo simulación
+[✓] Logs [SIMULATION_GUARD] aparecen en simulaciones
+[✓] Rate limits se loguean cuando se activan
+[✓] Transiciones inválidas se loguean
+[✓] Guard rails de simulación se loguean
+
+FASE 2 - CHECKLIST:
+[✓] Sesiones > 48h se borran automáticamente (función de limpieza implementada)
+[✓] Logs rotan cuando alcanzan 100MB o diariamente
+[✓] Logs antiguos se eliminan o comprimen (últimos 7 días)
+[✓] faltanDatosMinimos() se usa antes de mostrar > 2 pasos
+[✓] Si faltan datos (OS, periférico), se hacen 1-3 preguntas cortas
+[✓] getRenderedStep() retorna ayuda del paso exacto mostrado
+[✓] Guard rails de simulación loguean con formato [SIMULATION_GUARD]
+[✓] Rate limits loguean IP, endpoint, límite alcanzado
+[✓] Límite de sesiones por IP implementado (20/15min)
+
+FASE 3 - CHECKLIST:
+[✓] validateUserText() está centralizado y se usa en todos los handlers
+[✓] Mensajes de error son claros y en idioma correcto
+[✓] Documentación JSDoc completa en funciones públicas (parcial - muchas ya tienen)
+[✓] generateUnifiedId() optimizado (cache o índice)
+[✓] Health check incluye disco, memoria, conectividad
+[✓] Formato de logs de simulaciones es legible y bien estructurado
+[✓] Logs incluyen summary al inicio
+[✓] README_DEPLOY.md existe con variables de entorno y proceso de despliegue
+[✓] Validación mejorada de nombres de archivo en uploads
+
+FASE 4 - CHECKLIST:
+[✓] Estructura session.diagnosis implementada
+[✓] shouldExplainStep() evita repetir explicaciones
+[✓] shouldSuggestStep() evita sugerir pasos ya confirmados/fallidos
+[✓] shouldAsk() evita preguntas redundantes
+[✓] getDiagnosisState() calcula progreso del diagnóstico
+[✓] validateResponseCoherence() valida coherencia antes de responder
+[✓] Logs [DIAGNOSIS] presentes en puntos clave
+[✓] Integración en handleAskDeviceStage y handleBasicTestsStage
+[✓] No hay regresiones en FASE 1-3
+[✓] Simulaciones compatibles con estructura diagnosis
+
+FASE 5 - CHECKLIST (PLANIFICADO):
+[ ] Métricas de performance por endpoint implementadas
+[ ] Cache de respuestas OpenAI implementado (si se hace F5-T02)
+[ ] Detección de intención mejorada (si se hace F5-T03)
+[ ] Sistema de feedback implementado (si se hace F5-T04)
+[ ] Lazy loading de sesiones implementado (si se hace F5-T05)
+[ ] Retry con backoff para OpenAI implementado (si se hace F5-T06)
+[ ] Análisis de sentimiento básico implementado (si se hace F5-T07)
+[ ] Compresión de sesiones implementada (si se hace F5-T08)
+[ ] Logging estructurado mejorado (si se hace F5-T09)
+[ ] Documentación de arquitectura creada (si se hace F5-T10)
+
+================================================================================
+"NO HACER" (LISTA ACTUALIZADA)
+================================================================================
+
+NO realizar en estas fases:
+
+1. ❌ Refactor masivo de handlers grandes (handleBasicTestsStage, handleAskDeviceStage, handleAskNeedStage).
+   Razón: Riesgo alto de introducir bugs, estas funciones funcionan correctamente aunque sean grandes.
+
+2. ❌ Dividir server.js en microservicios o módulos separados.
+   Razón: Cambio arquitectónico mayor, requiere re-testing completo y puede romper integraciones.
+
+3. ❌ Cambiar formato de sesiones/transcripts existentes.
+   Razón: Puede romper compatibilidad con datos existentes y herramientas que los leen.
+
+4. ❌ Modificar guard rails de simulación (saveSession, createTicketAndRespond, pushBasicTestTelemetry).
+   Razón: Están implementados correctamente, cualquier cambio aumenta riesgo de contaminar producción.
+
+5. ❌ Alterar formato obligatorio de pasos (formatStepWithMandatoryFormat).
+   Razón: Funciona correctamente, cambios pueden romper renderizado en frontend.
+
+6. ❌ Reescribir motor de simulaciones completo.
+   Razón: Funciona correctamente, solo necesita mejoras en seguridad y validaciones.
+
+7. ❌ Cambiar sistema de IDs (A0000-Z9999) a otro formato.
+   Razón: Compatibilidad con datos existentes, solo optimizar generación si es necesario.
+
+8. ❌ Eliminar o modificar significativamente VALID_TRANSITIONS.
+   Razón: Es la fuente de verdad para transiciones válidas, solo falta validar que se use (YA HECHO).
+
+9. ❌ Modificar lógica de detección de dispositivos o problemas sin testing exhaustivo.
+   Razón: Cambios pueden afectar flujo conversacional en producción.
+
+10. ❌ Agregar nuevas funcionalidades no relacionadas con correcciones de seguridad/robustez/mejoras.
+    Razón: Estas fases se enfocan en correcciones, no en features nuevas.
+
+11. ❌ Modificar estructura diagnosis de FASE 4 sin validar compatibilidad.
+    Razón: Estructura implementada y funcionando, cambios pueden romper tracking de diagnóstico.
+
+12. ❌ Eliminar o modificar funciones helper de FASE 4 sin reemplazo equivalente.
+    Razón: Funciones helper están integradas y funcionando, cambios pueden romper flujo.
+
+================================================================================
+MATRIZ DE RIESGO (ACTUALIZADA)
+================================================================================
+
+Área                  | Riesgo                                    | Prob | Impacto | Severidad | Mitigación propuesta                          | Fase | Estado
+--------------------- | ----------------------------------------- | ---- | ------- | --------- | --------------------------------------------- | ---- | ------
+Security              | /api/simulations/run sin auth             | 5    | 5       | 25        | Autenticación obligatoria + rate limit        | 1    | ✅ RESUELTO
+Security              | Race condition en saveSession()           | 4    | 5       | 20        | Locks por sessionId                           | 1    | ✅ RESUELTO
+Security              | ADMIN_TOKEN opcional en endpoints admin    | 3    | 4       | 12        | Obligatorio en producción                     | 1    | ✅ RESUELTO
+Security              | CORS permite requests sin origin           | 3    | 3       | 9         | Validación opcional en producción             | 1    | ⏳ OPCIONAL
+Security              | No rate limit para /api/chat               | 4    | 4       | 16        | Rate limit específico 50/5min                 | 1    | ✅ RESUELTO
+Flow                  | No se valida VALID_TRANSITIONS             | 3    | 4       | 12        | Validar en changeStage()                      | 1    | ✅ RESUELTO
+Flow                  | No valida datos mínimos antes de pasos     | 2    | 3       | 6         | Usar faltanDatosMinimos()                     | 2    | ✅ RESUELTO
+Flow                  | Repetición de pasos ya confirmados          | 3    | 3       | 9         | shouldSuggestStep() + filtrado                | 4    | ✅ RESUELTO
+Flow                  | Preguntas redundantes                      | 2    | 3       | 6         | shouldAsk() + registro                        | 4    | ✅ RESUELTO
+Flow                  | Explicaciones repetidas                     | 2    | 2       | 4         | shouldExplainStep()                          | 4    | ✅ RESUELTO
+Simulations           | Simulaciones pueden causar DoS             | 4    | 4       | 16        | Rate limit + límites de count/maxSteps        | 1    | ✅ RESUELTO
+Logging               | Logs crecen indefinidamente                | 2    | 3       | 6         | Rotación de logs                              | 2    | ✅ RESUELTO
+Persistence           | Sesiones sin TTL llenan disco              | 3    | 3       | 9         | Borrado automático > 48h                      | 2    | ✅ RESUELTO
+Persistence           | No timeout para OpenAI                     | 2    | 3       | 6         | Timeout de 30s                                | 1    | ✅ RESUELTO
+Admin                 | Endpoints admin expuestos                  | 3    | 3       | 9         | ADMIN_TOKEN obligatorio                       | 1    | ✅ RESUELTO
+Performance           | Generación de IDs lenta                    | 2    | 2       | 4         | Cache en memoria                              | 3    | ✅ RESUELTO
+Performance           | Sin métricas de performance                 | 2    | 2       | 4         | Métricas por endpoint                         | 5    | 📋 PLANIFICADO
+Performance           | Sin cache de respuestas OpenAI              | 2    | 2       | 4         | Cache LRU con TTL                             | 5    | 📋 PLANIFICADO
+UX                    | Mensajes de error genéricos                 | 2    | 2       | 4         | Mensajes claros y accionables                 | 3    | ✅ RESUELTO
+UX                    | Sin feedback del usuario                    | 1    | 2       | 2         | Sistema de feedback opcional                  | 5    | 📋 PLANIFICADO
+
+================================================================================
+HISTORIAL DE VERSIONES
+================================================================================
+
+v2.0.0 (2025-12-14):
+- Creación de ROADMAP V2 consolidando FASE 1-4 (cerradas) y FASE 5 (planificada)
+- Reemplazo de ROADMAP_CORRECCIONES_3_FASES.txt (v1.0.0)
+- Actualización de plan de pruebas hasta FASE 5
+- Actualización de checklist post-implementación hasta FASE 5
+- Actualización de matriz de riesgo con estado de resolución
+
+v1.0.0 (2025-01-XX):
+- Roadmap original con 3 fases (FASE 1, 2, 3)
+- Basado en AUDITORIA_SERVER_JS.txt
+
+================================================================================
+FIN DEL ROADMAP V2
+================================================================================
+

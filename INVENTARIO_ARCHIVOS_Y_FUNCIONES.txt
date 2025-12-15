@@ -1,0 +1,551 @@
+================================================================================
+INVENTARIO DE ARCHIVOS Y FUNCIONES - ECOSISTEMA CHAT TECNOS
+Fecha: 2025-01-XX
+================================================================================
+
+ARCHIVOS RELEVANTES
+================================================================================
+
+BACKEND
+-------------------------------------------------------------------------------
+server.js (11424 líneas)
+- Archivo principal del servidor
+- Contiene: endpoints, handlers de stages, lógica de flujo, guard rails, rate limits
+- Ubicación: C:\sti-ai-chat\server.js
+- Dependencias: express, openai, pino, rate-limit, helmet, cors, multer, sharp
+
+simulation-engine.js (845 líneas)
+- Motor de simulaciones
+- Contiene: generación de datos, ejecución de simulaciones, detección de errores
+- Ubicación: C:\sti-ai-chat\simulation-engine.js
+- Dependencias: crypto, path, fs/promises
+
+FRONTEND
+-------------------------------------------------------------------------------
+index.php (2875 líneas)
+- Frontend principal del chat
+- Contiene: UI, normalización de botones, envío de mensajes, renderizado
+- Ubicación: C:\STI\public_html\index.php
+- Dependencias: JavaScript vanilla, fetch API
+
+admin.php (5495 líneas)
+- Panel de administración
+- Contiene: vista de simulaciones, logs, tickets, métricas
+- Ubicación: C:\STI\public_html\admin.php
+- Dependencias: PHP, JavaScript, fetch API
+
+ENDPOINTS Y HANDLERS PRINCIPALES
+================================================================================
+
+ENDPOINTS HTTP (server.js)
+-------------------------------------------------------------------------------
+
+GET /api/health
+- Línea: ~619+
+- Función: Health check del servidor
+- Parámetros: Ninguno
+- Respuesta: { status: 'healthy'|'degraded', disk, memory, openai }
+- Rate limit: Ninguno (público)
+- Autenticación: No requerida
+
+GET /api/greeting
+- Línea: ~10500+
+- Función: Iniciar nueva sesión
+- Parámetros: Ninguno (opcional: locale)
+- Respuesta: { ok, greeting, reply, stage, sessionId, csrfToken, buttons }
+- Rate limit: sessionCreationLimiter (20/15min por IP)
+- Autenticación: No requerida
+
+POST /api/chat
+- Línea: ~10650+
+- Función: Procesar mensajes del chat
+- Parámetros: { userText?, buttonToken?, sessionId, action?, csrfToken }
+- Respuesta: { ok, reply, stage, buttons?, sessionId }
+- Rate limit: chatRateLimiter (50/5min por IP)
+- Autenticación: No requerida (pero requiere sessionId válido)
+- Handlers llamados según stage:
+  * ASK_LANGUAGE: handleAskLanguageStage()
+  * ASK_NAME: handleAskNameStage()
+  * ASK_USER_LEVEL: handleAskUserLevelStage()
+  * ASK_NEED: handleAskNeedStage()
+  * ASK_DEVICE: handleAskDeviceStage()
+  * BASIC_TESTS: handleBasicTestsStage()
+  * ADVANCED_TESTS: handleAdvancedTestsStage()
+  * ESCALATE: handleEscalateStage()
+
+POST /api/simulations/run
+- Línea: ~11279+
+- Función: Ejecutar simulaciones
+- Parámetros: { locale?, userType?, problem?, device?, os?, count?, maxSteps? }
+- Respuesta: { ok, results: [simulation results] }
+- Rate limit: simulationsRateLimiter (10/hora por IP)
+- Autenticación: ADMIN_TOKEN requerido (query string o header)
+
+GET /api/simulations/logs
+- Línea: ~11359+
+- Función: Obtener logs de simulaciones
+- Parámetros: limit? (query string)
+- Respuesta: { ok, logs: [simulation logs] }
+- Rate limit: Ninguno específico
+- Autenticación: ADMIN_TOKEN requerido
+
+GET /api/simulations/log/:simulationId
+- Línea: ~11387+
+- Función: Obtener log específico de simulación
+- Parámetros: simulationId (path parameter)
+- Respuesta: { ok, log: simulation log }
+- Rate limit: Ninguno específico
+- Autenticación: ADMIN_TOKEN requerido
+
+POST /api/upload-image
+- Línea: ~9600+
+- Función: Subir imagen para análisis
+- Parámetros: multipart/form-data (file)
+- Respuesta: { ok, imageUrl, analysis? }
+- Rate limit: uploadLimiter (3/min por IP+Session)
+- Autenticación: No requerida (pero requiere sessionId)
+
+GET /api/historial
+- Línea: ~10190+
+- Función: Obtener historial de conversaciones
+- Parámetros: token (query string, ADMIN_TOKEN)
+- Respuesta: { ok, historial: [conversations] }
+- Rate limit: Ninguno específico
+- Autenticación: ADMIN_TOKEN requerido (obligatorio en producción)
+
+GET /api/transcript-json/:sessionId
+- Línea: ~10326+
+- Función: Obtener transcript en JSON
+- Parámetros: sessionId (path parameter), token (query string)
+- Respuesta: { ok, transcript: [messages] }
+- Rate limit: Ninguno específico
+- Autenticación: ADMIN_TOKEN requerido
+
+HANDLERS DE STAGES (server.js)
+-------------------------------------------------------------------------------
+
+handleAskLanguageStage()
+- Línea: ~2582+
+- Stage: ASK_LANGUAGE
+- Función: Manejar GDPR y selección de idioma
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ASK_LANGUAGE → ASK_NAME
+
+handleAskNameStage()
+- Línea: ~3200+
+- Stage: ASK_NAME
+- Función: Pedir y validar nombre del usuario
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ASK_NAME → ASK_USER_LEVEL
+- Límite de intentos: 3 (nameAttempts)
+
+handleAskUserLevelStage()
+- Línea: ~3902+
+- Stage: ASK_USER_LEVEL
+- Función: Preguntar nivel de experiencia del usuario
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ASK_USER_LEVEL → ASK_NEED
+- Valores: 'basic', 'intermediate', 'advanced'
+- Se salta si: session.userLevel ya existe
+
+handleAskNeedStage()
+- Línea: ~4200+
+- Stage: ASK_NEED
+- Función: Preguntar qué problema tiene el usuario
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ASK_NEED → ASK_DEVICE, ASK_NEED → ASK_NAME (error)
+
+handleAskDeviceStage()
+- Línea: ~5000+
+- Stage: ASK_DEVICE
+- Función: Preguntar tipo de dispositivo
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ASK_DEVICE → BASIC_TESTS
+
+handleBasicTestsStage()
+- Línea: ~6000+
+- Stage: BASIC_TESTS
+- Función: Mostrar pasos básicos de solución
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: BASIC_TESTS → ADVANCED_TESTS, BASIC_TESTS → ESCALATE, BASIC_TESTS → ENDED
+- Casos especiales:
+  * BTN_SOLVED → mostrar feedback
+  * BTN_PERSIST → escalar a técnico
+  * BTN_FEEDBACK_* → registrar feedback y cerrar
+
+handleAdvancedTestsStage()
+- Línea: ~8500+
+- Stage: ADVANCED_TESTS
+- Función: Mostrar pasos avanzados de solución
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ADVANCED_TESTS → ESCALATE, ADVANCED_TESTS → ENDED
+
+handleEscalateStage()
+- Línea: ~8600+
+- Stage: ESCALATE
+- Función: Conectar con técnico humano
+- Parámetros: session, userText, buttonToken, sessionId
+- Retorna: { ok, reply, stage, buttons?, handled }
+- Transiciones válidas: ESCALATE → ENDED
+- Crea ticket si: BTN_CONNECT_TECH o BTN_WHATSAPP_TECNICO
+
+FUNCIONES HELPER PRINCIPALES (server.js)
+-------------------------------------------------------------------------------
+
+validateUserText()
+- Línea: ~1821+
+- Función: Validar y normalizar texto del usuario
+- Parámetros: userText, buttonToken?, options?
+- Retorna: { ok, reason?, normalizedText }
+- Validaciones:
+  * null/undefined
+  * tipo (debe ser string)
+  * trim
+  * longitud máxima (default: 5000, configurable)
+  * buttonToken permite userText vacío
+
+faltanDatosMinimos()
+- Línea: ~4950+
+- Función: Verificar si faltan datos mínimos para mostrar pasos
+- Parámetros: session, caseType?, locale?
+- Retorna: { missing: boolean, questions: Array<string>, context: object }
+- Verifica según caseType:
+  * 'system'|'os_dependent': requiere hasOS, osName
+  * 'peripheral': requiere hasPeripheralType, peripheralType
+  * 'performance'|'gaming': requiere hasOS, hasDeviceType
+  * 'generic': requiere algún contexto mínimo
+
+changeStage()
+- Línea: ~2450+
+- Función: Cambiar stage de sesión validando transiciones
+- Parámetros: session, newStage
+- Retorna: boolean (éxito)
+- Valida: Transición debe estar en VALID_TRANSITIONS
+- Log: Registra cambio de stage
+
+getSession()
+- Línea: ~2000+
+- Función: Obtener sesión desde almacenamiento
+- Parámetros: sessionId
+- Retorna: Promise<session object | null>
+- Almacenamiento: Archivos JSON en DATA_BASE/sessions/
+
+saveSessionAndTranscript()
+- Línea: ~2040+
+- Función: Guardar sesión y transcript
+- Parámetros: sessionId, session
+- Retorna: Promise<void>
+- Guard rails: Verifica session.simulation (prefijo SIM_)
+- Almacenamiento: Archivos JSON
+
+saveFeedback()
+- Línea: ~1123+
+- Función: Guardar feedback del usuario
+- Parámetros: sessionId, session, result ('useful'|'not_useful')
+- Retorna: Promise<void>
+- Guard rails: Bloquea si session.simulation === true
+- Almacenamiento: FEEDBACK_DIR/feedback_{sessionId}_{timestamp}.json
+
+createTicketAndRespond()
+- Línea: ~8638+
+- Función: Crear ticket de soporte
+- Parámetros: session, sessionId, locale
+- Retorna: Promise<{ ok, reply, buttons? }>
+- Guard rails: Bloquea si session.simulation === true
+- Almacenamiento: TICKETS_DIR/ticket_{sessionId}_{timestamp}.json
+
+buildUiButtonsFromTokens()
+- Línea: ~2900+
+- Función: Construir botones UI desde tokens
+- Parámetros: tokens (Array<string>), locale?
+- Retorna: Array<{ text, value, order? }>
+- Mapea tokens a texto según locale
+
+normalizeButtons() (index.php)
+- Línea: ~1707+
+- Función: Normalizar botones del backend para frontend
+- Parámetros: payload (Array | Object)
+- Retorna: Array<{ label, value, text }>
+- Mapea tokens a labels usando LABEL_MAP
+- Preserva propiedades especiales (marker, stepIndex, size)
+
+renderButtons() (index.php)
+- Línea: ~1837+
+- Función: Renderizar botones en UI
+- Parámetros: containerRow (DOM element), buttonList (Array)
+- Retorna: void
+- Crea elementos DOM para botones
+- Muestra: btn.label o btn.text, nunca btn.value crudo
+
+sendButton() (index.php)
+- Línea: ~1949+
+- Función: Enviar botón al backend
+- Parámetros: value (string), label (string)
+- Retorna: Promise<void>
+- Payload: { action: 'button', value, label, sessionId, csrfToken }
+- Endpoint: POST /api/chat
+
+PUNTOS CON SIDE-EFFECTS
+================================================================================
+
+OPERACIONES DE ESCRITURA EN DISCO
+-------------------------------------------------------------------------------
+
+saveSessionAndTranscript()
+- Archivo: server.js línea ~2040+
+- Escribe: DATA_BASE/sessions/{sessionId}.json
+- Escribe: TRANSCRIPTS_DIR/transcript_{sessionId}_{timestamp}.json
+- Escribe: HISTORIAL_CHAT_DIR/historial_{sessionId}.txt
+- Guard rail: Prefijo SIM_ si session.simulation === true
+- Lock: Usa locks para prevenir race conditions
+
+saveFeedback()
+- Archivo: server.js línea ~1123+
+- Escribe: FEEDBACK_DIR/feedback_{sessionId}_{timestamp}.json
+- Guard rail: Bloquea si session.simulation === true
+- Log: [FEEDBACK] [SIMULATION_GUARD] bloqueado
+
+createTicketAndRespond()
+- Archivo: server.js línea ~8638+
+- Escribe: TICKETS_DIR/ticket_{sessionId}_{timestamp}.json
+- Guard rail: Bloquea si session.simulation === true
+- Log: [SIMULATION_GUARD] bloqueado: createTicketAndRespond
+
+saveLog() (simulation-engine.js)
+- Archivo: simulation-engine.js línea ~763+
+- Escribe: SIMULATIONS_DIR/sim_{simulationId}.json
+- Contenido: Resultado completo de simulación con summary
+
+OPERACIONES EXTERNAS
+-------------------------------------------------------------------------------
+
+Llamadas a OpenAI API
+- Archivo: server.js línea ~6956+
+- Función: generateSmartResponse()
+- Side-effect: Consume créditos de OpenAI
+- Timeout: 30s configurado
+- Fallback: Respuesta genérica si timeout o error
+
+Envío de WhatsApp (potencial)
+- Archivo: server.js línea ~8638+
+- Función: createTicketAndRespond()
+- Side-effect: Envía WhatsApp real (si no es simulación)
+- Guard rail: Bloquea si session.simulation === true
+
+Actualización de métricas
+- Archivo: server.js línea ~1904+
+- Función: pushBasicTestTelemetry()
+- Side-effect: Actualiza PROBLEM_METRICS y STEP_INEFFECTIVE en memoria
+- Guard rail: Bloquea si session.simulation === true
+- Log: [SIMULATION_GUARD] bloqueado: pushBasicTestTelemetry
+
+ESTADOS Y TRANSICIONES
+================================================================================
+
+ESTADOS DEFINIDOS (STATES)
+-------------------------------------------------------------------------------
+Archivo: server.js línea ~2341+
+
+ASK_LANGUAGE: 'ASK_LANGUAGE'
+- Primera etapa: GDPR y selección de idioma
+- Transiciones válidas: → ASK_NAME
+
+ASK_NAME: 'ASK_NAME'
+- Segunda etapa: Pedir nombre del usuario
+- Transiciones válidas: → ASK_USER_LEVEL
+
+ASK_USER_LEVEL: 'ASK_USER_LEVEL'
+- Tercera etapa: Preguntar nivel de experiencia
+- Transiciones válidas: → ASK_NEED
+
+ASK_NEED: 'ASK_NEED'
+- Cuarta etapa: Preguntar qué problema tiene
+- Transiciones válidas: → ASK_DEVICE, → ASK_NAME (error)
+
+ASK_PROBLEM: 'ASK_PROBLEM'
+- Etapa alternativa: Si no se detectó problema en ASK_NEED
+- Transiciones válidas: → ASK_DEVICE
+
+ASK_DEVICE: 'ASK_DEVICE'
+- Quinta etapa: Preguntar tipo de dispositivo
+- Transiciones válidas: → BASIC_TESTS
+
+ASK_OS: 'ASK_OS'
+- Etapa opcional: Preguntar sistema operativo
+- Transiciones válidas: → BASIC_TESTS, → ADVANCED_TESTS
+
+BASIC_TESTS: 'BASIC_TESTS'
+- Sexta etapa: Mostrar pasos básicos de solución
+- Transiciones válidas: → ADVANCED_TESTS, → ESCALATE, → ENDED
+
+ADVANCED_TESTS: 'ADVANCED_TESTS'
+- Séptima etapa: Mostrar pasos avanzados
+- Transiciones válidas: → ESCALATE, → ENDED
+
+ESCALATE: 'ESCALATE'
+- Octava etapa: Conectar con técnico humano
+- Transiciones válidas: → ENDED
+
+ENDED: 'ENDED'
+- Etapa final: Conversación cerrada
+- Transiciones válidas: Ninguna (estado terminal)
+
+TOKENS DE BOTONES PRINCIPALES
+================================================================================
+
+Archivo: server.js línea ~2956+ (BUTTON_TOKENS)
+
+Idioma:
+- BTN_LANG_ES_AR: '🇦🇷 Español (Argentina)'
+- BTN_LANG_EN: '🇬🇧 English'
+
+Problemas:
+- BTN_NO_ENCIENDE: '🔌 El equipo no enciende'
+- BTN_NO_INTERNET: '📡 Problemas de conexión a Internet'
+- BTN_LENTITUD: '🐢 Lentitud del sistema operativo o del equipo'
+- BTN_BLOQUEO: '❄️ Bloqueo o cuelgue de programas'
+- BTN_PERIFERICOS: '🖨️ Problemas con periféricos externos'
+- BTN_VIRUS: '🛡️ Infecciones de malware o virus'
+
+Dispositivos:
+- BTN_DEV_PC_DESKTOP: 'PC de escritorio'
+- BTN_DEV_PC_ALLINONE: 'PC All in One'
+- BTN_DEV_NOTEBOOK: 'Notebook'
+
+Nivel de usuario:
+- BTN_USER_LEVEL_BASIC: '🟢 Básico — uso lo esencial, prefiero pasos simples'
+- BTN_USER_LEVEL_INTERMEDIATE: '🟡 Intermedio — entiendo configuraciones y pruebas comunes'
+- BTN_USER_LEVEL_ADVANCED: '🔵 Avanzado — ya hice pruebas técnicas y ajustes'
+
+Sistema operativo:
+- BTN_OS_WINDOWS: '🪟 Windows'
+- BTN_OS_MACOS: '🍏 macOS'
+- BTN_OS_LINUX: '🐧 Linux'
+
+Acciones:
+- BTN_SOLVED: '👍 Ya lo solucioné'
+- BTN_PERSIST: '❌ Todavía no funciona'
+- BTN_ADVANCED_TESTS: '🔬 Pruebas Avanzadas'
+- BTN_CLOSE: '🔚 Cerrar Chat'
+- BTN_WHATSAPP_TECNICO: '💚 Hablar con un Técnico'
+- BTN_CONNECT_TECH: '👨‍🏭 Conectar con Técnico'
+
+Feedback:
+- BTN_FEEDBACK_USEFUL: '👍 La ayuda de Tecnos me fue útil'
+- BTN_FEEDBACK_NOT_USEFUL: '👎 La ayuda de Tecnos no me sirvió'
+
+Ayuda de pasos:
+- BTN_HELP_STEP_1, BTN_HELP_STEP_2, ... BTN_HELP_STEP_N
+
+RATE LIMITERS
+================================================================================
+
+Archivo: server.js línea ~508+
+
+limiter (global)
+- Límite: 100 requests/15min por IP
+- Aplicado a: Todas las rutas excepto /api/health
+- Handler: Línea ~508+
+
+chatRateLimiter
+- Límite: 50 requests/5min por IP
+- Aplicado a: POST /api/chat
+- Handler: Línea ~521+
+- Log: [RATE_LIMIT] endpoint=/api/chat
+
+simulationsRateLimiter
+- Límite: 10 requests/1hora por IP
+- Aplicado a: POST /api/simulations/run
+- Handler: Línea ~542+
+- Log: [RATE_LIMIT] endpoint=/api/simulations/run
+
+sessionCreationLimiter
+- Límite: 20 requests/15min por IP
+- Aplicado a: GET /api/greeting
+- Handler: Línea ~564+
+- Log: [RATE_LIMIT] endpoint=/api/greeting
+
+uploadLimiter
+- Límite: 3 requests/1min por IP+Session
+- Aplicado a: POST /api/upload-image
+- Handler: Línea ~9654+
+- Log: [RATE_LIMIT] endpoint=/api/upload-image
+
+GUARD RAILS DE SIMULACIÓN
+================================================================================
+
+Verificaciones de session.simulation === true:
+
+1. saveFeedback() - Línea ~1127
+   - Bloquea guardado de feedback
+   - Log: [FEEDBACK] [SIMULATION_GUARD] bloqueado
+
+2. pushBasicTestTelemetry() - Línea ~1904
+   - Bloquea actualización de métricas
+   - Log: [SIMULATION_GUARD] bloqueado: pushBasicTestTelemetry
+
+3. saveSessionAndTranscript() - Línea ~2040
+   - Usa prefijo SIM_ en sessionId
+   - Log: [SIMULATION_GUARD] bloqueado: saveSession
+
+4. createTicketAndRespond() - Línea ~8638
+   - Bloquea creación de tickets reales
+   - Log: [SIMULATION_GUARD] bloqueado: createTicketAndRespond
+
+5. /api/chat - Línea ~10655
+   - Detecta modo simulación desde request
+   - Marca session.simulation = true
+
+CONSTANTES Y CONFIGURACIÓN
+================================================================================
+
+Archivo: server.js línea ~107+
+
+DATA_BASE: Directorio base de datos
+- Default: '/data'
+- Variable de entorno: DATA_BASE
+
+TRANSCRIPTS_DIR: Directorio de transcripts
+- Default: DATA_BASE + '/transcripts'
+
+TICKETS_DIR: Directorio de tickets
+- Default: DATA_BASE + '/tickets'
+
+LOGS_DIR: Directorio de logs
+- Default: DATA_BASE + '/logs'
+
+UPLOADS_DIR: Directorio de uploads
+- Default: DATA_BASE + '/uploads'
+
+HISTORIAL_CHAT_DIR: Directorio de historial
+- Default: DATA_BASE + '/historial_chat'
+
+FEEDBACK_DIR: Directorio de feedback
+- Default: DATA_BASE + '/feedback'
+
+TECNOS_DEFAULT_LOCALE: 'es-AR'
+- Locale por defecto
+
+USER_SESSION_TIMEOUT_MS: 30 * 60 * 1000 (30 minutos)
+- Tiempo de inactividad para considerar sesión expirada
+
+OPENAI_TIMEOUT: 30000 (30 segundos)
+- Timeout para llamadas a OpenAI
+
+LOG_MAX_SIZE: 100 * 1024 * 1024 (100MB)
+- Tamaño máximo de archivo de log antes de rotar
+
+LOG_RETENTION_DAYS: 7
+- Días de retención de logs rotados
+
+================================================================================
+FIN DEL INVENTARIO
+================================================================================
+

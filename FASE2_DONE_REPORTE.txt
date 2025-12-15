@@ -1,0 +1,288 @@
+================================================================================
+REPORTE FINAL - FASE 2 COMPLETA (server.js)
+Fecha: 2025-01-XX
+================================================================================
+
+CHECKLIST CUMPLE/NO CUMPLE POR TAREA
+================================================================================
+
+F2-T01: Implementar TTL para sesiones (borrado automático después de 48h)
+[✅ CUMPLE]
+  - Función cleanupOldSessions() implementada (líneas 7053-7100)
+  - Borra archivos con última modificación > 48h
+  - Se ejecuta al startup (delay 5s) y cada 24 horas (líneas 7103-7114)
+  - Logs muestran cantidad de sesiones borradas (línea 7089)
+  - Manejo de errores implementado
+
+Evidencia:
+- Línea 7053-7100: cleanupOldSessions() con lógica de TTL
+- Línea 7103-7107: Ejecución al startup con delay
+- Línea 7110-7114: Ejecución periódica cada 24h
+- Línea 7089: Log con cantidad de sesiones borradas
+
+---
+
+F2-T02: Implementar rotación de logs (server.log y telemetry.log)
+[✅ CUMPLE]
+  - Función rotateLogFile() implementada (líneas 280-351)
+  - Rota cuando archivo tiene > 1 día o > 100MB
+  - Mantiene últimos 7 días, elimina logs antiguos
+  - Logs muestran cuando ocurre rotación (línea 319)
+  - Se ejecuta diariamente (línea 353-356)
+
+Evidencia:
+- Línea 280-351: rotateLogFile() con lógica de rotación
+- Línea 319: Log de rotación con tamaño del archivo
+- Línea 338-347: Limpieza de logs > 7 días
+- Línea 353-356: Ejecución periódica cada 24h
+- Línea 140-141: Constantes LOG_MAX_SIZE y LOG_RETENTION_DAYS
+
+---
+
+F2-T03: Agregar logging cuando se activan guard rails de simulación
+[✅ CUMPLE]
+  - Guard rails ya tienen logging con formato [SIMULATION_GUARD]
+  - saveSession: línea 1040 (formato correcto)
+  - createTicketAndRespond: línea 7214 (formato correcto)
+  - pushBasicTestTelemetry: línea 904 (formato correcto)
+  - Todos incluyen sessionId y acción bloqueada
+
+Evidencia:
+- Línea 1040: `[SIMULATION_GUARD] bloqueado: saveSession - Sesión ${sessionId}`
+- Línea 904: `[SIMULATION_GUARD] bloqueado: pushBasicTestTelemetry - Sesión ${sessionId}`
+- Línea 7214: `[SIMULATION_GUARD] bloqueado: createTicketAndRespond - Sesión ${sessionId}`
+- Todos usan nivel WARN con formato consistente
+
+---
+
+F2-T04: Validar que faltanDatosMinimos() se usa antes de mostrar pasos
+[✅ CUMPLE]
+  - faltanDatosMinimos() existe y funciona (línea 3835-3938)
+  - Se usa en handleAskDeviceStage antes de generar pasos (línea 4900)
+  - Agregada validación en punto crítico antes de generar > 2 pasos (línea 5058-5081)
+  - Si faltan datos, se hacen 1-3 preguntas cortas
+  - simulation-engine.js actualizado para responder preguntas de OS/periféricos (línea 115-130)
+
+Evidencia:
+- Línea 3835-3938: faltanDatosMinimos() con lógica completa
+- Línea 4900: Uso en handleAskDeviceStage
+- Línea 5058-5081: Validación agregada antes de generar pasos
+- Línea 5066-5080: Bloqueo si faltan datos, retorna preguntas
+- simulation-engine.js línea 115-130: Respuestas para preguntas de OS/periféricos
+
+---
+
+F2-T05: Agregar límite de sesiones por IP en rate limit global
+[✅ CUMPLE]
+  - sessionCreationLimiter creado: 20 sesiones/15min por IP (líneas 494-512)
+  - Aplicado a /api/greeting (línea 8975)
+  - Handler con logging cuando se activa (línea 506-509)
+  - Log incluye IP, endpoint, límite
+
+Evidencia:
+- Línea 494-512: sessionCreationLimiter definido
+- Línea 8975: Aplicado a app.get('/api/greeting')
+- Línea 506-509: Handler con log formateado
+- Línea 508: Formato: `[RATE_LIMIT] endpoint=... ip=... max=20 window=15min`
+
+---
+
+F2-T06: Mejorar logging de rate limits (todos los rate limiters)
+[✅ CUMPLE]
+  - chatRateLimiter: formato mejorado (línea 454)
+  - simulationsRateLimiter: formato mejorado (línea 475)
+  - sessionCreationLimiter: formato mejorado (línea 508)
+  - uploadLimiter: formato mejorado (línea 8164)
+  - Todos incluyen: endpoint, IP, max, window, timestamp
+
+Evidencia:
+- Línea 454: `[RATE_LIMIT] endpoint=/api/chat ip=... max=50 window=5min timestamp=...`
+- Línea 475: `[RATE_LIMIT] endpoint=/api/simulations/run ip=... max=10 window=1h timestamp=...`
+- Línea 508: `[RATE_LIMIT] endpoint=... ip=... max=20 window=15min timestamp=...`
+- Línea 8164: `[RATE_LIMIT] endpoint=/api/upload-image ip=... max=3 window=1min timestamp=...`
+
+---
+
+F2-T07: Validar que getRenderedStep() funciona correctamente
+[✅ CUMPLE]
+  - getRenderedStep() existe y funciona (línea 4053-4072)
+  - Se usa en handleBasicTestsStage para BTN_HELP_STEP_X (línea 6122)
+  - Ayuda coincide 1:1 con paso mostrado usando stepsRendered[]
+  - Fallback implementado para compatibilidad (línea 6134-6157)
+
+Evidencia:
+- Línea 4053-4072: getRenderedStep() implementado
+- Línea 6122: Uso en handleBasicTestsStage
+- Línea 6128-6132: Verificación de coincidencia
+- Línea 6134-6157: Fallback para sesiones antiguas
+
+---
+
+F2-T08: Métricas de uso de endpoints (OPCIONAL P2)
+[❌ NO HECHO - JUSTIFICADO]
+  Motivo: Complejidad de implementación requiere tracking de estado en memoria
+  y sincronización que puede introducir overhead. El logging actual de rate limits
+  ya provee información suficiente para monitoreo básico.
+  
+  Impacto: Bajo - no es crítico para funcionamiento
+  Alternativa: Usar logs de rate limits existentes para métricas
+
+================================================================================
+EVIDENCIAS: ARCHIVOS Y LÍNEAS
+================================================================================
+
+F2-T01 (TTL Sesiones):
+- server.js líneas 7053-7100: cleanupOldSessions()
+- server.js líneas 7103-7114: Ejecución periódica
+
+F2-T02 (Rotación Logs):
+- server.js líneas 140-141: Constantes de configuración
+- server.js líneas 280-351: rotateLogFile()
+- server.js líneas 353-356: Ejecución periódica
+
+F2-T03 (Logging Guard Rails):
+- server.js línea 1040: saveSession guard rail
+- server.js línea 904: pushBasicTestTelemetry guard rail
+- server.js línea 7214: createTicketAndRespond guard rail
+
+F2-T04 (faltanDatosMinimos):
+- server.js líneas 3835-3938: función faltanDatosMinimos()
+- server.js línea 4900: Uso en handleAskDeviceStage
+- server.js líneas 5058-5081: Validación antes de generar pasos
+- simulation-engine.js líneas 115-130: Respuestas para preguntas
+
+F2-T05 (Rate Limit Sesiones):
+- server.js líneas 494-512: sessionCreationLimiter
+- server.js línea 8975: Aplicado a /api/greeting
+
+F2-T06 (Logging Rate Limits):
+- server.js línea 454: chatRateLimiter handler
+- server.js línea 475: simulationsRateLimiter handler
+- server.js línea 508: sessionCreationLimiter handler
+- server.js línea 8164: uploadLimiter handler
+
+F2-T07 (getRenderedStep):
+- server.js líneas 4053-4072: función getRenderedStep()
+- server.js línea 6122: Uso en handleBasicTestsStage
+- server.js líneas 6128-6157: Validación y fallback
+
+================================================================================
+PRUEBAS MÍNIMAS - COMANDOS Y PASOS
+================================================================================
+
+1) TTL Sesiones: crear sesión con timestamp 50 horas → ejecutar limpieza → debe borrarse
+   Comando:
+   # Crear archivo de sesión con mtime antiguo (Windows PowerShell)
+   $file = "data/transcripts/TEST01.json"
+   $oldDate = (Get-Date).AddHours(-50)
+   New-Item -Path $file -ItemType File -Force
+   (Get-Item $file).LastWriteTime = $oldDate
+   
+   # En Node.js, ejecutar:
+   # await cleanupOldSessions()
+   
+   # Verificar que el archivo fue borrado
+   Test-Path $file  # Debe retornar False
+   
+   Resultado esperado: Archivo borrado, log muestra "[SESSION_TTL] Sesión antigua borrada: TEST01.json"
+
+2) Rotación Logs: generar log >100MB o forzar rotación diaria
+   Comando:
+   # Forzar rotación modificando mtime del archivo (Windows PowerShell)
+   $logFile = "data/logs/server.log"
+   $oldDate = (Get-Date).AddDays(-2)
+   (Get-Item $logFile).LastWriteTime = $oldDate
+   
+   # Ejecutar rotación manualmente o esperar ejecución automática
+   # await rotateLogFile(LOG_FILE, 'server')
+   
+   Resultado esperado: 
+   - Archivo renombrado a server.YYYY-MM-DD.log
+   - Log muestra "[LOG_ROTATION] Archivo rotado: server.YYYY-MM-DD.log"
+   - Logs > 7 días eliminados
+
+3) Simulación: ejecutar → verificar logs [SIMULATION_GUARD]
+   Comando:
+   curl -X POST http://localhost:3001/api/simulations/run \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -d '{"count": 1, "maxSteps": 5}'
+   
+   Luego revisar logs:
+   grep "SIMULATION_GUARD" data/logs/server.log
+   
+   Resultado esperado:
+   - Logs [SIMULATION_GUARD] en saveSession
+   - Logs [SIMULATION_GUARD] en pushBasicTestTelemetry (si aplica)
+   - Logs [SIMULATION_GUARD] en createTicketAndRespond (si aplica)
+   - Formato consistente con sessionId
+
+4) Datos mínimos: periférico sin OS → debe preguntar OS antes de mostrar pasos
+   Pasos:
+   1. Iniciar conversación
+   2. Seleccionar problema relacionado con periféricos (ej: "no reconoce pendrive")
+   3. Seleccionar dispositivo (ej: "PC de escritorio")
+   4. Verificar que pregunta por SO antes de mostrar pasos
+   
+   Resultado esperado:
+   - Mensaje: "Antes de sugerirte pasos, necesito un poco más de información: ¿Qué sistema operativo estás usando?"
+   - NO muestra pasos hasta que se responda la pregunta
+
+5) Sesiones por IP: crear 25 sesiones en 10 min → 21+ bloqueada
+   Script (PowerShell):
+   for ($i=1; $i -le 25; $i++) {
+     curl -X GET http://localhost:3001/api/greeting
+     Start-Sleep -Seconds 2
+   }
+   
+   Resultado esperado:
+   - Requests 1-20: 200 OK
+   - Request 21+: 429 Too Many Requests
+   - Log: "[RATE_LIMIT] endpoint=/api/greeting ip=... max=20 window=15min"
+
+6) Rate limit logging: activar limiter → log debe incluir IP + endpoint + límite
+   Comando: Ver prueba #5 (misma prueba)
+   
+   Resultado esperado:
+   - Log formato: `[RATE_LIMIT] endpoint=/api/greeting ip=127.0.0.1 max=20 window=15min timestamp=2025-01-XX...`
+
+7) Ayuda de pasos: ayuda paso 3 → debe coincidir con paso 3 realmente mostrado
+   Pasos:
+   1. Completar flujo hasta BASIC_TESTS
+   2. Ver pasos mostrados (notar paso 3)
+   3. Hacer clic en "Ayuda Paso 3"
+   4. Verificar que la ayuda explica exactamente el paso 3 mostrado
+   
+   Resultado esperado:
+   - Ayuda coincide 1:1 con título y contenido del paso 3
+   - Log muestra: "[BASIC_TESTS] ✅ Paso renderizado encontrado"
+
+================================================================================
+NO-REGRESIÓN (HEREDADA DE FASE 1)
+================================================================================
+
+✅ WhatsApp prematuro: Guard rail preservado (línea 3088-3132, hasRealFrustration)
+✅ Repetición de pasos: Guard rails preservados (línea 4723-4747, 5957-6005)
+✅ Pérdida de sesión: Locks preservados (línea 6927, 1003-1066)
+✅ Idioma: ensureSessionLocale preservado (línea 700-706)
+
+================================================================================
+NOTAS FINALES
+================================================================================
+
+- Todos los cambios son quirúrgicos y mínimos
+- No se refactorizaron handlers grandes
+- Compatibilidad preservada (fallbacks implementados)
+- Logs claros y verificables en todos los casos
+- Código compila sin errores
+
+PRÓXIMOS PASOS SUGERIDOS:
+- Ejecutar pruebas mínimas listadas arriba
+- Monitorear logs de TTL y rotación en producción
+- Verificar que validación de datos mínimos no rompe flujos existentes
+- Revisar que rate limits funcionan correctamente
+
+================================================================================
+FIN DEL REPORTE
+================================================================================
+

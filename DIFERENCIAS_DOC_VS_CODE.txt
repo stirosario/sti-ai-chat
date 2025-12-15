@@ -1,0 +1,113 @@
+================================================================================
+DIFERENCIAS DETECTADAS (DOCUMENTACIÓN vs CÓDIGO IMPLEMENTADO)
+================================================================================
+
+Fecha de análisis: 2025-12-14
+Alcance: Comparación entre ROADMAP_CORRECCIONES_3_FASES.txt, reportes de fases,
+y código implementado en server.js
+
+================================================================================
+DIFERENCIAS ENCONTRADAS
+================================================================================
+
+1. F1-T10: Mejorar validación de CORS en producción (OPCIONAL)
+   ----------------------------------------------------------------------------
+   Documentación (ROADMAP_CORRECCIONES_3_FASES.txt):
+   - Tarea F1-T10 listada como opcional (Prioridad P2)
+   - Criterio: Validación opcional en producción si ALLOWED_ORIGINS está configurado
+   
+   Código implementado:
+   - NO se encontró implementación de F1-T10 en server.js
+   - CORS sigue con configuración original (líneas ~323-325)
+   
+   Estado: ⚠️ TAREA OPCIONAL NO IMPLEMENTADA (según roadmap era opcional)
+   Impacto: BAJO (era opcional, no bloqueante)
+   Recomendación DOCUMENTAL: 
+   - En ROADMAP_V2, marcar F1-T10 como "OPCIONAL - NO IMPLEMENTADA"
+   - O mover a FASE 5 si se decide implementar
+
+2. F3-T03: Agregar JSDoc faltante en funciones públicas
+   ----------------------------------------------------------------------------
+   Documentación (FASE3_DONE_REPORTE.txt):
+   - Estado: [⏳ PENDIENTE - REQUIERE AUDITORÍA]
+   - Nota: "Muchas funciones ya tienen JSDoc, requiere auditoría manual"
+   
+   Código implementado:
+   - validateUserText() tiene JSDoc completo (línea ~1095)
+   - Muchas funciones helper tienen JSDoc
+   - Algunas funciones pueden requerir JSDoc adicional (auditoría manual necesaria)
+   
+   Estado: ⚠️ PARCIALMENTE IMPLEMENTADO (muchas funciones ya tienen JSDoc)
+   Impacto: BAJO (no bloqueante, mejora de documentación)
+   Recomendación DOCUMENTAL:
+   - En ROADMAP_V2, mantener F3-T03 como "PARCIAL - muchas funciones ya tienen JSDoc"
+   - O marcar como completado con nota de que algunas funciones pueden requerir más
+
+3. F2-T08: Métricas de uso de endpoints (OPCIONAL P2)
+   ----------------------------------------------------------------------------
+   Documentación (FASE2_DONE_REPORTE.txt):
+   - Estado: [❌ NO HECHO - JUSTIFICADO]
+   - Motivo: Complejidad de implementación requiere tracking de estado
+   
+   Código implementado:
+   - NO se encontró implementación de métricas de endpoints
+   - Logging de rate limits existe pero no métricas agregadas
+   
+   Estado: ✅ CORRECTO - NO IMPLEMENTADO (era opcional y justificado)
+   Impacto: NINGUNO (era opcional)
+   Recomendación DOCUMENTAL:
+   - En ROADMAP_V2, mantener F2-T08 como "OPCIONAL - NO IMPLEMENTADO"
+   - O mover a FASE 5 como F5-T01 (métricas de performance)
+
+4. registerStepConfirmed() - Integración parcial
+   ----------------------------------------------------------------------------
+   Documentación (FASE4_DONE_REPORTE.txt):
+   - Nota: "registerStepConfirmed() está implementada pero necesita integración adicional"
+   - "Actualmente se usa session.stepsDone para confirmación (sistema existente)"
+   
+   Código implementado:
+   - registerStepConfirmed() existe (línea ~1404)
+   - NO se encontró uso explícito de registerStepConfirmed() en handlers
+   - Sistema existente (session.stepsDone) sigue funcionando
+   
+   Estado: ⚠️ FUNCIÓN IMPLEMENTADA PERO NO INTEGRADA COMPLETAMENTE
+   Impacto: BAJO (sistema existente funciona, diagnosis complementa)
+   Recomendación DOCUMENTAL:
+   - En ROADMAP_V2 FASE 4, mantener nota sobre integración parcial
+   - Considerar completar integración en FASE 5 si es necesario
+
+5. FASE 4 - Número de funciones helper
+   ----------------------------------------------------------------------------
+   Documentación (FASE4_DONE_REPORTE.txt):
+   - Lista 12 funciones helper implementadas
+   
+   Código implementado:
+   - Verificado: 12 funciones helper existen en server.js (líneas ~1095-1460)
+   - Todas las funciones están implementadas correctamente
+   
+   Estado: ✅ CORRECTO - COINCIDE
+   Impacto: NINGUNO
+   Recomendación DOCUMENTAL: Ninguna, documentación correcta
+
+================================================================================
+RESUMEN DE DIFERENCIAS
+================================================================================
+
+Total de diferencias encontradas: 5
+- Críticas: 0
+- Importantes: 0
+- Menores: 5
+
+Todas las diferencias son menores y no afectan funcionalidad crítica:
+- 1 tarea opcional no implementada (F1-T10) - era opcional
+- 1 tarea parcial (F3-T03) - muchas funciones ya tienen JSDoc
+- 1 tarea opcional no implementada (F2-T08) - era opcional y justificada
+- 1 función con integración parcial (registerStepConfirmed) - sistema existente funciona
+- 1 verificación de consistencia (FASE 4) - coincide correctamente
+
+Recomendación general: Actualizar ROADMAP_V2 para reflejar estado real de
+implementación, marcando tareas opcionales como "NO IMPLEMENTADAS" y
+tareas parciales con notas apropiadas.
+
+================================================================================
+
