@@ -142,7 +142,7 @@ export const FLOW = {
           action: 'SELECT_LANGUAGE',
           locale: 'es-AR',
           reply: '✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊',
-          buttons: ['BTN_NO_NAME'],
+          buttons: [], // ✅ HARD RULE: ASK_NAME NO debe mostrar botones (solo texto)
           nextStage: 'ASK_NAME'
         };
       }
@@ -152,7 +152,7 @@ export const FLOW = {
           action: 'SELECT_LANGUAGE',
           locale: 'en',
           reply: '✅ Perfect! Let\'s continue in **English**.\n\nWhat\'s your name? 😊',
-          buttons: ['BTN_NO_NAME'],
+          buttons: [], // ✅ HARD RULE: ASK_NAME NO debe mostrar botones (solo texto)
           nextStage: 'ASK_NAME'
         };
       }
@@ -194,19 +194,14 @@ export const FLOW = {
     },
     
     onButton: ({ token }) => {
-      if (token === 'BTN_NO_NAME') {
-        return {
-          action: 'ANONYMOUS',
-          userName: null,
-          reply: {
-            'es-AR': '🙈 Perfecto, sin problema. Puedo llamarte simplemente Usuario.\n\n¿En qué puedo ayudarte hoy? ¿Tenés un problema o una consulta?',
-            'en': '🙈 Perfect, no problem. I can just call you User.\n\nHow can I help you today? Do you have a problem or a question?'
-          },
-          buttons: ['BTN_PROBLEMA', 'BTN_CONSULTA'],
-          nextStage: 'ASK_NEED'
-        };
-      }
-      return { action: 'UNKNOWN_BUTTON', nextStage: 'ASK_NAME' };
+      // ✅ HARD RULE: ASK_NAME NO acepta botones (solo texto)
+      // Si llega cualquier token, rechazarlo y mantener en ASK_NAME sin botones
+      console.warn(`[FLOW] ⚠️ ASK_NAME rechazó token "${token}" - ASK_NAME solo acepta texto`);
+      return { 
+        action: 'UNKNOWN_BUTTON', 
+        nextStage: 'ASK_NAME',
+        buttons: [] // ✅ Asegurar que no se devuelvan botones
+      };
     }
   },
   

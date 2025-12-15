@@ -222,7 +222,7 @@ export async function orchestrateTurn({
       if (DETERMINISTIC_STAGES.includes(currentStage)) {
         const validTokensForStage = {
           [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
-          [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+          [STAGES.ASK_NAME]: [], // ✅ HARD RULE: ASK_NAME NO acepta ningún botón
           [STAGES.ASK_NEED]: [
             'BTN_PROBLEMA', 
             'BTN_CONSULTA',
@@ -237,13 +237,21 @@ export async function orchestrateTurn({
         };
         
         const validTokens = validTokensForStage[currentStage] || [];
-        if (validTokens.length > 0 && !validTokens.includes(buttonToken)) {
+        // ✅ CRÍTICO: Si validTokens.length === 0 (ej: ASK_NAME), rechazar CUALQUIER token
+        // Si validTokens.length > 0, solo rechazar tokens que NO estén en la lista
+        const shouldReject = validTokens.length === 0 || !validTokens.includes(buttonToken);
+        
+        if (shouldReject) {
           // ✅ Token inválido en stage determinístico - rechazar y registrar en transcript
           const locale = session.userLocale || 'es-AR';
           const isEn = locale.toLowerCase().startsWith('en');
           
           console.error(`[ORCHESTRATOR] ❌ AUDITORÍA: Token inválido "${buttonToken}" en stage determinístico "${currentStage}" (SessionId: ${session.sid || 'unknown'})`);
-          console.error(`[ORCHESTRATOR] ❌ Tokens válidos para ${currentStage}:`, validTokens);
+          if (validTokens.length === 0) {
+            console.error(`[ORCHESTRATOR] ❌ ${currentStage} NO acepta botones (solo texto)`);
+          } else {
+            console.error(`[ORCHESTRATOR] ❌ Tokens válidos para ${currentStage}:`, validTokens);
+          }
           
           // ✅ Registrar en transcript para auditoría (incluso si se rechaza)
           if (!session.transcript) session.transcript = [];
@@ -259,7 +267,7 @@ export async function orchestrateTurn({
           // Retornar respuesta con botones determinísticos correctos
           const defaultButtons = {
             [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
-            [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+            [STAGES.ASK_NAME]: [], // ✅ ASK_NAME NO debe tener botones
             [STAGES.ASK_NEED]: [
               'BTN_PROBLEMA', 
               'BTN_CONSULTA',
@@ -275,16 +283,25 @@ export async function orchestrateTurn({
           
           const correctButtons = defaultButtons[currentStage] || [];
           
+          // Mensaje específico para ASK_NAME (no acepta botones)
+          let rejectMessage = isEn 
+            ? 'Please select one of the available options.'
+            : 'Por favor seleccioná una de las opciones disponibles.';
+          
+          if (currentStage === STAGES.ASK_NAME) {
+            rejectMessage = isEn
+              ? 'Please type your name in the text field.'
+              : 'Por favor escribí tu nombre en el campo de texto.';
+          }
+          
           return {
             ok: true,
             sid: session.sid,
-            reply: isEn 
-              ? 'Please select one of the available options.'
-              : 'Por favor seleccioná una de las opciones disponibles.',
+            reply: rejectMessage,
             stage: currentStage,
-            options: correctButtons.map(t => mapTokenToButton(t, locale).text),
+            options: [], // ✅ ASK_NAME siempre retorna [] incluso si se rechaza un token
             ui: {
-              buttons: correctButtons.map(t => mapTokenToButton(t, locale)),
+              buttons: [], // ✅ ASK_NAME siempre retorna [] incluso si se rechaza un token
               progressBar: calculateProgressBar(currentStage),
               canUploadImages: false,
               showTranscriptLink: false
@@ -324,6 +341,17 @@ export async function orchestrateTurn({
     // 3b. Texto del usuario
     else if (userMessage) {
       console.log('[ORCHESTRATOR] Processing text message');
+      
+      // ✅ AUDITORÍA: Registrar texto del usuario en transcript ANTES de procesar
+      // Esto permite rastrear todos los inputs en admin.php
+      if (!session.transcript) session.transcript = [];
+      session.transcript.push({
+        who: 'user',
+        text: userMessage,
+        ts: new Date().toISOString(),
+        stage: currentStage,
+        inputType: 'text'
+      });
       
       // APLICAR NORMALIZACIÓN CON NLP CONFIG
       const normalizedMessage = normalizeTextWithConfig(userMessage);
@@ -458,7 +486,14 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   // ========================================
   // 4. GENERAR BOTONES
   // ========================================
-  const buttons = await generateButtons(flowResult, updatedSession, locale);
+  let buttons = await generateButtons(flowResult, updatedSession, locale);
+  
+  // ✅ HARD RULE: ASK_NAME NO debe mostrar botones (solo texto)
+  // Forzar buttons = [] para ASK_NAME aunque llegue cualquier fallback
+  if (nextStage === STAGES.ASK_NAME) {
+    buttons = [];
+    console.log('[ORCHESTRATOR] ✅ HARD RULE: ASK_NAME - forzando buttons = [] (solo texto)');
+  }
   
   // ========================================
   // 5. GENERAR STEPS (si aplica)
@@ -649,9 +684,7 @@ async function generateButtons(flowResult, session, locale) {
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español', text: 'español' },
       { token: 'BTN_LANG_EN', label: '🇺🇸 English', text: 'english' }
     ],
-    [STAGES.ASK_NAME]: [
-      { token: 'BTN_NO_NAME', label: '🙈 Prefiero no decirlo', text: 'prefiero no decirlo' }
-    ],
+    [STAGES.ASK_NAME]: [], // ✅ ASK_NAME NO debe mostrar botones (solo texto)
     [STAGES.ASK_NEED]: [
       { token: 'BTN_PROBLEMA', label: '🔧 Tengo un problema', text: 'tengo un problema' },
       { token: 'BTN_CONSULTA', label: '💡 Tengo una consulta', text: 'tengo una consulta' },
@@ -703,7 +736,7 @@ async function generateButtons(flowResult, session, locale) {
     // Validar que los botones correspondan al stage actual
     const validTokensForStage = {
       [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
-      [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+      [STAGES.ASK_NAME]: [], // ✅ HARD RULE: ASK_NAME NO acepta ningún botón (solo texto)
       [STAGES.ASK_NEED]: [
         'BTN_PROBLEMA', 
         'BTN_CONSULTA',
@@ -719,7 +752,14 @@ async function generateButtons(flowResult, session, locale) {
     };
     
     const validTokens = validTokensForStage[currentStage] || [];
-    if (validTokens.length > 0) {
+    
+    // ✅ CRÍTICO: Si validTokens.length === 0 (ej: ASK_NAME), remover TODOS los botones
+    if (validTokens.length === 0) {
+      if (buttons.length > 0) {
+        console.warn(`[ORCHESTRATOR] ⚠️ ${currentStage} NO acepta botones - removidos ${buttons.length} botones inválidos`);
+        buttons = [];
+      }
+    } else {
       // Filtrar solo botones válidos para este stage
       buttons = buttons.filter(btn => {
         const isValid = validTokens.includes(btn.token);
