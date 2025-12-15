@@ -216,6 +216,101 @@ export async function orchestrateTurn({
     // 3a. Botón presionado
     if (buttonToken) {
       console.log('[ORCHESTRATOR] Processing button:', buttonToken);
+      
+      // ✅ CRÍTICO: Validar token en stages determinísticos (defensa en profundidad)
+      // Esto previene que tokens inválidos se procesen incluso si el frontend los envía
+      if (DETERMINISTIC_STAGES.includes(currentStage)) {
+        const validTokensForStage = {
+          [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
+          [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+          [STAGES.ASK_NEED]: [
+            'BTN_PROBLEMA', 
+            'BTN_CONSULTA',
+            'BTN_NO_ENCIENDE',
+            'BTN_NO_INTERNET',
+            'BTN_LENTITUD',
+            'BTN_BLOQUEO',
+            'BTN_PERIFERICOS',
+            'BTN_VIRUS'
+          ],
+          [STAGES.ASK_DEVICE]: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK']
+        };
+        
+        const validTokens = validTokensForStage[currentStage] || [];
+        if (validTokens.length > 0 && !validTokens.includes(buttonToken)) {
+          // ✅ Token inválido en stage determinístico - rechazar y registrar en transcript
+          const locale = session.userLocale || 'es-AR';
+          const isEn = locale.toLowerCase().startsWith('en');
+          
+          console.error(`[ORCHESTRATOR] ❌ AUDITORÍA: Token inválido "${buttonToken}" en stage determinístico "${currentStage}" (SessionId: ${session.sid || 'unknown'})`);
+          console.error(`[ORCHESTRATOR] ❌ Tokens válidos para ${currentStage}:`, validTokens);
+          
+          // ✅ Registrar en transcript para auditoría (incluso si se rechaza)
+          if (!session.transcript) session.transcript = [];
+          session.transcript.push({
+            who: 'user',
+            text: `[BUTTON:${buttonToken}]`,
+            ts: new Date().toISOString(),
+            buttonToken: buttonToken,
+            rejected: true,
+            reason: `Invalid token for stage ${currentStage}`
+          });
+          
+          // Retornar respuesta con botones determinísticos correctos
+          const defaultButtons = {
+            [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
+            [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+            [STAGES.ASK_NEED]: [
+              'BTN_PROBLEMA', 
+              'BTN_CONSULTA',
+              'BTN_NO_ENCIENDE',
+              'BTN_NO_INTERNET',
+              'BTN_LENTITUD',
+              'BTN_BLOQUEO',
+              'BTN_PERIFERICOS',
+              'BTN_VIRUS'
+            ],
+            [STAGES.ASK_DEVICE]: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK']
+          };
+          
+          const correctButtons = defaultButtons[currentStage] || [];
+          
+          return {
+            ok: true,
+            sid: session.sid,
+            reply: isEn 
+              ? 'Please select one of the available options.'
+              : 'Por favor seleccioná una de las opciones disponibles.',
+            stage: currentStage,
+            options: correctButtons.map(t => mapTokenToButton(t, locale).text),
+            ui: {
+              buttons: correctButtons.map(t => mapTokenToButton(t, locale)),
+              progressBar: calculateProgressBar(currentStage),
+              canUploadImages: false,
+              showTranscriptLink: false
+            },
+            allowWhatsapp: false,
+            endConversation: false,
+            updatedSession: session,
+            // ✅ Registrar que se rechazó un token inválido
+            buttonTokenRejected: true,
+            rejectedToken: buttonToken
+          };
+        }
+      }
+      
+      // ✅ AUDITORÍA: Registrar buttonToken válido en transcript ANTES de procesar
+      // Esto permite rastrear todos los botones presionados en admin.php
+      if (!session.transcript) session.transcript = [];
+      session.transcript.push({
+        who: 'user',
+        text: `[BUTTON:${buttonToken}]`,
+        ts: new Date().toISOString(),
+        buttonToken: buttonToken,
+        stage: currentStage,
+        rejected: false
+      });
+      
       const buttonHandler = getStageHandler(currentStage, 'onButton');
       
       if (buttonHandler) {
@@ -324,6 +419,20 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
     updatedSession.problem = flowResult.problem;
     updatedSession.needType = 'problema';
     console.log(`[ORCHESTRATOR] ✅ Problema frecuente guardado: "${flowResult.problem}"`);
+  }
+  
+  // ✅ AUDITORÍA: Registrar botones devueltos en transcript para admin.php
+  // Esto permite ver en admin.php qué botones vio el usuario
+  if (buttons && buttons.length > 0) {
+    if (!updatedSession.transcript) updatedSession.transcript = [];
+    const buttonTokens = buttons.map(b => b.token || b.value || b.text);
+    updatedSession.transcript.push({
+      who: 'system',
+      text: `[BUTTONS_SHOWN:${buttonTokens.join(',')}]`,
+      ts: new Date().toISOString(),
+      buttonsShown: buttonTokens,
+      stage: nextStage
+    });
   }
   
   // ========================================
