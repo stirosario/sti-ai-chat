@@ -10715,34 +10715,42 @@ app.get('/api/historial/:sessionId', async (req, res) => {
       });
     }
     
-        // 🔒 F1-T03: ADMIN_TOKEN obligatorio en PRODUCCIÓN para endpoints admin
+        // 🔒 F1-T03: Validación de token - Acepta ADMIN_TOKEN o LOG_TOKEN
+    // Esto permite que el admin panel use cualquiera de los dos tokens
     // En producción, el token es obligatorio para proteger datos sensibles
+    const isValidToken = token && (
+      token === process.env.ADMIN_TOKEN || 
+      token === LOG_TOKEN
+    );
+    
     if (IS_PRODUCTION) {
-      if (!process.env.ADMIN_TOKEN) {
-        logger.error('[SECURITY] ADMIN_TOKEN no configurado en producción - endpoint: /api/historial');
+      if (!process.env.ADMIN_TOKEN && !LOG_TOKEN) {
+        logger.error('[SECURITY] ADMIN_TOKEN o LOG_TOKEN no configurado en producción - endpoint: /api/historial');
         return res.status(403).json({
           ok: false,
           error: 'Token de autenticación requerido en producción'
         });
       }
-      if (!token || token !== process.env.ADMIN_TOKEN) {
-        logger.warn(`[SECURITY] Intentó acceder a /api/historial sin token válido - IP: ${req.ip || 'unknown'}`);
+      if (!isValidToken) {
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.warn(`[SECURITY] Token inválido en /api/historial - IP: ${String(req.ip || 'unknown').substring(0, 15)}..., SessionId: ${String(sessionId).substring(0, 8)}..., Token recibido: ${token ? 'presente' : 'ausente'}, ADMIN_TOKEN configurado: ${process.env.ADMIN_TOKEN ? 'sí' : 'no'}, LOG_TOKEN configurado: ${LOG_TOKEN ? 'sí' : 'no'}`);
         return res.status(403).json({
           ok: false,
-          error: 'Token de autenticación inválido'
+          error: 'No tenés permisos para acceder a esta conversación.'
         });
       }
     } else {
       // En desarrollo, validar si está configurado pero no es obligatorio
-      if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
-        logger.warn('[SECURITY] Token inválido en desarrollo (opcional) - endpoint: /api/historial');
+      if ((process.env.ADMIN_TOKEN || LOG_TOKEN) && !isValidToken) {
+        // 🔒 MINUTA POST-PRUEBA: Enriquecer logs con contexto
+        logger.warn(`[SECURITY] Token inválido en desarrollo - SessionId: ${String(sessionId).substring(0, 8)}..., Token recibido: ${token ? 'presente' : 'ausente'}`);
         return res.status(403).json({
           ok: false,
-          error: 'Token de autenticación inválido'
+          error: 'No tenés permisos para acceder a esta conversación.'
         });
       }
-      if (!process.env.ADMIN_TOKEN) {
-        logger.warn('[SECURITY] ADMIN_TOKEN no configurado en desarrollo - endpoint: /api/historial es público');
+      if (!process.env.ADMIN_TOKEN && !LOG_TOKEN) {
+        logger.warn('[SECURITY] ADMIN_TOKEN/LOG_TOKEN no configurado en desarrollo - endpoint: /api/historial es público');
       }
     }
     
@@ -10851,34 +10859,40 @@ app.get('/api/transcript-json/:sessionId', async (req, res) => {
       });
     }
     
-    // 🔒 F1-T03: ADMIN_TOKEN obligatorio en PRODUCCIÓN para endpoints admin
+    // 🔒 F1-T03: Validación de token - Acepta ADMIN_TOKEN o LOG_TOKEN
+    // Esto permite que el admin panel use cualquiera de los dos tokens
     // En producción, el token es obligatorio para proteger datos sensibles
+    const isValidToken = token && (
+      token === process.env.ADMIN_TOKEN || 
+      token === LOG_TOKEN
+    );
+    
     if (IS_PRODUCTION) {
-      if (!process.env.ADMIN_TOKEN) {
-        logger.error('[SECURITY] ADMIN_TOKEN no configurado en producción - endpoint: /api/transcript-json');
+      if (!process.env.ADMIN_TOKEN && !LOG_TOKEN) {
+        logger.error('[SECURITY] ADMIN_TOKEN o LOG_TOKEN no configurado en producción - endpoint: /api/transcript-json');
         return res.status(403).json({
           ok: false,
           error: 'Token de autenticación requerido en producción'
         });
       }
-      if (!token || token !== process.env.ADMIN_TOKEN) {
+      if (!isValidToken) {
         logger.warn(`[SECURITY] Intentó acceder a /api/transcript-json sin token válido - IP: ${req.ip || 'unknown'}`);
         return res.status(403).json({
           ok: false,
-          error: 'Token de autenticación inválido'
+          error: 'No tenés permisos para acceder a esta conversación.'
         });
       }
     } else {
       // En desarrollo, validar si está configurado pero no es obligatorio
-      if (process.env.ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+      if ((process.env.ADMIN_TOKEN || LOG_TOKEN) && !isValidToken) {
         logger.warn('[SECURITY] Token inválido en desarrollo (opcional) - endpoint: /api/transcript-json');
         return res.status(403).json({
           ok: false,
-          error: 'Token de autenticación inválido'
+          error: 'No tenés permisos para acceder a esta conversación.'
         });
       }
-      if (!process.env.ADMIN_TOKEN) {
-        logger.warn('[SECURITY] ADMIN_TOKEN no configurado en desarrollo - endpoint: /api/transcript-json es público');
+      if (!process.env.ADMIN_TOKEN && !LOG_TOKEN) {
+        logger.warn('[SECURITY] ADMIN_TOKEN/LOG_TOKEN no configurado en desarrollo - endpoint: /api/transcript-json es público');
       }
     }
     
@@ -11791,6 +11805,187 @@ logger.info('   - POST /api/chat     → Procesar mensajes (Etapas 1, 2, 3, 4, 5
 
 // Importación del motor de simulaciones
 import { SimulationEngine, SimulationDataGenerator, CriticalErrorDetector } from './simulation-engine.js';
+
+/**
+ * GET /api/logs
+ * 
+ * Endpoint para obtener los logs del servidor en formato legible
+ * Usado por el panel admin para visualizar logs en tiempo real
+ * 
+ * ⚠️ IMPORTANTE: Requiere autenticación (token en query string)
+ * ✅ SE PUEDE MODIFICAR: El formato de la respuesta o el límite de líneas
+ * ❌ NO MODIFICAR: Debe validar el token antes de retornar logs
+ * 
+ * Query params:
+ * - token: Token de autenticación (LOG_TOKEN o ADMIN_TOKEN)
+ * - limit: Número máximo de líneas a retornar (default: 1000)
+ * - level: Filtrar por nivel (info, warn, error, debug) - opcional
+ * 
+ * Respuesta:
+ * {
+ *   success: true,
+ *   logs: [
+ *     {
+ *       timestamp: "2025-01-15T10:30:45.123Z",
+ *       level: "info",
+ *       message: "Mensaje del log"
+ *     }
+ *   ]
+ * }
+ */
+app.get('/api/logs', async (req, res) => {
+  try {
+    const token = req.query.token;
+    const limit = parseInt(req.query.limit) || 1000;
+    const levelFilter = req.query.level; // Opcional: 'info', 'warn', 'error', 'debug'
+    
+    // 🔒 Validación de token: Acepta LOG_TOKEN o ADMIN_TOKEN
+    // Esto permite que el admin panel use cualquiera de los dos tokens
+    const isValidToken = token && (
+      token === LOG_TOKEN || 
+      token === process.env.ADMIN_TOKEN ||
+      (!IS_PRODUCTION && !process.env.ADMIN_TOKEN && !LOG_TOKEN) // En desarrollo sin token configurado, permitir
+    );
+    
+    if (IS_PRODUCTION) {
+      if (!isValidToken) {
+        logger.warn(`[SECURITY] Intentó acceder a /api/logs sin token válido - IP: ${req.ip || 'unknown'}`);
+        return res.status(403).json({
+          success: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+    } else {
+      // En desarrollo, validar si está configurado
+      if ((LOG_TOKEN || process.env.ADMIN_TOKEN) && !isValidToken) {
+        logger.warn('[SECURITY] Token inválido en desarrollo (opcional) - endpoint: /api/logs');
+        return res.status(403).json({
+          success: false,
+          error: 'Token de autenticación inválido'
+        });
+      }
+    }
+    
+    // Leer el archivo de logs
+    let logContent = '';
+    try {
+      // Verificar si el archivo existe
+      await fs.promises.access(LOG_FILE);
+      logContent = await fs.promises.readFile(LOG_FILE, 'utf8');
+    } catch (error) {
+      // Si el archivo no existe o hay error, retornar array vacío
+      logger.debug(`[LOGS] Archivo de logs no encontrado o error al leer: ${error.message}`);
+      return res.json({
+        success: true,
+        logs: [],
+        message: 'No hay logs disponibles aún'
+      });
+    }
+    
+    // Parsear logs línea por línea
+    const lines = logContent.split('\n').filter(line => line.trim());
+    const logs = [];
+    
+    // Procesar líneas (tomar las últimas N según el límite)
+    const linesToProcess = lines.slice(-limit);
+    
+    for (const line of linesToProcess) {
+      if (!line.trim()) continue;
+      
+      // Detectar formato de log
+      // Formato esperado: "2025-01-15T10:30:45.123Z [INFO] mensaje" o similar
+      let timestamp = new Date().toISOString();
+      let level = 'info';
+      let message = line;
+      
+      // Intentar parsear formato ISO con nivel
+      const isoMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s+\[([^\]]+)\]\s+(.*)$/);
+      if (isoMatch) {
+        timestamp = isoMatch[1];
+        level = isoMatch[2].toLowerCase();
+        message = isoMatch[3];
+      } else {
+        // Intentar otros formatos comunes
+        const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[\.\d]*Z?)/);
+        if (timestampMatch) {
+          timestamp = timestampMatch[1].replace(' ', 'T') + (timestampMatch[1].includes('Z') ? '' : 'Z');
+        }
+        
+        // Detectar nivel en el mensaje
+        const levelMatch = line.match(/\b(INFO|WARN|ERROR|DEBUG|INFO|WARNING|ERR)\b/i);
+        if (levelMatch) {
+          level = levelMatch[1].toLowerCase();
+          if (level === 'warning') level = 'warn';
+          if (level === 'err') level = 'error';
+        }
+      }
+      
+      // Aplicar filtro de nivel si se especificó
+      if (levelFilter && level !== levelFilter.toLowerCase()) {
+        continue;
+      }
+      
+      logs.push({
+        timestamp: timestamp,
+        level: level,
+        message: message.trim()
+      });
+    }
+    
+    // Detectar formato solicitado por el cliente
+    const acceptHeader = req.headers.accept || '';
+    const wantsTextPlain = acceptHeader.includes('text/plain');
+    
+    if (wantsTextPlain) {
+      // Retornar logs en formato texto plano (para compatibilidad con proxy PHP)
+      // Formato: una línea por log, con timestamp, nivel y mensaje
+      const textLogs = logs.map(log => {
+        // Formato: "2025-01-15T10:30:45.123Z [INFO] mensaje"
+        return `${log.timestamp} [${log.level.toUpperCase()}] ${log.message}`;
+      }).join('\n');
+      
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.send(textLogs);
+    } else {
+      // Retornar logs en formato JSON (para uso directo del frontend)
+      return res.json({
+        success: true,
+        logs: logs,
+        total: logs.length,
+        limit: limit
+      });
+    }
+    
+  } catch (error) {
+    logger.error('[LOGS] ❌ Error obteniendo logs:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor al obtener logs'
+    });
+  }
+});
+
+/**
+ * GET /api/logs/token
+ * 
+ * Endpoint para obtener el token de logs (solo en desarrollo)
+ * Usado por el admin panel para obtener el token automáticamente
+ * 
+ * ⚠️ IMPORTANTE: Solo disponible en desarrollo, NUNCA en producción
+ * ❌ NO MODIFICAR: Debe retornar solo en desarrollo
+ */
+app.get('/api/logs/token', async (req, res) => {
+  // Solo permitir en desarrollo
+  if (IS_PRODUCTION) {
+    return res.status(403).json({
+      ok: false,
+      error: 'Este endpoint no está disponible en producción'
+    });
+  }
+  
+  // Retornar el token actual (LOG_TOKEN)
+  return res.send(LOG_TOKEN || '');
+});
 
 /**
  * POST /api/simulations/run

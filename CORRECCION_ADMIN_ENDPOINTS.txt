@@ -1,0 +1,252 @@
+================================================================================
+CORRECCIÓN DE ENDPOINTS DEL ADMIN PANEL
+Proyecto: STI / Tecnos
+Fecha: 2025-01-XX
+Estado: ✅ COMPLETADO
+================================================================================
+
+PROBLEMAS IDENTIFICADOS
+================================================================================
+
+1. Error 404 en /api/logs
+   - El endpoint /api/logs no existía en server.js
+   - El admin panel intentaba acceder a este endpoint para mostrar logs
+   - El proxy PHP (admin.php?api=logs) hacía fetch a /api/logs pero recibía 404
+
+2. Error 403 en /api/historial/:sessionId
+   - El endpoint validaba solo ADMIN_TOKEN
+   - El frontend estaba usando LOG_TOKEN (CONFIG.logToken)
+   - Los tokens no coincidían, causando error 403
+
+3. Logs insuficientes para diagnóstico
+   - Los logs de error no incluían suficiente contexto
+   - Difícil diagnosticar problemas de autenticación
+
+================================================================================
+CORRECCIONES APLICADAS
+================================================================================
+
+1. CREACIÓN DEL ENDPOINT /api/logs
+-------------------------------------------------------------------------------
+
+Ubicación: server.js línea ~11796
+
+Funcionalidad:
+- Lee el archivo LOG_FILE (server.log) y lo parsea
+- Retorna logs en formato JSON esperado por el frontend
+- Soporta filtrado por nivel (info, warn, error, debug)
+- Soporta límite de líneas (default: 1000)
+
+Autenticación:
+- Acepta LOG_TOKEN o ADMIN_TOKEN
+- En producción: token obligatorio
+- En desarrollo: token opcional si no está configurado
+
+Formato de respuesta:
+```json
+{
+  "success": true,
+  "logs": [
+    {
+      "timestamp": "2025-01-15T10:30:45.123Z",
+      "level": "info",
+      "message": "Mensaje del log"
+    }
+  ],
+  "total": 100,
+  "limit": 1000
+}
+```
+
+Query params:
+- token: Token de autenticación (LOG_TOKEN o ADMIN_TOKEN)
+- limit: Número máximo de líneas (default: 1000)
+- level: Filtrar por nivel (opcional)
+
+Dependencias:
+- LOG_FILE: Archivo de logs a leer
+- LOG_TOKEN o ADMIN_TOKEN: Para autenticación
+
+✅ SE PUEDE MODIFICAR:
+- El formato de respuesta
+- El límite por defecto
+- La lógica de parsing de logs
+
+❌ NO MODIFICAR:
+- Debe validar token antes de retornar logs
+- Debe retornar formato { success, logs, total, limit }
+- Debe manejar errores gracefully
+
+-------------------------------------------------------------------------------
+
+2. CREACIÓN DEL ENDPOINT /api/logs/token
+-------------------------------------------------------------------------------
+
+Ubicación: server.js línea ~11920
+
+Funcionalidad:
+- Retorna el LOG_TOKEN actual (solo en desarrollo)
+- Usado por el admin panel para obtener el token automáticamente
+
+Seguridad:
+- Solo disponible en desarrollo
+- NUNCA disponible en producción (retorna 403)
+
+✅ SE PUEDE MODIFICAR: Nada (es un endpoint de desarrollo)
+
+❌ NO MODIFICAR:
+- Debe retornar 403 en producción
+- Debe retornar LOG_TOKEN en desarrollo
+
+-------------------------------------------------------------------------------
+
+3. CORRECCIÓN DE VALIDACIÓN DE TOKENS EN /api/historial
+-------------------------------------------------------------------------------
+
+Ubicación: server.js línea ~10718
+
+Cambios:
+- Ahora acepta tanto ADMIN_TOKEN como LOG_TOKEN
+- Permite que el admin panel use cualquiera de los dos tokens
+- Mejora los mensajes de error para ser más claros
+
+Antes:
+```javascript
+if (!token || token !== process.env.ADMIN_TOKEN) {
+  return res.status(403).json({ error: 'Token inválido' });
+}
+```
+
+Después:
+```javascript
+const isValidToken = token && (
+  token === process.env.ADMIN_TOKEN || 
+  token === LOG_TOKEN
+);
+```
+
+✅ SE PUEDE MODIFICAR:
+- Agregar más tokens válidos si es necesario
+- Cambiar los mensajes de error
+
+❌ NO MODIFICAR:
+- Debe validar token en producción
+- Debe retornar 403 si el token es inválido
+
+Dependencias:
+- LOG_TOKEN: Token de logs
+- ADMIN_TOKEN: Token de administración
+- Si modificas la validación, DEBES actualizar también /api/transcript-json
+
+-------------------------------------------------------------------------------
+
+4. CORRECCIÓN DE VALIDACIÓN DE TOKENS EN /api/transcript-json
+-------------------------------------------------------------------------------
+
+Ubicación: server.js línea ~10854
+
+Cambios:
+- Misma corrección que /api/historial
+- Ahora acepta tanto ADMIN_TOKEN como LOG_TOKEN
+- Consistencia con /api/historial
+
+✅ SE PUEDE MODIFICAR: Igual que /api/historial
+
+❌ NO MODIFICAR: Igual que /api/historial
+
+-------------------------------------------------------------------------------
+
+5. ENRIQUECIMIENTO DE LOGS DE ERROR
+-------------------------------------------------------------------------------
+
+Ubicación: Múltiples lugares
+
+Cambios:
+- Logs de error ahora incluyen:
+  * SessionId abreviado (primeros 8 caracteres)
+  * IP abreviado (primeros 15 caracteres)
+  * Estado de tokens (configurado/no configurado)
+  * Token recibido (presente/ausente)
+
+Antes:
+```javascript
+logger.warn(`[SECURITY] Token inválido - IP: ${req.ip}`);
+```
+
+Después:
+```javascript
+logger.warn(`[SECURITY] Token inválido - IP: ${String(req.ip).substring(0, 15)}..., SessionId: ${String(sessionId).substring(0, 8)}..., Token recibido: ${token ? 'presente' : 'ausente'}, ADMIN_TOKEN configurado: ${process.env.ADMIN_TOKEN ? 'sí' : 'no'}, LOG_TOKEN configurado: ${LOG_TOKEN ? 'sí' : 'no'}`);
+```
+
+✅ SE PUEDE MODIFICAR:
+- El formato de los logs
+- La cantidad de información incluida
+
+❌ NO MODIFICAR:
+- No debe loggear tokens completos (seguridad)
+- No debe loggear información sensible del usuario
+
+================================================================================
+VERIFICACIÓN DEL PROBLEMA DEL ID P5618
+================================================================================
+
+El ID `P5618` es VÁLIDO según el formato:
+- Letra: P (válida, no es Ñ)
+- Números: 5618 (4 dígitos, válido)
+- Formato: P5618 = P + 4 dígitos ✅
+
+El problema NO es el formato del ID, sino la autenticación:
+- El frontend está enviando LOG_TOKEN
+- El endpoint ahora acepta LOG_TOKEN o ADMIN_TOKEN
+- Si sigue fallando, verificar que el LOG_TOKEN en el servidor coincida con el del frontend
+
+Solución:
+1. Verificar que LOG_TOKEN en el servidor coincida con el del frontend
+2. O configurar ADMIN_TOKEN en el servidor y actualizar el frontend para usarlo
+3. Los logs mejorados ayudarán a diagnosticar el problema exacto
+
+================================================================================
+ENDPOINTS CREADOS/MODIFICADOS
+================================================================================
+
+NUEVOS:
+- GET /api/logs - Obtener logs del servidor
+- GET /api/logs/token - Obtener token de logs (solo desarrollo)
+
+MODIFICADOS:
+- GET /api/historial/:sessionId - Ahora acepta LOG_TOKEN o ADMIN_TOKEN
+- GET /api/transcript-json/:sessionId - Ahora acepta LOG_TOKEN o ADMIN_TOKEN
+
+================================================================================
+PRUEBAS RECOMENDADAS
+================================================================================
+
+1. Verificar que /api/logs retorna logs correctamente:
+   - GET /api/logs?token=LOG_TOKEN
+   - Debe retornar { success: true, logs: [...] }
+
+2. Verificar que /api/historial funciona con LOG_TOKEN:
+   - GET /api/historial/P5618?token=LOG_TOKEN
+   - Debe retornar el historial o 404 si no existe
+
+3. Verificar logs mejorados:
+   - Intentar acceder sin token
+   - Verificar que los logs incluyen contexto suficiente
+
+4. Verificar que /api/logs/token funciona en desarrollo:
+   - GET /api/logs/token
+   - Debe retornar el LOG_TOKEN (solo en desarrollo)
+
+================================================================================
+NOTAS IMPORTANTES
+================================================================================
+
+- Los endpoints ahora aceptan tanto LOG_TOKEN como ADMIN_TOKEN para flexibilidad
+- El endpoint /api/logs/token solo está disponible en desarrollo por seguridad
+- Los logs mejorados ayudarán a diagnosticar problemas de autenticación
+- El formato del ID P5618 es válido, el problema era la autenticación
+
+================================================================================
+FIN DEL REPORTE
+================================================================================
+
