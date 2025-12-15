@@ -6683,12 +6683,40 @@ async function handleAskDeviceStage(session, userText, buttonToken, sessionId) {
           description: isEnglish ? 'Connect with a human technician' : 'Conectar con un técnico humano'
         });
         
-        // Agregar mensaje del usuario al transcript
-        session.transcript.push({
-          who: 'user',
-          text: buttonToken, // Guardar el token del botón para referencia
-          ts: nowIso()
+        // 🔒 MINUTA CORRECTIVA 4: Agregar botones post-pasos obligatorios
+        // 4. Botón Pruebas Avanzadas
+        buttons.push({
+          text: isEnglish ? '🔬 Advanced Tests' : '🔬 Pruebas Avanzadas',
+          value: 'BTN_ADVANCED_TESTS',
+          description: isEnglish ? 'Run more advanced diagnostics' : 'Ejecutar diagnósticos más avanzados'
         });
+        
+        // 5. Botón Cerrar Chat
+        buttons.push({
+          text: isEnglish ? '🔚 Close Chat' : '🔚 Cerrar Chat',
+          value: 'BTN_CLOSE',
+          description: isEnglish ? 'Close this conversation' : 'Cerrar esta conversación'
+        });
+        
+        // 🔒 MINUTA CORRECTIVA 2: Eliminar doble registro de botones
+        // NO agregar mensaje del usuario aquí si ya se agregó en /api/chat
+        // El mensaje del usuario ya se agregó antes de llamar a este handler
+        // Solo agregar si no existe (por compatibilidad con llamadas directas)
+        const lastUserMsg = session.transcript
+          .slice()
+          .reverse()
+          .find(msg => msg.who === 'user');
+        if (!lastUserMsg || !lastUserMsg.text) {
+          // Solo agregar si no hay mensaje de usuario reciente (compatibilidad)
+          const buttonDef = getButtonDefinition(buttonToken);
+          const buttonText = buttonDef?.text || buttonDef?.label || buttonToken || '';
+          session.transcript.push({
+            who: 'user',
+            text: buttonText, // Usar texto del botón, NO el token BTN_*
+            ts: nowIso(),
+            buttonToken: buttonToken || null // Guardar token solo como metadata
+          });
+        }
         
         // Registrar mensaje del bot CON los botones mostrados (obligatorio para auditoría)
         // Los botones incluyen: botones de ayuda por pasos + botones finales
@@ -7669,6 +7697,7 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
             });
           });
           
+          // 🔒 MINUTA CORRECTIVA 4: Botones post-pasos obligatorios
           // Botones finales para indicar el resultado de los pasos
           // ✅ SE PUEDE MODIFICAR: Agregar más botones o cambiar los existentes
           //    Pero recuerda actualizar el mapeo de botones en /api/chat si cambias los tokens
@@ -7679,6 +7708,18 @@ async function handleBasicTestsStage(session, userText, buttonToken, sessionId) 
           buttons.push({
             text: isEnglish ? '✔️ I Solved It' : '✔️ Lo pude Solucionar',
             value: 'BTN_SOLVED'  // Token: indica que el problema se resolvió
+          });
+          buttons.push({
+            text: isEnglish ? '🔬 Advanced Tests' : '🔬 Pruebas Avanzadas',
+            value: 'BTN_ADVANCED_TESTS'
+          });
+          buttons.push({
+            text: isEnglish ? '🧑‍🔧 Talk to a Technician' : '🧑‍🔧 Hablar con un Técnico',
+            value: 'BTN_WHATSAPP_TECNICO'
+          });
+          buttons.push({
+            text: isEnglish ? '🔚 Close Chat' : '🔚 Cerrar Chat',
+            value: 'BTN_CLOSE'
           });
           
           // Registrar el mensaje del bot con los botones en el transcript
@@ -10808,6 +10849,8 @@ app.get('/api/historial/:sessionId', async (req, res) => {
           mensajes_usuario: (session.transcript || []).filter(m => m.who === 'user').length,
           mensajes_bot: (session.transcript || []).filter(m => m.who !== 'user').length,
           stage_inicial: session.stage || 'unknown',
+          // 🔒 MINUTA CORRECTIVA 3: Stage final debe reflejar el stage real actual
+          // Usar el stage actual de la sesión, no un valor previo
           stage_final: session.stage || 'unknown',
           problema_detectado: session.problem || null,
           solucion_aplicada: session.stage === STATES.ENDED || false,
@@ -11399,11 +11442,62 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       }
     }
     
+    // 🔒 MINUTA CORRECTIVA 1: DEDUPE DE MENSAJES DE USUARIO
+    // Normalizar texto para comparación de duplicados (trim, espacios múltiples a uno, lowercase)
+    const normalizedForDedupe = normalizedUserText
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+    
+    // Obtener último mensaje del usuario para comparar
+    const lastUserMsg = session.transcript
+      .slice()
+      .reverse()
+      .find(msg => msg.who === 'user');
+    
+    // Verificar si es duplicado dentro de ventana de tiempo (2-3 segundos)
+    const now = Date.now();
+    const DEDUPE_WINDOW_MS = 3000; // 3 segundos
+    const isDuplicate = lastUserMsg && 
+      lastUserMsg.text && 
+      lastUserMsg.text.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedForDedupe &&
+      (now - new Date(lastUserMsg.ts).getTime()) < DEDUPE_WINDOW_MS;
+    
+    if (isDuplicate) {
+      // Mensaje duplicado detectado: NO agregar al transcript ni procesar
+      const sessionIdAbbr = String(sessionId).substring(0, 8);
+      logger.debug(`[DEDUP] Mensaje de usuario ignorado (duplicado) - SessionId: ${sessionIdAbbr}..., Stage: ${session.stage}, Texto: "${normalizedForDedupe.substring(0, 30)}..."`);
+      
+      // Retornar respuesta "ok" silenciosa (usar último response si existe, sino mensaje genérico)
+      // Esto evita que el usuario perciba "lag" o errores
+      return res.json({
+        ok: true,
+        reply: '', // Respuesta vacía para no mostrar nada nuevo
+        stage: session.stage,
+        sessionId: sessionId,
+        buttons: [] // Sin botones nuevos
+      });
+    }
+    
+    // Inicializar tracking de último mensaje si no existe
+    if (!session.progress) {
+      session.progress = {};
+    }
+    session.progress.lastUserMsgNorm = normalizedForDedupe;
+    session.progress.lastUserMsgAt = now;
+    
     // Agregar el mensaje del usuario al transcript (con texto normalizado)
+    // 🔒 MINUTA CORRECTIVA 2: Eliminar doble registro de botones
+    // Si es un botón, usar SOLO el texto normalizado (label), NO el token BTN_*
+    const userMessageText = buttonToken 
+      ? normalizedUserText  // Solo el texto del botón, sin prefijo [BOTON] ni token
+      : normalizedUserText;
+    
     session.transcript.push({
       who: 'user',
-      text: buttonToken ? `[BOTON] ${normalizedUserText}` : normalizedUserText,
+      text: userMessageText,
       ts: nowIso(),
+      buttonToken: buttonToken || null, // Guardar token solo como metadata, no en texto visible
       originalText: buttonToken ? null : (incomingText !== normalizedUserText ? incomingText : null) // Guardar original solo si cambió
     });
     
