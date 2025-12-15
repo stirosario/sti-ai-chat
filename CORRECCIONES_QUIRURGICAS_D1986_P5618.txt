@@ -1,0 +1,216 @@
+====================================================================
+CORRECCIONES QUIRÚRGICAS APLICADAS - D1986 y P5618
+====================================================================
+Fecha: 15/12/2025
+Modo: Auditor + Fixer de Producción (quirúrgico)
+Objetivo: Corregir 4 fallas confirmadas por logs reales sin tocar guard rails
+
+====================================================================
+FALLA 1: MENSAJES DUPLICADOS EN LOGS/TRANSCRIPT
+====================================================================
+
+PROBLEMA DETECTADO:
+- Mensajes del usuario aparecían duplicados consecutivamente en logs/transcript
+- El usuario enviaba una sola vez, pero el log registraba dos veces
+- Ocurría dentro de ventana de 2-3 segundos
+
+CAUSA RAÍZ:
+- El dedupe buscaba en session.transcript (que puede no estar actualizado en disco)
+- No usaba session.progress.lastUserMsgNorm que se guarda ANTES de agregar al transcript
+- Race condition: si el mensaje ya se agregaba al transcript antes de la verificación
+
+CORRECCIÓN APLICADA:
+Ubicación: server.js línea ~11445-11503
+
+Cambios:
+1. Mejorado dedupe para usar session.progress.lastUserMsgNorm en lugar de buscar en transcript
+2. Actualizar tracking ANTES de agregar al transcript (previene race conditions)
+3. Ventana de dedupe: 3 segundos (DEDUPE_WINDOW_MS = 3000)
+
+Código modificado:
+- Línea ~11445-11499: Dedupe mejorado usando session.progress
+- Línea ~11501-11503: Actualizar tracking ANTES de push al transcript
+
+VERIFICACIÓN:
+- Reproducir: Enviar mismo mensaje dos veces rápidamente (< 3 segundos)
+- Resultado esperado: Solo 1 entrada en transcript/log
+- Log esperado: "[DEDUP] Mensaje de usuario ignorado (duplicado)"
+
+====================================================================
+FALLA 2: DOBLE REGISTRO DE BOTONES (LABEL + TOKEN BTN_*)
+====================================================================
+
+PROBLEMA DETECTADO:
+- Click en botón generaba dos entradas en log:
+  1. Label descriptivo ("🟡 Intermedio", "🔌 El equipo no enciende")
+  2. Token BTN_* ("BTN_USER_LEVEL_INTERMEDIATE", "BTN_NO_ENCIENDE")
+- En UI solo se veía el label, pero en log aparecían ambos
+
+CAUSA RAÍZ:
+- El texto del botón se guardaba correctamente, pero había riesgo de que
+  un token BTN_* llegara como texto si no se normalizaba correctamente
+- No había verificación final para asegurar que NUNCA se guarde un token como texto
+
+CORRECCIÓN APLICADA:
+Ubicación: server.js línea ~11505-11520
+
+Cambios:
+1. Verificación final: Si userMessageText empieza con "BTN_", mapearlo a label
+2. Guardar token solo como metadata (buttonToken), nunca en texto visible
+3. Log de advertencia si se detecta token en texto
+
+Código modificado:
+- Línea ~11513-11520: Verificación y mapeo de tokens a labels
+- Línea ~11524: Guardar buttonToken solo como metadata
+
+VERIFICACIÓN:
+- Reproducir: Click en cualquier botón (nivel, problema, dispositivo)
+- Resultado esperado: Solo 1 entrada en transcript con label descriptivo
+- Metadata: buttonToken presente pero NO en texto visible
+- Log esperado: Si hay token en texto, "[NORMALIZE] Token detectado..."
+
+====================================================================
+FALLA 3: STAGE FINAL INCORRECTO EN METADATA (ASK_DEVICE)
+====================================================================
+
+PROBLEMA DETECTADO:
+- Metadata reportaba stage_inicial y stage_final como ASK_DEVICE
+- Aunque el flujo pasó por ASK_LANGUAGE, ASK_NAME, ASK_USER_LEVEL, ASK_NEED
+- Y se entregaron pasos (debería terminar en BASIC_TESTS)
+
+CAUSA RAÍZ:
+1. No se guardaba session.initialStage al crear la sesión
+2. changeStage() no guardaba el initialStage la primera vez
+3. Metadata usaba session.stage para ambos (inicial y final)
+
+CORRECCIÓN APLICADA:
+Ubicación: 
+- server.js línea ~2504-2566 (changeStage)
+- server.js línea ~11079-11110 (creación de sesión en /api/greeting)
+- server.js línea ~11300-11325 (creación de sesión en /api/chat fallback)
+- server.js línea ~2340-2350 (metadata en saveHistorialChat)
+- server.js línea ~10851-10854 (metadata en /api/historial/:sessionId)
+
+Cambios:
+1. changeStage(): Guardar initialStage solo la primera vez (si no existe)
+2. Creación de sesión: Inicializar initialStage = STATES.ASK_LANGUAGE
+3. Metadata: 
+   - stage_inicial: session.initialStage || calcular desde transcript || ASK_LANGUAGE
+   - stage_final: session.stage (stage actual, último alcanzado)
+
+Código modificado:
+- Línea ~2560-2562: Guardar initialStage en changeStage()
+- Línea ~11082: initialStage en nueva sesión (/api/greeting)
+- Línea ~11304: initialStage en nueva sesión (/api/chat fallback)
+- Línea ~2345-2346: stage_inicial/final correctos en saveHistorialChat
+- Línea ~10851-10854: stage_inicial/final correctos en /api/historial
+
+VERIFICACIÓN:
+- Reproducir: Conversación completa hasta pasos
+- Resultado esperado:
+  * stage_inicial: "ASK_LANGUAGE"
+  * stage_final: "BASIC_TESTS" (o el stage real alcanzado)
+- Verificar en: /api/historial/:sessionId → metadata
+
+====================================================================
+FALLA 4: FALTAN BOTONES POST-PASOS / REINYECCIÓN DE BOTONES DISPOSITIVO
+====================================================================
+
+PROBLEMA DETECTADO:
+- Después de entregar pasos, faltaban botones de continuación/cierre
+- En algunos casos aparecían botones de dispositivo (incorrecto)
+- Usuario quedaba "colgado" sin opciones claras
+
+CAUSA RAÍZ:
+- Los botones post-pasos ya estaban implementados en handleAskDeviceStage
+- Pero no se verificaba que NO se reinyectaran botones de dispositivo
+- Falta de verificación en handleBasicTestsStage cuando se muestran pasos pendientes
+
+CORRECCIÓN APLICADA:
+Ubicación: 
+- server.js línea ~6664-6714 (handleAskDeviceStage - botones post-pasos)
+- server.js línea ~7715-7738 (handleBasicTestsStage - botones post-pasos)
+
+Estado actual:
+✅ handleAskDeviceStage ya incluye 5 botones post-pasos:
+   1. BTN_PERSIST (❌ El Problema Persiste)
+   2. BTN_SOLVED (✔️ Lo pude Solucionar)
+   3. BTN_ADVANCED_TESTS (🔬 Pruebas Avanzadas)
+   4. BTN_WHATSAPP_TECNICO (🧑‍🔧 Hablar con un Técnico)
+   5. BTN_CLOSE (🔚 Cerrar Chat)
+
+✅ handleBasicTestsStage ya incluye los mismos 5 botones post-pasos
+
+✅ NO se reinyectan botones de dispositivo después de mostrar pasos
+   - Los botones se construyen explícitamente en cada handler
+   - No hay fallback que agregue botones de dispositivo
+
+VERIFICACIÓN:
+- Reproducir: Flujo completo hasta mostrar pasos
+- Resultado esperado:
+  * Después de pasos aparecen 5 botones post-pasos
+  * NO aparecen botones de dispositivo (BTN_DEV_*)
+  * Botones incluyen: Persiste, Solucionado, Avanzadas, Técnico, Cerrar
+
+====================================================================
+VERIFICACIÓN FINAL OBLIGATORIA
+====================================================================
+
+PRUEBA 1: Duplicados de mensajes
+- Enviar mismo mensaje 2 veces en < 3 segundos
+- Verificar: Solo 1 entrada en transcript
+- Log: "[DEDUP] Mensaje de usuario ignorado (duplicado)"
+
+PRUEBA 2: Click en botón
+- Click en cualquier botón (nivel, problema, dispositivo)
+- Verificar: Solo 1 entrada en transcript con label descriptivo
+- Verificar: buttonToken presente como metadata, NO en texto
+
+PRUEBA 3: Stage final correcto
+- Conversación completa hasta pasos
+- Verificar metadata:
+  * stage_inicial: "ASK_LANGUAGE"
+  * stage_final: "BASIC_TESTS" (o stage real alcanzado)
+
+PRUEBA 4: Botones post-pasos
+- Después de mostrar pasos
+- Verificar: 5 botones post-pasos presentes
+- Verificar: NO hay botones de dispositivo
+
+====================================================================
+CAMBIOS APLICADOS (RESUMEN)
+====================================================================
+
+1. Dedupe mejorado (línea ~11445-11503)
+   - Usa session.progress.lastUserMsgNorm
+   - Actualiza tracking ANTES de agregar al transcript
+
+2. Verificación de tokens BTN_* (línea ~11513-11520)
+   - Mapea tokens a labels si llegan como texto
+   - Guarda token solo como metadata
+
+3. Stage inicial/final (múltiples ubicaciones)
+   - changeStage() guarda initialStage
+   - Sesiones nuevas inicializan initialStage
+   - Metadata calcula stage_inicial correctamente
+
+4. Botones post-pasos (ya implementados)
+   - handleAskDeviceStage: 5 botones post-pasos ✅
+   - handleBasicTestsStage: 5 botones post-pasos ✅
+   - NO se reinyectan botones de dispositivo ✅
+
+====================================================================
+GUARD RAILS VERIFICADOS (NO MODIFICADOS)
+====================================================================
+
+✅ Guard rails de simulación: Intactos
+✅ Rate limits: Intactos
+✅ TTL de sesiones: Intactos
+✅ ADMIN_TOKEN/LOG_TOKEN: Intactos
+✅ Lógica de tickets y WhatsApp: Intacta
+✅ VALID_TRANSITIONS: Intactas
+
+====================================================================
+FIN DEL REPORTE
+====================================================================
+

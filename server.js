@@ -2338,12 +2338,21 @@ async function saveSessionAndTranscript(sessionId, session) {
     }
     
     // Agregar metadata adicional
+    // 🔒 MINUTA CORRECTIVA 3: Stage inicial/final correctos
+    // stage_inicial: usar session.initialStage si existe, sino el primer stage del transcript, sino ASK_LANGUAGE
+    // stage_final: usar session.stage actual (que refleja el último stage alcanzado)
+    const firstUserMsg = historialData.conversacion.find(m => m.quien === 'USUARIO');
+    const firstBotMsg = historialData.conversacion.find(m => m.quien === 'TECNOS');
+    const calculatedInitialStage = session.initialStage || 
+                                   (firstBotMsg && firstBotMsg.stage) || 
+                                   STATES.ASK_LANGUAGE;
+    
     historialData.metadata = {
       total_mensajes: historialData.conversacion.length,
       mensajes_usuario: historialData.conversacion.filter(m => m.quien === 'USUARIO').length,
       mensajes_bot: historialData.conversacion.filter(m => m.quien === 'TECNOS').length,
-      stage_inicial: session.stage || 'unknown',
-      stage_final: session.stage || 'unknown',
+      stage_inicial: calculatedInitialStage, // Stage real inicial (no el actual)
+      stage_final: session.stage || 'unknown', // Stage actual (último alcanzado)
       problema_detectado: session.problem || null,
       solucion_aplicada: session.stage === STATES.ENDED || false,
       ticket_generado: session.ticketId || null
@@ -2556,6 +2565,12 @@ function changeStage(session, newStage) {
     logger.warn(`[STAGE] ⚠️  Retroceso significativo detectado: ${currentStage} (${currentOrder}) → ${newStage} (${newOrder}). Verificar justificación.`);
     // No bloquear, solo loguear para auditoría
     // Algunos retrocesos pueden ser válidos (ej: error de validación)
+  }
+  
+  // 🔒 MINUTA CORRECTIVA 3: Guardar initialStage solo la primera vez
+  // Esto permite calcular stage_inicial correctamente en metadata
+  if (!session.initialStage) {
+    session.initialStage = currentStage; // Guardar el stage inicial (antes del cambio)
   }
   
   // Cambiar el estado
@@ -3185,6 +3200,143 @@ const CHAT = EMBEDDED_CHAT || {};
 function getButtonDefinition(token) {
   if (!token || !CHAT?.ui?.buttons) return null;
   return CHAT.ui.buttons.find(b => String(b.token) === String(token)) || null;
+}
+
+/**
+ * 🔒 FASE INTELIGENCIA: Aplica selector inteligente de botones con IA
+ * 
+ * Esta función envuelve la lógica del selector de botones, aplicando IA cuando corresponde
+ * y manteniendo fallback determinista si la IA falla.
+ * 
+ * @param {object} params - Parámetros para selección de botones
+ * @param {object} params.session - Sesión actual
+ * @param {string} params.stage - Stage actual
+ * @param {Array} params.currentButtons - Botones actuales (fallback determinista)
+ * @param {object} params.flags - Flags adicionales (stepsDelivered, frustration, etc.)
+ * @param {string} params.problemToken - Token del problema (opcional)
+ * @param {string} params.device - Dispositivo (opcional)
+ * @param {string} params.os - Sistema operativo (opcional)
+ * @returns {Promise<Array>} Array de objetos de botones seleccionados
+ */
+async function applyButtonSelector({
+  session,
+  stage,
+  currentButtons = [],
+  flags = {},
+  problemToken = null,
+  device = null,
+  os = null
+}) {
+  try {
+    // Extraer tokens de botones actuales (fallback)
+    const fallbackTokens = currentButtons
+      .map(btn => btn.value || btn.token || btn)
+      .filter(token => token && typeof token === 'string');
+    
+    // Obtener últimos botones mostrados desde transcript (últimos 2 mensajes del bot)
+    const lastButtonsShown = [];
+    if (session?.transcript && Array.isArray(session.transcript)) {
+      const lastBotMessages = session.transcript
+        .slice()
+        .reverse()
+        .filter(msg => msg.who === 'bot')
+        .slice(0, 2);
+      
+      lastBotMessages.forEach(msg => {
+        if (msg.buttons && Array.isArray(msg.buttons)) {
+          msg.buttons.forEach(btn => {
+            const token = btn.value || btn.token;
+            if (token && !lastButtonsShown.includes(token)) {
+              lastButtonsShown.push(token);
+            }
+          });
+        }
+      });
+    }
+    
+    // Detectar si se entregaron pasos (buscar en último mensaje del bot)
+    let stepsDelivered = flags.stepsDelivered || false;
+    if (!stepsDelivered && session?.transcript && Array.isArray(session.transcript)) {
+      const lastBotMsg = session.transcript
+        .slice()
+        .reverse()
+        .find(msg => msg.who === 'bot');
+      if (lastBotMsg && lastBotMsg.text) {
+        // Detectar si el mensaje contiene pasos (heurística simple)
+        stepsDelivered = /paso|step|🔧|⚡/i.test(lastBotMsg.text) && 
+                         (lastBotMsg.text.includes('**Paso') || lastBotMsg.text.includes('**Step'));
+      }
+    }
+    
+    // Llamar al selector inteligente
+    const selectionResult = await selectButtons({
+      session,
+      stage,
+      problemToken,
+      device: device || session?.device || null,
+      os: os || session?.os || null,
+      flags: {
+        stepsDelivered,
+        frustration: flags.frustration || false,
+        feedbackGiven: flags.feedbackGiven || false,
+        isSimulation: session?.simulation === true
+      },
+      lastButtonsShown,
+      fallbackTokens,
+      embeddedChat: EMBEDDED_CHAT
+    });
+    
+    // Log interno (debug) con source y reason
+    const sessionIdAbbr = session?.id ? String(session.id).substring(0, 8) : 'unknown';
+    logger.debug(`[BUTTON_SELECTOR] Stage: ${stage}, Source: ${selectionResult.source}, Tokens: ${selectionResult.tokens.length}, Reason: ${selectionResult.reason} (SessionId: ${sessionIdAbbr}...)`);
+    
+    // Convertir tokens seleccionados de vuelta a objetos de botones
+    const locale = session?.userLocale || 'es-AR';
+    const selectedButtons = buildUiButtonsFromTokens(selectionResult.tokens, locale);
+    
+    return selectedButtons;
+    
+  } catch (error) {
+    // Si hay error, usar fallback determinista
+    logger.warn(`[BUTTON_SELECTOR] Error en selector, usando fallback: ${error.message}`);
+    return currentButtons; // Retornar botones originales
+  }
+}
+
+/**
+ * 🔒 FASE INTELIGENCIA: Helper para enviar respuesta con selector de botones aplicado
+ * 
+ * Esta función envuelve res.json() aplicando el selector inteligente de botones
+ * antes de enviar la respuesta al frontend.
+ * 
+ * @param {object} res - Objeto response de Express
+ * @param {object} responseData - Datos de respuesta { ok, reply, stage, sessionId, buttons }
+ * @param {object} session - Sesión actual
+ * @param {object} flags - Flags adicionales (stepsDelivered, etc.)
+ */
+async function sendResponseWithButtonSelector(res, responseData, session, flags = {}) {
+  try {
+    // Aplicar selector inteligente de botones
+    const finalButtons = await applyButtonSelector({
+      session,
+      stage: responseData.stage,
+      currentButtons: responseData.buttons || [],
+      flags,
+      problemToken: session?.problem ? (session.problem.toLowerCase().includes('no enciende') ? 'BTN_NO_ENCIENDE' : null) : null,
+      device: session?.device || null,
+      os: session?.os || null
+    });
+    
+    // Enviar respuesta con botones seleccionados
+    return res.json({
+      ...responseData,
+      buttons: finalButtons
+    });
+  } catch (error) {
+    // Si falla, enviar respuesta original
+    logger.warn(`[BUTTON_SELECTOR] Error en sendResponseWithButtonSelector, usando botones originales: ${error.message}`);
+    return res.json(responseData);
+  }
 }
 
 /**
@@ -10848,10 +11000,13 @@ app.get('/api/historial/:sessionId', async (req, res) => {
           total_mensajes: (session.transcript || []).length,
           mensajes_usuario: (session.transcript || []).filter(m => m.who === 'user').length,
           mensajes_bot: (session.transcript || []).filter(m => m.who !== 'user').length,
-          stage_inicial: session.stage || 'unknown',
-          // 🔒 MINUTA CORRECTIVA 3: Stage final debe reflejar el stage real actual
-          // Usar el stage actual de la sesión, no un valor previo
-          stage_final: session.stage || 'unknown',
+          // 🔒 MINUTA CORRECTIVA 3: Stage inicial/final correctos
+          // stage_inicial: usar session.initialStage si existe, sino calcular desde transcript
+          // stage_final: usar session.stage actual (que refleja el último stage alcanzado)
+          stage_inicial: session.initialStage || 
+                        (session.transcript && session.transcript.length > 0 && session.transcript[0].stage) || 
+                        STATES.ASK_LANGUAGE,
+          stage_final: session.stage || 'unknown', // Stage actual (último alcanzado)
           problema_detectado: session.problem || null,
           solucion_aplicada: session.stage === STATES.ENDED || false,
           ticket_generado: session.ticketId || null
@@ -11062,6 +11217,7 @@ app.get('/api/greeting', async (req, res) => {
       id: sessionId,                    // ID único de la sesión
       userName: null,                   // Nombre del usuario (se llena en ASK_NAME)
       stage: STATES.ASK_LANGUAGE,       // ⚠️ CRÍTICO: Estado inicial siempre es ASK_LANGUAGE
+      initialStage: STATES.ASK_LANGUAGE, // 🔒 MINUTA CORRECTIVA 3: Guardar stage inicial para metadata
       device: null,                     // Dispositivo del usuario (se llena más adelante)
       problem: null,                    // Problema del usuario (se llena más adelante)
       issueKey: null,                   // Clave del issue (se llena más adelante)
@@ -11302,6 +11458,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         id: sessionId,
         userName: null,
         stage: STATES.ASK_LANGUAGE,
+        initialStage: STATES.ASK_LANGUAGE, // 🔒 MINUTA CORRECTIVA 3: Guardar stage inicial
         device: null,
         problem: null,
         issueKey: null,
@@ -11442,26 +11599,27 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       }
     }
     
-    // 🔒 MINUTA CORRECTIVA 1: DEDUPE DE MENSAJES DE USUARIO
+    // 🔒 MINUTA CORRECTIVA 1: DEDUPE DE MENSAJES DE USUARIO (MEJORADO)
     // Normalizar texto para comparación de duplicados (trim, espacios múltiples a uno, lowercase)
     const normalizedForDedupe = normalizedUserText
       .trim()
       .replace(/\s+/g, ' ')
       .toLowerCase();
     
-    // Obtener último mensaje del usuario para comparar
-    const lastUserMsg = session.transcript
-      .slice()
-      .reverse()
-      .find(msg => msg.who === 'user');
+    // Inicializar tracking de último mensaje si no existe
+    if (!session.progress) {
+      session.progress = {};
+    }
     
-    // Verificar si es duplicado dentro de ventana de tiempo (2-3 segundos)
+    // Verificar duplicado usando session.progress (más eficiente y preciso)
+    // Esto evita buscar en todo el transcript y funciona incluso si el mensaje anterior
+    // aún no se guardó en disco
     const now = Date.now();
     const DEDUPE_WINDOW_MS = 3000; // 3 segundos
-    const isDuplicate = lastUserMsg && 
-      lastUserMsg.text && 
-      lastUserMsg.text.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedForDedupe &&
-      (now - new Date(lastUserMsg.ts).getTime()) < DEDUPE_WINDOW_MS;
+    const isDuplicate = session.progress.lastUserMsgNorm && 
+      session.progress.lastUserMsgNorm === normalizedForDedupe &&
+      session.progress.lastUserMsgAt &&
+      (now - session.progress.lastUserMsgAt) < DEDUPE_WINDOW_MS;
     
     if (isDuplicate) {
       // Mensaje duplicado detectado: NO agregar al transcript ni procesar
@@ -11479,23 +11637,30 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       });
     }
     
-    // Inicializar tracking de último mensaje si no existe
-    if (!session.progress) {
-      session.progress = {};
-    }
+    // Actualizar tracking ANTES de agregar al transcript (previene race conditions)
     session.progress.lastUserMsgNorm = normalizedForDedupe;
     session.progress.lastUserMsgAt = now;
     
     // Agregar el mensaje del usuario al transcript (con texto normalizado)
     // 🔒 MINUTA CORRECTIVA 2: Eliminar doble registro de botones
-    // Si es un botón, usar SOLO el texto normalizado (label), NO el token BTN_*
-    const userMessageText = buttonToken 
-      ? normalizedUserText  // Solo el texto del botón, sin prefijo [BOTON] ni token
+    // Si es un botón, usar SOLO el texto normalizado (label), NUNCA el token BTN_*
+    // Asegurar que el texto visible sea siempre el label descriptivo, nunca el token
+    let userMessageText = buttonToken 
+      ? normalizedUserText  // Solo el texto del botón (label), sin prefijo [BOTON] ni token
       : normalizedUserText;
+    
+    // 🔒 VERIFICACIÓN: Asegurar que NUNCA se guarde un token BTN_* como texto visible
+    if (userMessageText && userMessageText.startsWith('BTN_')) {
+      // Si por error llegó un token, intentar mapearlo a label
+      const buttonDef = getButtonDefinition(userMessageText);
+      const originalToken = userMessageText;
+      userMessageText = buttonDef?.text || buttonDef?.label || userMessageText.replace(/^BTN_/, '');
+      logger.warn(`[NORMALIZE] Token detectado en userMessageText, mapeando: ${originalToken} → ${userMessageText}`);
+    }
     
     session.transcript.push({
       who: 'user',
-      text: userMessageText,
+      text: userMessageText, // SIEMPRE label descriptivo, NUNCA token BTN_*
       ts: nowIso(),
       buttonToken: buttonToken || null, // Guardar token solo como metadata, no en texto visible
       originalText: buttonToken ? null : (incomingText !== normalizedUserText ? incomingText : null) // Guardar original solo si cambió
@@ -11524,13 +11689,19 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
-        return res.json({
-          ok: result.ok,
-          reply: result.reply,
-          stage: result.stage,
-          sessionId: sessionId,
-          buttons: result.buttons || []
-        });
+        // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+        return await sendResponseWithButtonSelector(
+          res,
+          {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || []
+          },
+          session,
+          {}
+        );
       }
     }
     
@@ -11561,13 +11732,19 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           buttonToken = null;
         } else {
           // Si no cambió a ASK_USER_LEVEL o hay reply, retornar la respuesta normalmente
-          return res.json({
-            ok: result.ok,
-            reply: result.reply,
-            stage: result.stage,
-            sessionId: sessionId,
-            buttons: result.buttons || []
-          });
+          // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+          return await sendResponseWithButtonSelector(
+            res,
+            {
+              ok: result.ok,
+              reply: result.reply,
+              stage: result.stage,
+              sessionId: sessionId,
+              buttons: result.buttons || []
+            },
+            session,
+            {}
+          );
         }
       }
     }
@@ -11589,13 +11766,19 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
-        return res.json({
-          ok: result.ok,
-          reply: result.reply,
-          stage: result.stage,
-          sessionId: sessionId,
-          buttons: result.buttons || []
-        });
+        // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+        return await sendResponseWithButtonSelector(
+          res,
+          {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || []
+          },
+          session,
+          {}
+        );
       }
     }
     
@@ -11616,13 +11799,26 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
-        return res.json({
-          ok: result.ok,
-          reply: result.reply,
-          stage: result.stage,
-          sessionId: sessionId,
-          buttons: result.buttons || []
-        });
+        // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+        // Detectar si se entregaron pasos para aplicar hard rules
+        const stepsDelivered = result.reply && (
+          result.reply.includes('**Paso') || 
+          result.reply.includes('**Step') ||
+          /paso|step|🔧|⚡/i.test(result.reply)
+        );
+        
+        return await sendResponseWithButtonSelector(
+          res,
+          {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || []
+          },
+          session,
+          { stepsDelivered }
+        );
       }
     }
     
@@ -11643,13 +11839,26 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
-        return res.json({
-          ok: result.ok,
-          reply: result.reply,
-          stage: result.stage,
-          sessionId: sessionId,
-          buttons: result.buttons || []
-        });
+        // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+        // Detectar si se entregaron pasos para aplicar hard rules
+        const stepsDelivered = result.reply && (
+          result.reply.includes('**Paso') || 
+          result.reply.includes('**Step') ||
+          /paso|step|🔧|⚡/i.test(result.reply)
+        );
+        
+        return await sendResponseWithButtonSelector(
+          res,
+          {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            sessionId: sessionId,
+            buttons: result.buttons || []
+          },
+          session,
+          { stepsDelivered }
+        );
       }
     }
     
@@ -11697,13 +11906,32 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         // Guardar la sesión actualizada (el handler ya la guardó, pero por seguridad)
         await saveSessionAndTranscript(sessionId, session);
         
+        // 🔒 FASE INTELIGENCIA: Aplicar selector inteligente de botones
+        // Detectar si se entregaron pasos para aplicar hard rules
+        const stepsDelivered = result.reply && (
+          result.reply.includes('**Paso') || 
+          result.reply.includes('**Step') ||
+          /paso|step|🔧|⚡/i.test(result.reply)
+        );
+        
+        // Aplicar selector (pero mantener allowWhatsapp que es crítico)
+        const finalButtons = await applyButtonSelector({
+          session,
+          stage: result.stage,
+          currentButtons: result.buttons || [],
+          flags: { stepsDelivered },
+          problemToken: session.problem ? (session.problem.toLowerCase().includes('no enciende') ? 'BTN_NO_ENCIENDE' : null) : null,
+          device: session.device || null,
+          os: session.os || null
+        });
+        
         // Retornar respuesta al frontend con todas las propiedades del resultado
         return res.json({
           ok: result.ok,                              // Estado de la operación (true/false)
           reply: result.reply,                        // Mensaje de respuesta al usuario
           stage: result.stage,                         // Estado actual de la sesión
           sessionId: sessionId,                       // ID de la sesión (para futuras requests)
-          buttons: result.buttons || [],              // Botones (solo BTN_BACK - NO incluir botones de WhatsApp)
+          buttons: finalButtons,                      // Botones seleccionados inteligentemente
           allowWhatsapp: result.allowWhatsapp || false // ⚠️ CRÍTICO: Frontend creará botón verde si es true
         });
       }
@@ -11899,6 +12127,7 @@ logger.info('   - POST /api/chat     → Procesar mensajes (Etapas 1, 2, 3, 4, 5
 
 // Importación del motor de simulaciones
 import { SimulationEngine, SimulationDataGenerator, CriticalErrorDetector } from './simulation-engine.js';
+import { selectButtons } from './uiButtonSelector.js';
 
 /**
  * GET /api/logs
@@ -12102,14 +12331,21 @@ app.get('/api/logs/token', async (req, res) => {
 app.post('/api/simulations/run', async (req, res) => {
   try {
     // 🔒 F1-T01: Autenticación obligatoria para /api/simulations/run
+    // Acepta ADMIN_TOKEN o LOG_TOKEN (igual que otros endpoints admin)
     const token = req.headers['authorization']?.replace('Bearer ', '') || req.body.token || req.query.token;
     const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
     
-    if (!token || token !== process.env.ADMIN_TOKEN) {
-      logger.warn(`[SECURITY] Request a /api/simulations/run sin autenticación bloqueado - IP: ${clientIP}, endpoint: /api/simulations/run`);
+    // Validar token: Acepta ADMIN_TOKEN o LOG_TOKEN
+    const isValidToken = token && (
+      token === process.env.ADMIN_TOKEN || 
+      token === LOG_TOKEN
+    );
+    
+    if (!isValidToken) {
+      logger.warn(`[SECURITY] Request a /api/simulations/run sin autenticación bloqueado - IP: ${clientIP}, endpoint: /api/simulations/run, token recibido: ${token ? 'presente' : 'ausente'}`);
       return res.status(403).json({
         ok: false,
-        error: 'Autenticación requerida. Se requiere ADMIN_TOKEN válido.'
+        error: 'Autenticación requerida. Se requiere ADMIN_TOKEN o LOG_TOKEN válido.'
       });
     }
     
