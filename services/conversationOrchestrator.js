@@ -12,7 +12,7 @@
  * - Retrocompatible 100% con código legacy
  */
 
-import { FLOW, STAGES, BUTTON_ACTIONS, getStageHandler, isValidStage } from '../flows/flowDefinition.js';
+import { FLOW, STAGES, BUTTON_ACTIONS, getStageHandler, isValidStage, DETERMINISTIC_STAGES } from '../flows/flowDefinition.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -298,10 +298,17 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   const nextStage = flowResult.nextStage || session.stage;
   
   // ========================================
-  // 2. ACTUALIZAR SESIÓN
+  // 2. ACTUALIZAR SESIÓN ANTES DE GENERAR RESPUESTA
+  // ✅ CRÍTICO: El stage debe actualizarse ANTES de:
+  // - Generar la respuesta
+  // - Generar los botones
+  // - Guardar el transcript
+  // Esto asegura que el stage, transcript y botones estén siempre alineados
   // ========================================
   const updatedSession = { ...session };
   updatedSession.stage = nextStage;
+  
+  console.log(`[ORCHESTRATOR] 🔄 Stage actualizado: ${session.stage} → ${nextStage}`);
   
   // Actualizar campos según acción
   if (flowResult.locale) updatedSession.userLocale = flowResult.locale;
@@ -311,6 +318,13 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   if (flowResult.needType) updatedSession.needType = flowResult.needType;
   if (flowResult.gdprConsent !== undefined) updatedSession.gdprConsent = flowResult.gdprConsent;
   if (flowResult.gdprConsentDate) updatedSession.gdprConsentDate = flowResult.gdprConsentDate;
+  
+  // ✅ Manejar acción PROBLEMA_FRECUENTE (botones de problemas frecuentes en ASK_NEED)
+  if (flowResult.action === 'PROBLEMA_FRECUENTE' && flowResult.problem) {
+    updatedSession.problem = flowResult.problem;
+    updatedSession.needType = 'problema';
+    console.log(`[ORCHESTRATOR] ✅ Problema frecuente guardado: "${flowResult.problem}"`);
+  }
   
   // ========================================
   // 3. GENERAR REPLY
@@ -396,6 +410,26 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   console.log('[ORCHESTRATOR] Response built successfully');
   console.log('[ORCHESTRATOR] Stage transition:', session.stage, '→', nextStage);
   
+  // ✅ VALIDACIÓN: Logs para verificar que no aparezcan botones incorrectos
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  if (DETERMINISTIC_STAGES.includes(nextStage)) {
+    const buttonTokens = buttons?.map(b => b.token) || [];
+    console.log(`[ORCHESTRATOR] ✅ VALIDACIÓN Stage determinístico "${nextStage}":`, {
+      buttonsCount: buttons?.length || 0,
+      buttonTokens: buttonTokens,
+      hasSolutionButtons: buttonTokens.some(t => ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_ADVANCED_TESTS', 'BTN_MORE_TESTS', 'BTN_CONNECT_TECH'].includes(t)),
+      hasNavigationButtons: buttonTokens.some(t => ['BTN_BACK', 'BTN_CHANGE_TOPIC', 'BTN_MORE_INFO'].includes(t))
+    });
+    
+    // ⚠️ ADVERTENCIA si aparecen botones de solución/diagnóstico en stages iniciales
+    const invalidButtons = buttonTokens.filter(t => 
+      ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_ADVANCED_TESTS', 'BTN_MORE_TESTS', 'BTN_CONNECT_TECH'].includes(t)
+    );
+    if (invalidButtons.length > 0) {
+      console.error(`[ORCHESTRATOR] ❌ ERROR: Botones de solución/diagnóstico en stage determinístico "${nextStage}":`, invalidButtons);
+    }
+  }
+  
   return response;
 }
 
@@ -461,18 +495,47 @@ async function generateReplyForAction(action, session, locale) {
  * GENERATE BUTTONS
  * 
  * Genera array de botones según flowResult y stage
+ * 
+ * ✅ REGLA CRÍTICA: Los botones se generan SOLO basados en el stage actual.
+ * NO se aplica lógica de IA ni UX adaptativo en stages determinísticos.
  */
 async function generateButtons(flowResult, session, locale) {
-  if (flowResult.buttons && Array.isArray(flowResult.buttons)) {
-    // flowResult tiene botones explícitos
-    return flowResult.buttons.map(token => {
-      return mapTokenToButton(token, locale);
-    });
+  // ✅ CRÍTICO: Limpiar array de botones antes de generar nuevos
+  // Esto previene que botones de stages anteriores se hereden
+  let buttons = [];
+  
+  // ✅ CRÍTICO: Verificar si estamos en un stage determinístico
+  // En estos stages, los botones deben ser 100% determinísticos
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  const currentStage = session.stage;
+  const isDeterministicStage = DETERMINISTIC_STAGES.includes(currentStage);
+  
+  if (isDeterministicStage) {
+    console.log(`[ORCHESTRATOR] 🔒 Stage determinístico "${currentStage}" - botones 100% determinísticos`);
   }
   
-  // Botones por defecto según stage
-  const stage = session.stage;
-  const defaultButtons = {
+  // Si flowResult tiene botones explícitos, usarlos (pero validar stage)
+  if (flowResult.buttons && Array.isArray(flowResult.buttons)) {
+    // En stages determinísticos, solo usar botones explícitos del flowResult
+    // NO agregar botones adicionales por fallback ni heurística
+    if (isDeterministicStage) {
+      buttons = flowResult.buttons.map(token => {
+        return mapTokenToButton(token, locale);
+      });
+      console.log(`[ORCHESTRATOR] ✅ Botones determinísticos generados para ${currentStage}:`, buttons.length);
+      return buttons; // Retornar inmediatamente, sin agregar botones adicionales
+    } else {
+      // Para stages no determinísticos, permitir botones explícitos
+      buttons = flowResult.buttons.map(token => {
+        return mapTokenToButton(token, locale);
+      });
+    }
+  }
+  
+  // Botones por defecto según stage (solo si no hay botones explícitos)
+  if (buttons.length === 0) {
+    const stage = session.stage;
+    const defaultButtons = {
     [STAGES.ASK_LANGUAGE]: [
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español', text: 'español' },
       { token: 'BTN_LANG_EN', label: '🇺🇸 English', text: 'english' }
@@ -482,7 +545,14 @@ async function generateButtons(flowResult, session, locale) {
     ],
     [STAGES.ASK_NEED]: [
       { token: 'BTN_PROBLEMA', label: '🔧 Tengo un problema', text: 'tengo un problema' },
-      { token: 'BTN_CONSULTA', label: '💡 Tengo una consulta', text: 'tengo una consulta' }
+      { token: 'BTN_CONSULTA', label: '💡 Tengo una consulta', text: 'tengo una consulta' },
+      // ✅ Botones determinísticos de problemas frecuentes
+      { token: 'BTN_NO_ENCIENDE', label: '🔌 El equipo no enciende', text: 'el equipo no enciende' },
+      { token: 'BTN_NO_INTERNET', label: '📡 Problemas de conexión a Internet', text: 'problemas de conexión a internet' },
+      { token: 'BTN_LENTITUD', label: '🐢 Lentitud del sistema', text: 'lentitud del sistema' },
+      { token: 'BTN_BLOQUEO', label: '❄️ Bloqueo o cuelgue de programas', text: 'bloqueo de programas' },
+      { token: 'BTN_PERIFERICOS', label: '🖨️ Problemas con periféricos', text: 'problemas con periféricos' },
+      { token: 'BTN_VIRUS', label: '🛡️ Infecciones de malware o virus', text: 'infecciones de virus' }
     ],
     [STAGES.ASK_DEVICE]: [
       { token: 'BTN_DEV_PC_DESKTOP', label: '🖥️ PC de escritorio', text: 'pc de escritorio' },
@@ -504,9 +574,55 @@ async function generateButtons(flowResult, session, locale) {
       { token: 'BTN_CONNECT_TECH', label: '👨‍💻 Conectar con técnico', text: 'conectar con técnico' },
       { token: 'BTN_CLOSE', label: '❌ Cerrar chat', text: 'cerrar' }
     ]
-  };
+    };
+    
+    // ✅ CRÍTICO: En stages determinísticos, SOLO retornar botones del stage actual
+    // NO agregar botones por fallback ni heurística
+    if (isDeterministicStage) {
+      const stageButtons = defaultButtons[stage] || [];
+      console.log(`[ORCHESTRATOR] ✅ Botones determinísticos para ${stage}:`, stageButtons.length);
+      return stageButtons; // Retornar SOLO botones del stage actual
+    }
+    
+    // Para stages no determinísticos, permitir botones por defecto
+    buttons = defaultButtons[stage] || [];
+  }
   
-  return defaultButtons[stage] || [];
+  // ✅ CRÍTICO: Asegurar que no se hereden botones de stages anteriores
+  // Si el array está vacío o tiene botones incorrectos, limpiarlo
+  if (isDeterministicStage && buttons.length > 0) {
+    // Validar que los botones correspondan al stage actual
+    const validTokensForStage = {
+      [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
+      [STAGES.ASK_NAME]: ['BTN_NO_NAME'],
+      [STAGES.ASK_NEED]: [
+        'BTN_PROBLEMA', 
+        'BTN_CONSULTA',
+        // ✅ Botones determinísticos de problemas frecuentes
+        'BTN_NO_ENCIENDE',
+        'BTN_NO_INTERNET',
+        'BTN_LENTITUD',
+        'BTN_BLOQUEO',
+        'BTN_PERIFERICOS',
+        'BTN_VIRUS'
+      ],
+      [STAGES.ASK_DEVICE]: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK']
+    };
+    
+    const validTokens = validTokensForStage[currentStage] || [];
+    if (validTokens.length > 0) {
+      // Filtrar solo botones válidos para este stage
+      buttons = buttons.filter(btn => {
+        const isValid = validTokens.includes(btn.token);
+        if (!isValid) {
+          console.warn(`[ORCHESTRATOR] ⚠️ Botón inválido para ${currentStage}: ${btn.token} - removido`);
+        }
+        return isValid;
+      });
+    }
+  }
+  
+  return buttons;
 }
 
 /**
@@ -531,7 +647,14 @@ function mapTokenToButton(token, locale) {
     'BTN_ADVANCED_TESTS': { token: 'BTN_ADVANCED_TESTS', label: isEn ? '🔬 Advanced tests' : '🔬 Pruebas avanzadas', text: 'pruebas avanzadas' },
     'BTN_MORE_TESTS': { token: 'BTN_MORE_TESTS', label: isEn ? '🔍 More tests' : '🔍 Más pruebas', text: 'más pruebas' },
     'BTN_CONNECT_TECH': { token: 'BTN_CONNECT_TECH', label: isEn ? '👨‍💻 Connect with technician' : '👨‍💻 Conectar con técnico', text: 'conectar con técnico' },
-    'BTN_CLOSE': { token: 'BTN_CLOSE', label: isEn ? '❌ Close chat' : '❌ Cerrar chat', text: 'cerrar' }
+    'BTN_CLOSE': { token: 'BTN_CLOSE', label: isEn ? '❌ Close chat' : '❌ Cerrar chat', text: 'cerrar' },
+    // ✅ Botones determinísticos de problemas frecuentes (ASK_NEED)
+    'BTN_NO_ENCIENDE': { token: 'BTN_NO_ENCIENDE', label: isEn ? '🔌 Device does not turn on' : '🔌 El equipo no enciende', text: isEn ? 'device does not turn on' : 'el equipo no enciende' },
+    'BTN_NO_INTERNET': { token: 'BTN_NO_INTERNET', label: isEn ? '📡 Internet connection problems' : '📡 Problemas de conexión a Internet', text: isEn ? 'internet connection problems' : 'problemas de conexión a internet' },
+    'BTN_LENTITUD': { token: 'BTN_LENTITUD', label: isEn ? '🐢 System slowness' : '🐢 Lentitud del sistema', text: isEn ? 'system slowness' : 'lentitud del sistema' },
+    'BTN_BLOQUEO': { token: 'BTN_BLOQUEO', label: isEn ? '❄️ Program freezing or crashing' : '❄️ Bloqueo o cuelgue de programas', text: isEn ? 'program freezing or crashing' : 'bloqueo de programas' },
+    'BTN_PERIFERICOS': { token: 'BTN_PERIFERICOS', label: isEn ? '🖨️ External peripheral problems' : '🖨️ Problemas con periféricos', text: isEn ? 'external peripheral problems' : 'problemas con periféricos' },
+    'BTN_VIRUS': { token: 'BTN_VIRUS', label: isEn ? '🛡️ Malware or virus infections' : '🛡️ Infecciones de malware o virus', text: isEn ? 'malware or virus infections' : 'infecciones de virus' }
   };
   
   return buttonMap[token] || { token, label: token, text: token };

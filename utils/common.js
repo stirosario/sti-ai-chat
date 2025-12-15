@@ -3,6 +3,8 @@
  * Utilidades comunes usadas en múltiples módulos
  */
 
+import { DETERMINISTIC_STAGES } from '../flows/flowDefinition.js';
+
 /**
  * Genera timestamp ISO actual
  * @returns {string} Timestamp en formato ISO
@@ -25,11 +27,17 @@ export function addConversationalNavigation(options = [], stage, locale = 'es-AR
   
   const isEn = String(locale).toLowerCase().startsWith('en');
   
-  // Stages donde NO agregar navegación conversacional (son muy tempranos o específicos)
-  const skipNavigationStages = ['ASK_LANGUAGE', 'ASK_NAME', 'TICKET_SENT', 'ENDED'];
+  // ✅ CRÍTICO: Stages determinísticos donde NO debe agregarse navegación conversacional
+  // ni ningún botón adicional por heurística o UX adaptativo
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  // También incluye stages terminales que no deben tener navegación
+  const terminalStages = ['TICKET_SENT', 'ENDED'];
+  const stagesWithoutNavigation = [...DETERMINISTIC_STAGES, ...terminalStages];
   
-  if (skipNavigationStages.includes(stage)) {
-    return options.length > 0 ? options : ['BTN_BACK'];
+  if (stagesWithoutNavigation.includes(stage)) {
+    // En stages determinísticos, retornar SOLO los botones que ya existen
+    // NO agregar botones adicionales por fallback ni heurística
+    return options.length > 0 ? options : [];
   }
   
   // Si ya hay opciones, verificar si ya incluyen navegación
@@ -102,13 +110,26 @@ export function withOptions(obj, locale = null) {
     locale = 'es-AR'; // Default
   }
   
-  // ✅ Asegurar que siempre haya al menos un botón
-  if (!result.options || result.options.length === 0) {
-    // Si no hay botones, agregar "Volver atrás"
-    result.options = ['BTN_BACK'];
-  } else if (result.stage) {
-    // Agregar navegación conversacional si hay stage
-    result.options = addConversationalNavigation(result.options, result.stage, locale);
+  // ✅ CRÍTICO: En stages determinísticos, NO agregar botones por fallback
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  const isDeterministicStage = result.stage && DETERMINISTIC_STAGES.includes(result.stage);
+  
+  if (isDeterministicStage) {
+    // En stages determinísticos, mantener SOLO los botones explícitos
+    // NO agregar botones por fallback ni navegación conversacional
+    if (!result.options || result.options.length === 0) {
+      result.options = []; // NO agregar BTN_BACK por fallback
+    }
+    // NO llamar a addConversationalNavigation para stages determinísticos
+  } else {
+    // Para stages no determinísticos, aplicar lógica normal
+    if (!result.options || result.options.length === 0) {
+      // Si no hay botones, agregar "Volver atrás"
+      result.options = ['BTN_BACK'];
+    } else if (result.stage) {
+      // Agregar navegación conversacional si hay stage
+      result.options = addConversationalNavigation(result.options, result.stage, locale);
+    }
   }
   
   return result;

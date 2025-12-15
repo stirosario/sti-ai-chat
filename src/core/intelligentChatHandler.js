@@ -10,6 +10,7 @@
 
 import { analyzeIntent, validateActionInContext, INTENT_TYPES, detectOS, detectBrand, detectDeviceType } from './intentEngine.js';
 import { generateSmartResponse } from './smartResponseGenerator.js';
+import { DETERMINISTIC_STAGES } from '../../flows/flowDefinition.js';
 
 /**
  * 🎯 Función principal: Maneja un mensaje de usuario de forma inteligente
@@ -360,7 +361,15 @@ function determineContextualStage(intentAnalysis, session) {
  * - El contexto requiere análisis inteligente
  */
 export function shouldUseIntelligentMode(userMessage, buttonToken, session) {
-  // Siempre usar modo inteligente para texto libre
+  // ✅ CRÍTICO: NO usar modo inteligente en stages determinísticos
+  // Estos stages deben ser 100% determinísticos sin intervención de IA
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  if (session && session.stage && DETERMINISTIC_STAGES.includes(session.stage)) {
+    console.log(`[IntelligentChat] 🚫 BYPASS: Stage determinístico "${session.stage}" - no usar modo inteligente`);
+    return false; // NO usar modo inteligente para stages determinísticos
+  }
+
+  // Siempre usar modo inteligente para texto libre (solo si NO es stage determinístico)
   if (!buttonToken && userMessage && userMessage.length > 5) {
     return true;
   }

@@ -16,6 +16,7 @@
 
 import { handleIntelligentChat, shouldUseIntelligentMode } from './intelligentChatHandler.js';
 import { initializeOpenAI } from '../services/aiService.js';
+import { DETERMINISTIC_STAGES } from '../../flows/flowDefinition.js';
 import { 
   matchCalibracionPattern, 
   normalizeWithCalibracion, 
@@ -81,63 +82,17 @@ export async function handleWithIntelligence(req, res, session, userMessage, but
     return null; // Usar lógica legacy
   }
 
-  // ✅ HANDLER: Botones de problemas frecuentes en ASK_NEED
-  if (session.stage === 'ASK_NEED' && buttonToken) {
-    const problemButtonMap = {
-      'BTN_NO_ENCIENDE': { problem: 'el equipo no enciende', problemEn: 'the device does not turn on' },
-      'BTN_NO_INTERNET': { problem: 'problemas de conexión a internet', problemEn: 'internet connection problems' },
-      'BTN_LENTITUD': { problem: 'lentitud del sistema', problemEn: 'system slowness' },
-      'BTN_BLOQUEO': { problem: 'bloqueo o cuelgue de programas', problemEn: 'program freezing or crashing' },
-      'BTN_PERIFERICOS': { problem: 'problemas con periféricos externos', problemEn: 'external peripheral problems' },
-      'BTN_VIRUS': { problem: 'infecciones de malware o virus', problemEn: 'malware or virus infections' }
-    };
-    
-    if (problemButtonMap[buttonToken]) {
-      const locale = session.userLocale || 'es-AR';
-      const isEn = String(locale).toLowerCase().startsWith('en');
-      const problemInfo = problemButtonMap[buttonToken];
-      
-      // Guardar el problema en la sesión
-      session.problem = isEn ? problemInfo.problemEn : problemInfo.problem;
-      session.needType = 'problema';
-      
-      console.log('[IntelligentSystem] ✅ Problema seleccionado desde botón:', session.problem);
-      
-      // Cambiar el stage a DETECT_DEVICE para preguntar por el dispositivo
-      session.stage = 'DETECT_DEVICE';
-      
-      // Generar mensaje pidiendo el dispositivo
-      const reply = isEn
-        ? `✅ Got it! I understand the problem: ${session.problem}. What type of device is it? A desktop PC, a notebook, or an all-in-one? This will help me guide you better. 💻🖥️`
-        : `✅ Perfecto! Entiendo el problema: ${session.problem}. ¿Qué tipo de dispositivo es? ¿Una PC de escritorio, una notebook o una all-in-one? Así te guío mejor. 💻🖥️`;
-      
-      // Generar botones de selección de dispositivo
-      const buttons = getDeviceSelectionButtons(locale);
-      
-      const ts = new Date().toISOString();
-      session.transcript = session.transcript || [];
-      session.transcript.push({
-        who: 'user',
-        text: buttonToken,
-        ts
-      });
-      session.transcript.push({
-        who: 'bot',
-        text: reply,
-        ts,
-        problemSelected: session.problem
-      });
-      
-      return {
-        ok: true,
-        reply: reply,
-        stage: session.stage,
-        options: buttons, // También en options para compatibilidad
-        buttons: buttons, // En buttons para el frontend
-        problemSelected: session.problem
-      };
-    }
+  // ✅ CRÍTICO: BYPASS COMPLETO para stages determinísticos iniciales
+  // Estos stages NO deben usar lógica de IA ni UX adaptativo
+  // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
+  if (session.stage && DETERMINISTIC_STAGES.includes(session.stage)) {
+    console.log(`[IntelligentSystem] 🚫 BYPASS: Stage determinístico "${session.stage}" - usando flujo legacy`);
+    return null; // Usar lógica legacy determinística
   }
+
+  // ✅ REMOVIDO: La lógica de botones de problemas frecuentes en ASK_NEED
+  // ahora está en el flujo determinístico (flowDefinition.js)
+  // Esto asegura que ASK_NEED sea 100% determinístico sin intervención de IA
 
   // ✅ CRÍTICO: Si estamos en ESCALATE y el usuario solicita pruebas avanzadas,
   // dejar que el código legacy lo maneje (ya tiene la lógica correcta)

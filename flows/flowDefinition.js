@@ -31,6 +31,25 @@ export const STAGES = {
 };
 
 /**
+ * DETERMINISTIC STAGES - Fuente única de verdad
+ * 
+ * Stages que NO deben usar lógica de IA ni UX adaptativo.
+ * Estos stages son 100% determinísticos y predecibles.
+ * 
+ * ✅ REGLA: Esta es la ÚNICA definición oficial.
+ * Todos los módulos deben importar esta constante para evitar desincronización.
+ */
+export const DETERMINISTIC_STAGES = [
+  STAGES.ASK_LANGUAGE,
+  STAGES.ASK_NAME,
+  STAGES.ASK_NEED,
+  STAGES.ASK_DEVICE,
+  'ASK_KNOWLEDGE_LEVEL',  // Si existe en el sistema
+  'GDPR_CONSENT',         // Si existe en el sistema
+  'CONSENT'               // Si existe en el sistema
+];
+
+/**
  * FLOW CONFIGURATION
  * 
  * Cada estado tiene:
@@ -198,7 +217,7 @@ export const FLOW = {
     name: 'Tipo de Necesidad',
     description: 'Determinar si tiene problema técnico o consulta',
     
-    onText: ({ text }) => {
+    onText: ({ text, session }) => {
       const lower = text.toLowerCase().trim();
       
       // Detectar problema
@@ -227,7 +246,11 @@ export const FLOW = {
       };
     },
     
-    onButton: ({ token }) => {
+    onButton: ({ token, session }) => {
+      const locale = session?.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // ✅ BOTONES DETERMINÍSTICOS: Problema o Consulta
       if (token === 'BTN_PROBLEMA') {
         return {
           action: 'PROBLEMA',
@@ -250,6 +273,54 @@ export const FLOW = {
             'en': '💡 Perfect. What do you want to know or learn?'
           },
           nextStage: 'ASK_HOWTO_DETAILS'
+        };
+      }
+      
+      // ✅ BOTONES DETERMINÍSTICOS: Problemas frecuentes
+      // Estos botones permiten seleccionar directamente un problema común
+      const problemButtonMap = {
+        'BTN_NO_ENCIENDE': { 
+          problem: 'el equipo no enciende', 
+          problemEn: 'the device does not turn on' 
+        },
+        'BTN_NO_INTERNET': { 
+          problem: 'problemas de conexión a internet', 
+          problemEn: 'internet connection problems' 
+        },
+        'BTN_LENTITUD': { 
+          problem: 'lentitud del sistema', 
+          problemEn: 'system slowness' 
+        },
+        'BTN_BLOQUEO': { 
+          problem: 'bloqueo o cuelgue de programas', 
+          problemEn: 'program freezing or crashing' 
+        },
+        'BTN_PERIFERICOS': { 
+          problem: 'problemas con periféricos externos', 
+          problemEn: 'external peripheral problems' 
+        },
+        'BTN_VIRUS': { 
+          problem: 'infecciones de malware o virus', 
+          problemEn: 'malware or virus infections' 
+        }
+      };
+      
+      if (problemButtonMap[token]) {
+        const problemInfo = problemButtonMap[token];
+        const problemText = isEn ? problemInfo.problemEn : problemInfo.problem;
+        
+        console.log(`[FLOW] ✅ Problema frecuente seleccionado en ASK_NEED: ${token} → "${problemText}"`);
+        
+        return {
+          action: 'PROBLEMA_FRECUENTE',
+          needType: 'problema',
+          problem: problemText,
+          reply: {
+            'es-AR': `✅ Perfecto! Entiendo el problema: ${problemText}. ¿Qué tipo de dispositivo es? ¿Una PC de escritorio, una notebook o una all-in-one? Así te guío mejor. 💻🖥️`,
+            'en': `✅ Got it! I understand the problem: ${problemText}. What type of device is it? A desktop PC, a notebook, or an all-in-one? This will help me guide you better. 💻🖥️`
+          },
+          buttons: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK'],
+          nextStage: 'ASK_DEVICE'
         };
       }
       
