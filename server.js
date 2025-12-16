@@ -5162,11 +5162,20 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         session?.stage ||
         stageBeforeForTurn ||
         defaultStageForView;
-      const rawButtons =
+      let rawButtons =
         payload.buttons ||
         payload.options ||
         payload.ui ||
         [];
+      if (
+        (!rawButtons || rawButtons.length === 0) &&
+        getStageContract(stageAfter)?.allowButtons
+      ) {
+        const defaults = getDefaultButtons(stageAfter);
+        if (defaults && defaults.length > 0) {
+          rawButtons = defaults;
+        }
+      }
       const sanitizedButtons = sanitizeButtonsForStage(stageAfter, rawButtons);
       const legacyButtons = sanitizedButtons.map((btn, idx) => ({
         text: btn.label || btn.token,
