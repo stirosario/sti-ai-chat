@@ -23,11 +23,6 @@ const STAGE_IDS = {
   ENDED: STAGES?.ENDED || 'ENDED'
 };
 
-const ASK_LANGUAGE_CONSENT_BUTTONS = [
-  { token: 'si', label: 'Si, acepto', order: 1 },
-  { token: 'no', label: 'No acepto', order: 2 }
-];
-
 const NAV_TOKENS = ['BTN_BACK', 'BTN_CHANGE_TOPIC', 'BTN_CLOSE'];
 const CONFIRM_TOKENS = ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_ADVANCED_TESTS'];
 const ESCALATION_TOKENS = ['BTN_CONNECT_TECH', 'BTN_WHATSAPP_TECNICO'];
@@ -105,28 +100,13 @@ const STAGE_CONTRACT = {
     stageType: STAGE_TYPES.DETERMINISTIC,
     allowText: true,
     allowButtons: true,
-    allowedTokens: [
-      'si',
-      'no',
-      'BTN_LANG_ES_AR',
-      'BTN_LANG_ES',
-      'BTN_LANG_EN',
-      'BTN_LANG_EN_US',
-      'btn_lang_es_ar',
-      'btn_lang_en',
-      'btn_lang_es',
-      'btn_lang_en_us',
-      'espanol',
-      'spanish',
-      'english',
-      'ingles'
-    ],
+    allowedTokens: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
     maxButtons: 2,
     defaultButtons: [
-      { token: 'BTN_LANG_ES_AR', label: 'Espanol', order: 1 },
-      { token: 'BTN_LANG_EN', label: 'English', order: 2 }
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', order: 1 },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', order: 2 }
     ],
-    prompt: 'Selecciona tu idioma para continuar.',
+    prompt: 'Seleccioná tu idioma para continuar.',
     uiHints: { showInput: true, showAttach: false },
     instrumentation: { logLevel: 'info', sampleRate: 1 }
   },
@@ -327,38 +307,12 @@ export function getStageContract(stage) {
   return STAGE_CONTRACT[stage] || null;
 }
 
-function resolveContextualDefaultButtons(stage, contract, context = {}) {
-  if (stage === STAGE_IDS.ASK_LANGUAGE) {
-    const consentGranted =
-      typeof context?.gdprConsent !== 'undefined'
-        ? !!context.gdprConsent
-        : !!context?.session?.gdprConsent;
-    return consentGranted
-      ? contract?.defaultButtons || []
-      : ASK_LANGUAGE_CONSENT_BUTTONS;
-  }
-  return contract?.defaultButtons || [];
-}
-
 export function getDefaultButtons(stage) {
   const contract = getStageContract(stage);
   if (!contract || !Array.isArray(contract.defaultButtons)) {
     return [];
   }
   return contract.defaultButtons.map(btn => ({ ...btn }));
-}
-
-export function getStageButtonsForContext(stage, context = {}) {
-  const contract = getStageContract(stage);
-  if (!contract || !contract.allowButtons) {
-    return [];
-  }
-  const contextualDefaults = resolveContextualDefaultButtons(stage, contract, context) || [];
-  return contextualDefaults
-    .map((btn, idx) =>
-      toButtonObject(contract, stage, btn, btn?.order || idx + 1)
-    )
-    .filter(Boolean);
 }
 
 export function isTokenAllowed(stage, token) {
@@ -369,7 +323,7 @@ export function isTokenAllowed(stage, token) {
   return tokenMatches(token, contract.allowedTokens || []);
 }
 
-export function sanitizeButtonsForStage(stage, buttons = [], context = {}) {
+export function sanitizeButtonsForStage(stage, buttons = []) {
   const contract = getStageContract(stage);
   if (!contract || !contract.allowButtons) {
     return [];
@@ -398,8 +352,22 @@ export function sanitizeButtonsForStage(stage, buttons = [], context = {}) {
   });
 
   let finalButtons = sanitized;
-  if (finalButtons.length === 0 && contract.allowButtons) {
-    finalButtons = getStageButtonsForContext(stage, context);
+  if (
+    finalButtons.length === 0 &&
+    contract.allowButtons &&
+    Array.isArray(contract.defaultButtons) &&
+    contract.defaultButtons.length > 0
+  ) {
+    finalButtons = contract.defaultButtons
+      .map((btn, idx) =>
+        toButtonObject(
+          contract,
+          stage,
+          btn,
+          btn?.order || idx + 1
+        )
+      )
+      .filter(Boolean);
   }
 
   const limit = contract.maxButtons || finalButtons.length;

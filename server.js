@@ -5172,7 +5172,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         payload.options ||
         payload.ui ||
         [];
-      const sanitizedButtons = sanitizeButtonsForStage(stageAfter, rawButtons, { session });
+      const sanitizedButtons = sanitizeButtonsForStage(stageAfter, rawButtons);
       const legacyButtons = sanitizedButtons.map((btn, idx) => ({
         text: btn.label || btn.token,
         label: btn.label || btn.token,
@@ -5332,15 +5332,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       buttonToken = sanitizeInput(String(body.value));
       console.log('[DEBUG BUTTON] Received button - action:', body.action, 'value:', body.value, 'token:', buttonToken);
       const def = getButtonDefinition(buttonToken);
-      const canonicalTextMap = {
-        BTN_LANG_ES_AR: 'espaÇñol',
-        BTN_LANG_ES: 'espaÇñol',
-        BTN_LANG_EN: 'english',
-        BTN_LANG_EN_US: 'english'
-      };
-      if (canonicalTextMap[buttonToken]) {
-        incomingText = canonicalTextMap[buttonToken];
-      } else if (tokenMap[buttonToken] !== undefined) {
+      if (tokenMap[buttonToken] !== undefined) {
         incomingText = tokenMap[buttonToken];
       } else if (buttonToken.startsWith('BTN_HELP_')) {
         const n = buttonToken.split('_').pop();
