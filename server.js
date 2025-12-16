@@ -6905,7 +6905,8 @@ Respondé de forma directa, empática y técnica.`;
             STATES,
             saveSessionAndTranscript,
             buildLanguageSelectionGreeting,
-            changeStage
+            changeStage,
+            getSession: getSession
           }
         );
         

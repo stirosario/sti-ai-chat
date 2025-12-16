@@ -44,10 +44,19 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
     };
   }
 
-  const { STATES, saveSessionAndTranscript, changeStage } = dependencies;
+  const { STATES, saveSessionAndTranscript, changeStage, getSession } = dependencies || {};
   const languageButtons = () => getDefaultButtons(STATES.ASK_LANGUAGE);
 
   try {
+    // Si tenemos getSession, recargar la sesión para asegurar datos actualizados
+    if (getSession) {
+      const freshSession = await getSession(sid);
+      if (freshSession) {
+        Object.assign(session, freshSession);
+        console.log('[ASK_LANGUAGE] Sesión recargada - gdprConsent:', session.gdprConsent);
+      }
+    }
+
     const normalizedText = normalizeText(userText);
     const normalizedButtonToken = (buttonToken || '').trim().toUpperCase();
     const buttonLanguageToken =
@@ -76,11 +85,18 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
     if (consentAccepted) {
       session.gdprConsent = true;
       session.gdprConsentDate = nowIso();
-      console.log('[GDPR] Consentimiento otorgado:', session.gdprConsentDate);
+      console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
+      console.log('[GDPR] Guardando sesión con gdprConsent:', session.gdprConsent);
 
       const reply = `🆔 **${sid}**\n\nGracias por aceptar.\n\nSeleccioná tu idioma / Select your language:`;
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso(), stage: session.stage });
       await saveSessionAndTranscript(sid, session);
+      
+      // Verificar que se guardó correctamente
+      const verifySession = await dependencies.getSession?.(sid);
+      if (verifySession) {
+        console.log('[GDPR] ✅ Verificación post-guardado - gdprConsent:', verifySession.gdprConsent);
+      }
 
       return {
         ok: true,
@@ -109,11 +125,19 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
     }
 
     // Verificar si ya se dio el consentimiento y se está seleccionando el idioma
+    console.log('[ASK_LANGUAGE] Verificando selección de idioma:', {
+      hasGdprConsent: !!session.gdprConsent,
+      hasSelectedLanguageToken: !!selectedLanguageToken,
+      selectedLanguageToken,
+      buttonToken,
+      normalizedButtonToken
+    });
+
     if (session.gdprConsent && selectedLanguageToken) {
       const isSpanish = selectedLanguageToken === 'BTN_LANG_ES_AR';
       const isEnglish = selectedLanguageToken === 'BTN_LANG_EN';
       if (isSpanish || isEnglish) {
-        console.log('[ASK_LANGUAGE] Idioma seleccionado:', { isSpanish, isEnglish, selectedLanguageToken });
+        console.log('[ASK_LANGUAGE] ✅ Idioma seleccionado:', { isSpanish, isEnglish, selectedLanguageToken });
         session.userLocale = isSpanish ? 'es-AR' : 'en-US';
         changeStage(session, STATES.ASK_NAME);
         const reply = isSpanish
@@ -122,7 +146,7 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
 
-        console.log('[ASK_LANGUAGE] Avanzando a ASK_NAME, stage actual:', session.stage);
+        console.log('[ASK_LANGUAGE] ✅ Avanzando a ASK_NAME, stage actual:', session.stage);
 
         return {
           ok: true,
@@ -130,16 +154,23 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
           stage: session.stage,
           handled: true
         };
+      } else {
+        console.warn('[ASK_LANGUAGE] ⚠️ Token de idioma no reconocido:', selectedLanguageToken);
       }
-    }
-
-    // Si hay consentimiento pero no se detectó el token de idioma, puede ser un problema
-    if (session.gdprConsent && !selectedLanguageToken) {
-      console.warn('[ASK_LANGUAGE] Consentimiento dado pero no se detectó token de idioma:', {
-        buttonToken,
-        userText,
-        normalizedText
-      });
+    } else {
+      // Si hay consentimiento pero no se detectó el token de idioma, puede ser un problema
+      if (session.gdprConsent && !selectedLanguageToken) {
+        console.warn('[ASK_LANGUAGE] ⚠️ Consentimiento dado pero no se detectó token de idioma:', {
+          buttonToken,
+          normalizedButtonToken,
+          buttonLanguageToken,
+          textLanguageToken,
+          userText: userText?.substring(0, 50),
+          normalizedText: normalizedText?.substring(0, 50)
+        });
+      } else if (!session.gdprConsent && selectedLanguageToken) {
+        console.warn('[ASK_LANGUAGE] ⚠️ Token de idioma detectado pero falta consentimiento GDPR');
+      }
     }
 
     // Mensaje de retry bilingüe ya que aún no se ha seleccionado el idioma
