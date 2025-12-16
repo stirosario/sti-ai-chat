@@ -81,7 +81,11 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
     }
 
     if (consentRejected) {
-      const reply = 'Entiendo. Sin tu consentimiento no puedo continuar.';
+      // Detectar idioma preferido del usuario si está disponible
+      const userPrefersEnglish = session.userLocale && String(session.userLocale).toLowerCase().startsWith('en');
+      const reply = userPrefersEnglish
+        ? "I understand. Without your consent I cannot continue."
+        : 'Entiendo. Sin tu consentimiento no puedo continuar.';
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSessionAndTranscript(sid, session);
 
@@ -114,7 +118,8 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
       }
     }
 
-    const retry = 'Por favor, seleccioná una de las opciones usando los botones.';
+    // Mensaje de retry bilingüe ya que aún no se ha seleccionado el idioma
+    const retry = 'Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.';
     session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
     await saveSessionAndTranscript(sid, session);
 
@@ -133,7 +138,8 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
       stage: session?.stage
     });
 
-    const errorReply = session?.userLocale === 'en-US'
+    const isEnglish = session?.userLocale && String(session.userLocale).toLowerCase().startsWith('en');
+    const errorReply = isEnglish
       ? "I'm sorry, there was an error processing your request. Please try again."
       : 'Lo siento, hubo un error procesando tu solicitud. Por favor, intentá de nuevo.';
 

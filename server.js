@@ -4237,7 +4237,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     if (hdrLocale) {
       locale = hdrLocale;
     } else if (accept.startsWith('en')) {
-      locale = 'en';
+      locale = 'en-US';
     } else if (accept.startsWith('es')) {
       locale = accept.includes('ar') ? 'es-AR' : 'es-419';
     }
@@ -4303,22 +4303,22 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
 
 function buildLanguageSelectionGreeting() {
   return {
-    text: `📋 **Política de Privacidad y Consentimiento**
+    text: `📋 **Privacy Policy and Consent / Política de Privacidad y Consentimiento**
 
-Antes de continuar, quiero informarte:
+Before continuing, I want to inform you: / Antes de continuar, quiero informarte:
 
-✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
-✅ Los datos se usarán **solo para brindarte soporte técnico**
-✅ Podés solicitar **eliminación de tus datos** en cualquier momento
-✅ **No compartimos** tu información con terceros
-✅ Cumplimos con **GDPR y normativas de privacidad**
+✅ I will store your name and our conversation for **48 hours** / Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Data will be used **only to provide technical support** / Los datos se usarán **solo para brindarte soporte técnico**
+✅ You can request **deletion of your data** at any time / Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **We do not share** your information with third parties / **No compartimos** tu información con terceros
+✅ We comply with **GDPR and privacy regulations** / Cumplimos con **GDPR y normativas de privacidad**
 
-🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+🔗 Full policy / Política completa: https://stia.com.ar/politica-privacidad.html
 
-**¿Aceptás estos términos?**`,
+**Do you accept these terms? / ¿Aceptás estos términos?**`,
     buttons: [
-      { text: 'Sí Acepto ✔️', value: 'si' },
-      { text: 'No Acepto ❌', value: 'no' }
+      { text: 'Yes, I Accept ✔️ / Sí Acepto ✔️', value: 'si' },
+      { text: 'No, I Do Not Accept ❌ / No Acepto ❌', value: 'no' }
     ]
   };
 }
