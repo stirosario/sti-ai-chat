@@ -31,6 +31,42 @@ function withNav(tokens = []) {
   return Array.from(new Set([...(tokens || []), ...NAV_TOKENS]));
 }
 
+function findDefaultLabel(contract, token) {
+  if (!contract || !Array.isArray(contract.defaultButtons)) {
+    return null;
+  }
+  const match = contract.defaultButtons.find(btn => btn.token === token);
+  return match ? match.label : null;
+}
+
+function toButtonObject(contract, stage, rawButton, orderFallback) {
+  if (!rawButton) return null;
+
+  if (typeof rawButton === 'string') {
+    const token = rawButton;
+    return {
+      token,
+      label: findDefaultLabel(contract, token) || token,
+      order: orderFallback
+    };
+  }
+
+  const token = rawButton.token || rawButton.value || null;
+  if (!token) return null;
+
+  const label =
+    rawButton.label ||
+    rawButton.text ||
+    findDefaultLabel(contract, token) ||
+    token;
+
+  return {
+    token,
+    label,
+    order: rawButton.order || orderFallback
+  };
+}
+
 const STAGE_CONTRACT = {
   [STAGE_IDS.GDPR_CONSENT]: {
     stageType: STAGE_TYPES.DETERMINISTIC,
@@ -293,16 +329,25 @@ export function sanitizeButtonsForStage(stage, buttons = []) {
     return [];
   }
 
+  const allowList = contract.allowedTokens || [];
   const sanitized = [];
-  (buttons || []).forEach(btn => {
-    const token = typeof btn === 'string' ? btn : btn?.token || btn?.value;
-    if (!token || !tokenMatches(token, contract.allowedTokens || [])) {
+
+  (buttons || []).forEach((rawBtn, idx) => {
+    const token =
+      typeof rawBtn === 'string'
+        ? rawBtn
+        : rawBtn?.token || rawBtn?.value || null;
+    if (!token || !tokenMatches(token, allowList)) {
       return;
     }
-    if (typeof btn === 'string') {
-      sanitized.push(btn);
-    } else {
-      sanitized.push({ ...btn });
+    const buttonObject = toButtonObject(
+      contract,
+      stage,
+      rawBtn,
+      rawBtn?.order || sanitized.length + 1 || idx + 1
+    );
+    if (buttonObject) {
+      sanitized.push(buttonObject);
     }
   });
 

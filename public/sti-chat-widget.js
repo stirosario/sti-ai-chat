@@ -90,7 +90,9 @@
     if (buttons && buttons.length > 0) {
       buttonsHTML = '<div class="sti-buttons">';
       buttons.forEach(btn => {
-        buttonsHTML += `<button class="sti-btn" onclick="window.stiChatSelectOption('${btn.value}')">${btn.label}</button>`;
+        const label = btn.label || btn.text || btn.token || btn.value || 'Opción';
+        const value = btn.value || btn.token || btn.text || label;
+        buttonsHTML += `<button class="sti-btn" onclick="window.stiChatSelectOption('${value}')">${label}</button>`;
       });
       buttonsHTML += '</div>';
     }

@@ -5162,8 +5162,21 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         session?.stage ||
         stageBeforeForTurn ||
         defaultStageForView;
-      const sanitizedButtons = sanitizeButtonsForStage(stageAfter, payload.buttons || []);
-      payload.buttons = sanitizedButtons;
+      const rawButtons =
+        payload.buttons ||
+        payload.options ||
+        payload.ui ||
+        [];
+      const sanitizedButtons = sanitizeButtonsForStage(stageAfter, rawButtons);
+      const legacyButtons = sanitizedButtons.map((btn, idx) => ({
+        text: btn.label || btn.token,
+        label: btn.label || btn.token,
+        value: btn.token,
+        order: btn.order || idx + 1
+      }));
+      payload.buttons = legacyButtons;
+      payload.options = legacyButtons;
+      payload.ui = legacyButtons;
 
       if (!payload.viewModel) {
         payload.viewModel = getStageViewModel(stageAfter);
