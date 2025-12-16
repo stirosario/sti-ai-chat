@@ -59,6 +59,17 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
     const textLanguageToken = detectLanguageTokenFromText(normalizedText);
     const selectedLanguageToken = buttonLanguageToken || textLanguageToken;
 
+    console.log('[ASK_LANGUAGE] Debug:', {
+      buttonToken,
+      normalizedButtonToken,
+      buttonLanguageToken,
+      textLanguageToken,
+      selectedLanguageToken,
+      gdprConsent: session.gdprConsent,
+      userText: userText?.substring(0, 50),
+      normalizedText: normalizedText?.substring(0, 50)
+    });
+
     const consentAccepted = !session.gdprConsent && CONSENT_ACCEPT_REGEX.test(normalizedText);
     const consentRejected = !session.gdprConsent && CONSENT_REJECT_REGEX.test(normalizedText);
 
@@ -97,10 +108,12 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
       };
     }
 
+    // Verificar si ya se dio el consentimiento y se está seleccionando el idioma
     if (session.gdprConsent && selectedLanguageToken) {
       const isSpanish = selectedLanguageToken === 'BTN_LANG_ES_AR';
       const isEnglish = selectedLanguageToken === 'BTN_LANG_EN';
       if (isSpanish || isEnglish) {
+        console.log('[ASK_LANGUAGE] Idioma seleccionado:', { isSpanish, isEnglish, selectedLanguageToken });
         session.userLocale = isSpanish ? 'es-AR' : 'en-US';
         changeStage(session, STATES.ASK_NAME);
         const reply = isSpanish
@@ -109,6 +122,8 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSessionAndTranscript(sid, session);
 
+        console.log('[ASK_LANGUAGE] Avanzando a ASK_NAME, stage actual:', session.stage);
+
         return {
           ok: true,
           reply,
@@ -116,6 +131,15 @@ export async function handleAskLanguageStage(session, userText, buttonToken, sid
           handled: true
         };
       }
+    }
+
+    // Si hay consentimiento pero no se detectó el token de idioma, puede ser un problema
+    if (session.gdprConsent && !selectedLanguageToken) {
+      console.warn('[ASK_LANGUAGE] Consentimiento dado pero no se detectó token de idioma:', {
+        buttonToken,
+        userText,
+        normalizedText
+      });
     }
 
     // Mensaje de retry bilingüe ya que aún no se ha seleccionado el idioma

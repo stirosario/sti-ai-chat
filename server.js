@@ -5370,7 +5370,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
 
     session = await getSession(sid);
-    console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
+    console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName, 'gdprConsent:', session?.gdprConsent, 'userLocale:', session?.userLocale);
     
     // ✅ FASE 3: Detección de retorno después de inactividad
     if (session && session.transcript && session.transcript.length > 0) {
@@ -6881,6 +6881,20 @@ Respondé de forma directa, empática y técnica.`;
         console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
       }
       try {
+        // Recargar sesión para asegurar que tenemos los datos más recientes (especialmente gdprConsent)
+        const freshSession = await getSession(sid);
+        if (freshSession) {
+          // Actualizar la sesión con los datos más recientes
+          Object.assign(session, freshSession);
+        }
+        
+        console.log('[ASK_LANGUAGE] Llamando handler con:', {
+          buttonToken,
+          userText: t?.substring(0, 50),
+          gdprConsent: session.gdprConsent,
+          userLocale: session.userLocale
+        });
+        
         const result = await handleAskLanguageStage(
           session,
           t,
@@ -6896,6 +6910,12 @@ Respondé de forma directa, empática y técnica.`;
         );
         
         if (result && result.handled) {
+          console.log('[ASK_LANGUAGE] Handler retornó:', {
+            ok: result.ok,
+            stage: result.stage,
+            hasReply: !!result.reply,
+            hasButtons: !!result.buttons
+          });
           // ✅ Enviar respuesta con guardado optimizado
           return await sendResponseWithSave(res, sid, session, {
             ok: result.ok,
