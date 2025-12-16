@@ -351,8 +351,27 @@ export function sanitizeButtonsForStage(stage, buttons = []) {
     }
   });
 
-  const limit = contract.maxButtons || sanitized.length;
-  return sanitized.slice(0, limit);
+  let finalButtons = sanitized;
+  if (
+    finalButtons.length === 0 &&
+    contract.allowButtons &&
+    Array.isArray(contract.defaultButtons) &&
+    contract.defaultButtons.length > 0
+  ) {
+    finalButtons = contract.defaultButtons
+      .map((btn, idx) =>
+        toButtonObject(
+          contract,
+          stage,
+          btn,
+          btn?.order || idx + 1
+        )
+      )
+      .filter(Boolean);
+  }
+
+  const limit = contract.maxButtons || finalButtons.length;
+  return finalButtons.slice(0, limit);
 }
 
 export function getStageViewModel(stage) {

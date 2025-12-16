@@ -180,6 +180,11 @@ const USE_MODULAR_ARCHITECTURE = process.env.USE_MODULAR_ARCHITECTURE === 'true'
 const USE_ORCHESTRATOR = process.env.USE_ORCHESTRATOR === 'true';
 let chatAdapter = null;
 let conversationOrchestrator = null;
+const BUILD_ID =
+  process.env.RENDER_GIT_COMMIT ||
+  process.env.GIT_SHA ||
+  process.env.BUILD_ID ||
+  new Date().toISOString();
 
 if (USE_MODULAR_ARCHITECTURE) {
   const { handleChatMessage } = await import('./src/adapters/chatAdapter.js');
@@ -5162,20 +5167,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         session?.stage ||
         stageBeforeForTurn ||
         defaultStageForView;
-      let rawButtons =
+      const rawButtons =
         payload.buttons ||
         payload.options ||
         payload.ui ||
         [];
-      if (
-        (!rawButtons || rawButtons.length === 0) &&
-        getStageContract(stageAfter)?.allowButtons
-      ) {
-        const defaults = getDefaultButtons(stageAfter);
-        if (defaults && defaults.length > 0) {
-          rawButtons = defaults;
-        }
-      }
       const sanitizedButtons = sanitizeButtonsForStage(stageAfter, rawButtons);
       const legacyButtons = sanitizedButtons.map((btn, idx) => ({
         text: btn.label || btn.token,
@@ -5199,6 +5195,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         reason: payload.reason || payload.transition_reason || pendingReason || 'reply'
       };
     }
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      payload.buildId = payload.buildId || BUILD_ID;
+    }
+    res.set('X-STI-BUILD', BUILD_ID);
     return originalJson(payload);
   };
 
