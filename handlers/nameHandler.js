@@ -507,7 +507,7 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
       }).join(' ');
       
       session.userName = candidate;
-      changeStage(session, STATES.ASK_NEED);
+      changeStage(session, STATES.ASK_USER_LEVEL);
       session.nameAttempts = 0;
       
       // Obtener respuesta de calibración o usar default
@@ -530,22 +530,11 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
       // Registrar éxito
       logCalibracionSuccess('ASK_NAME');
       
-      // Agregar botones de problemas frecuentes
-      const { buildUiButtonsFromTokens } = dependencies;
-      const problemButtons = buildUiButtonsFromTokens ? buildUiButtonsFromTokens([
-        'BTN_NO_ENCIENDE',
-        'BTN_NO_INTERNET',
-        'BTN_LENTITUD',
-        'BTN_BLOQUEO',
-        'BTN_PERIFERICOS',
-        'BTN_VIRUS'
-      ], locale) : [];
-      
+      // No agregar botones de problemas aquí, se mostrarán después de seleccionar nivel de usuario
       return {
         ok: true,
         reply,
         stage: session.stage,
-        options: problemButtons,
         handled: true
       };
     }
@@ -557,7 +546,7 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
   if (nameResult.valid && nameResult.name) {
     // ✅ NOMBRE DETECTADO - Guardar y avanzar inmediatamente
     session.userName = nameResult.name;
-    session.stage = STATES.ASK_NEED;
+    changeStage(session, STATES.ASK_USER_LEVEL);
     session.nameAttempts = 0;
 
     // ✅ RESPUESTA OBLIGATORIA: Bienvenida personalizada con botones de problemas frecuentes
@@ -578,22 +567,11 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
     
     console.log('[ASK_NAME] ✅ Nombre extraído:', nameResult.name, 'Motivo:', nameResult.reason);
     
-    // Agregar botones de problemas frecuentes
-    const { buildUiButtonsFromTokens } = dependencies;
-    const problemButtons = buildUiButtonsFromTokens ? buildUiButtonsFromTokens([
-      'BTN_NO_ENCIENDE',
-      'BTN_NO_INTERNET',
-      'BTN_LENTITUD',
-      'BTN_BLOQUEO',
-      'BTN_PERIFERICOS',
-      'BTN_VIRUS'
-    ], locale) : [];
-    
+    // No agregar botones de problemas aquí, se mostrarán después de seleccionar nivel de usuario
     return {
       ok: true,
       reply,
       stage: session.stage,
-      options: problemButtons,
       handled: true
     };
   } else if (nameResult.reason === 'vacío' || nameResult.reason === 'solo saludos' || nameResult.reason === 'solo signos') {
@@ -625,7 +603,7 @@ export async function handleAskNameStage(session, userText, buttonToken, sid, re
   if ((session.nameAttempts || 0) >= MAX_NAME_ATTEMPTS) {
     session.userName = isEn ? 'User' : 'Usuario';
     // 🔧 FIX CRÍTICO-2: Usar changeStage para validar transición
-    changeStage(session, STATES.ASK_NEED);
+    changeStage(session, STATES.ASK_USER_LEVEL);
 
     const reply = isEn
       ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"

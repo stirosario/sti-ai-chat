@@ -72,7 +72,7 @@ import {
 // MÓDULOS INTERNOS - HANDLERS
 // ========================================================
 import { handleAskNameStage, extractName, isValidName, isValidHumanName, looksClearlyNotName, capitalizeToken, analyzeNameWithOA } from './handlers/nameHandler.js';
-import { handleAskLanguageStage } from './handlers/stageHandlers.js';
+import { handleAskLanguageStage, handleAskUserLevelStage } from './handlers/stageHandlers.js';
 import { isValidTransition, getStageInfo, getNextStages, STATE_MACHINE, STATES, changeStage } from './handlers/stateMachine.js';
 import { handleBasicTestsStage } from './handlers/basicTestsHandler.js';
 import { handleEscalateStage } from './handlers/escalateHandler.js';
@@ -5473,7 +5473,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       });
     }
 
-    // 🔐 ASK_LANGUAGE: Procesar ANTES de enforceStage para evitar que bloquee los botones de idioma
+    // 🔐 ASK_LANGUAGE y ASK_USER_LEVEL: Procesar ANTES de enforceStage para evitar que bloquee los botones
     if (session.stage === STATES.ASK_LANGUAGE) {
       const stageInfo = getStageInfo(session.stage);
       if (!stageInfo) {
@@ -5527,6 +5527,54 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       } catch (languageHandlerError) {
         console.error('[ASK_LANGUAGE] Error en stageHandlers:', languageHandlerError);
         // Continuar con el flujo normal si el handler falla
+      }
+    }
+
+    // 🔐 ASK_USER_LEVEL: Procesar ANTES de enforceStage
+    if (session.stage === STATES.ASK_USER_LEVEL) {
+      try {
+        // Recargar sesión para asegurar datos actualizados
+        const freshSession = await getSession(sid);
+        if (freshSession) {
+          Object.assign(session, freshSession);
+        }
+        
+        console.log('[ASK_USER_LEVEL] Llamando handler con:', {
+          buttonToken,
+          userText: t?.substring(0, 50),
+          userLevel: session.userLevel
+        });
+        
+        const result = await handleAskUserLevelStage(
+          session,
+          t,
+          buttonToken,
+          sid,
+          res,
+          {
+            STATES,
+            saveSessionAndTranscript,
+            changeStage,
+            getSession: getSession
+          }
+        );
+        
+        if (result && result.handled) {
+          console.log('[ASK_USER_LEVEL] Handler retornó:', {
+            ok: result.ok,
+            stage: result.stage,
+            hasReply: !!result.reply,
+            hasButtons: !!result.buttons
+          });
+          return await sendResponseWithSave(res, sid, session, {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            buttons: result.buttons
+          });
+        }
+      } catch (userLevelHandlerError) {
+        console.error('[ASK_USER_LEVEL] Error en stageHandlers:', userLevelHandlerError);
       }
     }
 
@@ -6987,6 +7035,38 @@ Respondé de forma directa, empática y técnica.`;
     // ========================================================
     // 🔧 REFACTOR: Este bloque ha sido movido a handlers/nameHandler.js
     // La funcionalidad se mantiene idéntica, solo cambió la ubicación
+    // ========================================================
+    // ASK_USER_LEVEL: Procesar selección de nivel de usuario
+    // ========================================================
+    if (session.stage === STATES.ASK_USER_LEVEL) {
+      try {
+        const result = await handleAskUserLevelStage(
+          session,
+          t,
+          buttonToken,
+          sid,
+          res,
+          {
+            STATES,
+            saveSessionAndTranscript,
+            changeStage,
+            getSession: getSession
+          }
+        );
+        
+        if (result && result.handled) {
+          return await sendResponseWithSave(res, sid, session, {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            buttons: result.buttons
+          });
+        }
+      } catch (userLevelHandlerError) {
+        console.error('[ASK_USER_LEVEL] Error en stageHandlers:', userLevelHandlerError);
+      }
+    }
+
     // ========================================================
     // ASK_NAME: Handler modularizado con validación defensiva
 

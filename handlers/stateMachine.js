@@ -16,6 +16,7 @@
 export const STATES = {
   ASK_LANGUAGE: 'ASK_LANGUAGE',
   ASK_NAME: 'ASK_NAME',
+  ASK_USER_LEVEL: 'ASK_USER_LEVEL',
   ASK_NEED: 'ASK_NEED',
   CLASSIFY_NEED: 'CLASSIFY_NEED',
   ASK_DEVICE: 'ASK_DEVICE',
@@ -46,9 +47,16 @@ export const STATE_MACHINE = {
   ASK_NAME: {
     name: 'ASK_NAME',
     description: 'Solicitar nombre del usuario',
-    transitions: ['ASK_NEED'],
+    transitions: ['ASK_USER_LEVEL'],
     handler: 'handleAskNameStage',
     validations: ['validateName']
+  },
+  ASK_USER_LEVEL: {
+    name: 'ASK_USER_LEVEL',
+    description: 'Solicitar nivel de conocimiento del usuario (básico, intermedio, avanzado)',
+    transitions: ['ASK_NEED'],
+    handler: null, // Manejado por sistema inteligente o handler específico
+    validations: []
   },
   ASK_NEED: {
     name: 'ASK_NEED',
