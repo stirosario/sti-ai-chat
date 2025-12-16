@@ -5473,6 +5473,63 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       });
     }
 
+    // 🔐 ASK_LANGUAGE: Procesar ANTES de enforceStage para evitar que bloquee los botones de idioma
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      const stageInfo = getStageInfo(session.stage);
+      if (!stageInfo) {
+        console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
+      }
+      try {
+        // Recargar sesión para asegurar que tenemos los datos más recientes (especialmente gdprConsent)
+        const freshSession = await getSession(sid);
+        if (freshSession) {
+          // Actualizar la sesión con los datos más recientes
+          Object.assign(session, freshSession);
+        }
+        
+        console.log('[ASK_LANGUAGE] Llamando handler con:', {
+          buttonToken,
+          userText: t?.substring(0, 50),
+          gdprConsent: session.gdprConsent,
+          userLocale: session.userLocale
+        });
+        
+        const result = await handleAskLanguageStage(
+          session,
+          t,
+          buttonToken,
+          sid,
+          res,
+          {
+            STATES,
+            saveSessionAndTranscript,
+            buildLanguageSelectionGreeting,
+            changeStage,
+            getSession: getSession
+          }
+        );
+        
+        if (result && result.handled) {
+          console.log('[ASK_LANGUAGE] Handler retornó:', {
+            ok: result.ok,
+            stage: result.stage,
+            hasReply: !!result.reply,
+            hasButtons: !!result.buttons
+          });
+          // ✅ Enviar respuesta con guardado optimizado
+          return await sendResponseWithSave(res, sid, session, {
+            ok: result.ok,
+            reply: result.reply,
+            stage: result.stage,
+            buttons: result.buttons
+          });
+        }
+      } catch (languageHandlerError) {
+        console.error('[ASK_LANGUAGE] Error en stageHandlers:', languageHandlerError);
+        // Continuar con el flujo normal si el handler falla
+      }
+    }
+
     const enforcementResult = enforceStage({ session, userEvent: normalizedUserEvent });
     pendingViolations = enforcementResult.violations || [];
     pendingReason = enforcementResult.reason || null;
@@ -6864,76 +6921,8 @@ Respondé de forma directa, empática y técnica.`;
       session.transcript = session.transcript ? session.transcript.slice(-100) : [];
     }
 
-    // ========================================================
-    // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #2
-    // ========================================================
-    // 🔧 REFACTOR: Este bloque ha sido movido a handlers/stageHandlers.js
-    // La funcionalidad se mantiene idéntica, solo cambió la ubicación
-    // ========================================================
-    // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
-    console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
-
-    // 🔧 REFACTOR: ASK_LANGUAGE ahora manejado por handlers/stageHandlers.js
-    // ✅ MEDIO-9: Validar stage antes de procesar
-    if (session.stage === STATES.ASK_LANGUAGE) {
-      const stageInfo = getStageInfo(session.stage);
-      if (!stageInfo) {
-        console.warn(`[STAGE] ⚠️ Stage inválido detectado: ${session.stage}, usando fallback`);
-      }
-      try {
-        // Recargar sesión para asegurar que tenemos los datos más recientes (especialmente gdprConsent)
-        const freshSession = await getSession(sid);
-        if (freshSession) {
-          // Actualizar la sesión con los datos más recientes
-          Object.assign(session, freshSession);
-        }
-        
-        console.log('[ASK_LANGUAGE] Llamando handler con:', {
-          buttonToken,
-          userText: t?.substring(0, 50),
-          gdprConsent: session.gdprConsent,
-          userLocale: session.userLocale
-        });
-        
-        const result = await handleAskLanguageStage(
-          session,
-          t,
-          buttonToken,
-          sid,
-          res,
-          {
-            STATES,
-            saveSessionAndTranscript,
-            buildLanguageSelectionGreeting,
-            changeStage,
-            getSession: getSession
-          }
-        );
-        
-        if (result && result.handled) {
-          console.log('[ASK_LANGUAGE] Handler retornó:', {
-            ok: result.ok,
-            stage: result.stage,
-            hasReply: !!result.reply,
-            hasButtons: !!result.buttons
-          });
-          // ✅ Enviar respuesta con guardado optimizado
-          return await sendResponseWithSave(res, sid, session, {
-            ok: result.ok,
-            reply: result.reply,
-            stage: result.stage,
-            buttons: result.buttons
-          });
-        }
-      } catch (languageHandlerError) {
-        console.error('[ASK_LANGUAGE] Error en stageHandlers:', languageHandlerError);
-        // Fallback a código legacy si el handler falla
-        // (el código legacy sigue abajo como respaldo)
-      }
-    }
-    
-    // ✅ MEDIO-10: Comentarios obsoletos limpiados
-    // La funcionalidad ahora está completamente en handlers/stageHandlers.js
+    // ✅ ASK_LANGUAGE ahora se procesa ANTES de enforceStage (ver línea ~5466)
+    // Esto evita que enforceStage bloquee los botones de idioma
 
     // ============================================
     // ========================================================
