@@ -13,6 +13,9 @@
  */
 
 import { FLOW, STAGES, BUTTON_ACTIONS, getStageHandler, isValidStage, DETERMINISTIC_STAGES } from '../flows/flowDefinition.js';
+import { enforceStageRules, parseUserEvent, enforceButtonRules } from '../core/stageEnforcer.js';
+import { createTurnLog, saveTurnLog } from '../core/turnLogger.js';
+import { buildApiResponse } from '../core/apiResponse.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -203,21 +206,76 @@ export async function orchestrateTurn({
         const imageResult = imageHandler({ imageAnalysis, session });
         if (imageResult && imageResult.nextStage) {
           console.log('[ORCHESTRATOR] Image changed flow to:', imageResult.nextStage);
-          return await buildResponse(session, imageResult, imageAnalysis);
+          const parsedEvent = parseUserEvent({ text: '', action: 'image' });
+          return await buildResponse(session, imageResult, imageAnalysis, null, parsedEvent, currentStage);
         }
       }
     }
     
     // ========================================
-    // 3. DETERMINAR TIPO DE ENTRADA
+    // 3. ENFORCE STAGE RULES (GUARDRAILS)
+    // ========================================
+    // ✅ FASE 1: Validar evento del usuario ANTES de cualquier procesamiento
+    const userInput = {
+      text: userMessage || '',
+      action: buttonToken ? 'button' : 'text',
+      value: buttonToken || null,
+      label: null  // Se puede agregar si viene del frontend
+    };
+
+    const enforcement = enforceStageRules(session, userInput);
+    
+    // Si hay violaciones críticas, retornar respuesta de rechazo
+    if (!enforcement.allowed) {
+      console.error('[ORCHESTRATOR] ❌ Stage enforcement blocked request:', {
+        stage: currentStage,
+        violations: enforcement.violations
+      });
+
+      // Crear turn log para la violación
+      const violationLog = createTurnLog({
+        sessionId: session.sid,
+        stageBefore: currentStage,
+        userEvent: enforcement.event,
+        bot: {
+          reply: enforcement.response.reply,
+          stageAfter: currentStage,
+          ok: false
+        },
+        buttonsShown: enforcement.response.buttons || [],
+        transitionReason: 'VIOLATION_BLOCKED',
+        violations: enforcement.violations
+      });
+      saveTurnLog(session, violationLog);
+
+      // Retornar respuesta de rechazo usando API Response
+      return buildApiResponse({
+        ok: true,  // ok:true porque el servidor respondió correctamente, aunque rechazó
+        sessionId: session.sid,
+        stage: currentStage,
+        reply: enforcement.response.reply,
+        buttons: enforcement.response.buttons || [],
+        extra: {
+          violations: enforcement.violations,
+          buttonTokenRejected: true,
+          updatedSession: session
+        }
+      });
+    }
+
+    // ✅ Evento parseado y validado, continuar con procesamiento
+    const parsedEvent = enforcement.event;
+
+    // ========================================
+    // 4. DETERMINAR TIPO DE ENTRADA
     // ========================================
     let flowResult = null;
     
-    // 3a. Botón presionado
-    if (buttonToken) {
-      console.log('[ORCHESTRATOR] Processing button:', buttonToken);
+    // 4a. Botón presionado
+    if (parsedEvent.type === 'button' && parsedEvent.token) {
+      console.log('[ORCHESTRATOR] Processing button:', parsedEvent.token);
       
-      // ✅ CRÍTICO: Validar token en stages determinísticos (defensa en profundidad)
+      // ✅ CRÍTICO: Validar token en stages determinísticos (defensa en profundidad adicional)
       // Esto previene que tokens inválidos se procesen incluso si el frontend los envía
       if (DETERMINISTIC_STAGES.includes(currentStage)) {
         const validTokensForStage = {
@@ -242,119 +300,30 @@ export async function orchestrateTurn({
         const shouldReject = validTokens.length === 0 || !validTokens.includes(buttonToken);
         
         if (shouldReject) {
-          // ✅ Token inválido en stage determinístico - rechazar y registrar en transcript
-          const locale = session.userLocale || 'es-AR';
-          const isEn = locale.toLowerCase().startsWith('en');
-          
-          console.error(`[ORCHESTRATOR] ❌ AUDITORÍA: Token inválido "${buttonToken}" en stage determinístico "${currentStage}" (SessionId: ${session.sid || 'unknown'})`);
-          if (validTokens.length === 0) {
-            console.error(`[ORCHESTRATOR] ❌ ${currentStage} NO acepta botones (solo texto)`);
-          } else {
-            console.error(`[ORCHESTRATOR] ❌ Tokens válidos para ${currentStage}:`, validTokens);
-          }
-          
-          // ✅ Registrar en transcript para auditoría (incluso si se rechaza)
-          if (!session.transcript) session.transcript = [];
-          session.transcript.push({
-            who: 'user',
-            text: `[BUTTON:${buttonToken}]`,
-            ts: new Date().toISOString(),
-            buttonToken: buttonToken,
-            rejected: true,
-            reason: `Invalid token for stage ${currentStage}`
-          });
-          
-          // Retornar respuesta con botones determinísticos correctos
-          const defaultButtons = {
-            [STAGES.ASK_LANGUAGE]: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
-            [STAGES.ASK_NAME]: [], // ✅ ASK_NAME NO debe tener botones
-            [STAGES.ASK_NEED]: [
-              'BTN_PROBLEMA', 
-              'BTN_CONSULTA',
-              'BTN_NO_ENCIENDE',
-              'BTN_NO_INTERNET',
-              'BTN_LENTITUD',
-              'BTN_BLOQUEO',
-              'BTN_PERIFERICOS',
-              'BTN_VIRUS'
-            ],
-            [STAGES.ASK_DEVICE]: ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK']
-          };
-          
-          const correctButtons = defaultButtons[currentStage] || [];
-          
-          // Mensaje específico para ASK_NAME (no acepta botones)
-          let rejectMessage = isEn 
-            ? 'Please select one of the available options.'
-            : 'Por favor seleccioná una de las opciones disponibles.';
-          
-          if (currentStage === STAGES.ASK_NAME) {
-            rejectMessage = isEn
-              ? 'Please type your name in the text field.'
-              : 'Por favor escribí tu nombre en el campo de texto.';
-          }
-          
-          return {
-            ok: true,
-            sid: session.sid,
-            reply: rejectMessage,
-            stage: currentStage,
-            options: [], // ✅ ASK_NAME siempre retorna [] incluso si se rechaza un token
-            ui: {
-              buttons: [], // ✅ ASK_NAME siempre retorna [] incluso si se rechaza un token
-              progressBar: calculateProgressBar(currentStage),
-              canUploadImages: false,
-              showTranscriptLink: false
-            },
-            allowWhatsapp: false,
-            endConversation: false,
-            updatedSession: session,
-            // ✅ Registrar que se rechazó un token inválido
-            buttonTokenRejected: true,
-            rejectedToken: buttonToken
-          };
+          // Esto no debería pasar si el Stage Enforcer funcionó correctamente,
+          // pero mantenemos esta validación adicional como última línea de defensa
+          console.error(`[ORCHESTRATOR] ❌ Double-check: Token inválido "${parsedEvent.token}" en stage determinístico "${currentStage}"`);
+          // El Stage Enforcer ya debería haber manejado esto, pero por seguridad retornamos aquí también
+          return enforcement.response;  // Reutilizar respuesta del enforcer
         }
       }
-      
-      // ✅ AUDITORÍA: Registrar buttonToken válido en transcript ANTES de procesar
-      // Esto permite rastrear todos los botones presionados en admin.php
-      if (!session.transcript) session.transcript = [];
-      session.transcript.push({
-        who: 'user',
-        text: `[BUTTON:${buttonToken}]`,
-        ts: new Date().toISOString(),
-        buttonToken: buttonToken,
-        stage: currentStage,
-        rejected: false
-      });
       
       const buttonHandler = getStageHandler(currentStage, 'onButton');
       
       if (buttonHandler) {
-        flowResult = buttonHandler({ token: buttonToken, session, smartAnalysis });
+        flowResult = buttonHandler({ token: parsedEvent.token, session, smartAnalysis });
       } else {
         console.warn('[ORCHESTRATOR] No button handler for stage:', currentStage);
         flowResult = { action: 'UNKNOWN_BUTTON', nextStage: currentStage };
       }
     }
     
-    // 3b. Texto del usuario
-    else if (userMessage) {
+    // 4b. Texto del usuario
+    else if (parsedEvent.type === 'text' && parsedEvent.normalized) {
       console.log('[ORCHESTRATOR] Processing text message');
       
-      // ✅ AUDITORÍA: Registrar texto del usuario en transcript ANTES de procesar
-      // Esto permite rastrear todos los inputs en admin.php
-      if (!session.transcript) session.transcript = [];
-      session.transcript.push({
-        who: 'user',
-        text: userMessage,
-        ts: new Date().toISOString(),
-        stage: currentStage,
-        inputType: 'text'
-      });
-      
       // APLICAR NORMALIZACIÓN CON NLP CONFIG
-      const normalizedMessage = normalizeTextWithConfig(userMessage);
+      const normalizedMessage = normalizeTextWithConfig(parsedEvent.normalized);
       if (normalizedMessage !== userMessage) {
         console.log('[ORCHESTRATOR] Text normalized:', userMessage, '=>', normalizedMessage);
       }
@@ -396,7 +365,7 @@ export async function orchestrateTurn({
     console.log('[ORCHESTRATOR] Flow result action:', flowResult?.action);
     console.log('[ORCHESTRATOR] Next stage:', flowResult?.nextStage);
     
-    return await buildResponse(session, flowResult, imageAnalysis, smartAnalysis);
+    return await buildResponse(session, flowResult, imageAnalysis, smartAnalysis, parsedEvent, enforcement.stageBefore);
     
   } catch (error) {
     console.error('[ORCHESTRATOR] Error in orchestrateTurn:', error);
@@ -411,9 +380,10 @@ export async function orchestrateTurn({
  * Construye el objeto de respuesta completo con todos los campos
  * que el frontend actual espera (formato legacy)
  */
-async function buildResponse(session, flowResult, imageAnalysis = null, smartAnalysis = null) {
+async function buildResponse(session, flowResult, imageAnalysis = null, smartAnalysis = null, userEvent = null, stageBefore = null) {
   const locale = session.userLocale || 'es-AR';
   const isEn = locale.toLowerCase().startsWith('en');
+  const stageBeforeFinal = stageBefore || session.stage;
   
   // ========================================
   // 1. DETERMINAR SIGUIENTE STAGE
@@ -449,20 +419,6 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
     console.log(`[ORCHESTRATOR] ✅ Problema frecuente guardado: "${flowResult.problem}"`);
   }
   
-  // ✅ AUDITORÍA: Registrar botones devueltos en transcript para admin.php
-  // Esto permite ver en admin.php qué botones vio el usuario
-  if (buttons && buttons.length > 0) {
-    if (!updatedSession.transcript) updatedSession.transcript = [];
-    const buttonTokens = buttons.map(b => b.token || b.value || b.text);
-    updatedSession.transcript.push({
-      who: 'system',
-      text: `[BUTTONS_SHOWN:${buttonTokens.join(',')}]`,
-      ts: new Date().toISOString(),
-      buttonsShown: buttonTokens,
-      stage: nextStage
-    });
-  }
-  
   // ========================================
   // 3. GENERAR REPLY
   // ========================================
@@ -493,6 +449,23 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   if (nextStage === STAGES.ASK_NAME) {
     buttons = [];
     console.log('[ORCHESTRATOR] ✅ HARD RULE: ASK_NAME - forzando buttons = [] (solo texto)');
+  }
+  
+  // ========================================
+  // 4.5. ENFORCE BUTTON RULES (validar contra contrato)
+  // ========================================
+  let buttonValidation = { valid: true, violations: [], buttons: buttons };
+  if (buttons && buttons.length > 0) {
+    buttonValidation = enforceButtonRules(nextStage, buttons);
+    if (!buttonValidation.valid) {
+      console.warn('[ORCHESTRATOR] ⚠️ Botones no cumplen contrato, usando botones validados:', {
+        stage: nextStage,
+        violations: buttonValidation.violations,
+        originalCount: buttons.length,
+        validatedCount: buttonValidation.buttons.length
+      });
+      buttons = buttonValidation.buttons;
+    }
   }
   
   // ========================================
@@ -552,12 +525,12 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
   };
   
   console.log('[ORCHESTRATOR] Response built successfully');
-  console.log('[ORCHESTRATOR] Stage transition:', session.stage, '→', nextStage);
+  console.log('[ORCHESTRATOR] Stage transition:', stageBeforeFinal, '→', nextStage);
   
   // ✅ VALIDACIÓN: Logs para verificar que no aparezcan botones incorrectos
   // Usa la fuente única de verdad: DETERMINISTIC_STAGES de flowDefinition.js
   if (DETERMINISTIC_STAGES.includes(nextStage)) {
-    const buttonTokens = buttons?.map(b => b.token) || [];
+    const buttonTokens = buttons?.map(b => b.token || b.value) || [];
     console.log(`[ORCHESTRATOR] ✅ VALIDACIÓN Stage determinístico "${nextStage}":`, {
       buttonsCount: buttons?.length || 0,
       buttonTokens: buttonTokens,
@@ -572,6 +545,47 @@ async function buildResponse(session, flowResult, imageAnalysis = null, smartAna
     if (invalidButtons.length > 0) {
       console.error(`[ORCHESTRATOR] ❌ ERROR: Botones de solución/diagnóstico en stage determinístico "${nextStage}":`, invalidButtons);
     }
+  }
+  
+  // ========================================
+  // 10. CREAR TURN LOG (observabilidad completa)
+  // ========================================
+  if (userEvent) {
+    const turnLog = createTurnLog({
+      sessionId: session.sid,
+      stageBefore: stageBeforeFinal,
+      userEvent: {
+        type: userEvent.type,
+        rawText: userEvent.raw || userEvent.rawText || null,
+        token: userEvent.token || null,
+        label: userEvent.label || null,
+        normalized: userEvent.normalized || userEvent.raw || null
+      },
+      nlp: smartAnalysis ? {
+        intent: smartAnalysis.intent || null,
+        confidence: smartAnalysis.confidence || null,
+        entities: smartAnalysis.entities || []
+      } : null,
+      bot: {
+        reply: response.reply,
+        stageAfter: nextStage,
+        ok: response.ok
+      },
+      buttonsShown: buttons.map((btn, idx) => ({
+        token: btn.token || btn.value || '',
+        label: btn.label || btn.text || '',
+        order: btn.order || idx + 1
+      })),
+      transitionReason: flowResult.action || 'STAGE_TRANSITION',
+      violations: buttonValidation.violations || [],
+      ui: {},  // Se puede agregar desde el frontend si está disponible
+      metadata: {
+        imageAnalysis: imageAnalysis ? 'present' : null,
+        hasSteps: !!response.steps
+      }
+    });
+    
+    saveTurnLog(updatedSession, turnLog);
   }
   
   return response;
