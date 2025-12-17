@@ -404,15 +404,18 @@ function sanitizeButtonsForStage(stage, incomingButtons = [], locale = 'es-AR') 
   const sanitized = [];
 
   function resolveLabel(token, providedLabel) {
-    // 1) Catálogo: siempre manda (evita que el usuario vea tokens o labels “de código”)
+    // 1) Catálogo: siempre manda (evita que el usuario vea tokens o labels "de código")
     const catalog = BUTTON_CATALOG[token];
     if (catalog && catalog.label) {
-      return catalog.label[locale] || catalog.label['es-AR'] || Object.values(catalog.label)[0] || token;
+      const catalogLabel = catalog.label[locale] || catalog.label['es-AR'] || Object.values(catalog.label)[0];
+      if (catalogLabel && catalogLabel !== token) {
+        return catalogLabel;
+      }
     }
 
     // 2) Defaults del contrato (por si hay tokens fuera del catálogo, ej: 'si'/'no')
     const fromContract = (contract.defaultButtons || []).find(b => b.token === token)?.label;
-    if (fromContract) {
+    if (fromContract && fromContract !== token) {
       return fromContract;
     }
 
@@ -423,7 +426,16 @@ function sanitizeButtonsForStage(stage, incomingButtons = [], locale = 'es-AR') 
       if (!looksLikeToken) return trimmed;
     }
 
-    return token;
+    // 4) Último recurso: si es un token conocido, intentar formatearlo de forma amigable
+    // Pero NUNCA devolver el token crudo si parece código
+    if (/^BTN_[A-Z0-9_]+$/.test(token)) {
+      console.warn(`[sanitizeButtonsForStage] ⚠️ Token sin label: ${token}, usando fallback`);
+      // Intentar extraer un nombre amigable del token
+      const friendlyName = token.replace(/^BTN_/, '').replace(/_/g, ' ').toLowerCase();
+      return friendlyName.charAt(0).toUpperCase() + friendlyName.slice(1);
+    }
+
+    return token; // Solo como último recurso absoluto
   }
 
   // Normalizar formatos entrantes
@@ -527,13 +539,19 @@ function mapButtonValueToToken(stage, buttonValue, locale = 'es-AR') {
 // Nota: algunos frontends muestran el texto del botón usando `value` (no `text`).
 // Para evitar que se vean tokens tipo "BTN_DEVICE_*", enviamos `value = label` y además incluimos `token`.
 function toLegacyButtons(buttons) {
-  return buttons.map(btn => ({
-    text: btn.label,
-    value: btn.label, // UI-friendly
-    token: btn.token, // machine-friendly (compat)
-    label: btn.label,
-    order: btn.order
-  }));
+  return buttons.map(btn => {
+    // Asegurar que siempre haya un label válido (no mostrar tokens al usuario)
+    const label = btn.label || btn.text || btn.value || btn.token || 'Opción';
+    const token = btn.token || btn.value || 'UNKNOWN';
+    
+    return {
+      text: label,
+      value: label, // UI-friendly - usar label para que el usuario vea texto, no tokens
+      token: token, // machine-friendly (compat)
+      label: label, // CRÍTICO: siempre debe tener label para que el frontend lo muestre
+      order: btn.order || 0
+    };
+  });
 }
 // ========================================================
 // EXPRESS APP
@@ -1836,6 +1854,11 @@ app.post('/api/chat', async (req, res) => {
     }
     
     const legacyButtons = toLegacyButtons(finalButtons);
+    
+    // Debug: ver qué botones se están enviando
+    if (legacyButtons.length > 0) {
+      console.log(`[CHAT] [${sessionId}] 🔍 Botones a enviar:`, JSON.stringify(legacyButtons, null, 2));
+    }
     
     turnLog.stage_after = result.stage;
     

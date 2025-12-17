@@ -90,9 +90,13 @@
     if (buttons && buttons.length > 0) {
       buttonsHTML = '<div class="sti-buttons">';
       buttons.forEach(btn => {
-        const label = btn.label || btn.text || btn.token || btn.value || 'Opción';
+        // Priorizar label, luego text, luego value, luego token
+        const label = btn.label || btn.text || btn.value || btn.token || 'Opción';
         const value = btn.value || btn.token || btn.text || label;
-        buttonsHTML += `<button class="sti-btn" onclick="window.stiChatSelectOption('${value}')">${label}</button>`;
+        // Escapar comillas para evitar problemas en onclick
+        const safeValue = String(value).replace(/'/g, "\\'");
+        const safeLabel = String(label).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        buttonsHTML += `<button class="sti-btn" onclick="window.stiChatSelectOption('${safeValue}')">${safeLabel}</button>`;
       });
       buttonsHTML += '</div>';
     }
