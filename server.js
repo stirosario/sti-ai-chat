@@ -869,11 +869,28 @@ async function handleAskNeedStage(session, userText, sessionId) {
     // Guardar la descripción del problema
     if (userText && userText.trim()) {
       session.problem_raw = userText.trim();
-      console.log(`[ASK_NEED] [${sessionId}] Texto recibido: "${userText.trim().substring(0, 50)}...", guardado en problem_raw, avanzando a procesar`);
+      console.log(`[ASK_NEED] [${sessionId}] ✅ Texto recibido: "${userText.trim().substring(0, 50)}...", guardado en problem_raw`);
+      console.log(`[ASK_NEED] [${sessionId}] 📝 Estado antes de análisis:`, {
+        problem_raw: session.problem_raw,
+        device_type: session.device_type,
+        intent: session.intent
+      });
       
       // Inmediatamente procesar validación (esto puede tomar tiempo con OpenAI)
       // handleAskProblemStage manejará el timeout y fallback
-      return await handleAskProblemStage(session, null, sessionId); // null porque ya está en problem_raw
+      const result = await handleAskProblemStage(session, null, sessionId); // null porque ya está en problem_raw
+      
+      // Verificar que el problema se haya guardado después del análisis
+      console.log(`[ASK_NEED] [${sessionId}] 📊 Estado después de análisis:`, {
+        problem_raw: session.problem_raw,
+        intent: session.intent,
+        problem_intent: session.problem_intent,
+        problem_confidence: session.problem_confidence,
+        problem_validated: session.problem_validated,
+        device_type: session.device_type
+      });
+      
+      return result;
     }
     
     // Si no hay texto, pedir descripción
@@ -1557,8 +1574,54 @@ El campo "reply" debe contener SOLO las instrucciones de diagnóstico en texto p
   } catch (err) {
     const isTimeout = err.message && err.message.includes('timeout');
     console.error(`[DIAGNOSTIC_STEP] [${sessionId}] ❌ Error IA${isTimeout ? ' (TIMEOUT)' : ''}:`, err.message);
+    console.error(`[DIAGNOSTIC_STEP] [${sessionId}] 📊 Estado de sesión en error:`, {
+      intent: intent,
+      problem_raw: problemRaw,
+      device_type: deviceType,
+      os: os,
+      user_level: userLevel
+    });
     
-    // Fallback seguro
+    // FALLBACK INTELIGENTE: Generar diagnóstico básico basado en el intent detectado
+    if (intent !== 'unknown' && problemRaw) {
+      console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 🔧 Generando fallback básico para intent: ${intent}`);
+      
+      let fallbackReply = '';
+      let fallbackButtons = [];
+      
+      if (intent === 'wont_turn_on') {
+        if (userLevel === 'basic') {
+          fallbackReply = isEn
+            ? `Let's check if your ${deviceType} is getting power:\n\n1. Look behind your ${deviceType} and find the power cable.\n2. Make sure it's plugged in firmly both to the ${deviceType} and the wall outlet.\n3. Check if there are any lights on the front of your ${deviceType}. If you see lights, that's a good sign.\n4. If there are no lights, try plugging another device (like a lamp) into the same outlet to see if it works.`
+            : `Revisemos si tu ${deviceType === 'desktop' ? 'PC' : deviceType} está recibiendo energía:\n\n1. Mirá detrás de tu ${deviceType === 'desktop' ? 'PC' : deviceType} y buscá el cable de alimentación.\n2. Asegurate de que esté bien conectado tanto a la ${deviceType === 'desktop' ? 'PC' : deviceType} como al enchufe de la pared.\n3. Fijate si hay alguna luz encendida en la parte frontal. Si hay luces, es una buena señal.\n4. Si no hay luces, probá enchufar otro aparato (como una lámpara) en la misma toma para ver si funciona.`;
+        } else {
+          fallbackReply = isEn
+            ? `Let's troubleshoot the power issue:\n\n1. Check the power cable connection at both ends (device and wall outlet).\n2. Verify the power supply switch (if present) is in the ON position.\n3. Test the outlet with another device.\n4. Check for any LED indicators on the device.`
+            : `Revisemos el problema de alimentación:\n\n1. Verificá la conexión del cable de alimentación en ambos extremos (dispositivo y enchufe).\n2. Verificá que el interruptor de la fuente (si tiene) esté en ON.\n3. Probá el enchufe con otro dispositivo.\n4. Verificá si hay indicadores LED en el dispositivo.`;
+        }
+        fallbackButtons = [
+          { token: 'BTN_PWR_NO_SIGNS', label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS']?.label?.[locale] || '🔌 No enciende nada', order: 1 },
+          { token: 'BTN_PWR_FANS', label: BUTTON_CATALOG['BTN_PWR_FANS']?.label?.[locale] || '💨 Enciende pero no arranca', order: 2 },
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE']?.label?.[locale] || '✅ Listo, ya lo probé', order: 3 }
+        ];
+      } else {
+        // Para otros intents, mensaje genérico pero útil
+        fallbackReply = isEn
+          ? `I understand you're having: ${problemRaw}\n\nLet me help you troubleshoot this. Can you provide more details about what's happening?`
+          : `Entiendo que tenés: ${problemRaw}\n\nDéjame ayudarte a solucionarlo. ¿Podés darme más detalles sobre qué está pasando?`;
+        fallbackButtons = [
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE']?.label?.[locale] || '✅ Listo', order: 1 },
+          { token: 'BTN_CONNECT_TECH', label: BUTTON_CATALOG['BTN_CONNECT_TECH']?.label?.[locale] || '👨‍💻 Hablar con técnico', order: 2 }
+        ];
+      }
+      
+      return {
+        reply: fallbackReply,
+        buttons: fallbackButtons.filter(btn => btn.token && btn.label)
+      };
+    }
+    
+    // Fallback final si no hay información suficiente
     return {
       reply: isEn
         ? 'I understand your problem. Unfortunately, I\'m having trouble generating diagnostic steps right now. I recommend talking to a technician.'
