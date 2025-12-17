@@ -931,20 +931,48 @@ async function handleAskProblemStage(session, userText, sessionId) {
       const systemPrompt = isEn
         ? `You are an IT support assistant. Analyze the user's problem description and return a JSON object with:
 - valid: boolean (is this a valid technical problem?)
-- intent: string (canonical intent like "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "virus", "general_question", etc.)
-- missing_device: boolean (does the description lack device type info?)
+- intent: string (canonical intent. MUST be one of: "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "keyboard_issue", "mouse_issue", "display_issue", "software_issue", "browser_issue", "virus", "general_question", "other")
+- missing_device: boolean (does the description lack device type info like desktop/notebook/allinone?)
 - missing_os: boolean (does the description lack OS info? optional, only if really needed)
 - needs_clarification: boolean (does the problem need more details?)
+- confidence: string (one of: "high", "medium", "low" - how confident are you in the intent classification?)
 
-Return ONLY valid JSON, no other text.`
+IMPORTANT:
+- "wont_turn_on" = device won't power on
+- "no_internet" = connectivity/network issues
+- "keyboard_issue" = keyboard not working
+- "mouse_issue" = mouse/trackpad not working
+- "display_issue" = screen/monitor problems
+- "software_issue" = application/program problems (e.g., "chrome no abre" = software_issue)
+- "browser_issue" = web browser specific problems
+- "slow" = performance issues
+- "freezes" = system freezing/hanging
+- "peripherals" = external devices (printers, scanners, etc.)
+- "virus" = malware/virus concerns
+
+Return ONLY valid JSON, no other text. Example: {"valid": true, "intent": "wont_turn_on", "missing_device": true, "missing_os": false, "needs_clarification": false, "confidence": "high"}`
         : `Sos un asistente de soporte técnico. Analizá la descripción del problema del usuario y devolvé un objeto JSON con:
 - valid: boolean (¿es un problema técnico válido?)
-- intent: string (intent canónico como "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "virus", "general_question", etc.)
-- missing_device: boolean (¿falta información del tipo de dispositivo?)
+- intent: string (intent canónico. DEBE ser uno de: "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "keyboard_issue", "mouse_issue", "display_issue", "software_issue", "browser_issue", "virus", "general_question", "other")
+- missing_device: boolean (¿falta información del tipo de dispositivo como desktop/notebook/allinone?)
 - missing_os: boolean (¿falta información del sistema operativo? opcional, solo si realmente se necesita)
 - needs_clarification: boolean (¿el problema necesita más detalles?)
+- confidence: string (uno de: "high", "medium", "low" - qué tan seguro estás de la clasificación del intent)
 
-Devolvé SOLO JSON válido, sin otro texto.`;
+IMPORTANTE:
+- "wont_turn_on" = el equipo no enciende
+- "no_internet" = problemas de conectividad/red
+- "keyboard_issue" = el teclado no funciona
+- "mouse_issue" = el mouse/trackpad no funciona
+- "display_issue" = problemas de pantalla/monitor
+- "software_issue" = problemas con aplicaciones/programas (ej: "chrome no abre" = software_issue)
+- "browser_issue" = problemas específicos del navegador web
+- "slow" = problemas de rendimiento
+- "freezes" = el sistema se congela
+- "peripherals" = dispositivos externos (impresoras, scanners, etc.)
+- "virus" = preocupaciones de malware/virus
+
+Devolvé SOLO JSON válido, sin otro texto. Ejemplo: {"valid": true, "intent": "wont_turn_on", "missing_device": true, "missing_os": false, "needs_clarification": false, "confidence": "high"}`;
       
       const openaiPromise = openai.chat.completions.create({
         model: OPENAI_MODEL,
@@ -956,30 +984,72 @@ Devolvé SOLO JSON válido, sin otro texto.`;
         max_tokens: 200
       });
       
-      console.log(`[ASK_PROBLEM] [${sessionId}] Llamando a OpenAI con timeout 12s`);
+      console.log(`[ASK_PROBLEM] [${sessionId}] 🔍 Llamando a OpenAI con timeout 12s`);
+      console.log(`[ASK_PROBLEM] [${sessionId}] 📝 Texto a analizar: "${problemText}"`);
+      
       const completion = await withTimeout(openaiPromise, 12000, 'OpenAI timeout');
       
       const analysisText = completion.choices[0]?.message?.content || '{}';
+      console.log(`[ASK_PROBLEM] [${sessionId}] 📥 Respuesta cruda de OpenAI:`, analysisText);
+      
       let analysis;
       try {
-        analysis = JSON.parse(analysisText.trim());
+        // Limpiar respuesta de OpenAI (puede venir con markdown o texto adicional)
+        let cleanText = analysisText.trim();
+        // Remover markdown code blocks si existen
+        cleanText = cleanText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+        // Buscar el primer objeto JSON válido
+        const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          cleanText = jsonMatch[0];
+        }
+        analysis = JSON.parse(cleanText);
       } catch (parseErr) {
-        console.error(`[ASK_PROBLEM] [${sessionId}] Error parseando JSON de OpenAI:`, parseErr);
-        analysis = { missing_device: true }; // Fallback seguro
+        console.error(`[ASK_PROBLEM] [${sessionId}] ❌ Error parseando JSON de OpenAI:`, parseErr);
+        console.error(`[ASK_PROBLEM] [${sessionId}] 📄 Texto que falló:`, analysisText);
+        throw new Error(`OpenAI response parsing failed: ${parseErr.message}`);
       }
       
+      // VALIDACIÓN CRÍTICA: Verificar que el análisis sea válido
+      if (!analysis || typeof analysis !== 'object') {
+        throw new Error('OpenAI returned invalid analysis object');
+      }
+      
+      // Validar que el intent sea válido
+      const validIntents = ['wont_turn_on', 'no_internet', 'slow', 'freezes', 'peripherals', 'keyboard_issue', 'mouse_issue', 'display_issue', 'software_issue', 'browser_issue', 'virus', 'general_question', 'other'];
+      const detectedIntent = analysis.intent || 'unknown';
+      const isValidIntent = validIntents.includes(detectedIntent);
+      
+      if (!isValidIntent && detectedIntent !== 'unknown') {
+        console.warn(`[ASK_PROBLEM] [${sessionId}] ⚠️ Intent no válido detectado: "${detectedIntent}", usando "other"`);
+        analysis.intent = 'other';
+      }
+      
+      // PERSISTIR RESULTADO DEL ANÁLISIS EN LA SESIÓN
       session.problem_validated = true;
-      session.intent = analysis.intent || 'unknown'; // Guardar como intent (usado por DIAGNOSTIC_STEP)
+      session.intent = analysis.intent || 'unknown';
       session.problem_intent = analysis.intent || 'unknown'; // Mantener por compatibilidad
       session.problem_needs_clarification = analysis.needs_clarification || false;
+      session.problem_confidence = analysis.confidence || 'medium';
+      session.problem_analysis_timestamp = nowIso();
       
       // Resetear diagnostic cuando hay un problema nuevo
       session.diagnostic = null;
       
-      console.log(`[ASK_PROBLEM] [${sessionId}] Análisis recibido:`, {
+      // LOGS DETALLADOS PARA DEBUG
+      console.log(`[ASK_PROBLEM] [${sessionId}] ✅ Análisis completado:`, {
         intent: analysis.intent,
+        confidence: analysis.confidence || 'medium',
+        valid: analysis.valid,
         missing_device: analysis.missing_device,
-        missing_os: analysis.missing_os
+        missing_os: analysis.missing_os,
+        needs_clarification: analysis.needs_clarification
+      });
+      console.log(`[ASK_PROBLEM] [${sessionId}] 💾 Estado de sesión actualizado:`, {
+        problem_raw: session.problem_raw,
+        intent: session.intent,
+        problem_intent: session.problem_intent,
+        problem_confidence: session.problem_confidence
       });
       
       // Si falta dispositivo, ir a ASK_DEVICE
@@ -1032,24 +1102,89 @@ Devolvé SOLO JSON válido, sin otro texto.`;
       
     } catch (err) {
       const isTimeout = err.message && err.message.includes('timeout');
-      console.error(`[ASK_PROBLEM] [${sessionId}] Error OpenAI${isTimeout ? ' (TIMEOUT)' : ''}:`, err.message);
+      const isParseError = err.message && err.message.includes('parsing');
       
-      // Fallback seguro: pedir dispositivo directamente
+      console.error(`[ASK_PROBLEM] [${sessionId}] ❌ Error OpenAI${isTimeout ? ' (TIMEOUT)' : isParseError ? ' (PARSE ERROR)' : ''}:`, err.message);
+      console.error(`[ASK_PROBLEM] [${sessionId}] 📝 Texto que causó el error: "${problemText}"`);
+      
+      // FALLBACK EXPLÍCITO Y TRAZABLE: Intentar análisis heurístico básico
+      let fallbackIntent = 'unknown';
+      let fallbackMissingDevice = true;
+      
+      const textLower = problemText.toLowerCase();
+      
+      // Heurísticas básicas para detectar intent sin IA
+      if (textLower.includes('no enciende') || textLower.includes('no prende') || textLower.includes('no arranca')) {
+        fallbackIntent = 'wont_turn_on';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "wont_turn_on"`);
+      } else if (textLower.includes('internet') || textLower.includes('conexión') || textLower.includes('wifi') || textLower.includes('red')) {
+        fallbackIntent = 'no_internet';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "no_internet"`);
+      } else if (textLower.includes('teclado') || textLower.includes('keyboard')) {
+        fallbackIntent = 'keyboard_issue';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "keyboard_issue"`);
+      } else if (textLower.includes('mouse') || textLower.includes('ratón')) {
+        fallbackIntent = 'mouse_issue';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "mouse_issue"`);
+      } else if (textLower.includes('lento') || textLower.includes('slow')) {
+        fallbackIntent = 'slow';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "slow"`);
+      } else if (textLower.includes('se congela') || textLower.includes('freeze') || textLower.includes('cuelga')) {
+        fallbackIntent = 'freezes';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "freezes"`);
+      } else if (textLower.includes('chrome') || textLower.includes('navegador') || textLower.includes('browser') || textLower.includes('no abre')) {
+        fallbackIntent = 'software_issue';
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback heurístico: detectado "software_issue"`);
+      }
+      
+      // Detectar dispositivo en el texto
+      if (textLower.includes('notebook') || textLower.includes('laptop') || textLower.includes('portátil')) {
+        session.device_type = 'notebook';
+        fallbackMissingDevice = false;
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback: dispositivo inferido: notebook`);
+      } else if (textLower.includes('desktop') || textLower.includes('escritorio') || textLower.includes('pc de escritorio')) {
+        session.device_type = 'desktop';
+        fallbackMissingDevice = false;
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback: dispositivo inferido: desktop`);
+      } else if (textLower.includes('all in one') || textLower.includes('all-in-one')) {
+        session.device_type = 'allinone';
+        fallbackMissingDevice = false;
+        console.log(`[ASK_PROBLEM] [${sessionId}] 🔧 Fallback: dispositivo inferido: allinone`);
+      }
+      
+      // PERSISTIR RESULTADO DEL FALLBACK
       session.problem_validated = true;
-      session.intent = 'unknown'; // Guardar como intent
-      session.problem_intent = 'unknown'; // Mantener por compatibilidad
+      session.intent = fallbackIntent;
+      session.problem_intent = fallbackIntent;
+      session.problem_confidence = 'low'; // Baja confianza porque es fallback
       session.openai_failed = true;
-      // Resetear diagnostic cuando hay un problema nuevo
+      session.problem_analysis_timestamp = nowIso();
       session.diagnostic = null;
-      const contract = getStageContract('ASK_DEVICE');
-      console.log(`[ASK_PROBLEM] [${sessionId}] Usando fallback: avanzando a ASK_DEVICE`);
-      return {
-        reply: isEn
-          ? 'I understand. To continue, please tell me what type of device you are using.'
-          : 'Entiendo. Para seguir, decime qué tipo de equipo es.',
-        stage: 'ASK_DEVICE',
-        buttons: contract.defaultButtons
-      };
+      
+      console.log(`[ASK_PROBLEM] [${sessionId}] ⚠️ FALLBACK ACTIVADO - Estado guardado:`, {
+        problem_raw: session.problem_raw,
+        intent: session.intent,
+        problem_confidence: session.problem_confidence,
+        openai_failed: session.openai_failed
+      });
+      
+      // Continuar con el flujo según lo detectado
+      if (fallbackMissingDevice) {
+        const contract = getStageContract('ASK_DEVICE');
+        console.log(`[ASK_PROBLEM] [${sessionId}] ➡️ Fallback: avanzando a ASK_DEVICE`);
+        return {
+          reply: isEn
+            ? `I understand you're having: ${problemText}\n\nWhat type of device are you using?`
+            : `Entiendo que tenés: ${problemText}\n\n¿Qué tipo de dispositivo estás usando?`,
+          stage: 'ASK_DEVICE',
+          buttons: contract.defaultButtons
+        };
+      } else {
+        // Tenemos dispositivo, avanzar a diagnóstico
+        console.log(`[ASK_PROBLEM] [${sessionId}] ➡️ Fallback: dispositivo detectado, avanzando a DIAGNOSTIC_STEP`);
+        const diagnosticResult = await handleDiagnosticStepStage(session, '', null, sessionId);
+        return diagnosticResult;
+      }
     }
   } else {
     // Sin OpenAI: pedir dispositivo directamente
@@ -1184,8 +1319,27 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
   const locale = session.userLocale || 'es-AR';
   const isEn = locale.startsWith('en');
   const userLevel = session.userLevel || 'intermediate';
-  const intent = session.intent || 'unknown';
+  
+  // VALIDACIÓN CRÍTICA: Verificar que el intent esté registrado
+  const intent = session.intent || session.problem_intent || 'unknown';
+  
+  // Si el intent es unknown y tenemos problem_raw, intentar analizar de nuevo
+  if (intent === 'unknown' && session.problem_raw && !session.openai_failed) {
+    console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Intent es 'unknown' pero tenemos problem_raw, reintentando análisis...`);
+    // No reintentar aquí para evitar loops, pero loguear el problema
+    console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Problema detectado pero no clasificado: "${session.problem_raw}"`);
+  }
+  
   const deviceType = session.device_type || 'unknown';
+  
+  // Log del estado actual para debugging
+  console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 📊 Estado de sesión:`, {
+    intent: intent,
+    problem_raw: session.problem_raw,
+    device_type: deviceType,
+    problem_validated: session.problem_validated,
+    problem_confidence: session.problem_confidence
+  });
   
   // GATE: No permitir DIAGNOSTIC_STEP sin device_type válido
   if (!session.device_type || session.device_type === 'unknown') {
@@ -1529,11 +1683,34 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     }
   }
   
-  // Fallback para otros intents/device_types/user_levels (por ahora)
+  // Fallback para otros intents/device_types/user_levels
+  // IMPORTANTE: Asegurar que el problema esté registrado antes de derivar a técnico
+  if (!session.problem_raw || !session.intent || session.intent === 'unknown') {
+    console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Derivando a técnico sin problema registrado`);
+  }
+  
+  // Mensaje según el tipo de problema detectado
+  let replyMessage = '';
+  if (intent === 'software_issue' || intent === 'browser_issue') {
+    replyMessage = isEn
+      ? `I understand you're having a software issue. I'm working on expanding diagnostic support for this type of problem. For now, I recommend talking to a technician who can help you with software troubleshooting.`
+      : `Entiendo que tenés un problema de software. Estoy trabajando en expandir el soporte de diagnóstico para este tipo de problema. Por ahora, te recomiendo hablar con un técnico que pueda ayudarte con la solución de problemas de software.`;
+  } else if (intent === 'keyboard_issue' || intent === 'mouse_issue' || intent === 'peripherals') {
+    replyMessage = isEn
+      ? `I understand you're having an issue with a peripheral device. Let me help you troubleshoot this. First, try disconnecting and reconnecting the device. If the problem persists, I recommend talking to a technician.`
+      : `Entiendo que tenés un problema con un dispositivo periférico. Déjame ayudarte a solucionarlo. Primero, probá desconectar y volver a conectar el dispositivo. Si el problema persiste, te recomiendo hablar con un técnico.`;
+  } else if (intent === 'no_internet') {
+    replyMessage = isEn
+      ? `I understand you're having connectivity issues. I'm working on expanding diagnostic support for network problems. For now, I recommend talking to a technician who can help you troubleshoot your internet connection.`
+      : `Entiendo que tenés problemas de conectividad. Estoy trabajando en expandir el soporte de diagnóstico para problemas de red. Por ahora, te recomiendo hablar con un técnico que pueda ayudarte a solucionar tu conexión a internet.`;
+  } else {
+    replyMessage = isEn
+      ? `I'm working on expanding diagnostic support for this type of problem. For now, I recommend talking to a technician.`
+      : `Estoy trabajando en expandir el soporte de diagnóstico para este tipo de problema. Por ahora, te recomiendo hablar con un técnico.`;
+  }
+  
   return {
-    reply: isEn
-      ? 'I\'m working on expanding diagnostic support for this type of problem. For now, I recommend talking to a technician.'
-      : 'Estoy trabajando en expandir el soporte de diagnóstico para este tipo de problema. Por ahora, te recomiendo hablar con un técnico.',
+    reply: replyMessage,
     stage: 'DIAGNOSTIC_STEP',
     buttons: [
       { token: 'BTN_CONNECT_TECH', label: BUTTON_CATALOG['BTN_CONNECT_TECH'].label[locale], order: 1 }
@@ -1889,12 +2066,32 @@ app.post('/api/chat', async (req, res) => {
         result: session.feedback || 'unknown',
         feedback_reason: session.feedback_reason || null,
         problem: session.problem_raw || null,
+        problem_intent: session.intent || session.problem_intent || 'unknown', // CRÍTICO: Intent detectado
+        problem_confidence: session.problem_confidence || 'unknown',
+        problem_validated: session.problem_validated || false,
+        openai_failed: session.openai_failed || false,
         device_type: session.device_type || null,
         os: session.os || null,
         user_level: session.userLevel || null,
         diagnostic_steps_count: getExecutedDiagnosticSteps(loadConversationHistory(sessionId)).length,
-        ended_at: nowIso()
+        ended_at: nowIso(),
+        problem_analysis_timestamp: session.problem_analysis_timestamp || null
       };
+      
+      // VALIDACIÓN FINAL: Verificar que el problema esté registrado
+      if (!session.problem_raw || !session.intent || session.intent === 'unknown') {
+        console.warn(`[CHAT] [${sessionId}] ⚠️ CONVERSACIÓN FINALIZADA SIN PROBLEMA REGISTRADO:`, {
+          problem_raw: session.problem_raw,
+          intent: session.intent,
+          problem_validated: session.problem_validated
+        });
+      } else {
+        console.log(`[CHAT] [${sessionId}] ✅ CONVERSACIÓN FINALIZADA CON PROBLEMA REGISTRADO:`, {
+          problem_raw: session.problem_raw,
+          intent: session.intent,
+          confidence: session.problem_confidence
+        });
+      }
     }
     
     // Guardar turno en conversación
