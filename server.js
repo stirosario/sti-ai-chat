@@ -1734,47 +1734,6 @@ async function handleFeedbackReasonStage(session, userText, buttonToken) {
   };
 }
 
-// Handler para motivo del feedback negativo
-async function handleFeedbackReasonStage(session, userText, buttonToken) {
-  const locale = session.userLocale || 'es-AR';
-  const isEn = locale.startsWith('en');
-  
-  let reason = null;
-  
-  if (buttonToken === 'BTN_REASON_NOT_RESOLVED') {
-    reason = 'not_resolved';
-  } else if (buttonToken === 'BTN_REASON_HARD_TO_UNDERSTAND') {
-    reason = 'hard_to_understand';
-  } else if (buttonToken === 'BTN_REASON_TOO_MANY_STEPS') {
-    reason = 'too_many_steps';
-  } else if (buttonToken === 'BTN_REASON_WANTED_TECH') {
-    reason = 'wanted_tech';
-  } else if (buttonToken === 'BTN_REASON_OTHER') {
-    reason = 'other';
-  }
-  
-  if (reason) {
-    session.feedback = 'negative';
-    session.feedback_reason = reason;
-    // Cerrar chat con resultado negativo
-    return {
-      reply: isEn
-        ? 'Thanks for telling me. This helps me improve for next time. Have a great day!'
-        : 'Gracias por decírmelo.\n\nEsto me ayuda a mejorar para la próxima.\n\n¡Que tengas un buen día!',
-      stage: 'ENDED',
-      buttons: []
-    };
-  }
-  
-  // Retry
-  const contract = getStageContract('FEEDBACK_REASON');
-  return {
-    reply: contract.prompt[locale] || contract.prompt['es-AR'],
-    stage: 'FEEDBACK_REASON',
-    buttons: contract.defaultButtons
-  };
-}
-
 // ========================================================
 // ENDPOINTS
 // ========================================================
