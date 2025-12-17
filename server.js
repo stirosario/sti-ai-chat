@@ -264,13 +264,13 @@ const STAGE_CONTRACT = {
     allowButtons: true,
     allowedTokens: ['BTN_DEVICE_DESKTOP', 'BTN_DEVICE_NOTEBOOK', 'BTN_DEVICE_ALLINONE'],
     defaultButtons: [
-      { token: 'BTN_DEVICE_DESKTOP', label: '🖥️ PC de escritorio', order: 1 },
-      { token: 'BTN_DEVICE_NOTEBOOK', label: '💻 Notebook', order: 2 },
-      { token: 'BTN_DEVICE_ALLINONE', label: '🧩 All in One', order: 3 }
+      { token: 'BTN_DEVICE_DESKTOP', label: 'PC de escritorio', order: 1 },
+      { token: 'BTN_DEVICE_NOTEBOOK', label: 'Notebook', order: 2 },
+      { token: 'BTN_DEVICE_ALLINONE', label: 'All In One', order: 3 }
     ],
     prompt: {
-      'es-AR': 'Bien, para seguir necesito saber una cosa más.\n\n¿Qué tipo de equipo estás usando?',
-      'en-US': 'Good, I need to know one more thing to continue.\n\nWhat type of device are you using?'
+      'es-AR': '¿Qué tipo de dispositivo estás usando?',
+      'en-US': 'What type of device are you using?'
     }
   },
   ASK_OS: {
@@ -353,7 +353,7 @@ const BUTTON_CATALOG = {
   'BTN_BLOQUEO': { label: { 'es-AR': 'Bloqueos', 'en-US': 'Freezes' }, deprecated: true },
   'BTN_PERIFERICOS': { label: { 'es-AR': 'Periféricos', 'en-US': 'Peripherals' }, deprecated: true },
   'BTN_VIRUS': { label: { 'es-AR': 'Virus o malware', 'en-US': 'Virus or malware' }, deprecated: true },
-  'BTN_SOLVED': { label: { 'es-AR': '🎉 Sí, ya funciona', 'en-US': '🎉 Yes, it works now' } },
+  'BTN_SOLVED': { label: { 'es-AR': 'Listo, se arregló', 'en-US': 'Done, it\'s fixed' } },
   'BTN_PERSIST': { label: { 'es-AR': 'Sigue igual', 'en-US': 'Still the same' } },
   'BTN_ADVANCED_TESTS': { label: { 'es-AR': 'Pruebas avanzadas', 'en-US': 'Advanced tests' } },
   'BTN_CONNECT_TECH': { label: { 'es-AR': 'Hablar con técnico', 'en-US': 'Talk to technician' } },
@@ -376,14 +376,14 @@ const BUTTON_CATALOG = {
   'BTN_REASON_WANTED_TECH': { label: { 'es-AR': 'Prefería hablar con un técnico', 'en-US': 'Wanted to talk to a technician' } },
   'BTN_REASON_OTHER': { label: { 'es-AR': 'Otro motivo', 'en-US': 'Other reason' } },
   // Botones para diagnóstico de encendido (wont_turn_on)
-  'BTN_PWR_NO_SIGNS': { label: { 'es-AR': '🔌 No enciende nada', 'en-US': '🔌 Nothing happens' } },
-  'BTN_PWR_FANS': { label: { 'es-AR': '💡 Prenden luces o gira el ventilador', 'en-US': '💡 Lights turn on or fan spins' } },
-  'BTN_PWR_BEEPS': { label: { 'es-AR': '🔊 Escucho pitidos', 'en-US': '🔊 I hear beeps' } },
-  'BTN_PWR_ON_OFF': { label: { 'es-AR': '🔄 Enciende y se apaga enseguida', 'en-US': '🔄 Turns on and off immediately' } },
+  'BTN_PWR_NO_SIGNS': { label: { 'es-AR': 'No enciende nada (sin luces ni ventilador)', 'en-US': 'Nothing happens (no lights or fan)' } },
+  'BTN_PWR_FANS': { label: { 'es-AR': 'Prenden luces o gira el ventilador', 'en-US': 'Lights turn on or fan spins' } },
+  'BTN_PWR_BEEPS': { label: { 'es-AR': 'Escucho pitidos (beeps)', 'en-US': 'I hear beeps' } },
+  'BTN_PWR_ON_OFF': { label: { 'es-AR': 'Enciende y se apaga enseguida', 'en-US': 'Turns on and off immediately' } },
   // Botones para pasos de diagnóstico
-  'BTN_STEP_DONE': { label: { 'es-AR': '✅ Listo, ya lo probé', 'en-US': '✅ Done, I tried this' } },
-  'BTN_STEP_STILL': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same, nothing changed' } },
-  'BTN_STEP_HELP': { label: { 'es-AR': '🙋 Prefiero que me ayude un técnico', 'en-US': "🙋 I'd rather have a technician help me" } }
+  'BTN_STEP_DONE': { label: { 'es-AR': 'Listo, probé esto', 'en-US': 'Done, I tried this' } },
+  'BTN_STEP_STILL': { label: { 'es-AR': 'Sigue igual', 'en-US': 'Still the same' } },
+  'BTN_STEP_HELP': { label: { 'es-AR': 'No puedo hacerlo / necesito ayuda', 'en-US': "I can't do this / I need help" } }
 };
 
 function getStageContract(stage) {
@@ -1119,7 +1119,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     return {
       reply: isEn
         ? 'Great! I\'m glad it worked. Did this help you?'
-        : '¡Genial! Me alegra que haya funcionado.\n\n¿Te sirvió esta ayuda?',
+        : '¡Genial! Me alegra que haya funcionado. ¿Te sirvió esta ayuda?',
       stage: 'FEEDBACK_REQUIRED',
       buttons: contract.defaultButtons
     };
@@ -1138,8 +1138,8 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
       
       return {
         reply: isEn
-          ? 'Thanks for the info.\n\nLet\'s go step by step, take it easy 😊\n\nWhen you press the power button, what does the device do?'
-          : 'Gracias por la info.\n\nVamos paso a paso, tranquilo/a 😊\n\nCuando apretás el botón de encendido, ¿qué hace el equipo?',
+          ? 'When you press the power button, what happens?'
+          : 'Cuando apretás el botón de encendido, ¿qué pasa?',
         stage: 'DIAGNOSTIC_STEP',
         buttons
       };
@@ -1175,8 +1175,8 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
         } else {
           // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
           reply = isEn
-            ? 'Good, there\'s some power.\n\nLet\'s try some simple and safe things first:\n\n1️⃣ Check if the monitor is on\n2️⃣ Check that the cable is properly connected\n3️⃣ Make sure the monitor is on the correct input'
-            : 'Bien, hay señales de energía.\n\nProbemos primero algunas cosas simples y seguras:\n\n1️⃣ Verificá que el monitor esté encendido\n2️⃣ Revisá que el cable esté bien conectado\n3️⃣ Asegurate de que el monitor esté en la entrada correcta';
+            ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Try disconnecting and reconnecting all external cables (HDMI, DisplayPort, VGA).\n3. Check if the monitor is set to the correct input source.'
+            : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Probá desconectar y volver a conectar todos los cables externos (HDMI, DisplayPort, VGA).\n3. Verificá que el monitor esté en la entrada correcta.';
         }
         
         buttons = [
@@ -1215,13 +1215,13 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
         // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
         return {
           reply: isEn
-            ? 'Thanks for trying 👍\n\nDid that solve the problem?'
-            : 'Gracias por probar 👍\n\n¿Eso solucionó el problema?',
+            ? 'Did this solve the problem?'
+            : '¿Esto resolvió el problema?',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_SOLVED', text: '🎉 Sí, ya funciona', label: '🎉 Sí, ya funciona', order: 1 },
-            { token: 'BTN_PERSIST', text: '❌ No, sigue igual', label: '❌ No, sigue igual', order: 2 },
-            { token: 'BTN_STEP_HELP', text: '🙋 Necesito ayuda', label: '🙋 Necesito ayuda', order: 3 }
+            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_PERSIST') {
@@ -1233,8 +1233,8 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           const contract = getStageContract('FEEDBACK_REQUIRED');
           return {
             reply: isEn
-              ? 'You\'ve done everything you can without complicating things.\n\nThe best thing now is for a technician to review it with you to continue safely.\n\nWas the help up to this point useful?'
-              : 'Hasta acá hiciste todo lo que se puede sin complicarte.\n\nLo mejor ahora es que un técnico lo revise con vos para seguir sin riesgos.\n\n¿Te sirvió la ayuda hasta acá?',
+              ? 'I understand the problem persists. I recommend talking to a technician for a more detailed diagnosis. Was this session helpful?'
+              : 'Entiendo que el problema persiste. Te recomiendo hablar con un técnico para un diagnóstico más detallado. ¿Te sirvió esta ayuda?',
             stage: 'FEEDBACK_REQUIRED',
             buttons: contract.defaultButtons
           };
@@ -1292,8 +1292,8 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
       
       return {
         reply: isEn
-          ? 'Thanks for the info.\n\nLet\'s go step by step, take it easy 😊\n\nWhen you press the power button, what does the device do?'
-          : 'Gracias por la info.\n\nVamos paso a paso, tranquilo/a 😊\n\nCuando apretás el botón de encendido, ¿qué hace el equipo?',
+          ? 'When you press the power button, what happens?'
+          : 'Cuando apretás el botón de encendido, ¿qué pasa?',
         stage: 'DIAGNOSTIC_STEP',
         buttons
       };
@@ -1361,13 +1361,13 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
         // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
         return {
           reply: isEn
-            ? 'Thanks for trying 👍\n\nDid that solve the problem?'
-            : 'Gracias por probar 👍\n\n¿Eso solucionó el problema?',
+            ? 'Did this solve the problem?'
+            : '¿Esto resolvió el problema?',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_SOLVED', text: '🎉 Sí, ya funciona', label: '🎉 Sí, ya funciona', order: 1 },
-            { token: 'BTN_PERSIST', text: '❌ No, sigue igual', label: '❌ No, sigue igual', order: 2 },
-            { token: 'BTN_STEP_HELP', text: '🙋 Necesito ayuda', label: '🙋 Necesito ayuda', order: 3 }
+            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_PERSIST') {
@@ -1379,8 +1379,8 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           const contract = getStageContract('FEEDBACK_REQUIRED');
           return {
             reply: isEn
-              ? 'You\'ve done everything you can without complicating things.\n\nThe best thing now is for a technician to review it with you to continue safely.\n\nWas the help up to this point useful?'
-              : 'Hasta acá hiciste todo lo que se puede sin complicarte.\n\nLo mejor ahora es que un técnico lo revise con vos para seguir sin riesgos.\n\n¿Te sirvió la ayuda hasta acá?',
+              ? 'I understand the problem persists. I recommend talking to a technician for a more detailed diagnosis. Was this session helpful?'
+              : 'Entiendo que el problema persiste. Te recomiendo hablar con un técnico para un diagnóstico más detallado. ¿Te sirvió esta ayuda?',
             stage: 'FEEDBACK_REQUIRED',
             buttons: contract.defaultButtons
           };
@@ -1448,8 +1448,8 @@ async function handleFeedbackRequiredStage(session, userText, buttonToken) {
     // Cerrar chat con resultado positivo
     return {
       reply: isEn
-        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I\'ll be here.'
-        : '¡Gracias por confiar en STI! 🙌\n\nSi necesitás ayuda más adelante, acá voy a estar.',
+        ? 'Thank you! Have a great day!'
+        : '¡Gracias! ¡Que tengas un buen día!',
       stage: 'ENDED',
       buttons: []
     };
@@ -1499,8 +1499,8 @@ async function handleFeedbackReasonStage(session, userText, buttonToken) {
     // Cerrar chat con resultado negativo
     return {
       reply: isEn
-        ? 'Thanks for telling me.\n\nThis helps me improve for next time.\n\nHave a great day!'
-        : 'Gracias por decírmelo.\n\nEsto me ayuda a mejorar para la próxima.\n\n¡Que tengas un buen día!',
+        ? 'Thank you for your feedback. I\'ll work on improving. Have a great day!'
+        : 'Gracias por tu feedback. Voy a trabajar en mejorar. ¡Que tengas un buen día!',
       stage: 'ENDED',
       buttons: []
     };
