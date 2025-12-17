@@ -464,16 +464,77 @@ function sanitizeButtonsForStage(stage, incomingButtons = [], locale = 'es-AR') 
   return sanitized.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
+// Helpers: normalización de labels para mapear clicks a tokens (compat con frontends legacy)
+function _normalizeLabelForMatch(s) {
+  if (!s || typeof s !== 'string') return '';
+  // Lowercase + recorte
+  let out = s.toLowerCase().trim();
+  // Remover emojis/símbolos comunes dejando letras/números/espacios
+  // (evita depender de properties unicode no soportadas en algunos runtimes)
+  out = out.replace(/[\u2000-\u2BFF\uD800-\uDFFF\uFE00-\uFE0F]/g, ' '); // bloques comunes de símbolos/variantes
+  out = out.replace(/[^a-z0-9áéíóúüñ\s]/gi, ' ');
+  out = out.replace(/\s+/g, ' ').trim();
+  return out;
+}
+
+function mapButtonValueToToken(stage, buttonValue, locale = 'es-AR') {
+  if (!buttonValue) return null;
+
+  // Tokens reales o valores especiales (consentimiento)
+  if (buttonValue === 'si' || buttonValue === 'no') return buttonValue;
+  if (/^BTN_[A-Z0-9_]+$/.test(buttonValue)) return buttonValue;
+
+  const contract = getStageContract(stage);
+  if (!contract) return null;
+
+  const target = _normalizeLabelForMatch(buttonValue);
+  if (!target) return null;
+
+  // 1) Defaults del contrato
+  const defaults = contract.defaultButtons || [];
+  for (const b of defaults) {
+    const cand = _normalizeLabelForMatch(b.label);
+    if (cand && cand === target) return b.token;
+  }
+
+  // 2) Catálogo (para tokens permitidos del stage)
+  const allowed = contract.allowedTokens || [];
+  for (const tok of allowed) {
+    const cat = BUTTON_CATALOG[tok];
+    if (!cat || !cat.label) continue;
+
+    // comparar contra todas las variantes de idioma (por robustez)
+    for (const lab of Object.values(cat.label)) {
+      const cand = _normalizeLabelForMatch(lab);
+      if (cand && cand === target) return tok;
+    }
+  }
+
+  // 3) Heurística: a veces el frontend arma algo como "Device PC de escritorio"
+  // Si empieza con "device " lo recortamos y reintentamos contra defaults
+  if (target.startsWith('device ')) {
+    const trimmed = target.replace(/^device\s+/, '').trim();
+    for (const b of defaults) {
+      const cand = _normalizeLabelForMatch(b.label);
+      if (cand && cand === trimmed) return b.token;
+    }
+  }
+
+  return null;
+}
+
 // Convertir a formato legacy para frontend
+// Nota: algunos frontends muestran el texto del botón usando `value` (no `text`).
+// Para evitar que se vean tokens tipo "BTN_DEVICE_*", enviamos `value = label` y además incluimos `token`.
 function toLegacyButtons(buttons) {
   return buttons.map(btn => ({
     text: btn.label,
-    value: btn.token,
+    value: btn.label, // UI-friendly
+    token: btn.token, // machine-friendly (compat)
     label: btn.label,
     order: btn.order
   }));
 }
-
 // ========================================================
 // EXPRESS APP
 // ========================================================
@@ -1629,8 +1690,20 @@ app.post('/api/chat', async (req, res) => {
     turnLog.sessionId = sessionId;
     turnLog.stage_before = session.stage;
     
-    const userText = action === 'button' ? null : text;
-    const buttonToken = action === 'button' ? value : null;
+    let userText = action === 'button' ? null : text;
+    let buttonToken = action === 'button' ? value : null;
+
+    // Compat: algunos frontends envían en `value` el LABEL (ej: "🖥️ PC de escritorio" o "Device PC de escritorio")
+    // y no el token. Intentamos mapear a token, y si no se puede, lo tratamos como texto del usuario.
+    if (action === 'button' && buttonToken) {
+      const mapped = mapButtonValueToToken(session.stage, buttonToken, session.userLocale || 'es-AR');
+      if (mapped) {
+        buttonToken = mapped;
+      } else if (!/^BTN_[A-Z0-9_]+$/.test(buttonToken) && buttonToken !== 'si' && buttonToken !== 'no') {
+        userText = buttonToken; // fallback a heurística por texto
+        buttonToken = null;
+      }
+    }
     
     turnLog.user_event = buttonToken ? `[BTN] ${buttonToken}` : userText;
     
