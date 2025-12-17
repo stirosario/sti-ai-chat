@@ -220,9 +220,9 @@ const STAGE_CONTRACT = {
     allowButtons: true,
     allowedTokens: ['BTN_USER_LEVEL_BASIC', 'BTN_USER_LEVEL_INTERMEDIATE', 'BTN_USER_LEVEL_ADVANCED'],
     defaultButtons: [
-      { token: 'BTN_USER_LEVEL_BASIC', label: '🟢 Básico — uso lo esencial', order: 1 },
-      { token: 'BTN_USER_LEVEL_INTERMEDIATE', label: '🟡 Intermedio — entiendo lo común', order: 2 },
-      { token: 'BTN_USER_LEVEL_ADVANCED', label: '🔵 Avanzado — ya hice pruebas técnicas', order: 3 }
+      { token: 'BTN_USER_LEVEL_BASIC', label: '🟢 Básico — Uso lo esencial', order: 1 },
+      { token: 'BTN_USER_LEVEL_INTERMEDIATE', label: '🟡 Intermedio — Entiendo lo común', order: 2 },
+      { token: 'BTN_USER_LEVEL_ADVANCED', label: '🔵 Avanzado — Ya hice pruebas técnicas', order: 3 }
     ],
     prompt: {
       'es-AR': 'Para ayudarte mejor, decime qué tan cómodo te sentís con la tecnología.',
@@ -278,10 +278,10 @@ const STAGE_CONTRACT = {
     allowButtons: true,
     allowedTokens: ['BTN_OS_WINDOWS', 'BTN_OS_MACOS', 'BTN_OS_LINUX', 'BTN_OS_UNKNOWN'],
     defaultButtons: [
-      { token: 'BTN_OS_WINDOWS', label: 'Windows', order: 1 },
-      { token: 'BTN_OS_MACOS', label: 'macOS', order: 2 },
-      { token: 'BTN_OS_LINUX', label: 'Linux', order: 3 },
-      { token: 'BTN_OS_UNKNOWN', label: 'No lo sé', order: 4 }
+      { token: 'BTN_OS_WINDOWS', label: '🪟 Windows', order: 1 },
+      { token: 'BTN_OS_MACOS', label: '🍎 macOS', order: 2 },
+      { token: 'BTN_OS_LINUX', label: '🐧 Linux', order: 3 },
+      { token: 'BTN_OS_UNKNOWN', label: '❓ No lo sé', order: 4 }
     ],
     prompt: {
       'es-AR': '¿Qué sistema operativo estás usando?',
@@ -316,11 +316,11 @@ const STAGE_CONTRACT = {
     allowButtons: true,
     allowedTokens: ['BTN_REASON_NOT_RESOLVED', 'BTN_REASON_HARD_TO_UNDERSTAND', 'BTN_REASON_TOO_MANY_STEPS', 'BTN_REASON_WANTED_TECH', 'BTN_REASON_OTHER'],
     defaultButtons: [
-      { token: 'BTN_REASON_NOT_RESOLVED', label: 'No resolvió el problema', order: 1 },
-      { token: 'BTN_REASON_HARD_TO_UNDERSTAND', label: 'Fue difícil de entender', order: 2 },
-      { token: 'BTN_REASON_TOO_MANY_STEPS', label: 'Demasiados pasos', order: 3 },
-      { token: 'BTN_REASON_WANTED_TECH', label: 'Prefería hablar con un técnico', order: 4 },
-      { token: 'BTN_REASON_OTHER', label: 'Otro motivo', order: 5 }
+      { token: 'BTN_REASON_NOT_RESOLVED', label: '❌ No resolvió el problema', order: 1 },
+      { token: 'BTN_REASON_HARD_TO_UNDERSTAND', label: '🤔 Fue difícil de entender', order: 2 },
+      { token: 'BTN_REASON_TOO_MANY_STEPS', label: '⏱️ Demasiados pasos', order: 3 },
+      { token: 'BTN_REASON_WANTED_TECH', label: '👨‍💻 Prefería hablar con un técnico', order: 4 },
+      { token: 'BTN_REASON_OTHER', label: '💬 Otro motivo', order: 5 }
     ],
     prompt: {
       'es-AR': '¿Cuál fue el motivo?',
@@ -353,36 +353,36 @@ const BUTTON_CATALOG = {
   'BTN_BLOQUEO': { label: { 'es-AR': 'Bloqueos', 'en-US': 'Freezes' }, deprecated: true },
   'BTN_PERIFERICOS': { label: { 'es-AR': 'Periféricos', 'en-US': 'Peripherals' }, deprecated: true },
   'BTN_VIRUS': { label: { 'es-AR': 'Virus o malware', 'en-US': 'Virus or malware' }, deprecated: true },
-  'BTN_SOLVED': { label: { 'es-AR': '🎉 Sí, ya funciona', 'en-US': '🎉 Yes, it works now' } },
-  'BTN_PERSIST': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same' } },
-  'BTN_ADVANCED_TESTS': { label: { 'es-AR': 'Pruebas avanzadas', 'en-US': 'Advanced tests' } },
-  'BTN_CONNECT_TECH': { label: { 'es-AR': 'Hablar con técnico', 'en-US': 'Talk to technician' } },
-  'BTN_BACK': { label: { 'es-AR': 'Volver atrás', 'en-US': 'Go back' } },
-  'BTN_CLOSE': { label: { 'es-AR': 'Cerrar chat', 'en-US': 'Close chat' } },
+  'BTN_SOLVED': { label: { 'es-AR': '🎉 ¡Sí, ya funciona!', 'en-US': '🎉 Yes, it works now!' } },
+  'BTN_PERSIST': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same, nothing changed' } },
+  'BTN_ADVANCED_TESTS': { label: { 'es-AR': '🔧 Pruebas avanzadas', 'en-US': '🔧 Advanced tests' } },
+  'BTN_CONNECT_TECH': { label: { 'es-AR': '👨‍💻 Hablar con técnico', 'en-US': '👨‍💻 Talk to technician' } },
+  'BTN_BACK': { label: { 'es-AR': '⬅️ Volver atrás', 'en-US': '⬅️ Go back' } },
+  'BTN_CLOSE': { label: { 'es-AR': '❌ Cerrar chat', 'en-US': '❌ Close chat' } },
   // Nuevos botones para sistema híbrido
   'BTN_DEVICE_DESKTOP': { label: { 'es-AR': '🖥️ PC de escritorio', 'en-US': '🖥️ Desktop PC' } },
   'BTN_DEVICE_NOTEBOOK': { label: { 'es-AR': '💻 Notebook', 'en-US': '💻 Notebook' } },
   'BTN_DEVICE_ALLINONE': { label: { 'es-AR': '🧩 All in One', 'en-US': '🧩 All-in-One' } },
-  'BTN_OS_WINDOWS': { label: { 'es-AR': 'Windows', 'en-US': 'Windows' } },
-  'BTN_OS_MACOS': { label: { 'es-AR': 'macOS', 'en-US': 'macOS' } },
-  'BTN_OS_LINUX': { label: { 'es-AR': 'Linux', 'en-US': 'Linux' } },
-  'BTN_OS_UNKNOWN': { label: { 'es-AR': 'No lo sé', 'en-US': 'I don\'t know' } },
-  'BTN_HELP_CONTEXT': { label: { 'es-AR': '¿Cómo hago esto?', 'en-US': 'How do I do this?' } },
-  'BTN_FEEDBACK_YES': { label: { 'es-AR': '👍 Sí, me sirvió', 'en-US': '👍 Yes, it helped' } },
-  'BTN_FEEDBACK_NO': { label: { 'es-AR': '👎 No, no me sirvió', 'en-US': '👎 No, it didn\'t help' } },
-  'BTN_REASON_NOT_RESOLVED': { label: { 'es-AR': 'No resolvió el problema', 'en-US': 'Didn\'t resolve the problem' } },
-  'BTN_REASON_HARD_TO_UNDERSTAND': { label: { 'es-AR': 'Fue difícil de entender', 'en-US': 'Hard to understand' } },
-  'BTN_REASON_TOO_MANY_STEPS': { label: { 'es-AR': 'Demasiados pasos', 'en-US': 'Too many steps' } },
-  'BTN_REASON_WANTED_TECH': { label: { 'es-AR': 'Prefería hablar con un técnico', 'en-US': 'Wanted to talk to a technician' } },
-  'BTN_REASON_OTHER': { label: { 'es-AR': 'Otro motivo', 'en-US': 'Other reason' } },
+  'BTN_OS_WINDOWS': { label: { 'es-AR': '🪟 Windows', 'en-US': '🪟 Windows' } },
+  'BTN_OS_MACOS': { label: { 'es-AR': '🍎 macOS', 'en-US': '🍎 macOS' } },
+  'BTN_OS_LINUX': { label: { 'es-AR': '🐧 Linux', 'en-US': '🐧 Linux' } },
+  'BTN_OS_UNKNOWN': { label: { 'es-AR': '❓ No lo sé', 'en-US': '❓ I don\'t know' } },
+  'BTN_HELP_CONTEXT': { label: { 'es-AR': '❓ ¿Cómo hago esto?', 'en-US': '❓ How do I do this?' } },
+  'BTN_FEEDBACK_YES': { label: { 'es-AR': '👍 Sí, me sirvió', 'en-US': '👍 Yes, it helped me' } },
+  'BTN_FEEDBACK_NO': { label: { 'es-AR': '👎 No, no me sirvió', 'en-US': '👎 No, it didn\'t help me' } },
+  'BTN_REASON_NOT_RESOLVED': { label: { 'es-AR': '❌ No resolvió el problema', 'en-US': '❌ Didn\'t resolve the problem' } },
+  'BTN_REASON_HARD_TO_UNDERSTAND': { label: { 'es-AR': '🤔 Fue difícil de entender', 'en-US': '🤔 Hard to understand' } },
+  'BTN_REASON_TOO_MANY_STEPS': { label: { 'es-AR': '⏱️ Demasiados pasos', 'en-US': '⏱️ Too many steps' } },
+  'BTN_REASON_WANTED_TECH': { label: { 'es-AR': '👨‍💻 Prefería hablar con un técnico', 'en-US': '👨‍💻 Wanted to talk to a technician' } },
+  'BTN_REASON_OTHER': { label: { 'es-AR': '💬 Otro motivo', 'en-US': '💬 Other reason' } },
   // Botones para diagnóstico de encendido (wont_turn_on)
   'BTN_PWR_NO_SIGNS': { label: { 'es-AR': '🔌 No enciende nada', 'en-US': '🔌 Nothing happens' } },
   'BTN_PWR_FANS': { label: { 'es-AR': '💡 Prenden luces o gira el ventilador', 'en-US': '💡 Lights on / fan spins' } },
   'BTN_PWR_BEEPS': { label: { 'es-AR': '🔊 Escucho pitidos', 'en-US': '🔊 I hear beeps' } },
-  'BTN_PWR_ON_OFF': { label: { 'es-AR': '🔄 Enciende y se apaga enseguida', 'en-US': '🔄 Turns on and off' } },
+  'BTN_PWR_ON_OFF': { label: { 'es-AR': '🔄 Enciende y se apaga enseguida', 'en-US': '🔄 Turns on and off immediately' } },
   // Botones para pasos de diagnóstico
   'BTN_STEP_DONE': { label: { 'es-AR': '✅ Listo, ya lo probé', 'en-US': '✅ Done, I tried it' } },
-  'BTN_STEP_STILL': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same' } },
+  'BTN_STEP_STILL': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same, nothing changed' } },
   'BTN_STEP_HELP': { label: { 'es-AR': '🙋 Prefiero que me ayude un técnico', 'en-US': '🙋 I prefer a technician' } }
 };
 
@@ -1637,8 +1637,8 @@ app.all('/api/greeting', async (req, res) => {
       sessionId,
       csrfToken,
       buttons: [
-        { text: 'Yes, I Accept ✔️ / Sí Acepto ✔️', value: 'si', order: 1 },
-        { text: 'No, I Do Not Accept ❌ / No Acepto ❌', value: 'no', order: 2 }
+        { text: '✅ Yes, I Accept / Sí Acepto', value: 'si', order: 1 },
+        { text: '❌ No, I Do Not Accept / No Acepto', value: 'no', order: 2 }
       ],
       options: [],
       ui: [],
