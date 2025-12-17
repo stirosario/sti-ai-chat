@@ -1,0 +1,149 @@
+diff --git a/server.js b/server.js
+index 0000000..1111111 100644
+--- a/server.js
++++ b/server.js
+@@ -1176,7 +1176,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
+@@ -1187,7 +1187,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       } else if (buttonToken === 'BTN_PWR_ON_OFF') {
+@@ -1198,7 +1198,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       }
+@@ -1210,20 +1210,30 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+     
+     // PASO 3+: Manejar botones de resultado de paso
+-    if (currentStep >= 2 && buttonToken && buttonToken.startsWith('BTN_STEP_')) {
+-      if (buttonToken === 'BTN_STEP_DONE') {
+-        // Usuario probó el paso, avanzar o resolver
+-        session.diagnostic.step = currentStep + 1;
+-        // Por ahora, si resuelve en paso 2, pedir feedback
+-        const contract = getStageContract('FEEDBACK_REQUIRED');
++    if (currentStep >= 2 && buttonToken && (buttonToken.startsWith('BTN_STEP_') || buttonToken === 'BTN_PERSIST')) {
++      // Mapear BTN_STEP_STILL a BTN_PERSIST para unificación (compatibilidad con tokens históricos)
++      if (buttonToken === 'BTN_STEP_STILL') {
++        buttonToken = 'BTN_PERSIST';
++      }
++      
++      if (buttonToken === 'BTN_STEP_DONE') {
++        // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
+         return {
+           reply: isEn
+-            ? 'Great! Did this solve the problem?'
+-            : '¡Genial! ¿Esto resolvió el problema?',
+-          stage: 'FEEDBACK_REQUIRED',
+-          buttons: contract.defaultButtons
++            ? 'Did this solve the problem?'
++            : '¿Esto resolvió el problema?',
++          stage: 'DIAGNOSTIC_STEP',
++          buttons: [
++            { token: 'BTN_SOLVED', label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
++            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
++            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
++          ]
+         };
+-      } else if (buttonToken === 'BTN_STEP_STILL') {
++      } else if (buttonToken === 'BTN_PERSIST') {
+         // Sigue igual, contar intentos y recomendar técnico si es necesario
+         const stillCount = (session.diagnostic.data.still_count || 0) + 1;
+         session.diagnostic.data.still_count = stillCount;
+@@ -1249,7 +1259,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+           stage: 'DIAGNOSTIC_STEP',
+           buttons: [
+             { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-            { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+             { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+           ]
+         };
+@@ -1308,7 +1318,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
+@@ -1319,7 +1329,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       } else if (buttonToken === 'BTN_PWR_ON_OFF') {
+@@ -1330,7 +1340,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+         
+         buttons = [
+           { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+-          { token: 'BTN_STEP_STILL', label: BUTTON_CATALOG['BTN_STEP_STILL'].label[locale], order: 2 },
++          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+           { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+         ];
+       }
+@@ -1344,20 +1354,30 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+     
+     // PASO 3+: Manejar botones de resultado de paso (notebook)
+-    if (currentStep >= 2 && buttonToken && buttonToken.startsWith('BTN_STEP_')) {
+-      if (buttonToken === 'BTN_STEP_DONE') {
+-        // Usuario probó el paso, avanzar o resolver
+-        session.diagnostic.step = currentStep + 1;
+-        // Por ahora, si resuelve en paso 2, pedir feedback
+-        const contract = getStageContract('FEEDBACK_REQUIRED');
++    if (currentStep >= 2 && buttonToken && (buttonToken.startsWith('BTN_STEP_') || buttonToken === 'BTN_PERSIST')) {
++      // Mapear BTN_STEP_STILL a BTN_PERSIST para unificación (compatibilidad con tokens históricos)
++      if (buttonToken === 'BTN_STEP_STILL') {
++        buttonToken = 'BTN_PERSIST';
++      }
++      
++      if (buttonToken === 'BTN_STEP_DONE') {
++        // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
+         return {
+           reply: isEn
+-            ? 'Great! Did this solve the problem?'
+-            : '¡Genial! ¿Esto resolvió el problema?',
+-          stage: 'FEEDBACK_REQUIRED',
+-          buttons: contract.defaultButtons
++            ? 'Did this solve the problem?'
++            : '¿Esto resolvió el problema?',
++          stage: 'DIAGNOSTIC_STEP',
++          buttons: [
++            { token: 'BTN_SOLVED', label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
++            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
++            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
++          ]
+         };
+-      } else if (buttonToken === 'BTN_STEP_STILL') {
++      } else if (buttonToken === 'BTN_PERSIST') {
+         // Sigue igual, contar intentos y recomendar técnico si es necesario
+         const stillCount = (session.diagnostic.data.still_count || 0) + 1;
+         session.diagnostic.data.still_count = stillCount;
+@@ -1383,7 +1403,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, sessi
+           stage: 'DIAGNOSTIC_STEP',
+           buttons: [
+             { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+             { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+             { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+           ]
+         };
