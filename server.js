@@ -291,7 +291,7 @@ const STAGE_CONTRACT = {
   DIAGNOSTIC_STEP: {
     type: 'AI_GOVERNED',
     allowButtons: true,
-    allowedTokens: ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_HELP_CONTEXT', 'BTN_BACK', 'BTN_CONNECT_TECH', 'BTN_PWR_NO_SIGNS', 'BTN_PWR_FANS', 'BTN_PWR_BEEPS', 'BTN_PWR_ON_OFF', 'BTN_STEP_DONE', 'BTN_STEP_STILL', 'BTN_STEP_HELP'],
+    allowedTokens: ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_HELP_CONTEXT', 'BTN_BACK', 'BTN_CONNECT_TECH', 'BTN_PWR_NO_SIGNS', 'BTN_PWR_FANS', 'BTN_PWR_BEEPS', 'BTN_PWR_ON_OFF', 'BTN_STEP_DONE', 'BTN_STEP_STILL', 'BTN_STEP_HELP', 'BTN_INET_WIFI', 'BTN_INET_CABLE', 'BTN_INET_BOTH'],
     defaultButtons: [],
     prompt: {
       'es-AR': 'Siguiente paso de diagnóstico',
@@ -383,7 +383,11 @@ const BUTTON_CATALOG = {
   // Botones para pasos de diagnóstico
   'BTN_STEP_DONE': { label: { 'es-AR': '✅ Listo, ya lo probé', 'en-US': '✅ Done, I tried it' } },
   'BTN_STEP_STILL': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same, nothing changed' } },
-  'BTN_STEP_HELP': { label: { 'es-AR': '🙋 Prefiero que me ayude un técnico', 'en-US': '🙋 I prefer a technician' } }
+  'BTN_STEP_HELP': { label: { 'es-AR': '🙋 Prefiero que me ayude un técnico', 'en-US': '🙋 I prefer a technician' } },
+  // Botones para diagnóstico de internet/conectividad
+  'BTN_INET_WIFI': { label: { 'es-AR': '📶 WiFi', 'en-US': '📶 WiFi' } },
+  'BTN_INET_CABLE': { label: { 'es-AR': '🔌 Cable', 'en-US': '🔌 Cable' } },
+  'BTN_INET_BOTH': { label: { 'es-AR': '❓ No estoy seguro', 'en-US': '❓ I\'m not sure' } }
 };
 
 function getStageContract(stage) {
@@ -1314,6 +1318,214 @@ async function handleAskOsStage(ctx) {
   };
 }
 
+// Función para generar pasos de diagnóstico con IA
+async function generateDiagnosticStep(session, userText, buttonToken, sessionId) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  const userLevel = session.userLevel || 'intermediate';
+  const intent = session.intent || session.problem_intent || 'unknown';
+  const deviceType = session.device_type || 'unknown';
+  const os = session.os || 'unknown';
+  const problemRaw = session.problem_raw || '';
+  const currentStep = session.diagnostic?.step || 1;
+  const diagnosticData = session.diagnostic?.data || {};
+  
+  // Cargar historial de la conversación
+  const history = loadConversationHistory(sessionId);
+  const recentTurns = history.slice(-5).map(turn => ({
+    stage: turn.stage_after,
+    user_event: turn.user_event,
+    bot_reply: turn.bot_reply?.substring(0, 200) // Limitar longitud
+  }));
+  
+  if (!openai) {
+    // Fallback sin IA
+    return {
+      reply: isEn
+        ? 'I understand your problem. Unfortunately, AI diagnostic support is not available right now. I recommend talking to a technician.'
+        : 'Entiendo tu problema. Lamentablemente, el soporte de diagnóstico por IA no está disponible en este momento. Te recomiendo hablar con un técnico.',
+      buttons: [
+        { token: 'BTN_CONNECT_TECH', label: BUTTON_CATALOG['BTN_CONNECT_TECH'].label[locale], order: 1 }
+      ]
+    };
+  }
+  
+  // Construir contexto según nivel
+  let levelContext = '';
+  if (userLevel === 'basic') {
+    levelContext = isEn
+      ? 'The user is BASIC level. Use VERY simple language, step-by-step guidance with numbered steps, frequent confirmations. Avoid ALL technical jargon. Explain what to look for visually (icons, buttons, lights).'
+      : 'El usuario es nivel BÁSICO. Usá lenguaje MUY simple, guía paso a paso con pasos numerados, confirmaciones frecuentes. Evitá TODA jerga técnica. Explicá qué buscar visualmente (íconos, botones, luces).';
+  } else if (userLevel === 'advanced') {
+    levelContext = isEn
+      ? 'The user is ADVANCED level. Be technical, precise, use commands and technical terms. Get straight to the point. You can mention Task Manager, Device Manager, command line tools, BIOS, etc.'
+      : 'El usuario es nivel AVANZADO. Sé técnico, preciso, usá comandos y términos técnicos. Ve directo al grano. Podés mencionar Administrador de tareas, Administrador de dispositivos, herramientas de línea de comandos, BIOS, etc.';
+  } else {
+    levelContext = isEn
+      ? 'The user is INTERMEDIATE level. Use common technical terms, moderate detail. Balance between simple and technical.'
+      : 'El usuario es nivel INTERMEDIO. Usá términos técnicos comunes, detalle moderado. Balance entre simple y técnico.';
+  }
+  
+  // Obtener tokens permitidos para botones
+  const contract = getStageContract('DIAGNOSTIC_STEP');
+  const allowedTokens = contract?.allowedTokens || [];
+  const availableButtons = allowedTokens
+    .map(token => {
+      const catalog = BUTTON_CATALOG[token];
+      if (!catalog) return null;
+      return {
+        token,
+        label: catalog.label[locale] || catalog.label['es-AR']
+      };
+    })
+    .filter(Boolean);
+  
+  // Construir prompt del sistema
+  const systemPrompt = isEn
+    ? `You are Tecnos, a friendly IT technician for STI — Intelligent Technical Service. Answer ONLY in ${locale === 'en-US' ? 'English (US)' : 'Spanish (Argentina)'}.
+
+${levelContext}
+
+CONTEXT INFORMATION:
+- Problem reported: "${problemRaw}"
+- Problem type (intent): ${intent}
+- Device type: ${deviceType}
+- Operating system: ${os}
+- Current diagnostic step: ${currentStep}
+- Previous diagnostic data: ${JSON.stringify(diagnosticData)}
+
+RULES FOR DIAGNOSTIC STEPS:
+1. Generate step-by-step diagnostic instructions based on the problem, device type, OS, and user level
+2. If step 1: Start with the most common/easiest solution first
+3. If step > 1: Build on previous steps, don't repeat what was already tried
+4. Adapt language and complexity to user level (${userLevel})
+5. Suggest 2-4 relevant buttons from available catalog
+6. Format buttons as JSON array: [{token: "BTN_XXX", label: "Label", order: 1}]
+7. If user clicked a button, respond accordingly (e.g., if BTN_STEP_DONE, ask if problem is solved)
+8. If problem persists after 2 attempts, suggest talking to technician
+
+Available buttons: ${JSON.stringify(availableButtons.map(b => b.token))}
+
+Return your response with diagnostic steps, then include buttons as JSON array at the end.`
+    : `Sos Tecnos, técnico informático de STI — Servicio Técnico Inteligente. Respondé SOLO en ${locale === 'es-AR' ? 'español rioplatense (Argentina), usando voseo ("vos")' : 'español neutro latino, usando "tú"'}.
+
+${levelContext}
+
+INFORMACIÓN DE CONTEXTO:
+- Problema reportado: "${problemRaw}"
+- Tipo de problema (intent): ${intent}
+- Tipo de dispositivo: ${deviceType}
+- Sistema operativo: ${os}
+- Paso de diagnóstico actual: ${currentStep}
+- Datos de diagnóstico previos: ${JSON.stringify(diagnosticData)}
+
+REGLAS PARA PASOS DE DIAGNÓSTICO:
+1. Generá instrucciones de diagnóstico paso a paso basadas en el problema, tipo de dispositivo, OS y nivel de usuario
+2. Si es paso 1: Empezá con la solución más común/fácil primero
+3. Si es paso > 1: Construí sobre pasos previos, no repitas lo que ya se intentó
+4. Adaptá el lenguaje y complejidad al nivel del usuario (${userLevel})
+5. Sugerí 2-4 botones relevantes del catálogo disponible
+6. Formato de botones como array JSON: [{token: "BTN_XXX", label: "Etiqueta", order: 1}]
+7. Si el usuario hizo clic en un botón, respondé acorde (ej: si BTN_STEP_DONE, preguntá si se resolvió)
+8. Si el problema persiste después de 2 intentos, sugerí hablar con técnico
+
+Botones disponibles: ${JSON.stringify(availableButtons.map(b => b.token))}
+
+Devolvé tu respuesta con pasos de diagnóstico, luego incluí los botones como array JSON al final.`;
+  
+  // Construir mensaje del usuario
+  let userMessage = '';
+  if (buttonToken === 'BTN_STEP_DONE') {
+    userMessage = isEn
+      ? 'User clicked: "Done, I tried it". Ask if the problem is solved.'
+      : 'Usuario hizo clic: "Listo, ya lo probé". Preguntá si el problema se resolvió.';
+  } else if (buttonToken === 'BTN_PERSIST') {
+    userMessage = isEn
+      ? `User clicked: "Still the same, nothing changed". This is attempt ${(diagnosticData.still_count || 0) + 1}. Provide next diagnostic step or suggest technician if this is the 2nd attempt.`
+      : `Usuario hizo clic: "Sigue igual, no cambió nada". Este es el intento ${(diagnosticData.still_count || 0) + 1}. Proporcioná el siguiente paso de diagnóstico o sugerí técnico si es el 2do intento.`;
+  } else if (buttonToken === 'BTN_STEP_HELP') {
+    userMessage = isEn
+      ? 'User clicked: "I prefer a technician". Suggest talking to a technician and ask for feedback.'
+      : 'Usuario hizo clic: "Prefiero que me ayude un técnico". Sugerí hablar con un técnico y pedí feedback.';
+  } else if (buttonToken) {
+    userMessage = isEn
+      ? `User clicked button: ${buttonToken}. Respond accordingly.`
+      : `Usuario hizo clic en botón: ${buttonToken}. Respondé acorde.`;
+  } else if (userText) {
+    userMessage = isEn
+      ? `User said: ${userText}`
+      : `Usuario dijo: ${userText}`;
+  } else {
+    userMessage = isEn
+      ? `Generate the first diagnostic step for this problem.`
+      : `Generá el primer paso de diagnóstico para este problema.`;
+  }
+  
+  // Agregar contexto de conversación reciente
+  if (recentTurns.length > 0) {
+    userMessage += '\n\n' + (isEn ? 'Recent conversation context:' : 'Contexto de conversación reciente:') + '\n' + JSON.stringify(recentTurns, null, 2);
+  }
+  
+  try {
+    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 🤖 Consultando IA para paso ${currentStep}`);
+    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 📝 Contexto: problema="${problemRaw}", intent=${intent}, device=${deviceType}, os=${os}, nivel=${userLevel}`);
+    
+    const completion = await withTimeout(
+      openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.7,
+        max_tokens: 800
+      }),
+      15000,
+      'OpenAI timeout'
+    );
+    
+    const aiResponse = completion.choices[0]?.message?.content || '';
+    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 📥 Respuesta de IA recibida (${aiResponse.length} caracteres)`);
+    
+    // Extraer botones sugeridos (si la IA los incluye en formato JSON)
+    let suggestedButtons = [];
+    try {
+      const buttonMatch = aiResponse.match(/\[[\s\S]*?\]/);
+      if (buttonMatch) {
+        suggestedButtons = JSON.parse(buttonMatch[0]);
+        console.log(`[DIAGNOSTIC_STEP] [${sessionId}] ✅ Botones extraídos de IA:`, suggestedButtons);
+      }
+    } catch (e) {
+      console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ No se pudieron extraer botones de la respuesta de IA`);
+    }
+    
+    // Limpiar respuesta (remover JSON de botones si está al final)
+    let cleanReply = aiResponse.trim();
+    if (suggestedButtons.length > 0) {
+      // Remover el JSON de botones del final del texto
+      cleanReply = cleanReply.replace(/\[[\s\S]*?\]\s*$/, '').trim();
+    }
+    
+    return {
+      reply: cleanReply,
+      buttons: suggestedButtons
+    };
+  } catch (err) {
+    const isTimeout = err.message && err.message.includes('timeout');
+    console.error(`[DIAGNOSTIC_STEP] [${sessionId}] ❌ Error IA${isTimeout ? ' (TIMEOUT)' : ''}:`, err.message);
+    
+    // Fallback seguro
+    return {
+      reply: isEn
+        ? 'I understand your problem. Unfortunately, I\'m having trouble generating diagnostic steps right now. I recommend talking to a technician.'
+        : 'Entiendo tu problema. Lamentablemente, estoy teniendo problemas para generar pasos de diagnóstico en este momento. Te recomiendo hablar con un técnico.',
+      buttons: [
+        { token: 'BTN_CONNECT_TECH', label: BUTTON_CATALOG['BTN_CONNECT_TECH'].label[locale], order: 1 }
+      ]
+    };
+  }
+}
+
 // Handler para diagnóstico paso a paso (motor real de pasos)
 async function handleDiagnosticStepStage(session, userText, buttonToken, sessionId) {
   const locale = session.userLocale || 'es-AR';
@@ -1383,338 +1595,65 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     };
   }
   
-  // Implementación de pasos para wont_turn_on + desktop (todos los niveles, filtrado por nivel dentro)
-  if (intent === 'wont_turn_on' && deviceType === 'desktop') {
-    // PASO 1: Pregunta inicial sobre síntomas de encendido
-    if (currentStep === 1 && !buttonToken) {
-      const buttons = [
-        { token: 'BTN_PWR_NO_SIGNS', text: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
-        { token: 'BTN_PWR_FANS', text: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
-        { token: 'BTN_PWR_BEEPS', text: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
-        { token: 'BTN_PWR_ON_OFF', text: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
-      ];
-      
+  // Manejar botones de persistencia
+  if (buttonToken === 'BTN_PERSIST' || buttonToken === 'BTN_STEP_STILL') {
+    const stillCount = (session.diagnostic.data.still_count || 0) + 1;
+    session.diagnostic.data.still_count = stillCount;
+    
+    if (stillCount >= 2) {
+      const contract = getStageContract('FEEDBACK_REQUIRED');
       return {
         reply: isEn
-          ? 'When you press the power button, what happens?'
-          : 'Cuando apretás el botón de encendido, ¿qué hace el equipo?',
-        stage: 'DIAGNOSTIC_STEP',
-        buttons
+          ? 'I understand the problem persists after multiple attempts. I recommend talking to a technician for a more detailed diagnosis. Was this session helpful?'
+          : 'Entiendo que el problema persiste después de varios intentos. Te recomiendo hablar con un técnico para un diagnóstico más detallado. ¿Te sirvió esta ayuda?',
+        stage: 'FEEDBACK_REQUIRED',
+        buttons: contract.defaultButtons
       };
     }
     
-    // PASO 2: Ramificación según síntoma seleccionado
-    if (currentStep === 1 && buttonToken && buttonToken.startsWith('BTN_PWR_')) {
-      // Guardar selección
-      session.diagnostic.data.power_symptom = buttonToken;
-      session.diagnostic.step = 2;
-      
-      let reply = '';
-      let buttons = [];
-      
-      if (buttonToken === 'BTN_PWR_NO_SIGNS') {
-        // Sin señales: revisar alimentación/cable/fuente
-        reply = isEn
-          ? 'No signs of power usually means a problem with the power supply or cable. Let\'s check:\n\n1. Check if the power cable is properly connected to the PC and the wall outlet.\n2. Try a different power outlet.\n3. Check if the power supply switch (if it has one) is in the ON position.'
-          : 'Sin señales de encendido suele ser un problema con la alimentación o el cable. Revisemos:\n\n1. Verificá que el cable de alimentación esté bien conectado a la PC y al enchufe.\n2. Probá con otro enchufe.\n3. Verificá si la fuente tiene un interruptor y que esté en ON.';
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
-        // Luces/ventilador o pitidos: revisar POST/RAM/monitor/cables
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        if (userLevel === 'advanced') {
-          reply = isEn
-            ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Check if the RAM memory modules are properly seated (if you feel comfortable opening the PC).\n3. Try disconnecting and reconnecting all cables.'
-            : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Verificá que los módulos de memoria RAM estén bien colocados (si te sentís cómodo abriendo la PC).\n3. Probá desconectar y volver a conectar todos los cables.';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          reply = isEn
-            ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Try disconnecting and reconnecting all external cables (HDMI, DisplayPort, VGA).\n3. Check if the monitor is set to the correct input source.'
-            : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Probá desconectar y volver a conectar todos los cables externos (HDMI, DisplayPort, VGA).\n3. Verificá que el monitor esté en la entrada correcta.';
-        }
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      } else if (buttonToken === 'BTN_PWR_ON_OFF') {
-        // Enciende y se apaga: revisar temperatura/sobrecarga
-        reply = isEn
-          ? 'If it turns on and off immediately, it could be overheating or a power issue. Let\'s check:\n\n1. Make sure the PC is not overheating (check if fans are working).\n2. Try disconnecting non-essential devices (USB, external drives).\n3. Check if the power supply is adequate for your components.'
-          : 'Si enciende y se apaga enseguida, puede ser sobrecalentamiento o problema de alimentación. Revisemos:\n\n1. Asegurate de que la PC no se esté sobrecalentando (verificá que los ventiladores funcionen).\n2. Probá desconectar dispositivos no esenciales (USB, discos externos).\n3. Verificá que la fuente de alimentación sea adecuada para tus componentes.';
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      }
-      
-      return {
-        reply,
-        stage: 'DIAGNOSTIC_STEP',
-        buttons
-      };
-    }
-    
-    // PASO 3+: Manejar botones de resultado de paso
-    if (currentStep >= 2 && buttonToken && (buttonToken.startsWith('BTN_STEP_') || buttonToken === 'BTN_PERSIST')) {
-      // Mapear BTN_STEP_STILL a BTN_PERSIST para unificación
-      if (buttonToken === 'BTN_STEP_STILL') {
-        buttonToken = 'BTN_PERSIST';
-      }
-      
-      if (buttonToken === 'BTN_STEP_DONE') {
-        // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
-        return {
-          reply: isEn
-            ? 'Did this solve the problem?'
-            : '¿Esto resolvió el problema?',
-          stage: 'DIAGNOSTIC_STEP',
-          buttons: [
-            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-          ]
-        };
-      } else if (buttonToken === 'BTN_PERSIST') {
-        // Sigue igual, contar intentos y recomendar técnico si es necesario
-        const stillCount = (session.diagnostic.data.still_count || 0) + 1;
-        session.diagnostic.data.still_count = stillCount;
-        
-        if (stillCount >= 2) {
-          const contract = getStageContract('FEEDBACK_REQUIRED');
-          return {
-            reply: isEn
-              ? 'I understand the problem persists. I recommend talking to a technician for a more detailed diagnosis. Was this session helpful?'
-              : 'Entiendo que el problema persiste. Te recomiendo hablar con un técnico para un diagnóstico más detallado. ¿Te sirvió esta ayuda?',
-            stage: 'FEEDBACK_REQUIRED',
-            buttons: contract.defaultButtons
-          };
-        }
-        
-        // Continuar con otro paso
-        session.diagnostic.step = currentStep + 1;
-        
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        let nextStepReply = '';
-        if (userLevel === 'advanced') {
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check the power supply connections inside the PC (if you feel comfortable). Make sure all internal cables are properly connected. Do you feel comfortable opening the PC?'
-            : 'Probemos otro enfoque. Revisá las conexiones de la fuente dentro de la PC (si te sentís cómodo). Asegurate de que todos los cables internos estén bien conectados. ¿Te sentís cómodo abriendo la PC?';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check if all external cables are properly connected. Try using a different power outlet or power strip. If the problem persists, I recommend talking to a technician.'
-            : 'Probemos otro enfoque. Verificá que todos los cables externos estén bien conectados. Probá con otro enchufe o regleta. Si el problema persiste, te recomiendo hablar con un técnico.';
-        }
-        
-        return {
-          reply: nextStepReply,
-          stage: 'DIAGNOSTIC_STEP',
-          buttons: [
-            { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-          ]
-        };
-      } else if (buttonToken === 'BTN_STEP_HELP') {
-        // Usuario necesita ayuda, ofrecer técnico
-        const contract = getStageContract('FEEDBACK_REQUIRED');
-        return {
-          reply: isEn
-            ? 'I understand you need more help. I recommend talking to a technician. Was this session helpful?'
-            : 'Entiendo que necesitás más ayuda. Te recomiendo hablar con un técnico. ¿Te sirvió esta ayuda?',
-          stage: 'FEEDBACK_REQUIRED',
-          buttons: contract.defaultButtons
-        };
-      }
-    }
+    // Continuar con siguiente paso
+    session.diagnostic.step = currentStep + 1;
   }
   
-  // Implementación de pasos para wont_turn_on + notebook (todos los niveles, filtrado por nivel dentro)
-  if (intent === 'wont_turn_on' && deviceType === 'notebook') {
-    // PASO 1: Pregunta inicial sobre síntomas de encendido (automático al entrar)
-    if (currentStep === 1 && !buttonToken) {
-      const buttons = [
-        { token: 'BTN_PWR_NO_SIGNS', text: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
-        { token: 'BTN_PWR_FANS', text: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
-        { token: 'BTN_PWR_BEEPS', text: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
-        { token: 'BTN_PWR_ON_OFF', text: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
-      ];
-      
-      return {
-        reply: isEn
-          ? 'When you press the power button, what happens?'
-          : 'Cuando apretás el botón de encendido, ¿qué hace el equipo?',
-        stage: 'DIAGNOSTIC_STEP',
-        buttons
-      };
-    }
-    
-    // PASO 2: Ramificación según síntoma seleccionado (notebook)
-    if (currentStep === 1 && buttonToken && buttonToken.startsWith('BTN_PWR_')) {
-      // Guardar selección
-      session.diagnostic.data.power_symptom = buttonToken;
-      session.diagnostic.step = 2;
-      
-      let reply = '';
-      let buttons = [];
-      
-      if (buttonToken === 'BTN_PWR_NO_SIGNS') {
-        // Sin señales: revisar cargador, toma, LED de carga, batería
-        reply = isEn
-          ? 'No signs of power on a notebook usually means a problem with the charger or battery. Let\'s check:\n\n1. Check if the charger is properly connected to the notebook and the wall outlet.\n2. Try a different power outlet.\n3. Check if the charging LED lights up (if your notebook has one).\n4. Try removing the battery (if it\'s removable) and connecting only with the charger.'
-          : 'Sin señales de encendido en una notebook suele ser un problema con el cargador o la batería. Revisemos:\n\n1. Verificá que el cargador esté bien conectado a la notebook y al enchufe.\n2. Probá con otro enchufe.\n3. Verificá si el LED de carga se prende (si tu notebook tiene uno).\n4. Probá sacar la batería (si es removible) y conectar solo con el cargador.';
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
-        // Luces/ventilador o pitidos: revisar periféricos, pantalla, hard reset
-        reply = isEn
-          ? 'Good, there\'s some power. Now let\'s check:\n\n1. Disconnect all external devices (USB, mouse, external monitor, etc.).\n2. Check if the screen shows anything (even if it\'s black, check for backlight).\n3. Try a hard reset: hold the power button for 15 seconds, then release and press it again.'
-          : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Desconectá todos los dispositivos externos (USB, mouse, monitor externo, etc.).\n2. Verificá si la pantalla muestra algo (aunque sea negro, verificá si hay retroiluminación).\n3. Probá un hard reset: mantené presionado el botón de encendido durante 15 segundos, soltalo y volvé a presionarlo.';
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      } else if (buttonToken === 'BTN_PWR_ON_OFF') {
-        // Enciende y se apaga: revisar sobrecalentamiento, cargador, cortos
-        reply = isEn
-          ? 'If it turns on and off immediately, it could be overheating, a charger issue, or a short circuit. Let\'s check:\n\n1. Make sure the notebook is not overheating (check if the fan is working and if the vents are clear).\n2. Try a different charger if you have one available.\n3. Check if there are any visible signs of damage or liquid spills.'
-          : 'Si enciende y se apaga enseguida, puede ser sobrecalentamiento, problema con el cargador o un cortocircuito. Revisemos:\n\n1. Asegurate de que la notebook no se esté sobrecalentando (verificá que el ventilador funcione y que las rejillas estén despejadas).\n2. Probá con otro cargador si tenés uno disponible.\n3. Verificá si hay signos visibles de daño o derrames de líquido.';
-        
-        buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-        ];
-      }
-      
-      return {
-        reply,
-        stage: 'DIAGNOSTIC_STEP',
-        buttons
-      };
-    }
-    
-    // PASO 3+: Manejar botones de resultado de paso (notebook)
-    if (currentStep >= 2 && buttonToken && (buttonToken.startsWith('BTN_STEP_') || buttonToken === 'BTN_PERSIST')) {
-      // Mapear BTN_STEP_STILL a BTN_PERSIST para unificación
-      if (buttonToken === 'BTN_STEP_STILL') {
-        buttonToken = 'BTN_PERSIST';
-      }
-      
-      if (buttonToken === 'BTN_STEP_DONE') {
-        // Usuario probó el paso, preguntar si se resolvió (no cerrar prematuramente)
-        return {
-          reply: isEn
-            ? 'Did this solve the problem?'
-            : '¿Esto resolvió el problema?',
-          stage: 'DIAGNOSTIC_STEP',
-          buttons: [
-            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-          ]
-        };
-      } else if (buttonToken === 'BTN_PERSIST') {
-        // Sigue igual, contar intentos y recomendar técnico si es necesario
-        const stillCount = (session.diagnostic.data.still_count || 0) + 1;
-        session.diagnostic.data.still_count = stillCount;
-        
-        if (stillCount >= 2) {
-          const contract = getStageContract('FEEDBACK_REQUIRED');
-          return {
-            reply: isEn
-              ? 'I understand the problem persists. I recommend talking to a technician for a more detailed diagnosis. Was this session helpful?'
-              : 'Entiendo que el problema persiste. Te recomiendo hablar con un técnico para un diagnóstico más detallado. ¿Te sirvió esta ayuda?',
-            stage: 'FEEDBACK_REQUIRED',
-            buttons: contract.defaultButtons
-          };
-        }
-        
-        // Continuar con otro paso
-        session.diagnostic.step = currentStep + 1;
-        
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        let nextStepReply = '';
-        if (userLevel === 'advanced') {
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check the internal connections and try resetting the BIOS/CMOS (if you feel comfortable). You can also try connecting an external monitor to see if the problem is with the screen. Do you feel comfortable opening the notebook?'
-            : 'Probemos otro enfoque. Revisá las conexiones internas y probá resetear la BIOS/CMOS (si te sentís cómodo). También podés probar conectar un monitor externo para ver si el problema es con la pantalla. ¿Te sentís cómodo abriendo la notebook?';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check if all external cables are properly connected. Try using a different power outlet or power strip. You can also try connecting an external monitor to see if the problem is with the screen. If the problem persists, I recommend talking to a technician.'
-            : 'Probemos otro enfoque. Verificá que todos los cables externos estén bien conectados. Probá con otro enchufe o regleta. También podés probar conectar un monitor externo para ver si el problema es con la pantalla. Si el problema persiste, te recomiendo hablar con un técnico.';
-        }
-        
-        return {
-          reply: nextStepReply,
-          stage: 'DIAGNOSTIC_STEP',
-          buttons: [
-            { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
-          ]
-        };
-      } else if (buttonToken === 'BTN_STEP_HELP') {
-        // Usuario necesita ayuda, ofrecer técnico
-        const contract = getStageContract('FEEDBACK_REQUIRED');
-        return {
-          reply: isEn
-            ? 'I understand you need more help. I recommend talking to a technician. Was this session helpful?'
-            : 'Entiendo que necesitás más ayuda. Te recomiendo hablar con un técnico. ¿Te sirvió esta ayuda?',
-          stage: 'FEEDBACK_REQUIRED',
-          buttons: contract.defaultButtons
-        };
-      }
-    }
+  if (buttonToken === 'BTN_STEP_HELP') {
+    const contract = getStageContract('FEEDBACK_REQUIRED');
+    return {
+      reply: isEn
+        ? 'I understand you need more help. I recommend talking to a technician. Was this session helpful?'
+        : 'Entiendo que necesitás más ayuda. Te recomiendo hablar con un técnico. ¿Te sirvió esta ayuda?',
+      stage: 'FEEDBACK_REQUIRED',
+      buttons: contract.defaultButtons
+    };
   }
   
-  // Fallback para otros intents/device_types/user_levels
-  // IMPORTANTE: Asegurar que el problema esté registrado antes de derivar a técnico
-  if (!session.problem_raw || !session.intent || session.intent === 'unknown') {
-    console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Derivando a técnico sin problema registrado`);
+  // Si el usuario hizo clic en BTN_STEP_DONE, avanzar paso y preguntar si se resolvió
+  if (buttonToken === 'BTN_STEP_DONE') {
+    session.diagnostic.step = currentStep + 1;
+    return {
+      reply: isEn
+        ? 'Did this solve the problem?'
+        : '¿Esto resolvió el problema?',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: [
+        { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+        { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+        { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+      ]
+    };
   }
   
-  // Mensaje según el tipo de problema detectado
-  let replyMessage = '';
-  if (intent === 'software_issue' || intent === 'browser_issue') {
-    replyMessage = isEn
-      ? `I understand you're having a software issue. I'm working on expanding diagnostic support for this type of problem. For now, I recommend talking to a technician who can help you with software troubleshooting.`
-      : `Entiendo que tenés un problema de software. Estoy trabajando en expandir el soporte de diagnóstico para este tipo de problema. Por ahora, te recomiendo hablar con un técnico que pueda ayudarte con la solución de problemas de software.`;
-  } else if (intent === 'keyboard_issue' || intent === 'mouse_issue' || intent === 'peripherals') {
-    replyMessage = isEn
-      ? `I understand you're having an issue with a peripheral device. Let me help you troubleshoot this. First, try disconnecting and reconnecting the device. If the problem persists, I recommend talking to a technician.`
-      : `Entiendo que tenés un problema con un dispositivo periférico. Déjame ayudarte a solucionarlo. Primero, probá desconectar y volver a conectar el dispositivo. Si el problema persiste, te recomiendo hablar con un técnico.`;
-  } else if (intent === 'no_internet') {
-    replyMessage = isEn
-      ? `I understand you're having connectivity issues. I'm working on expanding diagnostic support for network problems. For now, I recommend talking to a technician who can help you troubleshoot your internet connection.`
-      : `Entiendo que tenés problemas de conectividad. Estoy trabajando en expandir el soporte de diagnóstico para problemas de red. Por ahora, te recomiendo hablar con un técnico que pueda ayudarte a solucionar tu conexión a internet.`;
-  } else {
-    replyMessage = isEn
-      ? `I'm working on expanding diagnostic support for this type of problem. For now, I recommend talking to a technician.`
-      : `Estoy trabajando en expandir el soporte de diagnóstico para este tipo de problema. Por ahora, te recomiendo hablar con un técnico.`;
+  // CONSULTAR CON IA PARA GENERAR PASO DE DIAGNÓSTICO
+  const aiResult = await generateDiagnosticStep(session, userText, buttonToken, sessionId);
+  
+  // Guardar información del paso en diagnostic.data si hay botones específicos
+  if (buttonToken && buttonToken.startsWith('BTN_')) {
+    session.diagnostic.data[`step_${currentStep}_button`] = buttonToken;
   }
   
   return {
-    reply: replyMessage,
+    reply: aiResult.reply,
     stage: 'DIAGNOSTIC_STEP',
-    buttons: [
-      { token: 'BTN_CONNECT_TECH', label: BUTTON_CATALOG['BTN_CONNECT_TECH'].label[locale], order: 1 }
-    ]
+    buttons: aiResult.buttons || []
   };
 }
 
@@ -1729,7 +1668,84 @@ async function handleFeedbackRequiredStage(session, userText, buttonToken) {
     // Cerrar chat con resultado positivo
     return {
       reply: isEn
-        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I’ll be here.'
+        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I\'ll be here.'
+        : '¡Gracias por confiar en STI! 🙌\n\nSi necesitás ayuda más adelante, acá voy a estar.',
+      stage: 'ENDED',
+      buttons: []
+    };
+  }
+  
+  if (buttonToken === 'BTN_FEEDBACK_NO') {
+    // Preguntar motivo
+    const contract = getStageContract('FEEDBACK_REASON');
+    return {
+      reply: contract.prompt[locale] || contract.prompt['es-AR'],
+      stage: 'FEEDBACK_REASON',
+      buttons: contract.defaultButtons
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('FEEDBACK_REQUIRED');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'FEEDBACK_REQUIRED',
+    buttons: contract.defaultButtons
+  };
+}
+
+// Handler para motivo del feedback negativo
+async function handleFeedbackReasonStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  let reason = null;
+  
+  if (buttonToken === 'BTN_REASON_NOT_RESOLVED') {
+    reason = 'not_resolved';
+  } else if (buttonToken === 'BTN_REASON_HARD_TO_UNDERSTAND') {
+    reason = 'hard_to_understand';
+  } else if (buttonToken === 'BTN_REASON_TOO_MANY_STEPS') {
+    reason = 'too_many_steps';
+  } else if (buttonToken === 'BTN_REASON_WANTED_TECH') {
+    reason = 'wanted_tech';
+  } else if (buttonToken === 'BTN_REASON_OTHER') {
+    reason = 'other';
+  }
+  
+  if (reason) {
+    session.feedback = 'negative';
+    session.feedback_reason = reason;
+    return {
+      reply: isEn
+        ? 'Thanks for your feedback. We\'ll use it to improve our service.'
+        : 'Gracias por tu feedback. Lo vamos a usar para mejorar nuestro servicio.',
+      stage: 'ENDED',
+      buttons: []
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('FEEDBACK_REASON');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'FEEDBACK_REASON',
+    buttons: contract.defaultButtons
+  };
+}
+
+// Handler para feedback obligatorio
+async function handleFeedbackRequiredStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  if (buttonToken === 'BTN_FEEDBACK_YES') {
+    session.feedback = 'positive';
+    session.feedback_reason = null;
+    // Cerrar chat con resultado positivo
+    return {
+      reply: isEn
+        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I\'ll be here.'
         : '¡Gracias por confiar en STI! 🙌\n\nSi necesitás ayuda más adelante, acá voy a estar.',
       stage: 'ENDED',
       buttons: []
