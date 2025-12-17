@@ -1406,7 +1406,13 @@ RULES FOR DIAGNOSTIC STEPS:
 
 Available buttons: ${JSON.stringify(availableButtons.map(b => b.token))}
 
-Return your response with diagnostic steps, then include buttons as JSON array at the end.`
+IMPORTANT: Return ONLY a JSON object with this exact structure:
+{
+  "reply": "Your diagnostic step instructions here (plain text, no JSON, no code blocks)",
+  "buttons": [{"token": "BTN_XXX", "label": "Button Label", "order": 1}]
+}
+
+The "reply" field should contain ONLY the diagnostic instructions in plain text. Do NOT include JSON, code blocks, or button arrays in the reply text.`
     : `Sos Tecnos, técnico informático de STI — Servicio Técnico Inteligente. Respondé SOLO en ${locale === 'es-AR' ? 'español rioplatense (Argentina), usando voseo ("vos")' : 'español neutro latino, usando "tú"'}.
 
 ${levelContext}
@@ -1425,13 +1431,18 @@ REGLAS PARA PASOS DE DIAGNÓSTICO:
 3. Si es paso > 1: Construí sobre pasos previos, no repitas lo que ya se intentó
 4. Adaptá el lenguaje y complejidad al nivel del usuario (${userLevel})
 5. Sugerí 2-4 botones relevantes del catálogo disponible
-6. Formato de botones como array JSON: [{token: "BTN_XXX", label: "Etiqueta", order: 1}]
-7. Si el usuario hizo clic en un botón, respondé acorde (ej: si BTN_STEP_DONE, preguntá si se resolvió)
-8. Si el problema persiste después de 2 intentos, sugerí hablar con técnico
+6. Si el usuario hizo clic en un botón, respondé acorde (ej: si BTN_STEP_DONE, preguntá si se resolvió)
+7. Si el problema persiste después de 2 intentos, sugerí hablar con técnico
 
 Botones disponibles: ${JSON.stringify(availableButtons.map(b => b.token))}
 
-Devolvé tu respuesta con pasos de diagnóstico, luego incluí los botones como array JSON al final.`;
+IMPORTANTE: Devolvé SOLO un objeto JSON con esta estructura exacta:
+{
+  "reply": "Tus instrucciones de diagnóstico aquí (solo texto plano, sin JSON, sin bloques de código)",
+  "buttons": [{"token": "BTN_XXX", "label": "Etiqueta del Botón", "order": 1}]
+}
+
+El campo "reply" debe contener SOLO las instrucciones de diagnóstico en texto plano. NO incluyas JSON, bloques de código o arrays de botones en el texto del reply.`;
   
   // Construir mensaje del usuario
   let userMessage = '';
@@ -1478,37 +1489,70 @@ Devolvé tu respuesta con pasos de diagnóstico, luego incluí los botones como 
           { role: 'user', content: userMessage }
         ],
         temperature: 0.7,
-        max_tokens: 800
+        max_tokens: 800,
+        response_format: { type: 'json_object' }
       }),
       15000,
       'OpenAI timeout'
     );
     
-    const aiResponse = completion.choices[0]?.message?.content || '';
-    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 📥 Respuesta de IA recibida (${aiResponse.length} caracteres)`);
+    const aiResponseRaw = completion.choices[0]?.message?.content || '';
+    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] 📥 Respuesta de IA recibida (${aiResponseRaw.length} caracteres)`);
     
-    // Extraer botones sugeridos (si la IA los incluye en formato JSON)
+    // Parsear respuesta JSON
+    let aiResult = null;
+    let cleanReply = '';
     let suggestedButtons = [];
+    
     try {
-      const buttonMatch = aiResponse.match(/\[[\s\S]*?\]/);
-      if (buttonMatch) {
-        suggestedButtons = JSON.parse(buttonMatch[0]);
-        console.log(`[DIAGNOSTIC_STEP] [${sessionId}] ✅ Botones extraídos de IA:`, suggestedButtons);
+      // Limpiar respuesta si tiene markdown code blocks
+      let jsonString = aiResponseRaw.trim();
+      const jsonMatch = jsonString.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        jsonString = jsonMatch[1];
+      } else {
+        // Si no tiene markdown, intentar extraer JSON del texto
+        const jsonMatch2 = jsonString.match(/\{[\s\S]*\}/);
+        if (jsonMatch2) {
+          jsonString = jsonMatch2[0];
+        }
       }
+      
+      aiResult = JSON.parse(jsonString);
+      cleanReply = aiResult.reply || aiResponseRaw;
+      suggestedButtons = aiResult.buttons || [];
+      
+      console.log(`[DIAGNOSTIC_STEP] [${sessionId}] ✅ Respuesta parseada: reply=${cleanReply.substring(0, 50)}..., buttons=${suggestedButtons.length}`);
     } catch (e) {
-      console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ No se pudieron extraer botones de la respuesta de IA`);
+      console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Error parseando JSON de IA:`, e.message);
+      // Fallback: intentar extraer botones del texto si el parseo falla
+      try {
+        const buttonMatch = aiResponseRaw.match(/\[[\s\S]*?\]/);
+        if (buttonMatch) {
+          suggestedButtons = JSON.parse(buttonMatch[0]);
+          cleanReply = aiResponseRaw.replace(/\[[\s\S]*?\]\s*$/, '').trim();
+        } else {
+          cleanReply = aiResponseRaw;
+        }
+      } catch (e2) {
+        cleanReply = aiResponseRaw;
+      }
     }
     
-    // Limpiar respuesta (remover JSON de botones si está al final)
-    let cleanReply = aiResponse.trim();
-    if (suggestedButtons.length > 0) {
-      // Remover el JSON de botones del final del texto
-      cleanReply = cleanReply.replace(/\[[\s\S]*?\]\s*$/, '').trim();
-    }
+    // Asegurar que los botones tengan el formato correcto
+    const resolvedButtons = suggestedButtons.map((btn, idx) => {
+      const token = btn.token || btn.value;
+      const label = btn.label || resolveLabel(token, null);
+      return {
+        token,
+        label: resolveLabel(token, label),
+        order: btn.order || idx + 1
+      };
+    }).filter(btn => btn.token);
     
     return {
-      reply: cleanReply,
-      buttons: suggestedButtons
+      reply: cleanReply.trim(),
+      buttons: resolvedButtons
     };
   } catch (err) {
     const isTimeout = err.message && err.message.includes('timeout');
