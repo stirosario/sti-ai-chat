@@ -1,6 +1,12 @@
 /**
  * STI Chat Widget - Standalone
  * Widget embebible del chat de STI con efecto "PENSANDO"
+ * 
+ * VERSIÓN: 2.0.0
+ * 
+ * Para usar con cache busting, carga así:
+ * <script src="sti-chat-widget.js?v=2.0.0"></script>
+ * <link rel="stylesheet" href="sti-chat.css?v=2.0.0">
  */
 
 (function() {
@@ -8,8 +14,10 @@
 
   // ========== CONFIGURACIÓN ==========
   const API_URL = 'https://sti-rosario-ai.onrender.com/api';
+  const WIDGET_VERSION = '2.0.0'; // Para cache busting - Actualizar en cada release
   let sessionId = null;
   let isProcessing = false;
+  let selectedImageBase64 = null;
 
   // ========== INICIALIZACIÓN ==========
   function initChat() {
@@ -31,7 +39,17 @@
         }
       });
     }
-    if (attachBtn) attachBtn.addEventListener('click', () => alert('Próximamente: Adjuntar imágenes'));
+    if (attachBtn) {
+      attachBtn.addEventListener('click', handleAttachClick);
+      // Crear input file oculto
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.style.display = 'none';
+      fileInput.id = 'sti-file-input';
+      fileInput.addEventListener('change', handleFileSelect);
+      document.body.appendChild(fileInput);
+    }
     if (closeBtn) closeBtn.addEventListener('click', () => {
       const chatBox = document.getElementById('sti-chat-box');
       if (chatBox) chatBox.style.display = 'none';
@@ -113,6 +131,62 @@
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
 
+  // ========== MANEJAR CLICK EN BOTÓN ADJUNTAR ==========
+  function handleAttachClick() {
+    const fileInput = document.getElementById('sti-file-input');
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
+  // ========== MANEJAR SELECCIÓN DE ARCHIVO ==========
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validar tipo MIME
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor, selecciona solo archivos de imagen (JPG, PNG, GIF, etc.)');
+      event.target.value = '';
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      alert('La imagen es demasiado grande. Por favor, selecciona una imagen menor a 5MB.');
+      event.target.value = '';
+      return;
+    }
+
+    // Convertir a base64
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      selectedImageBase64 = e.target.result;
+      
+      // Mostrar preview y habilitar botón
+      const attachBtn = document.getElementById('sti-attach-btn');
+      if (attachBtn) {
+        attachBtn.classList.add('enabled');
+        attachBtn.title = 'Imagen seleccionada. Haz clic para enviar.';
+        // Mostrar indicador visual
+        const preview = document.createElement('div');
+        preview.id = 'sti-image-preview';
+        preview.style.cssText = 'position: fixed; bottom: 80px; right: 20px; background: white; border: 2px solid #10b981; border-radius: 8px; padding: 8px; max-width: 150px; z-index: 10000;';
+        preview.innerHTML = `
+          <img src="${selectedImageBase64}" style="max-width: 100%; height: auto; border-radius: 4px;" />
+          <div style="margin-top: 4px; font-size: 12px; color: #10b981;">✓ Imagen lista</div>
+        `;
+        document.body.appendChild(preview);
+      }
+    };
+    reader.onerror = () => {
+      alert('Error al leer el archivo. Por favor, intenta de nuevo.');
+      event.target.value = '';
+    };
+    reader.readAsDataURL(file);
+  }
+
   // ========== ENVIAR MENSAJE ==========
   async function sendMessage() {
     if (isProcessing) return;
@@ -121,25 +195,49 @@
     if (!textInput) return;
     
     const text = textInput.value.trim();
-    if (!text) return;
+    if (!text && !selectedImageBase64) return;
 
-    // Agregar mensaje del usuario
-    addMessage('user', text);
+    // Agregar mensaje del usuario (con preview de imagen si hay)
+    let userMessage = text;
+    if (selectedImageBase64) {
+      userMessage = text ? text + ' [Imagen adjunta]' : '[Imagen adjunta]';
+    }
+    addMessage('user', userMessage);
     textInput.value = '';
     isProcessing = true;
+
+    // Limpiar preview de imagen
+    const preview = document.getElementById('sti-image-preview');
+    if (preview) preview.remove();
+    const attachBtn = document.getElementById('sti-attach-btn');
+    if (attachBtn) {
+      attachBtn.classList.remove('enabled');
+      attachBtn.title = 'Adjuntar imagen';
+    }
 
     // Mostrar "PENSANDO"
     showTypingIndicator();
 
     try {
+      const requestBody = {
+        sessionId: sessionId,
+        message: text || '',
+        request_id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      };
+      
+      // Agregar imageBase64 si hay imagen seleccionada
+      if (selectedImageBase64) {
+        requestBody.imageBase64 = selectedImageBase64;
+        // Extraer solo la parte base64 (sin el prefijo data:image/...;base64,)
+        if (requestBody.imageBase64.includes(',')) {
+          requestBody.imageBase64 = requestBody.imageBase64.split(',')[1];
+        }
+      }
+
       const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sessionId,
-          message: text,
-          imageUrls: []
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
@@ -147,7 +245,16 @@
       // Ocultar "PENSANDO"
       hideTypingIndicator();
 
-      if (data.reply) {
+      // Limpiar imagen seleccionada
+      selectedImageBase64 = null;
+      const fileInput = document.getElementById('sti-file-input');
+      if (fileInput) fileInput.value = '';
+
+      // Manejar respuesta
+      if (data.ok === false) {
+        // Error del servidor
+        addMessage('bot', data.error || 'Lo siento, hubo un error. ¿Podrías intentar de nuevo?');
+      } else if (data.reply) {
         addMessage('bot', data.reply, data.buttons || null);
       } else {
         addMessage('bot', 'Lo siento, hubo un error. ¿Podrías intentar de nuevo?');
@@ -156,6 +263,8 @@
       console.error('Error:', error);
       hideTypingIndicator();
       addMessage('bot', 'No pude conectarme al servidor. Por favor, verifica tu conexión.');
+      // Restaurar imagen si hubo error
+      selectedImageBase64 = null;
     } finally {
       isProcessing = false;
     }

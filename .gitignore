@@ -7,12 +7,37 @@ node_modules/
 # Logs y transcripciones (pueden contener datos sensibles)
 logs/*.log
 transcripts/*.json
+data/logs/*.log
+data/logs/*.csv
+data/logs/*.json
+
+# Conversaciones y datos de usuarios (SENSIBLES)
+data/conversations/*.json
+data/tickets/*.json
+data/metrics.json
 
 # Backups de configuración
 config/*.bak
+No_Usados/config_backups/*
 
 # Uploads temporales
-uploads/*
-!uploads/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
 
+# Archivos de lock temporales
+data/ids/*.lock
+
+# Archivos de servidor obsoletos (ya movidos a No_Usados/)
+server_antiguo.js
+server_cursor.js
+server - copia*.js
+
+# Archivos de sincronización
 sync_config.jsonc
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

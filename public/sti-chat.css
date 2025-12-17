@@ -303,6 +303,22 @@
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+}
+
+/* Botón habilitado: VERDE */
+#sti-attach-btn.enabled {
+    background: rgba(16,185,129,0.1) !important;
+    border: 2px solid #10b981 !important;
+    color: #10b981 !important;
+    cursor: pointer !important;
+}
+
+/* Ícono de adjuntar (emoji o SVG) */
+#sti-attach-btn::before {
+    content: '📎';
+    font-size: 20px;
+}
+    justify-content: center !important;
     transition: all 0.3s !important;
     opacity: 0.6 !important;
     box-shadow: 0 0 20px rgba(239,68,68,0.6), inset 0 0 10px rgba(239,68,68,0.3) !important;
