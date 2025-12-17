@@ -143,7 +143,9 @@ function appendConversationTurn(turnData) {
     bot_reply: turnData.bot_reply,
     buttons_shown: turnData.buttons_shown || [],
     reason: turnData.reason || 'user_interaction',
-    violations: turnData.violations || []
+    violations: turnData.violations || [],
+    diagnostic_step: turnData.diagnostic_step || null,
+    metadata: turnData.metadata || {}
   }) + '\n';
   
   try {
@@ -151,6 +153,38 @@ function appendConversationTurn(turnData) {
   } catch (err) {
     console.error(`[Conversation] Error appending to ${sessionId}:`, err.message);
   }
+}
+
+// Cargar historial como memoria operativa
+function loadConversationHistory(sessionId) {
+  try {
+    const filePath = path.join(CONVERSATIONS_DIR, `${sessionId}.jsonl`);
+    if (!fs.existsSync(filePath)) {
+      return [];
+    }
+    
+    const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n');
+    return lines.map(line => JSON.parse(line));
+  } catch (err) {
+    console.error(`[Conversation] Error loading history for ${sessionId}:`, err.message);
+    return [];
+  }
+}
+
+// Obtener pasos de diagnóstico ya ejecutados (para no repetir)
+function getExecutedDiagnosticSteps(history) {
+  const steps = [];
+  history.forEach(turn => {
+    if (turn.diagnostic_step) {
+      steps.push({
+        step_id: turn.diagnostic_step.step_id,
+        action: turn.diagnostic_step.action,
+        step_number: turn.diagnostic_step.step_number,
+        timestamp: turn.ts
+      });
+    }
+  });
+  return steps;
 }
 
 // ========================================================
@@ -197,8 +231,8 @@ const STAGE_CONTRACT = {
   },
   ASK_NEED: {
     type: 'AI_GOVERNED',
-    allowButtons: true,
-    allowedTokens: ['BTN_PROBLEMA', 'BTN_CONSULTA', 'BTN_NO_ENCIENDE', 'BTN_NO_INTERNET', 'BTN_LENTITUD', 'BTN_BLOQUEO', 'BTN_PERIFERICOS', 'BTN_VIRUS'],
+    allowButtons: false, // Pregunta abierta, sin botones de problemas típicos
+    allowedTokens: [],
     defaultButtons: [],
     prompt: {
       'es-AR': '¿En qué puedo ayudarte hoy?',
@@ -224,25 +258,123 @@ const STAGE_CONTRACT = {
       'es-AR': 'Te voy guiando paso a paso, avisame como sale.',
       'en-US': "I'll guide you step by step, let me know how it goes."
     }
+  },
+  ASK_DEVICE: {
+    type: 'DETERMINISTIC',
+    allowButtons: true,
+    allowedTokens: ['BTN_DEVICE_DESKTOP', 'BTN_DEVICE_NOTEBOOK', 'BTN_DEVICE_ALLINONE'],
+    defaultButtons: [
+      { token: 'BTN_DEVICE_DESKTOP', label: 'PC de escritorio', order: 1 },
+      { token: 'BTN_DEVICE_NOTEBOOK', label: 'Notebook', order: 2 },
+      { token: 'BTN_DEVICE_ALLINONE', label: 'All In One', order: 3 }
+    ],
+    prompt: {
+      'es-AR': '¿Qué tipo de dispositivo estás usando?',
+      'en-US': 'What type of device are you using?'
+    }
+  },
+  ASK_OS: {
+    type: 'DETERMINISTIC',
+    allowButtons: true,
+    allowedTokens: ['BTN_OS_WINDOWS', 'BTN_OS_MACOS', 'BTN_OS_LINUX', 'BTN_OS_UNKNOWN'],
+    defaultButtons: [
+      { token: 'BTN_OS_WINDOWS', label: 'Windows', order: 1 },
+      { token: 'BTN_OS_MACOS', label: 'macOS', order: 2 },
+      { token: 'BTN_OS_LINUX', label: 'Linux', order: 3 },
+      { token: 'BTN_OS_UNKNOWN', label: 'No lo sé', order: 4 }
+    ],
+    prompt: {
+      'es-AR': '¿Qué sistema operativo estás usando?',
+      'en-US': 'What operating system are you using?'
+    }
+  },
+  DIAGNOSTIC_STEP: {
+    type: 'AI_GOVERNED',
+    allowButtons: true,
+    allowedTokens: ['BTN_SOLVED', 'BTN_PERSIST', 'BTN_HELP_CONTEXT', 'BTN_BACK', 'BTN_CONNECT_TECH'],
+    defaultButtons: [],
+    prompt: {
+      'es-AR': 'Siguiente paso de diagnóstico',
+      'en-US': 'Next diagnostic step'
+    }
+  },
+  FEEDBACK_REQUIRED: {
+    type: 'DETERMINISTIC',
+    allowButtons: true,
+    allowedTokens: ['BTN_FEEDBACK_YES', 'BTN_FEEDBACK_NO'],
+    defaultButtons: [
+      { token: 'BTN_FEEDBACK_YES', label: '👍 Sí, me sirvió', order: 1 },
+      { token: 'BTN_FEEDBACK_NO', label: '👎 No, no me sirvió', order: 2 }
+    ],
+    prompt: {
+      'es-AR': '¿Te sirvió esta ayuda?',
+      'en-US': 'Did this help you?'
+    }
+  },
+  FEEDBACK_REASON: {
+    type: 'DETERMINISTIC',
+    allowButtons: true,
+    allowedTokens: ['BTN_REASON_NOT_RESOLVED', 'BTN_REASON_HARD_TO_UNDERSTAND', 'BTN_REASON_TOO_MANY_STEPS', 'BTN_REASON_WANTED_TECH', 'BTN_REASON_OTHER'],
+    defaultButtons: [
+      { token: 'BTN_REASON_NOT_RESOLVED', label: 'No resolvió el problema', order: 1 },
+      { token: 'BTN_REASON_HARD_TO_UNDERSTAND', label: 'Fue difícil de entender', order: 2 },
+      { token: 'BTN_REASON_TOO_MANY_STEPS', label: 'Demasiados pasos', order: 3 },
+      { token: 'BTN_REASON_WANTED_TECH', label: 'Prefería hablar con un técnico', order: 4 },
+      { token: 'BTN_REASON_OTHER', label: 'Otro motivo', order: 5 }
+    ],
+    prompt: {
+      'es-AR': '¿Cuál fue el motivo?',
+      'en-US': 'What was the reason?'
+    }
+  },
+  ENDED: {
+    type: 'DETERMINISTIC',
+    allowButtons: false,
+    allowedTokens: [],
+    defaultButtons: [],
+    prompt: {
+      'es-AR': 'Conversación finalizada',
+      'en-US': 'Conversation ended'
+    }
   }
 };
 
 // Catálogo de botones disponibles para IA
+// NOTA: Los botones marcados como DEPRECATED no deben usarse en stages activos
+// Se mantienen solo por compatibilidad legacy si es necesario
 const BUTTON_CATALOG = {
-  'BTN_PROBLEMA': { label: { 'es-AR': 'Tengo un problema', 'en-US': 'I have a problem' } },
-  'BTN_CONSULTA': { label: { 'es-AR': 'Es una consulta', 'en-US': 'It\'s a question' } },
-  'BTN_NO_ENCIENDE': { label: { 'es-AR': 'No enciende', 'en-US': 'Won\'t turn on' } },
-  'BTN_NO_INTERNET': { label: { 'es-AR': 'Sin internet', 'en-US': 'No internet' } },
-  'BTN_LENTITUD': { label: { 'es-AR': 'Lentitud', 'en-US': 'Slowness' } },
-  'BTN_BLOQUEO': { label: { 'es-AR': 'Bloqueos', 'en-US': 'Freezes' } },
-  'BTN_PERIFERICOS': { label: { 'es-AR': 'Periféricos', 'en-US': 'Peripherals' } },
-  'BTN_VIRUS': { label: { 'es-AR': 'Virus o malware', 'en-US': 'Virus or malware' } },
+  // DEPRECATED - NO USAR EN STAGES: Estos botones fueron reemplazados por el sistema híbrido
+  // ASK_NEED ahora es pregunta abierta, OpenAI valida el problema desde texto
+  'BTN_PROBLEMA': { label: { 'es-AR': 'Tengo un problema', 'en-US': 'I have a problem' }, deprecated: true },
+  'BTN_CONSULTA': { label: { 'es-AR': 'Es una consulta', 'en-US': 'It\'s a question' }, deprecated: true },
+  'BTN_NO_ENCIENDE': { label: { 'es-AR': 'No enciende', 'en-US': 'Won\'t turn on' }, deprecated: true },
+  'BTN_NO_INTERNET': { label: { 'es-AR': 'Sin internet', 'en-US': 'No internet' }, deprecated: true },
+  'BTN_LENTITUD': { label: { 'es-AR': 'Lentitud', 'en-US': 'Slowness' }, deprecated: true },
+  'BTN_BLOQUEO': { label: { 'es-AR': 'Bloqueos', 'en-US': 'Freezes' }, deprecated: true },
+  'BTN_PERIFERICOS': { label: { 'es-AR': 'Periféricos', 'en-US': 'Peripherals' }, deprecated: true },
+  'BTN_VIRUS': { label: { 'es-AR': 'Virus o malware', 'en-US': 'Virus or malware' }, deprecated: true },
   'BTN_SOLVED': { label: { 'es-AR': 'Listo, se arregló', 'en-US': 'Done, it\'s fixed' } },
   'BTN_PERSIST': { label: { 'es-AR': 'Sigue igual', 'en-US': 'Still the same' } },
   'BTN_ADVANCED_TESTS': { label: { 'es-AR': 'Pruebas avanzadas', 'en-US': 'Advanced tests' } },
   'BTN_CONNECT_TECH': { label: { 'es-AR': 'Hablar con técnico', 'en-US': 'Talk to technician' } },
   'BTN_BACK': { label: { 'es-AR': 'Volver atrás', 'en-US': 'Go back' } },
-  'BTN_CLOSE': { label: { 'es-AR': 'Cerrar chat', 'en-US': 'Close chat' } }
+  'BTN_CLOSE': { label: { 'es-AR': 'Cerrar chat', 'en-US': 'Close chat' } },
+  // Nuevos botones para sistema híbrido
+  'BTN_DEVICE_DESKTOP': { label: { 'es-AR': 'PC de escritorio', 'en-US': 'Desktop PC' } },
+  'BTN_DEVICE_NOTEBOOK': { label: { 'es-AR': 'Notebook', 'en-US': 'Notebook' } },
+  'BTN_DEVICE_ALLINONE': { label: { 'es-AR': 'All In One', 'en-US': 'All In One' } },
+  'BTN_OS_WINDOWS': { label: { 'es-AR': 'Windows', 'en-US': 'Windows' } },
+  'BTN_OS_MACOS': { label: { 'es-AR': 'macOS', 'en-US': 'macOS' } },
+  'BTN_OS_LINUX': { label: { 'es-AR': 'Linux', 'en-US': 'Linux' } },
+  'BTN_OS_UNKNOWN': { label: { 'es-AR': 'No lo sé', 'en-US': 'I don\'t know' } },
+  'BTN_HELP_CONTEXT': { label: { 'es-AR': '¿Cómo hago esto?', 'en-US': 'How do I do this?' } },
+  'BTN_FEEDBACK_YES': { label: { 'es-AR': '👍 Sí, me sirvió', 'en-US': '👍 Yes, it helped' } },
+  'BTN_FEEDBACK_NO': { label: { 'es-AR': '👎 No, no me sirvió', 'en-US': '👎 No, it didn\'t help' } },
+  'BTN_REASON_NOT_RESOLVED': { label: { 'es-AR': 'No resolvió el problema', 'en-US': 'Didn\'t resolve the problem' } },
+  'BTN_REASON_HARD_TO_UNDERSTAND': { label: { 'es-AR': 'Fue difícil de entender', 'en-US': 'Hard to understand' } },
+  'BTN_REASON_TOO_MANY_STEPS': { label: { 'es-AR': 'Demasiados pasos', 'en-US': 'Too many steps' } },
+  'BTN_REASON_WANTED_TECH': { label: { 'es-AR': 'Prefería hablar con un técnico', 'en-US': 'Wanted to talk to a technician' } },
+  'BTN_REASON_OTHER': { label: { 'es-AR': 'Otro motivo', 'en-US': 'Other reason' } }
 };
 
 function getStageContract(stage) {
@@ -455,13 +587,12 @@ Botones disponibles: ${JSON.stringify(availableButtons.map(b => b.token))}`;
       // Si no hay botones en formato JSON, la IA no los sugirió explícitamente
     }
     
-    // Si no hay botones sugeridos, usar lógica simple basada en el stage
-    if (suggestedButtons.length === 0 && stage === 'ASK_NEED') {
-      // Botones comunes para ASK_NEED
-      suggestedButtons = [
-        { token: 'BTN_PROBLEMA', label: BUTTON_CATALOG['BTN_PROBLEMA'].label[locale], order: 1 },
-        { token: 'BTN_CONSULTA', label: BUTTON_CATALOG['BTN_CONSULTA'].label[locale], order: 2 }
-      ];
+    // ASK_NEED: pregunta abierta, SIEMPRE sin botones (incluso si la IA sugiere)
+    if (stage === 'ASK_NEED') {
+      return {
+        reply: aiResponse.trim(),
+        buttons: [] // Forzar array vacío para ASK_NEED
+      };
     }
     
     return {
@@ -588,17 +719,565 @@ async function handleAskUserLevelStage(session, userText, buttonToken) {
     };
   }
   
-  // Avanzar a ASK_NEED
+  // Avanzar a ASK_NEED (pregunta abierta, sin botones)
   const levelLabel = isEn
     ? (session.userLevel === 'basic' ? 'basic' : session.userLevel === 'intermediate' ? 'intermediate' : 'advanced')
     : (session.userLevel === 'basic' ? 'básico' : session.userLevel === 'intermediate' ? 'intermedio' : 'avanzado');
   
+  const contract = getStageContract('ASK_NEED');
   return {
     reply: isEn
-      ? `Perfect! I'll adjust my explanations to your ${levelLabel} level. What can I help you with today?`
-      : `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${levelLabel}. ¿En qué puedo ayudarte hoy?`,
+      ? `Perfect! I'll adjust my explanations to your ${levelLabel} level. ${contract.prompt[locale]}`
+      : `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${levelLabel}. ${contract.prompt[locale]}`,
     stage: 'ASK_NEED',
-    buttons: [] // IA decidirá los botones
+    buttons: [] // Pregunta abierta, sin botones
+  };
+}
+
+// Handler para pregunta abierta (ASK_NEED)
+async function handleAskNeedStage(session, userText) {
+  const locale = session.userLocale || 'es-AR';
+  
+  // Guardar la descripción del problema
+  if (userText && userText.trim()) {
+    session.problem_raw = userText.trim();
+    // Avanzar a procesar la descripción del problema
+    return {
+      reply: '',
+      stage: 'ASK_PROBLEM',
+      buttons: []
+    };
+  }
+  
+  // Si no hay texto, pedir descripción
+  const contract = getStageContract('ASK_NEED');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'ASK_NEED',
+    buttons: []
+  };
+}
+
+// Handler para validar descripción del problema con OpenAI
+async function handleAskProblemStage(session, userText) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  // Si ya tenemos problem_raw, validarlo con OpenAI
+  const problemText = session.problem_raw || userText;
+  
+  if (!problemText || !problemText.trim()) {
+    return {
+      reply: isEn
+        ? 'Please describe your problem or what you need help with.'
+        : 'Por favor, describí tu problema o en qué necesitás ayuda.',
+      stage: 'ASK_PROBLEM',
+      buttons: []
+    };
+  }
+  
+  // Validar con OpenAI: detectar intent canónico y información faltante
+  if (openai) {
+    try {
+      const systemPrompt = isEn
+        ? `You are an IT support assistant. Analyze the user's problem description and return a JSON object with:
+- valid: boolean (is this a valid technical problem?)
+- intent: string (canonical intent like "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "virus", "general_question", etc.)
+- missing_device: boolean (does the description lack device type info?)
+- missing_os: boolean (does the description lack OS info? optional, only if really needed)
+- needs_clarification: boolean (does the problem need more details?)
+
+Return ONLY valid JSON, no other text.`
+        : `Sos un asistente de soporte técnico. Analizá la descripción del problema del usuario y devolvé un objeto JSON con:
+- valid: boolean (¿es un problema técnico válido?)
+- intent: string (intent canónico como "wont_turn_on", "no_internet", "slow", "freezes", "peripherals", "virus", "general_question", etc.)
+- missing_device: boolean (¿falta información del tipo de dispositivo?)
+- missing_os: boolean (¿falta información del sistema operativo? opcional, solo si realmente se necesita)
+- needs_clarification: boolean (¿el problema necesita más detalles?)
+
+Devolvé SOLO JSON válido, sin otro texto.`;
+      
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Problem description: ${problemText}` }
+        ],
+        temperature: 0.3,
+        max_tokens: 200
+      });
+      
+      const analysisText = completion.choices[0]?.message?.content || '{}';
+      const analysis = JSON.parse(analysisText.trim());
+      
+      session.problem_validated = true;
+      session.problem_intent = analysis.intent || 'unknown';
+      session.problem_needs_clarification = analysis.needs_clarification || false;
+      
+      // Si falta dispositivo, ir a ASK_DEVICE
+      if (analysis.missing_device) {
+        const contract = getStageContract('ASK_DEVICE');
+        return {
+          reply: isEn
+            ? `I understand you're having: ${problemText}\n\nWhat type of device are you using?`
+            : `Entiendo que tenés: ${problemText}\n\n¿Qué tipo de dispositivo estás usando?`,
+          stage: 'ASK_DEVICE',
+          buttons: contract.defaultButtons
+        };
+      }
+      
+      // Si no falta dispositivo, iniciar diagnóstico
+      session.device_type = session.device_type || 'unknown';
+      return {
+        reply: '',
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: []
+      };
+      
+    } catch (err) {
+      console.error('[ASK_PROBLEM] OpenAI error:', err);
+      // Fallback: asumir que es válido y continuar
+      session.problem_validated = true;
+      session.problem_intent = 'unknown';
+      const contract = getStageContract('ASK_DEVICE');
+      return {
+        reply: isEn
+          ? 'What type of device are you using?'
+          : '¿Qué tipo de dispositivo estás usando?',
+        stage: 'ASK_DEVICE',
+        buttons: contract.defaultButtons
+      };
+    }
+  } else {
+    // Sin OpenAI: pedir dispositivo directamente
+    const contract = getStageContract('ASK_DEVICE');
+    return {
+      reply: isEn
+        ? 'What type of device are you using?'
+        : '¿Qué tipo de dispositivo estás usando?',
+      stage: 'ASK_DEVICE',
+      buttons: contract.defaultButtons
+    };
+  }
+}
+
+// Handler para selección de dispositivo
+async function handleAskDeviceStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  let deviceType = null;
+  
+  if (buttonToken === 'BTN_DEVICE_DESKTOP') {
+    deviceType = 'desktop';
+  } else if (buttonToken === 'BTN_DEVICE_NOTEBOOK') {
+    deviceType = 'notebook';
+  } else if (buttonToken === 'BTN_DEVICE_ALLINONE') {
+    deviceType = 'allinone';
+  } else if (userText) {
+    const text = userText.toLowerCase();
+    if (text.includes('desktop') || text.includes('escritorio') || text.includes('pc')) {
+      deviceType = 'desktop';
+    } else if (text.includes('notebook') || text.includes('laptop')) {
+      deviceType = 'notebook';
+    } else if (text.includes('all in one') || text.includes('all-in-one')) {
+      deviceType = 'allinone';
+    }
+  }
+  
+  if (deviceType) {
+    session.device_type = deviceType;
+    // Iniciar diagnóstico
+    return {
+      reply: '',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: []
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('ASK_DEVICE');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'ASK_DEVICE',
+    buttons: contract.defaultButtons
+  };
+}
+
+// Handler para OS (opcional, solo cuando realmente se necesita)
+async function handleAskOsStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  let osType = null;
+  
+  if (buttonToken === 'BTN_OS_WINDOWS') {
+    osType = 'windows';
+  } else if (buttonToken === 'BTN_OS_MACOS') {
+    osType = 'macos';
+  } else if (buttonToken === 'BTN_OS_LINUX') {
+    osType = 'linux';
+  } else if (buttonToken === 'BTN_OS_UNKNOWN') {
+    osType = 'unknown';
+  } else if (userText) {
+    const text = userText.toLowerCase();
+    if (text.includes('windows')) {
+      osType = 'windows';
+    } else if (text.includes('mac') || text.includes('macos')) {
+      osType = 'macos';
+    } else if (text.includes('linux')) {
+      osType = 'linux';
+    } else if (text.includes('no sé') || text.includes("don't know") || text.includes('unknown')) {
+      osType = 'unknown';
+    }
+  }
+  
+  if (osType !== null) {
+    session.os = osType;
+    // Continuar con diagnóstico
+    return {
+      reply: '',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: []
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('ASK_OS');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'ASK_OS',
+    buttons: contract.defaultButtons
+  };
+}
+
+// Handler para diagnóstico paso a paso (sistema híbrido)
+async function handleDiagnosticStepStage(session, userText, buttonToken, sessionId) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  const userLevel = session.userLevel || 'intermediate';
+  
+  // Cargar historial como memoria
+  const history = loadConversationHistory(sessionId);
+  const executedSteps = getExecutedDiagnosticSteps(history);
+  
+  // Contar pasos básicos y avanzados
+  const basicSteps = executedSteps.filter(s => s.step_number <= 5).length;
+  const advancedSteps = executedSteps.filter(s => s.step_number > 5).length;
+  const maxBasicSteps = 5;
+  const maxAdvancedSteps = 5;
+  
+  // Verificar si hay 2 "Sigue igual" seguidos
+  const lastTwoResults = [];
+  for (let i = history.length - 1; i >= 0 && lastTwoResults.length < 2; i--) {
+    const turn = history[i];
+    if (turn.stage_after === 'DIAGNOSTIC_STEP' && turn.user_event) {
+      if (typeof turn.user_event === 'string' && turn.user_event.includes('BTN_PERSIST')) {
+        lastTwoResults.push('BTN_PERSIST');
+      } else if (typeof turn.user_event === 'object' && turn.user_event.token === 'BTN_PERSIST') {
+        lastTwoResults.push('BTN_PERSIST');
+      }
+    }
+  }
+  const twoPersistsInRow = lastTwoResults.length === 2 && lastTwoResults[0] === 'BTN_PERSIST' && lastTwoResults[1] === 'BTN_PERSIST';
+  
+  // Si se alcanzó el límite o hay 2 "Sigue igual", recomendar técnico
+  if (basicSteps >= maxBasicSteps && advancedSteps >= maxAdvancedSteps || twoPersistsInRow) {
+    const contract = getStageContract('FEEDBACK_REQUIRED');
+    return {
+      reply: isEn
+        ? "I've reached the limit of diagnostic steps. I recommend talking to a technician. Let me know if this session was helpful."
+        : 'Alcanzé el límite de pasos de diagnóstico. Te recomiendo hablar con un técnico. ¿Te sirvió esta ayuda?',
+      stage: 'FEEDBACK_REQUIRED',
+      buttons: contract.defaultButtons
+    };
+  }
+  
+  // Manejar botones de resultado
+  if (buttonToken === 'BTN_SOLVED') {
+    // Problema resuelto, pedir feedback
+    const contract = getStageContract('FEEDBACK_REQUIRED');
+    return {
+      reply: isEn
+        ? 'Great! I\'m glad it worked. Did this help you?'
+        : '¡Genial! Me alegra que haya funcionado. ¿Te sirvió esta ayuda?',
+      stage: 'FEEDBACK_REQUIRED',
+      buttons: contract.defaultButtons
+    };
+  }
+  
+  if (buttonToken === 'BTN_HELP_CONTEXT') {
+    // Ayuda contextual: NO avanza el flujo, solo explica el paso actual
+    const lastStep = executedSteps[executedSteps.length - 1];
+    if (lastStep && lastStep.action) {
+      // Generar ayuda contextual adaptada al nivel del usuario
+      if (openai) {
+        try {
+          const levelContext = userLevel === 'basic'
+            ? (isEn ? 'Explain in very simple terms, step by step.' : 'Explicá en términos muy simples, paso a paso.')
+            : userLevel === 'advanced'
+              ? (isEn ? 'Be technical and precise.' : 'Sé técnico y preciso.')
+              : (isEn ? 'Use common technical terms.' : 'Usá términos técnicos comunes.');
+          
+          const helpPrompt = isEn
+            ? `The user needs contextual help for this action: "${lastStep.action}". ${levelContext} Provide clear instructions without advancing the flow.`
+            : `El usuario necesita ayuda contextual para esta acción: "${lastStep.action}". ${levelContext} Proporcioná instrucciones claras sin avanzar el flujo.`;
+          
+          const completion = await openai.chat.completions.create({
+            model: OPENAI_MODEL,
+            messages: [
+              { role: 'system', content: 'You are Tecnos, an IT support assistant.' },
+              { role: 'user', content: helpPrompt }
+            ],
+            temperature: 0.5,
+            max_tokens: 300
+          });
+          
+          const helpText = completion.choices[0]?.message?.content || '';
+          // Volver al mismo paso con los mismos botones
+          const lastTurn = history[history.length - 1];
+          const helpReply = `${lastTurn?.bot_reply || ''}\n\n---\n\n${helpText}`;
+          return {
+            reply: helpReply,
+            stage: 'DIAGNOSTIC_STEP',
+            buttons: lastTurn?.buttons_shown || []
+          };
+        } catch (err) {
+          console.error('[DIAGNOSTIC_STEP] Error generating help:', err);
+        }
+      }
+    }
+    // Si no hay último paso o falla, continuar normalmente
+  }
+  
+  if (buttonToken === 'BTN_BACK') {
+    // Volver al paso anterior: usar el paso previo sin llamar a OpenAI
+    if (executedSteps.length >= 2) {
+      const previousStep = executedSteps[executedSteps.length - 2];
+      // Encontrar el turn correspondiente y reutilizar
+      const previousTurn = history.find(t => t.diagnostic_step && t.diagnostic_step.step_id === previousStep.step_id);
+      if (previousTurn) {
+        return {
+          reply: previousTurn.bot_reply,
+          stage: 'DIAGNOSTIC_STEP',
+          buttons: previousTurn.buttons_shown || []
+        };
+      }
+    }
+  }
+  
+  // Generar nuevo paso de diagnóstico solo si:
+  // - El usuario hizo clic en "BTN_PERSIST" (sigue igual)
+  // - Es el primer paso (no hay pasos ejecutados)
+  // Si no hay botón y ya hay pasos, mostrar el último paso nuevamente
+  if (!buttonToken && executedSteps.length > 0) {
+    // Si no hay botón y ya hay pasos, mostrar el último paso
+    const lastTurn = history[history.length - 1];
+    if (lastTurn && lastTurn.bot_reply && lastTurn.stage_after === 'DIAGNOSTIC_STEP') {
+      return {
+        reply: lastTurn.bot_reply,
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: lastTurn.buttons_shown || []
+      };
+    }
+  }
+  
+  // Solo generar nuevo paso si:
+  // 1. Es el primer paso (executedSteps.length === 0)
+  // 2. O el usuario hizo clic en "BTN_PERSIST" (sigue igual)
+  if (executedSteps.length > 0 && buttonToken !== 'BTN_PERSIST') {
+    // Si ya hay pasos y no es "BTN_PERSIST", no generar nuevo paso
+    const lastTurn = history[history.length - 1];
+    return {
+      reply: lastTurn?.bot_reply || '',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: lastTurn?.buttons_shown || []
+    };
+  }
+  
+  if (openai) {
+    try {
+      // Construir contexto del problema
+      const problemContext = session.problem_raw || '';
+      const deviceContext = session.device_type ? `Device: ${session.device_type}` : '';
+      const osContext = session.os ? `OS: ${session.os}` : '';
+      const stepsContext = executedSteps.length > 0
+        ? `Previous steps executed: ${executedSteps.map(s => s.action).join(', ')}`
+        : 'No previous steps';
+      
+      const levelContext = userLevel === 'basic'
+        ? (isEn ? 'Use very simple language, step by step.' : 'Usá lenguaje muy simple, paso a paso.')
+        : userLevel === 'advanced'
+          ? (isEn ? 'Be technical and precise.' : 'Sé técnico y preciso.')
+          : (isEn ? 'Use common technical terms.' : 'Usá términos técnicos comunes.');
+      
+      const stepNumber = basicSteps < maxBasicSteps ? basicSteps + 1 : advancedSteps + 1 + maxBasicSteps;
+      const isBasicStep = stepNumber <= maxBasicSteps;
+      
+      const diagnosticPrompt = isEn
+        ? `You are Tecnos, an IT support assistant. The user has this problem: "${problemContext}". ${deviceContext} ${osContext}. ${stepsContext}
+
+Generate the next diagnostic step (step ${stepNumber}, ${isBasicStep ? 'basic' : 'advanced'}). ${levelContext}
+
+Return a JSON object with:
+- action: string (one single action the user should perform, e.g. "Press Ctrl+Alt+Del" or "Check if the power LED is on")
+- explanation: string (brief explanation of why this step is needed, adapted to user level)
+
+Return ONLY valid JSON, no other text.`
+        : `Sos Tecnos, asistente de soporte técnico. El usuario tiene este problema: "${problemContext}". ${deviceContext} ${osContext}. ${stepsContext}
+
+Generá el siguiente paso de diagnóstico (paso ${stepNumber}, ${isBasicStep ? 'básico' : 'avanzado'}). ${levelContext}
+
+Devolvé un objeto JSON con:
+- action: string (una sola acción que el usuario debe realizar, ej. "Presioná Ctrl+Alt+Del" o "Verificá si el LED de encendido está prendido")
+- explanation: string (breve explicación de por qué este paso es necesario, adaptada al nivel del usuario)
+
+Devolvé SOLO JSON válido, sin otro texto.`;
+      
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: 'You are Tecnos, an IT support assistant. Return only valid JSON.' },
+          { role: 'user', content: diagnosticPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
+      });
+      
+      const stepText = completion.choices[0]?.message?.content || '{}';
+      const stepData = JSON.parse(stepText.trim());
+      
+      const stepId = `step_${stepNumber}_${Date.now()}`;
+      const action = stepData.action || '';
+      const explanation = stepData.explanation || '';
+      
+      // Construir mensaje completo
+      const reply = `${action}\n\n${explanation}`;
+      
+      // Botones del paso: resultado + ayuda + volver
+      const contract = getStageContract('DIAGNOSTIC_STEP');
+      const buttons = [
+        { token: 'BTN_SOLVED', label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+        { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+        { token: 'BTN_HELP_CONTEXT', label: BUTTON_CATALOG['BTN_HELP_CONTEXT'].label[locale], order: 3 }
+      ];
+      
+      // Solo agregar "Volver" si hay pasos anteriores
+      if (executedSteps.length > 0) {
+        buttons.push({ token: 'BTN_BACK', label: BUTTON_CATALOG['BTN_BACK'].label[locale], order: 4 });
+      }
+      
+      return {
+        reply,
+        stage: 'DIAGNOSTIC_STEP',
+        buttons,
+        diagnostic_step: {
+          step_id: stepId,
+          step_number: stepNumber,
+          action,
+          explanation,
+          is_basic: isBasicStep
+        }
+      };
+      
+    } catch (err) {
+      console.error('[DIAGNOSTIC_STEP] OpenAI error:', err);
+      // Fallback
+      return {
+        reply: isEn
+          ? 'I need more information. Could you describe the problem again?'
+          : 'Necesito más información. ¿Podrías describir el problema nuevamente?',
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: []
+      };
+    }
+  }
+  
+  // Sin OpenAI: fallback
+  return {
+    reply: isEn
+      ? 'I need more information. Could you describe the problem again?'
+      : 'Necesito más información. ¿Podrías describir el problema nuevamente?',
+    stage: 'DIAGNOSTIC_STEP',
+    buttons: []
+  };
+}
+
+// Handler para feedback obligatorio
+async function handleFeedbackRequiredStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  if (buttonToken === 'BTN_FEEDBACK_YES') {
+    session.feedback = 'positive';
+    session.feedback_reason = null;
+    // Cerrar chat con resultado positivo
+    return {
+      reply: isEn
+        ? 'Thank you! Have a great day!'
+        : '¡Gracias! ¡Que tengas un buen día!',
+      stage: 'ENDED',
+      buttons: []
+    };
+  }
+  
+  if (buttonToken === 'BTN_FEEDBACK_NO') {
+    // Preguntar motivo
+    const contract = getStageContract('FEEDBACK_REASON');
+    return {
+      reply: contract.prompt[locale] || contract.prompt['es-AR'],
+      stage: 'FEEDBACK_REASON',
+      buttons: contract.defaultButtons
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('FEEDBACK_REQUIRED');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'FEEDBACK_REQUIRED',
+    buttons: contract.defaultButtons
+  };
+}
+
+// Handler para motivo del feedback negativo
+async function handleFeedbackReasonStage(session, userText, buttonToken) {
+  const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
+  
+  let reason = null;
+  
+  if (buttonToken === 'BTN_REASON_NOT_RESOLVED') {
+    reason = 'not_resolved';
+  } else if (buttonToken === 'BTN_REASON_HARD_TO_UNDERSTAND') {
+    reason = 'hard_to_understand';
+  } else if (buttonToken === 'BTN_REASON_TOO_MANY_STEPS') {
+    reason = 'too_many_steps';
+  } else if (buttonToken === 'BTN_REASON_WANTED_TECH') {
+    reason = 'wanted_tech';
+  } else if (buttonToken === 'BTN_REASON_OTHER') {
+    reason = 'other';
+  }
+  
+  if (reason) {
+    session.feedback = 'negative';
+    session.feedback_reason = reason;
+    // Cerrar chat con resultado negativo
+    return {
+      reply: isEn
+        ? 'Thank you for your feedback. I\'ll work on improving. Have a great day!'
+        : 'Gracias por tu feedback. Voy a trabajar en mejorar. ¡Que tengas un buen día!',
+      stage: 'ENDED',
+      buttons: []
+    };
+  }
+  
+  // Retry
+  const contract = getStageContract('FEEDBACK_REASON');
+  return {
+    reply: contract.prompt[locale] || contract.prompt['es-AR'],
+    stage: 'FEEDBACK_REASON',
+    buttons: contract.defaultButtons
   };
 }
 
@@ -718,12 +1397,26 @@ app.post('/api/chat', async (req, res) => {
       if (contract?.type === 'DETERMINISTIC' && (!result.buttons || result.buttons.length === 0)) {
         result.buttons = contract.defaultButtons;
       }
-    } else if (session.stage === 'ASK_NEED' || session.stage === 'ASK_PROBLEM' || session.stage === 'BASIC_TESTS') {
-      // Stages gobernados por IA
+    } else if (session.stage === 'ASK_NEED') {
+      result = await handleAskNeedStage(session, userText);
+    } else if (session.stage === 'ASK_PROBLEM') {
+      result = await handleAskProblemStage(session, userText);
+    } else if (session.stage === 'ASK_DEVICE') {
+      result = await handleAskDeviceStage(session, userText, buttonToken);
+    } else if (session.stage === 'ASK_OS') {
+      result = await handleAskOsStage(session, userText, buttonToken);
+    } else if (session.stage === 'DIAGNOSTIC_STEP') {
+      result = await handleDiagnosticStepStage(session, userText, buttonToken, sessionId);
+    } else if (session.stage === 'FEEDBACK_REQUIRED') {
+      result = await handleFeedbackRequiredStage(session, userText, buttonToken);
+    } else if (session.stage === 'FEEDBACK_REASON') {
+      result = await handleFeedbackReasonStage(session, userText, buttonToken);
+    } else if (session.stage === 'BASIC_TESTS') {
+      // Mantener compatibilidad con BASIC_TESTS legacy
       const aiResult = await generateAIResponse(session.stage, session, userText, buttonToken);
       result = {
         reply: aiResult.reply,
-        stage: session.stage, // Mantener stage actual (o avanzar según lógica)
+        stage: session.stage,
         buttons: aiResult.buttons || []
       };
     } else {
@@ -742,17 +1435,45 @@ app.post('/api/chat', async (req, res) => {
     // NUNCA heredar botones del turno anterior
     const sanitizedButtons = sanitizeButtonsForStage(result.stage, result.buttons || []);
     
-    // Si es determinístico y quedó vacío después del saneamiento, usar defaults
+    // Obtener contrato del stage para validar
     const contract = getStageContract(result.stage);
-    const finalButtons = (contract?.type === 'DETERMINISTIC' && sanitizedButtons.length === 0)
-      ? (contract.defaultButtons || [])
-      : sanitizedButtons;
+    
+    // Si el stage no permite botones (allowButtons: false), forzar array vacío
+    // Esto protege especialmente ASK_NEED que debe ser pregunta abierta
+    let finalButtons;
+    if (contract && contract.allowButtons === false) {
+      finalButtons = [];
+    } else if (contract?.type === 'DETERMINISTIC' && sanitizedButtons.length === 0) {
+      // Si es determinístico y quedó vacío después del saneamiento, usar defaults
+      finalButtons = contract.defaultButtons || [];
+    } else {
+      finalButtons = sanitizedButtons;
+    }
     
     const legacyButtons = toLegacyButtons(finalButtons);
     
     turnLog.stage_after = result.stage;
     turnLog.bot_reply = result.reply;
     turnLog.buttons_shown = finalButtons; // Guardar formato interno {token, label, order}
+    
+    // Guardar metadata del diagnóstico si existe
+    if (result.diagnostic_step) {
+      turnLog.diagnostic_step = result.diagnostic_step;
+    }
+    
+    // Si el stage es ENDED, guardar evento final con metadata completa
+    if (result.stage === 'ENDED') {
+      turnLog.metadata = {
+        result: session.feedback || 'unknown',
+        feedback_reason: session.feedback_reason || null,
+        problem: session.problem_raw || null,
+        device_type: session.device_type || null,
+        os: session.os || null,
+        user_level: session.userLevel || null,
+        diagnostic_steps_count: getExecutedDiagnosticSteps(loadConversationHistory(sessionId)).length,
+        ended_at: nowIso()
+      };
+    }
     
     // Guardar turno en conversación
     appendConversationTurn(turnLog);
