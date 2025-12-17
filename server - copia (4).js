@@ -918,9 +918,14 @@ Devolvé SOLO JSON válido, sin otro texto.`;
       // Si tenemos dispositivo, avanzar a diagnóstico
       console.log(`[ASK_PROBLEM] [${sessionId}] Dispositivo: ${session.device_type}, avanzando a DIAGNOSTIC_STEP`);
       
-      // Iniciar diagnóstico automáticamente: llamar al handler para generar el primer paso
-      const diagnosticResult = await handleDiagnosticStepStage(session, '', null, sessionId);
-      return diagnosticResult;
+      // Retornar mensaje de confirmación - el siguiente turno generará el primer paso
+      return {
+        reply: isEn
+          ? `I understand your problem: ${problemText}. Let me guide you through the solution step by step.`
+          : `Entiendo tu problema: ${problemText}. Déjame guiarte paso a paso para solucionarlo.`,
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: []
+      };
       
     } catch (err) {
       const isTimeout = err.message && err.message.includes('timeout');
@@ -997,10 +1002,15 @@ async function handleAskDeviceStage(ctx) {
   
   if (deviceType) {
     session.device_type = deviceType;
-    // Iniciar diagnóstico automáticamente: llamar al handler para generar el primer paso
+    // Iniciar diagnóstico
     console.log(`[ASK_DEVICE] [${logSessionId}] Dispositivo seleccionado: ${deviceType}, avanzando a DIAGNOSTIC_STEP`);
-    const diagnosticResult = await handleDiagnosticStepStage(session, '', null, sessionId);
-    return diagnosticResult;
+    return {
+      reply: isEn
+        ? 'Perfect! Let me help you diagnose the issue.'
+        : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: []
+    };
   }
   
   // Retry
@@ -1056,10 +1066,15 @@ async function handleAskOsStage(ctx) {
   
   if (osType !== null) {
     session.os = osType;
-    // Iniciar diagnóstico automáticamente: llamar al handler para generar el primer paso
+    // Continuar con diagnóstico
     console.log(`[ASK_OS] [${logSessionId}] OS seleccionado: ${osType}, avanzando a DIAGNOSTIC_STEP`);
-    const diagnosticResult = await handleDiagnosticStepStage(session, '', null, sessionId);
-    return diagnosticResult;
+    return {
+      reply: isEn
+        ? 'Perfect! Let me help you diagnose the issue.'
+        : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
+      stage: 'DIAGNOSTIC_STEP',
+      buttons: []
+    };
   }
   
   // Retry
@@ -1121,15 +1136,15 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     };
   }
   
-  // Implementación de pasos para wont_turn_on + desktop (todos los niveles, filtrado por nivel dentro)
-  if (intent === 'wont_turn_on' && deviceType === 'desktop') {
+  // Implementación de pasos para wont_turn_on + desktop + basic
+  if (intent === 'wont_turn_on' && deviceType === 'desktop' && userLevel === 'basic') {
     // PASO 1: Pregunta inicial sobre síntomas de encendido
     if (currentStep === 1 && !buttonToken) {
       const buttons = [
-        { token: 'BTN_PWR_NO_SIGNS', text: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
-        { token: 'BTN_PWR_FANS', text: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
-        { token: 'BTN_PWR_BEEPS', text: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
-        { token: 'BTN_PWR_ON_OFF', text: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
+        { token: 'BTN_PWR_NO_SIGNS', label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
+        { token: 'BTN_PWR_FANS', label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
+        { token: 'BTN_PWR_BEEPS', label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
+        { token: 'BTN_PWR_ON_OFF', label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
       ];
       
       return {
@@ -1157,28 +1172,20 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           : 'Sin señales de encendido suele ser un problema con la alimentación o el cable. Revisemos:\n\n1. Verificá que el cable de alimentación esté bien conectado a la PC y al enchufe.\n2. Probá con otro enchufe.\n3. Verificá si la fuente tiene un interruptor y que esté en ON.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
         // Luces/ventilador o pitidos: revisar POST/RAM/monitor/cables
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        if (userLevel === 'advanced') {
-          reply = isEn
-            ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Check if the RAM memory modules are properly seated (if you feel comfortable opening the PC).\n3. Try disconnecting and reconnecting all cables.'
-            : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Verificá que los módulos de memoria RAM estén bien colocados (si te sentís cómodo abriendo la PC).\n3. Probá desconectar y volver a conectar todos los cables.';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          reply = isEn
-            ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Try disconnecting and reconnecting all external cables (HDMI, DisplayPort, VGA).\n3. Check if the monitor is set to the correct input source.'
-            : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Probá desconectar y volver a conectar todos los cables externos (HDMI, DisplayPort, VGA).\n3. Verificá que el monitor esté en la entrada correcta.';
-        }
+        reply = isEn
+          ? 'Good, there\'s some power. Now let\'s check:\n\n1. Check if the monitor is on and connected.\n2. Check if the RAM memory modules are properly seated (if you feel comfortable opening the PC).\n3. Try disconnecting and reconnecting all cables.'
+          : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Verificá que el monitor esté prendido y conectado.\n2. Verificá que los módulos de memoria RAM estén bien colocados (si te sentís cómodo abriendo la PC).\n3. Probá desconectar y volver a conectar todos los cables.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       } else if (buttonToken === 'BTN_PWR_ON_OFF') {
         // Enciende y se apaga: revisar temperatura/sobrecarga
@@ -1187,9 +1194,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           : 'Si enciende y se apaga enseguida, puede ser sobrecalentamiento o problema de alimentación. Revisemos:\n\n1. Asegurate de que la PC no se esté sobrecalentando (verificá que los ventiladores funcionen).\n2. Probá desconectar dispositivos no esenciales (USB, discos externos).\n3. Verificá que la fuente de alimentación sea adecuada para tus componentes.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       }
       
@@ -1215,9 +1222,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
             : '¿Esto resolvió el problema?',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+            { token: 'BTN_SOLVED', label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_PERSIST') {
@@ -1238,27 +1245,15 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
         
         // Continuar con otro paso
         session.diagnostic.step = currentStep + 1;
-        
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        let nextStepReply = '';
-        if (userLevel === 'advanced') {
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check the power supply connections inside the PC (if you feel comfortable). Make sure all internal cables are properly connected. Do you feel comfortable opening the PC?'
-            : 'Probemos otro enfoque. Revisá las conexiones de la fuente dentro de la PC (si te sentís cómodo). Asegurate de que todos los cables internos estén bien conectados. ¿Te sentís cómodo abriendo la PC?';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check if all external cables are properly connected. Try using a different power outlet or power strip. If the problem persists, I recommend talking to a technician.'
-            : 'Probemos otro enfoque. Verificá que todos los cables externos estén bien conectados. Probá con otro enchufe o regleta. Si el problema persiste, te recomiendo hablar con un técnico.';
-        }
-        
         return {
-          reply: nextStepReply,
+          reply: isEn
+            ? 'Let\'s try another approach. Check the power supply connections inside the PC (if you feel comfortable). Make sure all internal cables are properly connected.'
+            : 'Probemos otro enfoque. Revisá las conexiones de la fuente dentro de la PC (si te sentís cómodo). Asegurate de que todos los cables internos estén bien conectados.',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+            { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_STEP_HELP') {
@@ -1275,15 +1270,15 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     }
   }
   
-  // Implementación de pasos para wont_turn_on + notebook (todos los niveles, filtrado por nivel dentro)
-  if (intent === 'wont_turn_on' && deviceType === 'notebook') {
-    // PASO 1: Pregunta inicial sobre síntomas de encendido (automático al entrar)
+  // Implementación de pasos para wont_turn_on + notebook + basic/intermediate
+  if (intent === 'wont_turn_on' && deviceType === 'notebook' && (userLevel === 'basic' || userLevel === 'intermediate')) {
+    // PASO 1: Pregunta inicial sobre síntomas de encendido
     if (currentStep === 1 && !buttonToken) {
       const buttons = [
-        { token: 'BTN_PWR_NO_SIGNS', text: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
-        { token: 'BTN_PWR_FANS', text: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
-        { token: 'BTN_PWR_BEEPS', text: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
-        { token: 'BTN_PWR_ON_OFF', text: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
+        { token: 'BTN_PWR_NO_SIGNS', label: BUTTON_CATALOG['BTN_PWR_NO_SIGNS'].label[locale], order: 1 },
+        { token: 'BTN_PWR_FANS', label: BUTTON_CATALOG['BTN_PWR_FANS'].label[locale], order: 2 },
+        { token: 'BTN_PWR_BEEPS', label: BUTTON_CATALOG['BTN_PWR_BEEPS'].label[locale], order: 3 },
+        { token: 'BTN_PWR_ON_OFF', label: BUTTON_CATALOG['BTN_PWR_ON_OFF'].label[locale], order: 4 }
       ];
       
       return {
@@ -1311,9 +1306,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           : 'Sin señales de encendido en una notebook suele ser un problema con el cargador o la batería. Revisemos:\n\n1. Verificá que el cargador esté bien conectado a la notebook y al enchufe.\n2. Probá con otro enchufe.\n3. Verificá si el LED de carga se prende (si tu notebook tiene uno).\n4. Probá sacar la batería (si es removible) y conectar solo con el cargador.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       } else if (buttonToken === 'BTN_PWR_FANS' || buttonToken === 'BTN_PWR_BEEPS') {
         // Luces/ventilador o pitidos: revisar periféricos, pantalla, hard reset
@@ -1322,9 +1317,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           : 'Bien, hay algo de energía. Ahora revisemos:\n\n1. Desconectá todos los dispositivos externos (USB, mouse, monitor externo, etc.).\n2. Verificá si la pantalla muestra algo (aunque sea negro, verificá si hay retroiluminación).\n3. Probá un hard reset: mantené presionado el botón de encendido durante 15 segundos, soltalo y volvé a presionarlo.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       } else if (buttonToken === 'BTN_PWR_ON_OFF') {
         // Enciende y se apaga: revisar sobrecalentamiento, cargador, cortos
@@ -1333,9 +1328,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
           : 'Si enciende y se apaga enseguida, puede ser sobrecalentamiento, problema con el cargador o un cortocircuito. Revisemos:\n\n1. Asegurate de que la notebook no se esté sobrecalentando (verificá que el ventilador funcione y que las rejillas estén despejadas).\n2. Probá con otro cargador si tenés uno disponible.\n3. Verificá si hay signos visibles de daño o derrames de líquido.';
         
         buttons = [
-          { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-          { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-          { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+          { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+          { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+          { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
         ];
       }
       
@@ -1361,9 +1356,9 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
             : '¿Esto resolvió el problema?',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_SOLVED', text: BUTTON_CATALOG['BTN_SOLVED'].label[locale], label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+            { token: 'BTN_SOLVED', label: BUTTON_CATALOG['BTN_SOLVED'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_PERSIST') {
@@ -1384,27 +1379,15 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
         
         // Continuar con otro paso
         session.diagnostic.step = currentStep + 1;
-        
-        // FILTRADO POR NIVEL: Solo usuarios AVANZADO pueden abrir el dispositivo
-        let nextStepReply = '';
-        if (userLevel === 'advanced') {
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check the internal connections and try resetting the BIOS/CMOS (if you feel comfortable). You can also try connecting an external monitor to see if the problem is with the screen. Do you feel comfortable opening the notebook?'
-            : 'Probemos otro enfoque. Revisá las conexiones internas y probá resetear la BIOS/CMOS (si te sentís cómodo). También podés probar conectar un monitor externo para ver si el problema es con la pantalla. ¿Te sentís cómodo abriendo la notebook?';
-        } else {
-          // BÁSICO e INTERMEDIO: NO pueden abrir el dispositivo
-          nextStepReply = isEn
-            ? 'Let\'s try another approach. Check if all external cables are properly connected. Try using a different power outlet or power strip. You can also try connecting an external monitor to see if the problem is with the screen. If the problem persists, I recommend talking to a technician.'
-            : 'Probemos otro enfoque. Verificá que todos los cables externos estén bien conectados. Probá con otro enchufe o regleta. También podés probar conectar un monitor externo para ver si el problema es con la pantalla. Si el problema persiste, te recomiendo hablar con un técnico.';
-        }
-        
         return {
-          reply: nextStepReply,
+          reply: isEn
+            ? 'Let\'s try another approach. Check the internal connections and try resetting the BIOS/CMOS (if you feel comfortable). You can also try connecting an external monitor to see if the problem is with the screen.'
+            : 'Probemos otro enfoque. Revisá las conexiones internas y probá resetear la BIOS/CMOS (si te sentís cómodo). También podés probar conectar un monitor externo para ver si el problema es con la pantalla.',
           stage: 'DIAGNOSTIC_STEP',
           buttons: [
-            { token: 'BTN_STEP_DONE', text: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
-            { token: 'BTN_PERSIST', text: BUTTON_CATALOG['BTN_PERSIST'].label[locale], label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
-            { token: 'BTN_STEP_HELP', text: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
+            { token: 'BTN_STEP_DONE', label: BUTTON_CATALOG['BTN_STEP_DONE'].label[locale], order: 1 },
+            { token: 'BTN_PERSIST', label: BUTTON_CATALOG['BTN_PERSIST'].label[locale], order: 2 },
+            { token: 'BTN_STEP_HELP', label: BUTTON_CATALOG['BTN_STEP_HELP'].label[locale], order: 3 }
           ]
         };
       } else if (buttonToken === 'BTN_STEP_HELP') {
