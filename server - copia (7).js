@@ -195,14 +195,14 @@ const STAGE_CONTRACT = {
   ASK_LANGUAGE: {
     type: 'DETERMINISTIC',
     allowButtons: true,
-    allowedTokens: ['si', 'no', 'BTN_LANG_ES_AR', 'BTN_LANG_EN'],
+    allowedTokens: ['BTN_LANG_ES_AR', 'BTN_LANG_EN'],
     defaultButtons: [
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', order: 1 },
       { token: 'BTN_LANG_EN', label: '🇬🇧 English', order: 2 }
     ],
     prompt: {
-      'es-AR': 'Perfecto 😊\n\nElegí el idioma en el que te resulte más cómodo:',
-      'en-US': 'Select the language you feel most comfortable with:'
+      'es-AR': 'Seleccioná tu idioma para continuar.',
+      'en-US': 'Select your language to continue.'
     }
   },
   ASK_NAME: {
@@ -225,8 +225,8 @@ const STAGE_CONTRACT = {
       { token: 'BTN_USER_LEVEL_ADVANCED', label: '🔵 Avanzado — ya hice pruebas técnicas', order: 3 }
     ],
     prompt: {
-      'es-AR': 'Para ayudarte mejor, decime qué tan cómodo te sentís con la tecnología.',
-      'en-US': 'Say how comfortable you are with technology so I can guide you better.'
+      'es-AR': 'Seleccioná tu nivel de conocimiento técnico:',
+      'en-US': 'Select your technical knowledge level:'
     }
   },
   ASK_NEED: {
@@ -264,13 +264,13 @@ const STAGE_CONTRACT = {
     allowButtons: true,
     allowedTokens: ['BTN_DEVICE_DESKTOP', 'BTN_DEVICE_NOTEBOOK', 'BTN_DEVICE_ALLINONE'],
     defaultButtons: [
-      { token: 'BTN_DEVICE_DESKTOP', label: '🖥️ PC de escritorio', order: 1 },
-      { token: 'BTN_DEVICE_NOTEBOOK', label: '💻 Notebook', order: 2 },
-      { token: 'BTN_DEVICE_ALLINONE', label: '🧩 All in One', order: 3 }
+      { token: 'BTN_DEVICE_DESKTOP', label: 'PC de escritorio', order: 1 },
+      { token: 'BTN_DEVICE_NOTEBOOK', label: 'Notebook', order: 2 },
+      { token: 'BTN_DEVICE_ALLINONE', label: 'All In One', order: 3 }
     ],
     prompt: {
-      'es-AR': 'Bien, para seguir necesito saber una cosa más.\n\n¿Qué tipo de equipo estás usando?',
-      'en-US': 'To continue, I just need one more thing: what type of device are you using?'
+      'es-AR': '¿Qué tipo de dispositivo estás usando?',
+      'en-US': 'What type of device are you using?'
     }
   },
   ASK_OS: {
@@ -353,16 +353,16 @@ const BUTTON_CATALOG = {
   'BTN_BLOQUEO': { label: { 'es-AR': 'Bloqueos', 'en-US': 'Freezes' }, deprecated: true },
   'BTN_PERIFERICOS': { label: { 'es-AR': 'Periféricos', 'en-US': 'Peripherals' }, deprecated: true },
   'BTN_VIRUS': { label: { 'es-AR': 'Virus o malware', 'en-US': 'Virus or malware' }, deprecated: true },
-  'BTN_SOLVED': { label: { 'es-AR': '🎉 Sí, ya funciona', 'en-US': '🎉 Yes, it works now' } },
-  'BTN_PERSIST': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same' } },
+  'BTN_SOLVED': { label: { 'es-AR': 'Listo, se arregló', 'en-US': 'Done, it\'s fixed' } },
+  'BTN_PERSIST': { label: { 'es-AR': 'Sigue igual', 'en-US': 'Still the same' } },
   'BTN_ADVANCED_TESTS': { label: { 'es-AR': 'Pruebas avanzadas', 'en-US': 'Advanced tests' } },
   'BTN_CONNECT_TECH': { label: { 'es-AR': 'Hablar con técnico', 'en-US': 'Talk to technician' } },
   'BTN_BACK': { label: { 'es-AR': 'Volver atrás', 'en-US': 'Go back' } },
   'BTN_CLOSE': { label: { 'es-AR': 'Cerrar chat', 'en-US': 'Close chat' } },
   // Nuevos botones para sistema híbrido
-  'BTN_DEVICE_DESKTOP': { label: { 'es-AR': '🖥️ PC de escritorio', 'en-US': '🖥️ Desktop PC' } },
-  'BTN_DEVICE_NOTEBOOK': { label: { 'es-AR': '💻 Notebook', 'en-US': '💻 Notebook' } },
-  'BTN_DEVICE_ALLINONE': { label: { 'es-AR': '🧩 All in One', 'en-US': '🧩 All-in-One' } },
+  'BTN_DEVICE_DESKTOP': { label: { 'es-AR': 'PC de escritorio', 'en-US': 'Desktop PC' } },
+  'BTN_DEVICE_NOTEBOOK': { label: { 'es-AR': 'Notebook', 'en-US': 'Notebook' } },
+  'BTN_DEVICE_ALLINONE': { label: { 'es-AR': 'All In One', 'en-US': 'All In One' } },
   'BTN_OS_WINDOWS': { label: { 'es-AR': 'Windows', 'en-US': 'Windows' } },
   'BTN_OS_MACOS': { label: { 'es-AR': 'macOS', 'en-US': 'macOS' } },
   'BTN_OS_LINUX': { label: { 'es-AR': 'Linux', 'en-US': 'Linux' } },
@@ -376,14 +376,14 @@ const BUTTON_CATALOG = {
   'BTN_REASON_WANTED_TECH': { label: { 'es-AR': 'Prefería hablar con un técnico', 'en-US': 'Wanted to talk to a technician' } },
   'BTN_REASON_OTHER': { label: { 'es-AR': 'Otro motivo', 'en-US': 'Other reason' } },
   // Botones para diagnóstico de encendido (wont_turn_on)
-  'BTN_PWR_NO_SIGNS': { label: { 'es-AR': '🔌 No enciende nada', 'en-US': '🔌 Nothing happens' } },
-  'BTN_PWR_FANS': { label: { 'es-AR': '💡 Prenden luces o gira el ventilador', 'en-US': '💡 Lights on / fan spins' } },
-  'BTN_PWR_BEEPS': { label: { 'es-AR': '🔊 Escucho pitidos', 'en-US': '🔊 I hear beeps' } },
-  'BTN_PWR_ON_OFF': { label: { 'es-AR': '🔄 Enciende y se apaga enseguida', 'en-US': '🔄 Turns on and off' } },
+  'BTN_PWR_NO_SIGNS': { label: { 'es-AR': 'No enciende nada (sin luces ni ventilador)', 'en-US': 'Nothing happens (no lights or fan)' } },
+  'BTN_PWR_FANS': { label: { 'es-AR': 'Prenden luces o gira el ventilador', 'en-US': 'Lights turn on or fan spins' } },
+  'BTN_PWR_BEEPS': { label: { 'es-AR': 'Escucho pitidos (beeps)', 'en-US': 'I hear beeps' } },
+  'BTN_PWR_ON_OFF': { label: { 'es-AR': 'Enciende y se apaga enseguida', 'en-US': 'Turns on and off immediately' } },
   // Botones para pasos de diagnóstico
-  'BTN_STEP_DONE': { label: { 'es-AR': '✅ Listo, ya lo probé', 'en-US': '✅ Done, I tried it' } },
-  'BTN_STEP_STILL': { label: { 'es-AR': '❌ Sigue igual, no cambió nada', 'en-US': '❌ Still the same' } },
-  'BTN_STEP_HELP': { label: { 'es-AR': '🙋 Prefiero que me ayude un técnico', 'en-US': '🙋 I prefer a technician' } }
+  'BTN_STEP_DONE': { label: { 'es-AR': 'Listo, probé esto', 'en-US': 'Done, I tried this' } },
+  'BTN_STEP_STILL': { label: { 'es-AR': 'Sigue igual', 'en-US': 'Still the same' } },
+  'BTN_STEP_HELP': { label: { 'es-AR': 'No puedo hacerlo / necesito ayuda', 'en-US': "I can't do this / I need help" } }
 };
 
 function getStageContract(stage) {
@@ -394,72 +394,47 @@ function getStageContract(stage) {
 // SANEAMIENTO DE BOTONES
 // ========================================================
 
-function sanitizeButtonsForStage(stage, incomingButtons = [], locale = 'es-AR') {
+function sanitizeButtonsForStage(stage, incomingButtons = []) {
   const contract = getStageContract(stage);
   if (!contract || !contract.allowButtons) {
     return [];
   }
-
+  
   const allowed = new Set(contract.allowedTokens || []);
   const sanitized = [];
-
-  function resolveLabel(token, providedLabel) {
-    // 1) Catálogo: siempre manda (evita que el usuario vea tokens o labels “de código”)
-    const catalog = BUTTON_CATALOG[token];
-    if (catalog && catalog.label) {
-      return catalog.label[locale] || catalog.label['es-AR'] || Object.values(catalog.label)[0] || token;
-    }
-
-    // 2) Defaults del contrato (por si hay tokens fuera del catálogo, ej: 'si'/'no')
-    const fromContract = (contract.defaultButtons || []).find(b => b.token === token)?.label;
-    if (fromContract) {
-      return fromContract;
-    }
-
-    // 3) Label provista (si no parece token)
-    if (typeof providedLabel === 'string' && providedLabel.trim()) {
-      const trimmed = providedLabel.trim();
-      const looksLikeToken = trimmed === token || /^BTN_[A-Z0-9_]+$/.test(trimmed);
-      if (!looksLikeToken) return trimmed;
-    }
-
-    return token;
-  }
-
+  
   // Normalizar formatos entrantes
   for (const btn of incomingButtons) {
     let token = null;
     let label = null;
     let order = sanitized.length + 1;
-
+    
     if (typeof btn === 'string') {
       token = btn;
-    } else if (btn && typeof btn === 'object') {
-      if (btn.token) token = btn.token;
-      else if (btn.value) token = btn.value;
-
-      label = btn.label || btn.text || btn.title || null;
-      if (btn.order) order = btn.order;
+    } else if (btn.token) {
+      token = btn.token;
+      label = btn.label;
+      order = btn.order || order;
+    } else if (btn.value) {
+      token = btn.value;
+      label = btn.text || btn.label;
+      order = btn.order || order;
     }
-
+    
     if (token && allowed.has(token)) {
       sanitized.push({
         token,
-        label: resolveLabel(token, label),
+        label: label || token,
         order
       });
     }
   }
-
+  
   // Si es determinístico y quedó vacío, usar defaults
   if (contract.type === 'DETERMINISTIC' && sanitized.length === 0) {
-    return (contract.defaultButtons || []).map(btn => ({
-      token: btn.token,
-      label: resolveLabel(btn.token, btn.label),
-      order: btn.order
-    }));
+    return contract.defaultButtons.map(btn => ({ ...btn }));
   }
-
+  
   // Ordenar por order
   return sanitized.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
@@ -665,7 +640,7 @@ async function handleAskLanguageStage(session, userText, buttonToken) {
       session.gdprConsent = true;
       session.gdprConsentDate = nowIso();
       
-      const reply = `🆔 **${session.id}**\n\nPerfecto 😊\n\nElegí el idioma en el que te resulte más cómodo:`;
+      const reply = `🆔 **${session.id}**\n\nGracias por aceptar.\n\nSeleccioná tu idioma:`;
       
       return {
         reply,
@@ -1164,7 +1139,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
       return {
         reply: isEn
           ? 'When you press the power button, what happens?'
-          : 'Cuando apretás el botón de encendido, ¿qué hace el equipo?',
+          : 'Cuando apretás el botón de encendido, ¿qué pasa?',
         stage: 'DIAGNOSTIC_STEP',
         buttons
       };
@@ -1318,7 +1293,7 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
       return {
         reply: isEn
           ? 'When you press the power button, what happens?'
-          : 'Cuando apretás el botón de encendido, ¿qué hace el equipo?',
+          : 'Cuando apretás el botón de encendido, ¿qué pasa?',
         stage: 'DIAGNOSTIC_STEP',
         buttons
       };
@@ -1473,8 +1448,8 @@ async function handleFeedbackRequiredStage(session, userText, buttonToken) {
     // Cerrar chat con resultado positivo
     return {
       reply: isEn
-        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I’ll be here.'
-        : '¡Gracias por confiar en STI! 🙌\n\nSi necesitás ayuda más adelante, acá voy a estar.',
+        ? 'Thank you! Have a great day!'
+        : '¡Gracias! ¡Que tengas un buen día!',
       stage: 'ENDED',
       buttons: []
     };
@@ -1524,8 +1499,8 @@ async function handleFeedbackReasonStage(session, userText, buttonToken) {
     // Cerrar chat con resultado negativo
     return {
       reply: isEn
-        ? 'Thanks for telling me. This helps me improve for next time. Have a great day!'
-        : 'Gracias por decírmelo.\n\nEsto me ayuda a mejorar para la próxima.\n\n¡Que tengas un buen día!',
+        ? 'Thank you for your feedback. I\'ll work on improving. Have a great day!'
+        : 'Gracias por tu feedback. Voy a trabajar en mejorar. ¡Que tengas un buen día!',
       stage: 'ENDED',
       buttons: []
     };
@@ -1745,7 +1720,7 @@ app.post('/api/chat', async (req, res) => {
     
     // Saneamiento de botones (CRÍTICO: Filtra y normaliza)
     // NUNCA heredar botones del turno anterior
-    const sanitizedButtons = sanitizeButtonsForStage(result.stage, result.buttons || [], session.userLocale || 'es-AR');
+    const sanitizedButtons = sanitizeButtonsForStage(result.stage, result.buttons || []);
     
     // Obtener contrato del stage para validar
     const contract = getStageContract(result.stage);
