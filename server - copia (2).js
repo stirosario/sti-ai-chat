@@ -916,23 +916,9 @@ Devolvé SOLO JSON válido, sin otro texto.`;
 }
 
 // Handler para selección de dispositivo
-async function handleAskDeviceStage(ctx) {
-  // Validación estructural defensiva
-  if (!ctx || !ctx.session) {
-    console.error('[ASK_DEVICE] Error: ctx o ctx.session faltante');
-    return {
-      ok: false,
-      error: 'missing_ctx',
-      message: 'Context or session missing in handleAskDeviceStage'
-    };
-  }
-  
-  const { sessionId, session, userText, buttonToken } = ctx;
+async function handleAskDeviceStage(session, userText, buttonToken) {
   const locale = session.userLocale || 'es-AR';
   const isEn = locale.startsWith('en');
-  
-  // Validación defensiva: si falta sessionId, usar fallback pero continuar
-  const logSessionId = sessionId || 'unknown';
   
   let deviceType = null;
   
@@ -954,16 +940,16 @@ async function handleAskDeviceStage(ctx) {
   }
   
   if (deviceType) {
-    session.device_type = deviceType;
-    // Iniciar diagnóstico
-    console.log(`[ASK_DEVICE] [${logSessionId}] Dispositivo seleccionado: ${deviceType}, avanzando a DIAGNOSTIC_STEP`);
-    return {
-      reply: isEn
-        ? 'Perfect! Let me help you diagnose the issue.'
-        : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
-      stage: 'DIAGNOSTIC_STEP',
-      buttons: []
-    };
+      session.device_type = deviceType;
+      // Iniciar diagnóstico
+      console.log(`[ASK_DEVICE] [${sessionId || 'unknown'}] Dispositivo seleccionado: ${deviceType}, avanzando a DIAGNOSTIC_STEP`);
+      return {
+        reply: isEn
+          ? 'Perfect! Let me help you diagnose the issue.'
+          : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: []
+      };
   }
   
   // Retry
@@ -976,23 +962,9 @@ async function handleAskDeviceStage(ctx) {
 }
 
 // Handler para OS (opcional, solo cuando realmente se necesita)
-async function handleAskOsStage(ctx) {
-  // Validación estructural defensiva
-  if (!ctx || !ctx.session) {
-    console.error('[ASK_OS] Error: ctx o ctx.session faltante');
-    return {
-      ok: false,
-      error: 'missing_ctx',
-      message: 'Context or session missing in handleAskOsStage'
-    };
-  }
-  
-  const { sessionId, session, userText, buttonToken } = ctx;
+async function handleAskOsStage(session, userText, buttonToken) {
   const locale = session.userLocale || 'es-AR';
   const isEn = locale.startsWith('en');
-  
-  // Validación defensiva: si falta sessionId, usar fallback pero continuar
-  const logSessionId = sessionId || 'unknown';
   
   let osType = null;
   
@@ -1020,7 +992,7 @@ async function handleAskOsStage(ctx) {
   if (osType !== null) {
     session.os = osType;
     // Continuar con diagnóstico
-    console.log(`[ASK_OS] [${logSessionId}] OS seleccionado: ${osType}, avanzando a DIAGNOSTIC_STEP`);
+    console.log(`[ASK_OS] [${sessionId || 'unknown'}] OS seleccionado: ${osType}, avanzando a DIAGNOSTIC_STEP`);
     return {
       reply: isEn
         ? 'Perfect! Let me help you diagnose the issue.'
@@ -1560,21 +1532,9 @@ app.post('/api/chat', async (req, res) => {
         };
       }
     } else if (session.stage === 'ASK_DEVICE') {
-      console.log(`[CHAT] [${sessionId}] Procesando ASK_DEVICE`);
-      result = await handleAskDeviceStage({ sessionId, session, userText, buttonToken });
-      // Si el handler retorna error estructurado, propagarlo
-      if (result && result.ok === false) {
-        console.error(`[CHAT] [${sessionId}] Error estructurado de handleAskDeviceStage:`, result.error);
-        return res.status(500).json({ ok: false, error: result.error, message: result.message });
-      }
+      result = await handleAskDeviceStage(session, userText, buttonToken);
     } else if (session.stage === 'ASK_OS') {
-      console.log(`[CHAT] [${sessionId}] Procesando ASK_OS`);
-      result = await handleAskOsStage({ sessionId, session, userText, buttonToken });
-      // Si el handler retorna error estructurado, propagarlo
-      if (result && result.ok === false) {
-        console.error(`[CHAT] [${sessionId}] Error estructurado de handleAskOsStage:`, result.error);
-        return res.status(500).json({ ok: false, error: result.error, message: result.message });
-      }
+      result = await handleAskOsStage(session, userText, buttonToken);
     } else if (session.stage === 'DIAGNOSTIC_STEP') {
       console.log(`[CHAT] [${sessionId}] Procesando DIAGNOSTIC_STEP`);
       try {
