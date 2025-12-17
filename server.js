@@ -1734,43 +1734,6 @@ async function handleFeedbackReasonStage(session, userText, buttonToken) {
   };
 }
 
-// Handler para feedback obligatorio
-async function handleFeedbackRequiredStage(session, userText, buttonToken) {
-  const locale = session.userLocale || 'es-AR';
-  const isEn = locale.startsWith('en');
-  
-  if (buttonToken === 'BTN_FEEDBACK_YES') {
-    session.feedback = 'positive';
-    session.feedback_reason = null;
-    // Cerrar chat con resultado positivo
-    return {
-      reply: isEn
-        ? 'Thanks for trusting STI! 🙌\n\nIf you need help later, I\'ll be here.'
-        : '¡Gracias por confiar en STI! 🙌\n\nSi necesitás ayuda más adelante, acá voy a estar.',
-      stage: 'ENDED',
-      buttons: []
-    };
-  }
-  
-  if (buttonToken === 'BTN_FEEDBACK_NO') {
-    // Preguntar motivo
-    const contract = getStageContract('FEEDBACK_REASON');
-    return {
-      reply: contract.prompt[locale] || contract.prompt['es-AR'],
-      stage: 'FEEDBACK_REASON',
-      buttons: contract.defaultButtons
-    };
-  }
-  
-  // Retry
-  const contract = getStageContract('FEEDBACK_REQUIRED');
-  return {
-    reply: contract.prompt[locale] || contract.prompt['es-AR'],
-    stage: 'FEEDBACK_REQUIRED',
-    buttons: contract.defaultButtons
-  };
-}
-
 // Handler para motivo del feedback negativo
 async function handleFeedbackReasonStage(session, userText, buttonToken) {
   const locale = session.userLocale || 'es-AR';
