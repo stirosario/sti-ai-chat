@@ -640,7 +640,7 @@ async function handleAskLanguageStage(session, userText, buttonToken) {
       session.gdprConsent = true;
       session.gdprConsentDate = nowIso();
       
-      const reply = `🆔 **${session.id}**\n\nGracias por aceptar.\n\nSeleccioná tu idioma:`;
+      const reply = 'Perfecto 😊\n\nElegí el idioma en el que te resulte más cómodo:';
       
       return {
         reply,
