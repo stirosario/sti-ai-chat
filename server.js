@@ -735,31 +735,55 @@ async function handleAskUserLevelStage(session, userText, buttonToken) {
 }
 
 // Handler para pregunta abierta (ASK_NEED)
-async function handleAskNeedStage(session, userText) {
+async function handleAskNeedStage(session, userText, sessionId) {
   const locale = session.userLocale || 'es-AR';
+  const isEn = locale.startsWith('en');
   
-  // Guardar la descripción del problema
-  if (userText && userText.trim()) {
-    session.problem_raw = userText.trim();
-    // Avanzar a procesar la descripción del problema
+  try {
+    // Guardar la descripción del problema
+    if (userText && userText.trim()) {
+      session.problem_raw = userText.trim();
+      console.log(`[ASK_NEED] [${sessionId}] Texto recibido: "${userText.trim().substring(0, 50)}...", guardado en problem_raw, avanzando a procesar`);
+      
+      // Inmediatamente procesar validación (esto puede tomar tiempo con OpenAI)
+      // handleAskProblemStage manejará el timeout y fallback
+      return await handleAskProblemStage(session, null, sessionId); // null porque ya está en problem_raw
+    }
+    
+    // Si no hay texto, pedir descripción
+    console.log(`[ASK_NEED] [${sessionId}] Sin texto, pidiendo descripción`);
+    const contract = getStageContract('ASK_NEED');
     return {
-      reply: '',
-      stage: 'ASK_PROBLEM',
+      reply: contract.prompt[locale] || contract.prompt['es-AR'],
+      stage: 'ASK_NEED',
       buttons: []
     };
+  } catch (err) {
+    console.error(`[ASK_NEED] [${sessionId}] Error en handler:`, err.message);
+    // Fallback seguro: pedir dispositivo directamente
+    const contract = getStageContract('ASK_DEVICE');
+    return {
+      reply: isEn
+        ? 'I understand. To continue, please tell me what type of device you are using.'
+        : 'Entiendo. Para seguir, decime qué tipo de equipo es.',
+      stage: 'ASK_DEVICE',
+      buttons: contract.defaultButtons
+    };
   }
-  
-  // Si no hay texto, pedir descripción
-  const contract = getStageContract('ASK_NEED');
-  return {
-    reply: contract.prompt[locale] || contract.prompt['es-AR'],
-    stage: 'ASK_NEED',
-    buttons: []
-  };
+}
+
+// Helper para timeout de promises
+function withTimeout(promise, timeoutMs, errorMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+    )
+  ]);
 }
 
 // Handler para validar descripción del problema con OpenAI
-async function handleAskProblemStage(session, userText) {
+async function handleAskProblemStage(session, userText, sessionId) {
   const locale = session.userLocale || 'es-AR';
   const isEn = locale.startsWith('en');
   
@@ -767,6 +791,7 @@ async function handleAskProblemStage(session, userText) {
   const problemText = session.problem_raw || userText;
   
   if (!problemText || !problemText.trim()) {
+    console.log(`[ASK_PROBLEM] [${sessionId}] Sin texto, pidiendo descripción`);
     return {
       reply: isEn
         ? 'Please describe your problem or what you need help with.'
@@ -775,6 +800,8 @@ async function handleAskProblemStage(session, userText) {
       buttons: []
     };
   }
+  
+  console.log(`[ASK_PROBLEM] [${sessionId}] Procesando problema: "${problemText.substring(0, 50)}..."`);
   
   // Validar con OpenAI: detectar intent canónico y información faltante
   if (openai) {
@@ -797,7 +824,7 @@ Return ONLY valid JSON, no other text.`
 
 Devolvé SOLO JSON válido, sin otro texto.`;
       
-      const completion = await openai.chat.completions.create({
+      const openaiPromise = openai.chat.completions.create({
         model: OPENAI_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -807,16 +834,32 @@ Devolvé SOLO JSON válido, sin otro texto.`;
         max_tokens: 200
       });
       
+      console.log(`[ASK_PROBLEM] [${sessionId}] Llamando a OpenAI con timeout 12s`);
+      const completion = await withTimeout(openaiPromise, 12000, 'OpenAI timeout');
+      
       const analysisText = completion.choices[0]?.message?.content || '{}';
-      const analysis = JSON.parse(analysisText.trim());
+      let analysis;
+      try {
+        analysis = JSON.parse(analysisText.trim());
+      } catch (parseErr) {
+        console.error(`[ASK_PROBLEM] [${sessionId}] Error parseando JSON de OpenAI:`, parseErr);
+        analysis = { missing_device: true }; // Fallback seguro
+      }
       
       session.problem_validated = true;
       session.problem_intent = analysis.intent || 'unknown';
       session.problem_needs_clarification = analysis.needs_clarification || false;
       
+      console.log(`[ASK_PROBLEM] [${sessionId}] Análisis recibido:`, {
+        intent: analysis.intent,
+        missing_device: analysis.missing_device,
+        missing_os: analysis.missing_os
+      });
+      
       // Si falta dispositivo, ir a ASK_DEVICE
       if (analysis.missing_device) {
         const contract = getStageContract('ASK_DEVICE');
+        console.log(`[ASK_PROBLEM] [${sessionId}] Falta dispositivo, avanzando a ASK_DEVICE`);
         return {
           reply: isEn
             ? `I understand you're having: ${problemText}\n\nWhat type of device are you using?`
@@ -826,35 +869,46 @@ Devolvé SOLO JSON válido, sin otro texto.`;
         };
       }
       
-      // Si no falta dispositivo, iniciar diagnóstico
+      // Si no falta dispositivo, avanzar a diagnóstico
+      // El siguiente turno generará automáticamente el primer paso cuando el usuario responda
       session.device_type = session.device_type || 'unknown';
+      console.log(`[ASK_PROBLEM] [${sessionId}] No falta dispositivo, avanzando a DIAGNOSTIC_STEP`);
+      
+      // Retornar mensaje de confirmación - el siguiente turno generará el primer paso
       return {
-        reply: '',
+        reply: isEn
+          ? `I understand your problem: ${problemText}. Let me guide you through the solution step by step.`
+          : `Entiendo tu problema: ${problemText}. Déjame guiarte paso a paso para solucionarlo.`,
         stage: 'DIAGNOSTIC_STEP',
         buttons: []
       };
       
     } catch (err) {
-      console.error('[ASK_PROBLEM] OpenAI error:', err);
-      // Fallback: asumir que es válido y continuar
+      const isTimeout = err.message && err.message.includes('timeout');
+      console.error(`[ASK_PROBLEM] [${sessionId}] Error OpenAI${isTimeout ? ' (TIMEOUT)' : ''}:`, err.message);
+      
+      // Fallback seguro: pedir dispositivo directamente
       session.problem_validated = true;
       session.problem_intent = 'unknown';
+      session.openai_failed = true;
       const contract = getStageContract('ASK_DEVICE');
+      console.log(`[ASK_PROBLEM] [${sessionId}] Usando fallback: avanzando a ASK_DEVICE`);
       return {
         reply: isEn
-          ? 'What type of device are you using?'
-          : '¿Qué tipo de dispositivo estás usando?',
+          ? 'I understand. To continue, please tell me what type of device you are using.'
+          : 'Entiendo. Para seguir, decime qué tipo de equipo es.',
         stage: 'ASK_DEVICE',
         buttons: contract.defaultButtons
       };
     }
   } else {
     // Sin OpenAI: pedir dispositivo directamente
+    console.log(`[ASK_PROBLEM] [${sessionId}] OpenAI no disponible, pidiendo dispositivo directamente`);
     const contract = getStageContract('ASK_DEVICE');
     return {
       reply: isEn
-        ? 'What type of device are you using?'
-        : '¿Qué tipo de dispositivo estás usando?',
+        ? 'To continue, please tell me what type of device you are using.'
+        : 'Para seguir, decime qué tipo de equipo es.',
       stage: 'ASK_DEVICE',
       buttons: contract.defaultButtons
     };
@@ -886,13 +940,16 @@ async function handleAskDeviceStage(session, userText, buttonToken) {
   }
   
   if (deviceType) {
-    session.device_type = deviceType;
-    // Iniciar diagnóstico
-    return {
-      reply: '',
-      stage: 'DIAGNOSTIC_STEP',
-      buttons: []
-    };
+      session.device_type = deviceType;
+      // Iniciar diagnóstico
+      console.log(`[ASK_DEVICE] [${sessionId || 'unknown'}] Dispositivo seleccionado: ${deviceType}, avanzando a DIAGNOSTIC_STEP`);
+      return {
+        reply: isEn
+          ? 'Perfect! Let me help you diagnose the issue.'
+          : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: []
+      };
   }
   
   // Retry
@@ -935,8 +992,11 @@ async function handleAskOsStage(session, userText, buttonToken) {
   if (osType !== null) {
     session.os = osType;
     // Continuar con diagnóstico
+    console.log(`[ASK_OS] [${sessionId || 'unknown'}] OS seleccionado: ${osType}, avanzando a DIAGNOSTIC_STEP`);
     return {
-      reply: '',
+      reply: isEn
+        ? 'Perfect! Let me help you diagnose the issue.'
+        : '¡Perfecto! Déjame ayudarte a diagnosticar el problema.',
       stage: 'DIAGNOSTIC_STEP',
       buttons: []
     };
@@ -957,9 +1017,12 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
   const isEn = locale.startsWith('en');
   const userLevel = session.userLevel || 'intermediate';
   
+  console.log(`[DIAGNOSTIC_STEP] [${sessionId}] Iniciando, buttonToken: ${buttonToken || 'null'}, userText: ${userText ? userText.substring(0, 30) : 'null'}`);
+  
   // Cargar historial como memoria
   const history = loadConversationHistory(sessionId);
   const executedSteps = getExecutedDiagnosticSteps(history);
+  console.log(`[DIAGNOSTIC_STEP] [${sessionId}] Pasos ejecutados: ${executedSteps.length}`);
   
   // Contar pasos básicos y avanzados
   const basicSteps = executedSteps.filter(s => s.step_number <= 5).length;
@@ -1082,14 +1145,30 @@ async function handleDiagnosticStepStage(session, userText, buttonToken, session
     }
   }
   
-  // Solo generar nuevo paso si:
-  // 1. Es el primer paso (executedSteps.length === 0)
-  // 2. O el usuario hizo clic en "BTN_PERSIST" (sigue igual)
-  if (executedSteps.length > 0 && buttonToken !== 'BTN_PERSIST') {
-    // Si ya hay pasos y no es "BTN_PERSIST", no generar nuevo paso
+  // Si no hay pasos ejecutados (primer acceso a DIAGNOSTIC_STEP), generar el primer paso automáticamente
+  // incluso si no hay buttonToken (el usuario acaba de entrar a este stage)
+  if (executedSteps.length === 0) {
+    console.log(`[DIAGNOSTIC_STEP] [${sessionId}] Primer acceso, generando primer paso automáticamente`);
+    // Continuar con la generación del paso (el código más abajo lo hará)
+  } else if (executedSteps.length > 0 && buttonToken !== 'BTN_PERSIST') {
+    // Si ya hay pasos y no es "BTN_PERSIST", mostrar el último paso
     const lastTurn = history[history.length - 1];
+    const lastReply = lastTurn?.bot_reply || '';
+    
+    // NUNCA retornar reply vacío
+    if (!lastReply || lastReply.trim() === '') {
+      console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Last turn reply vacío, usando fallback`);
+      return {
+        reply: isEn
+          ? 'Please continue with the previous step.'
+          : 'Por favor, continuá con el paso anterior.',
+        stage: 'DIAGNOSTIC_STEP',
+        buttons: lastTurn?.buttons_shown || []
+      };
+    }
+    
     return {
-      reply: lastTurn?.bot_reply || '',
+      reply: lastReply,
       stage: 'DIAGNOSTIC_STEP',
       buttons: lastTurn?.buttons_shown || []
     };
@@ -1134,7 +1213,7 @@ Devolvé un objeto JSON con:
 
 Devolvé SOLO JSON válido, sin otro texto.`;
       
-      const completion = await openai.chat.completions.create({
+      const openaiPromise = openai.chat.completions.create({
         model: OPENAI_MODEL,
         messages: [
           { role: 'system', content: 'You are Tecnos, an IT support assistant. Return only valid JSON.' },
@@ -1144,15 +1223,37 @@ Devolvé SOLO JSON válido, sin otro texto.`;
         max_tokens: 300
       });
       
+      console.log(`[DIAGNOSTIC_STEP] [${sessionId}] Llamando a OpenAI con timeout 12s para generar paso ${stepNumber}`);
+      const completion = await withTimeout(openaiPromise, 12000, 'OpenAI timeout');
+      
       const stepText = completion.choices[0]?.message?.content || '{}';
-      const stepData = JSON.parse(stepText.trim());
+      let stepData;
+      try {
+        stepData = JSON.parse(stepText.trim());
+      } catch (parseErr) {
+        console.error(`[DIAGNOSTIC_STEP] [${sessionId}] Error parseando JSON de OpenAI:`, parseErr);
+        stepData = { action: '', explanation: '' }; // Fallback seguro
+      }
       
       const stepId = `step_${stepNumber}_${Date.now()}`;
       const action = stepData.action || '';
       const explanation = stepData.explanation || '';
       
-      // Construir mensaje completo
-      const reply = `${action}\n\n${explanation}`;
+      // Construir mensaje completo - NUNCA vacío
+      let reply = '';
+      if (action && explanation) {
+        reply = `${action}\n\n${explanation}`;
+      } else if (action) {
+        reply = action;
+      } else if (explanation) {
+        reply = explanation;
+      } else {
+        // Fallback si ambos están vacíos
+        console.warn(`[DIAGNOSTIC_STEP] [${sessionId}] ⚠️ Action y explanation vacíos, usando fallback`);
+        reply = isEn
+          ? 'Let me guide you through this step by step.'
+          : 'Déjame guiarte paso a paso.';
+      }
       
       // Botones del paso: resultado + ayuda + volver
       const contract = getStageContract('DIAGNOSTIC_STEP');
@@ -1181,8 +1282,9 @@ Devolvé SOLO JSON válido, sin otro texto.`;
       };
       
     } catch (err) {
-      console.error('[DIAGNOSTIC_STEP] OpenAI error:', err);
-      // Fallback
+      const isTimeout = err.message && err.message.includes('timeout');
+      console.error(`[DIAGNOSTIC_STEP] [${sessionId}] Error OpenAI${isTimeout ? ' (TIMEOUT)' : ''}:`, err.message);
+      // Fallback seguro
       return {
         reply: isEn
           ? 'I need more information. Could you describe the problem again?'
@@ -1398,15 +1500,56 @@ app.post('/api/chat', async (req, res) => {
         result.buttons = contract.defaultButtons;
       }
     } else if (session.stage === 'ASK_NEED') {
-      result = await handleAskNeedStage(session, userText);
+      console.log(`[CHAT] [${sessionId}] Procesando ASK_NEED con texto: "${userText?.substring(0, 50) || 'null'}..."`);
+      try {
+        result = await handleAskNeedStage(session, userText, sessionId);
+      } catch (err) {
+        console.error(`[CHAT] [${sessionId}] Error en handleAskNeedStage:`, err);
+        // Fallback absoluto
+        const contract = getStageContract('ASK_DEVICE');
+        result = {
+          reply: session.userLocale?.startsWith('en')
+            ? 'I understand. To continue, please tell me what type of device you are using.'
+            : 'Entiendo. Para seguir, decime qué tipo de equipo es.',
+          stage: 'ASK_DEVICE',
+          buttons: contract.defaultButtons
+        };
+      }
     } else if (session.stage === 'ASK_PROBLEM') {
-      result = await handleAskProblemStage(session, userText);
+      console.log(`[CHAT] [${sessionId}] Procesando ASK_PROBLEM`);
+      try {
+        result = await handleAskProblemStage(session, userText, sessionId);
+      } catch (err) {
+        console.error(`[CHAT] [${sessionId}] Error en handleAskProblemStage:`, err);
+        // Fallback absoluto
+        const contract = getStageContract('ASK_DEVICE');
+        result = {
+          reply: session.userLocale?.startsWith('en')
+            ? 'I understand. To continue, please tell me what type of device you are using.'
+            : 'Entiendo. Para seguir, decime qué tipo de equipo es.',
+          stage: 'ASK_DEVICE',
+          buttons: contract.defaultButtons
+        };
+      }
     } else if (session.stage === 'ASK_DEVICE') {
       result = await handleAskDeviceStage(session, userText, buttonToken);
     } else if (session.stage === 'ASK_OS') {
       result = await handleAskOsStage(session, userText, buttonToken);
     } else if (session.stage === 'DIAGNOSTIC_STEP') {
-      result = await handleDiagnosticStepStage(session, userText, buttonToken, sessionId);
+      console.log(`[CHAT] [${sessionId}] Procesando DIAGNOSTIC_STEP`);
+      try {
+        result = await handleDiagnosticStepStage(session, userText, buttonToken, sessionId);
+      } catch (err) {
+        console.error(`[CHAT] [${sessionId}] Error en handleDiagnosticStepStage:`, err);
+        // Fallback absoluto
+        result = {
+          reply: session.userLocale?.startsWith('en')
+            ? 'I need more information. Could you describe the problem again?'
+            : 'Necesito más información. ¿Podrías describir el problema nuevamente?',
+          stage: 'DIAGNOSTIC_STEP',
+          buttons: []
+        };
+      }
     } else if (session.stage === 'FEEDBACK_REQUIRED') {
       result = await handleFeedbackRequiredStage(session, userText, buttonToken);
     } else if (session.stage === 'FEEDBACK_REASON') {
@@ -1453,8 +1596,22 @@ app.post('/api/chat', async (req, res) => {
     const legacyButtons = toLegacyButtons(finalButtons);
     
     turnLog.stage_after = result.stage;
+    
+    // NUNCA permitir reply vacío - validación crítica
+    if (!result.reply || result.reply.trim() === '') {
+      console.warn(`[CHAT] [${sessionId}] ⚠️ Reply vacío detectado, usando fallback`);
+      const locale = session.userLocale || 'es-AR';
+      const isEn = locale.startsWith('en');
+      result.reply = isEn
+        ? 'I understand. Let me help you with that.'
+        : 'Entiendo. Déjame ayudarte con eso.';
+    }
+    
     turnLog.bot_reply = result.reply;
     turnLog.buttons_shown = finalButtons; // Guardar formato interno {token, label, order}
+    
+    // Log final del turno
+    console.log(`[CHAT] [${sessionId}] ✅ Turno completado: ${turnLog.stage_before} → ${turnLog.stage_after}, reply length: ${turnLog.bot_reply.length}`);
     
     // Guardar metadata del diagnóstico si existe
     if (result.diagnostic_step) {
