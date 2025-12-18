@@ -5165,6 +5165,87 @@ app.get('/api/trace/:conversationId', async (req, res) => {
 });
 
 // ========================================================
+// ENDPOINT HISTORIAL - Panel Admin
+// ========================================================
+
+// Endpoint para obtener historial de conversación (para panel admin)
+app.get('/api/historial/:conversationId', async (req, res) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    // Validar token (usar LOG_TOKEN si está configurado)
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      const bootId = req.bootId || trace.generateBootId();
+      const traceContext = req.traceContext || trace.createTraceContext(
+        null,
+        `req-${Date.now()}`,
+        null,
+        null,
+        NODE_ENV,
+        null,
+        bootId
+      );
+      
+      await trace.logEvent('ERROR', 'HTTP_403_FORBIDDEN', {
+        actor: 'system',
+        endpoint: '/api/historial',
+        error: 'Token inválido',
+        boot_id: bootId,
+        conversation_id: conversationId,
+        has_token: !!token
+      }, traceContext);
+      
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    // Validar formato de conversation_id (AA0000-ZZ9999)
+    if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'Formato de ID inválido. Debe ser formato AA0000 (2 letras + 4 dígitos)' 
+      });
+    }
+    
+    // Cargar conversación
+    const conversation = await loadConversation(conversationId);
+    
+    if (!conversation) {
+      await log('INFO', `Conversación no encontrada en /api/historial`, { 
+        conversation_id: conversationId,
+        boot_id: req.bootId
+      });
+      
+      return res.status(404).json({ 
+        ok: false, 
+        error: 'Conversación no encontrada. Verificá que el ID sea correcto.' 
+      });
+    }
+    
+    // Retornar conversación
+    res.json({
+      ok: true,
+      historial: conversation,
+      conversation_id: conversationId
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/historial', { 
+      error: err.message, 
+      stack: err.stack,
+      conversation_id: req.params.conversationId,
+      boot_id: req.bootId
+    });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// ========================================================
 // AUTOFIX IA - ENDPOINTS
 // ========================================================
 
