@@ -43,13 +43,14 @@ const CONVERSATIONS_DIR = path.join(DATA_BASE, 'conversations');
 const IDS_DIR = path.join(DATA_BASE, 'ids');
 const LOGS_DIR = path.join(DATA_BASE, 'logs');
 const TICKETS_DIR = path.join(DATA_BASE, 'tickets');
+const UPLOADS_DIR = path.join(DATA_BASE, 'uploads');
 
 const USED_IDS_FILE = path.join(IDS_DIR, 'used_ids.json');
 const USED_IDS_LOCK = path.join(IDS_DIR, 'used_ids.lock');
 const SERVER_LOG_FILE = path.join(LOGS_DIR, 'server.log');
 
 // Asegurar directorios
-[CONVERSATIONS_DIR, IDS_DIR, LOGS_DIR, TICKETS_DIR].forEach(dir => {
+[CONVERSATIONS_DIR, IDS_DIR, LOGS_DIR, TICKETS_DIR, UPLOADS_DIR].forEach(dir => {
   if (!fsSync.existsSync(dir)) {
     fsSync.mkdirSync(dir, { recursive: true });
   }
@@ -223,6 +224,19 @@ async function saveConversation(conversation) {
     throw new Error('Invalid conversation_id format');
   }
   
+  // P1-3: Validar versión siempre antes de guardar
+  const versionValidation = await validateConversationVersion(conversation);
+  if (!versionValidation.valid && versionValidation.shouldRestart) {
+    // Marcar como legacy_incompatible si no se puede migrar
+    conversation.legacy_incompatible = true;
+    conversation.legacy_incompatible_reason = versionValidation.reason;
+    conversation.legacy_incompatible_at = new Date().toISOString();
+    await log('WARN', 'Conversación marcada como legacy_incompatible antes de guardar', {
+      conversation_id: conversation.conversation_id,
+      reason: versionValidation.reason
+    });
+  }
+  
   const filePath = path.join(CONVERSATIONS_DIR, `${conversation.conversation_id}.json`);
   const tempPath = filePath + '.tmp';
   conversation.updated_at = new Date().toISOString();
@@ -246,7 +260,28 @@ async function loadConversation(conversationId) {
   const filePath = path.join(CONVERSATIONS_DIR, `${conversationId}.json`);
   try {
     const content = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(content);
+    const conversation = JSON.parse(content);
+    
+    // P1-3: Validar versión siempre al cargar
+    const versionValidation = await validateConversationVersion(conversation);
+    if (!versionValidation.valid) {
+      await log('WARN', 'Conversación con versión incompatible detectada al cargar', {
+        conversation_id: conversationId,
+        flow_version: conversation.flow_version,
+        reason: versionValidation.reason
+      });
+      
+      // Marcar como legacy_incompatible si no se puede migrar
+      if (versionValidation.shouldRestart) {
+        conversation.legacy_incompatible = true;
+        conversation.legacy_incompatible_reason = versionValidation.reason;
+        conversation.legacy_incompatible_at = new Date().toISOString();
+        // Guardar el estado de incompatibilidad
+        await saveConversation(conversation);
+      }
+    }
+    
+    return conversation;
   } catch (err) {
     if (err.code === 'ENOENT') return null;
     throw err;
@@ -263,6 +298,47 @@ async function appendToTranscript(conversationId, event) {
     return;
   }
   
+  // P0-01: Validación defensiva del evento
+  if (!event || typeof event !== 'object') {
+    await log('ERROR', `Event inválido en appendToTranscript: ${typeof event}`, { conversationId });
+    return;
+  }
+  
+  // P0-01: Validar que no tenga propiedades inválidas (ej: .event, .result como propiedades literales)
+  // Convertir a objeto plano seguro
+  const safeEvent = {};
+  
+  // Copiar propiedades válidas
+  for (const key in event) {
+    if (event.hasOwnProperty(key)) {
+      // Validar que la clave sea válida (no empiece con punto)
+      if (key.startsWith('.')) {
+        await log('WARN', `Propiedad inválida detectada en evento (ignorada): ${key}`, { conversationId });
+        continue;
+      }
+      // Validar que el valor sea serializable
+      try {
+        JSON.stringify(event[key]);
+        safeEvent[key] = event[key];
+      } catch (err) {
+        await log('WARN', `Valor no serializable en evento (ignorado): ${key}`, { conversationId, error: err.message });
+      }
+    }
+  }
+  
+  // P0-01: Asegurar que tenga al menos role o type
+  if (!safeEvent.role && !safeEvent.type) {
+    await log('WARN', `Event sin role ni type, agregando defaults`, { conversationId });
+    safeEvent.role = safeEvent.role || 'system';
+    safeEvent.type = safeEvent.type || 'event';
+  }
+  
+  // P0-01: Validar payload si existe
+  if (safeEvent.payload && typeof safeEvent.payload !== 'object') {
+    await log('WARN', `Payload inválido en evento, convirtiendo a objeto`, { conversationId });
+    safeEvent.payload = { value: safeEvent.payload };
+  }
+  
   const conversation = await loadConversation(conversationId);
   if (!conversation) {
     await log('ERROR', `Conversación no encontrada para append: ${conversationId}`);
@@ -276,12 +352,98 @@ async function appendToTranscript(conversationId, event) {
   // P2.5: Timestamp atómico (generar antes de append para mantener orden)
   const atomicTimestamp = new Date().toISOString();
   
-  conversation.transcript.push({
+  // P0-01: Construir objeto de transcript válido
+  const transcriptEntry = {
     t: atomicTimestamp,
-    ...event
-  });
+    ...safeEvent
+  };
+  
+  conversation.transcript.push(transcriptEntry);
   
   await saveConversation(conversation);
+}
+
+/**
+ * Guarda una imagen desde base64 a un archivo físico
+ * Retorna el path relativo y la URL para servir la imagen
+ */
+async function saveImageFromBase64(conversationId, imageBase64, requestId = null) {
+  try {
+    // Validar formato de conversation_id
+    if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      throw new Error(`Formato inválido de conversation_id: ${conversationId}`);
+    }
+    
+    // Extraer base64 puro (sin prefijo data:image/...)
+    let base64Data = imageBase64;
+    let mimeType = 'image/jpeg';
+    let extension = 'jpg';
+    
+    if (imageBase64.startsWith('data:image/')) {
+      const mimeMatch = imageBase64.match(/data:image\/([^;]+);base64,/);
+      if (mimeMatch) {
+        mimeType = `image/${mimeMatch[1]}`;
+        extension = mimeMatch[1].toLowerCase();
+        if (extension === 'jpeg') extension = 'jpg';
+        base64Data = imageBase64.split(',')[1];
+      }
+    }
+    
+    // Decodificar base64
+    const buffer = Buffer.from(base64Data, 'base64');
+    const imageSize = buffer.length;
+    
+    // Validar tamaño (máximo 5MB)
+    if (imageSize > 5 * 1024 * 1024) {
+      throw new Error(`Imagen demasiado grande: ${imageSize} bytes (máximo 5MB)`);
+    }
+    
+    // Crear directorio para la conversación si no existe
+    const conversationUploadDir = path.join(UPLOADS_DIR, conversationId);
+    if (!fsSync.existsSync(conversationUploadDir)) {
+      fsSync.mkdirSync(conversationUploadDir, { recursive: true });
+    }
+    
+    // Generar nombre de archivo seguro
+    const timestamp = Date.now();
+    const randomSuffix = crypto.randomBytes(4).toString('hex');
+    const filename = `${timestamp}_${randomSuffix}.${extension}`;
+    const filePath = path.join(conversationUploadDir, filename);
+    
+    // Guardar archivo
+    await fs.writeFile(filePath, buffer);
+    
+    // Path relativo desde UPLOADS_DIR (para servir)
+    const relativePath = `${conversationId}/${filename}`;
+    
+    // URL para servir (sin dominio, será relativa o absoluta según PUBLIC_BASE_URL)
+    const imageUrl = `/api/images/${relativePath}`;
+    
+    await log('INFO', 'Imagen guardada exitosamente', {
+      conversation_id: conversationId,
+      filename,
+      size_bytes: imageSize,
+      mime_type: mimeType,
+      relative_path: relativePath
+    });
+    
+    return {
+      success: true,
+      filename,
+      relativePath,
+      imageUrl,
+      sizeBytes: imageSize,
+      mimeType,
+      filePath: relativePath // Para referencia en transcript
+    };
+  } catch (err) {
+    await log('ERROR', 'Error guardando imagen desde base64', {
+      conversation_id: conversationId,
+      error: err.message,
+      stack: err.stack
+    });
+    throw err;
+  }
 }
 
 // ========================================================
@@ -1098,7 +1260,100 @@ Do you accept these terms?`
 // ========================================================
 
 /**
+ * P2-2: Detecta patrones de prompt injection en el input del usuario
+ * Retorna { detected: boolean, severity: 'low'|'medium'|'high', patterns: string[] }
+ */
+function detectPromptInjection(userInput) {
+  if (!userInput || typeof userInput !== 'string') {
+    return { detected: false, severity: 'low', patterns: [] };
+  }
+  
+  const inputLower = userInput.toLowerCase();
+  const detectedPatterns = [];
+  let severity = 'low';
+  
+  // Patrones de alta severidad (intentos explícitos de manipulación)
+  const highSeverityPatterns = [
+    /ignore\s+(previous|all|above)\s+(instructions|prompts?|rules?)/i,
+    /forget\s+(previous|all|above)\s+(instructions|prompts?|rules?)/i,
+    /disregard\s+(previous|all|above)\s+(instructions|prompts?|rules?)/i,
+    /reveal\s+(your|the)\s+(prompt|instructions|system\s+message|initial\s+message)/i,
+    /show\s+(me\s+)?(your|the)\s+(prompt|instructions|system\s+message|initial\s+message)/i,
+    /what\s+(are|were)\s+(your|the)\s+(prompt|instructions|system\s+message)/i,
+    /repeat\s+(your|the)\s+(prompt|instructions|system\s+message|initial\s+message)/i,
+    /print\s+(your|the)\s+(prompt|instructions|system\s+message)/i,
+    /output\s+(your|the)\s+(prompt|instructions|system\s+message)/i,
+    /you\s+are\s+now\s+(a|an)\s+/i,
+    /act\s+as\s+(if\s+)?(you\s+are|you're)\s+/i,
+    /pretend\s+(you\s+are|you're)\s+/i,
+    /roleplay\s+as\s+/i,
+    /system:\s*override/i,
+    /\[system\]/i,
+    /<\|system\|>/i,
+    /###\s*instructions/i
+  ];
+  
+  // Patrones de severidad media
+  const mediumSeverityPatterns = [
+    /new\s+(instructions|rules?|guidelines?)/i,
+    /change\s+(your|the)\s+(behavior|role|personality)/i,
+    /modify\s+(your|the)\s+(instructions|rules?)/i,
+    /update\s+(your|the)\s+(instructions|rules?)/i,
+    /you\s+must\s+(now|always|never)/i,
+    /you\s+should\s+(now|always|never)/i,
+    /from\s+now\s+on/i,
+    /starting\s+now/i
+  ];
+  
+  // Patrones de baja severidad (posibles intentos)
+  const lowSeverityPatterns = [
+    /what\s+(is|are)\s+your\s+(rules?|guidelines?|constraints?)/i,
+    /tell\s+me\s+(your|about\s+your)\s+(rules?|guidelines?)/i,
+    /what\s+can\s+you\s+(do|not\s+do)/i,
+    /what\s+are\s+your\s+(limitations?|restrictions?)/i
+  ];
+  
+  // Detectar patrones de alta severidad
+  for (const pattern of highSeverityPatterns) {
+    if (pattern.test(userInput)) {
+      detectedPatterns.push(pattern.source);
+      severity = 'high';
+      break; // Un solo patrón de alta severidad es suficiente
+    }
+  }
+  
+  // Si no hay alta severidad, buscar media
+  if (severity !== 'high') {
+    for (const pattern of mediumSeverityPatterns) {
+      if (pattern.test(userInput)) {
+        detectedPatterns.push(pattern.source);
+        severity = 'medium';
+        break;
+      }
+    }
+  }
+  
+  // Si no hay alta ni media, buscar baja
+  if (severity === 'low') {
+    for (const pattern of lowSeverityPatterns) {
+      if (pattern.test(userInput)) {
+        detectedPatterns.push(pattern.source);
+        // Mantener severity en 'low'
+        break;
+      }
+    }
+  }
+  
+  return {
+    detected: detectedPatterns.length > 0,
+    severity,
+    patterns: detectedPatterns
+  };
+}
+
+/**
  * Valida el schema del resultado de IA_CLASSIFIER
+ * P2-2: Reforzado con validación estricta y detección de prompt injection
  */
 function validateClassifierResult(result) {
   const required = ['intent', 'needs_clarification', 'missing', 'risk_level', 'confidence'];
@@ -1108,6 +1363,16 @@ function validateClassifierResult(result) {
     }
   }
   
+  // P2-2: Validación estricta de tipos
+  if (typeof result.intent !== 'string') {
+    throw new Error(`Invalid intent type: ${typeof result.intent}. Must be string`);
+  }
+  
+  if (typeof result.risk_level !== 'string') {
+    throw new Error(`Invalid risk_level type: ${typeof result.risk_level}. Must be string`);
+  }
+  
+  // P2-2: Validación estricta de valores permitidos (allowlist)
   const validIntents = ['network', 'power', 'install_os', 'install_app', 'peripheral', 'malware', 'unknown'];
   if (!validIntents.includes(result.intent)) {
     throw new Error(`Invalid intent: ${result.intent}. Must be one of: ${validIntents.join(', ')}`);
@@ -1130,6 +1395,17 @@ function validateClassifierResult(result) {
     throw new Error(`Invalid missing: ${result.missing}. Must be an array`);
   }
   
+  // P2-2: Validar que los campos adicionales no contengan instrucciones sospechosas
+  const suspiciousFields = ['suggested_next_ask', 'detected_device', 'detected_device_category'];
+  for (const field of suspiciousFields) {
+    if (result[field] && typeof result[field] === 'string') {
+      const injectionCheck = detectPromptInjection(result[field]);
+      if (injectionCheck.detected && injectionCheck.severity === 'high') {
+        throw new Error(`Suspicious content detected in field ${field}: possible prompt injection`);
+      }
+    }
+  }
+  
   if (result.suggest_modes && typeof result.suggest_modes !== 'object') {
     throw new Error(`Invalid suggest_modes: ${result.suggest_modes}. Must be an object`);
   }
@@ -1147,10 +1423,17 @@ function validateClassifierResult(result) {
 
 /**
  * Valida el schema del resultado de IA_STEP
+ * P2-2: Reforzado con validación estricta, allowlist de botones y detección de prompt injection
  */
-function validateStepResult(result) {
+function validateStepResult(result, allowedButtons = []) {
   if (!result.reply || typeof result.reply !== 'string') {
     throw new Error(`Missing or invalid reply field. Must be a non-empty string`);
+  }
+  
+  // P2-2: Detectar prompt injection en el reply
+  const replyInjectionCheck = detectPromptInjection(result.reply);
+  if (replyInjectionCheck.detected && replyInjectionCheck.severity === 'high') {
+    throw new Error(`Suspicious content detected in reply: possible prompt injection. Patterns: ${replyInjectionCheck.patterns.join(', ')}`);
   }
   
   if (result.buttons !== undefined && !Array.isArray(result.buttons)) {
@@ -1158,12 +1441,44 @@ function validateStepResult(result) {
   }
   
   if (result.buttons && result.buttons.length > 0) {
-    for (const btn of result.buttons) {
-      if (!btn.token || typeof btn.token !== 'string') {
-        throw new Error(`Invalid button: missing or invalid token`);
+    // P2-2: Validar que no haya más de 4 botones
+    if (result.buttons.length > 4) {
+      throw new Error(`Too many buttons: ${result.buttons.length}. Maximum is 4`);
+    }
+    
+    // P2-2: Allowlist estricta de botones - validar que todos los botones estén en allowedButtons
+    if (allowedButtons && allowedButtons.length > 0) {
+      const allowedTokens = new Set(allowedButtons.map(b => b.token));
+      
+      for (const btn of result.buttons) {
+        if (!btn.token || typeof btn.token !== 'string') {
+          throw new Error(`Invalid button: missing or invalid token`);
+        }
+        
+        // P2-2: Validar que el token esté en la allowlist
+        if (!allowedTokens.has(btn.token)) {
+          throw new Error(`Invalid button token: ${btn.token}. Not in allowed list: ${Array.from(allowedTokens).join(', ')}`);
+        }
+        
+        if (!btn.label || typeof btn.label !== 'string' || btn.label.trim().length === 0) {
+          throw new Error(`Invalid button: missing or empty label`);
+        }
+        
+        // P2-2: Detectar prompt injection en labels
+        const labelInjectionCheck = detectPromptInjection(btn.label);
+        if (labelInjectionCheck.detected && labelInjectionCheck.severity === 'high') {
+          throw new Error(`Suspicious content detected in button label: possible prompt injection`);
+        }
       }
-      if (!btn.label || typeof btn.label !== 'string' || btn.label.trim().length === 0) {
-        throw new Error(`Invalid button: missing or empty label`);
+    } else {
+      // Si no hay allowedButtons, validar estructura básica
+      for (const btn of result.buttons) {
+        if (!btn.token || typeof btn.token !== 'string') {
+          throw new Error(`Invalid button: missing or invalid token`);
+        }
+        if (!btn.label || typeof btn.label !== 'string' || btn.label.trim().length === 0) {
+          throw new Error(`Invalid button: missing or empty label`);
+        }
       }
     }
   }
@@ -1476,13 +1791,41 @@ Devolvé un JSON con esta estructura exacta:
       incrementAICallCount(conversationId, 'classifier');
       
       // Log resultado parseado y validado
+      // P0-02: Validar result antes de hacer spread
       if (conversationId) {
+        // P0-02: Validar que result sea objeto válido y serializable
+        let safeResult = {};
+        if (result && typeof result === 'object') {
+          try {
+            // Intentar serializar para validar
+            JSON.stringify(result);
+            // Copiar propiedades válidas (excluir funciones, símbolos, etc.)
+            for (const key in result) {
+              if (result.hasOwnProperty(key) && !key.startsWith('.')) {
+                try {
+                  JSON.stringify(result[key]);
+                  safeResult[key] = result[key];
+                } catch (err) {
+                  // Ignorar propiedades no serializables
+                  await log('WARN', `Propiedad no serializable en IA_CLASSIFIER_RESULT: ${key}`, { conversationId });
+                }
+              }
+            }
+          } catch (err) {
+            await log('ERROR', `Result no serializable en IA_CLASSIFIER_RESULT`, { conversationId, error: err.message });
+            safeResult = { error: 'Result no serializable', intent: result.intent || 'unknown' };
+          }
+        } else {
+          await log('WARN', `Result inválido en IA_CLASSIFIER_RESULT`, { conversationId, resultType: typeof result });
+          safeResult = { intent: 'unknown', error: 'Invalid result type' };
+        }
+        
         await appendToTranscript(conversationId, {
           role: 'system',
           type: 'event',
           name: 'IA_CLASSIFIER_RESULT',
           payload: {
-            ...result,
+            ...safeResult,
             latency_ms: latency,
             stage_before: stageBefore,
             stage_after: session.stage,
@@ -1862,7 +2205,7 @@ IMPORTANTE: Solo podés usar tokens de la lista de botones permitidos.`;
     
     // Validar schema
     try {
-      validateStepResult(result);
+      validateStepResult(result, allowedButtons);
     } catch (validationErr) {
       await log('ERROR', 'Schema inválido de IA_STEP', { error: validationErr.message, result });
       
@@ -2135,7 +2478,45 @@ async function handleAskConsent(session, userInput, conversation) {
     session.stage = 'ASK_LANGUAGE';
     session.meta.updated_at = new Date().toISOString();
     
-    // No hay conversation aún en ASK_CONSENT, solo guardar en session
+    // Si ya existe conversation_id (generado en /api/greeting), guardar aceptación en transcript
+    if (session.conversation_id) {
+      try {
+        // Asegurar que la conversación existe
+        let existingConversation = await loadConversation(session.conversation_id);
+        if (!existingConversation) {
+          // Crear conversación si no existe
+          const newConversation = {
+            conversation_id: session.conversation_id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            flow_version: FLOW_VERSION,
+            schema_version: SCHEMA_VERSION,
+            language: session.language || 'es',
+            user: { name_norm: null },
+            status: 'open',
+            feedback: 'none',
+            transcript: [],
+            started_at: new Date().toISOString()
+          };
+          await saveConversation(newConversation);
+        }
+        
+        // Guardar aceptación de GDPR en transcript
+        await appendToTranscript(session.conversation_id, {
+          role: 'user',
+          type: 'button',
+          label: 'Sí, acepto ✔️',
+          value: 'accept'
+        });
+      } catch (err) {
+        await log('ERROR', 'Error guardando aceptación GDPR en transcript', {
+          error: err.message,
+          conversation_id: session.conversation_id
+        });
+        // Continuar aunque falle
+      }
+    }
+    
     return {
       reply: TEXTS.ASK_LANGUAGE[session.language || 'es'],
       buttons: ALLOWED_BUTTONS_BY_ASK.ASK_LANGUAGE.map(b => ({
@@ -2148,8 +2529,14 @@ async function handleAskConsent(session, userInput, conversation) {
   }
   
   // Seguir mostrando consentimiento
+  // Incluir ID de conversación si ya existe
+  let consentReply = TEXTS.ASK_CONSENT[session.language || 'es'];
+  if (session.conversation_id) {
+    consentReply = `${consentReply}\n\n🆔 **ID de la conversación: ${session.conversation_id}**`;
+  }
+  
   return {
-    reply: TEXTS.ASK_CONSENT[session.language || 'es'],
+    reply: consentReply,
     buttons: ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
       label: b.label,
       value: b.value,
@@ -2183,10 +2570,15 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
     };
   }
   
-  // Asignar ID único y crear conversación
+  // Usar conversation_id existente o generar uno nuevo si no existe
   try {
-    const conversationId = await reserveUniqueConversationId();
-    session.conversation_id = conversationId;
+    let conversationId = session.conversation_id;
+    if (!conversationId) {
+      // Si no existe, generarlo (fallback por seguridad)
+      conversationId = await reserveUniqueConversationId();
+      session.conversation_id = conversationId;
+    }
+    
     session.language = selectedLanguage;
     session.stage = 'ASK_NAME';
     session.meta.updated_at = new Date().toISOString();
@@ -2208,22 +2600,30 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
       }, traceContext);
     }
     
-    // Crear conversación persistente
-    const newConversation = {
-      conversation_id: conversationId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      flow_version: FLOW_VERSION, // F22.1: Versionado
-      schema_version: SCHEMA_VERSION, // F22.1: Versionado
-      language: selectedLanguage,
-      user: { name_norm: null },
-      status: 'open',
-      feedback: 'none',
-      transcript: [],
-      started_at: new Date().toISOString() // F30.2: Para métricas de tiempo
-    };
-    
-    await saveConversation(newConversation);
+    // Crear conversación persistente solo si no existe
+    let existingConversation = await loadConversation(conversationId);
+    if (!existingConversation) {
+      const newConversation = {
+        conversation_id: conversationId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        flow_version: FLOW_VERSION, // F22.1: Versionado
+        schema_version: SCHEMA_VERSION, // F22.1: Versionado
+        language: selectedLanguage,
+        user: { name_norm: null },
+        status: 'open',
+        feedback: 'none',
+        transcript: [],
+        started_at: new Date().toISOString() // F30.2: Para métricas de tiempo
+      };
+      
+      await saveConversation(newConversation);
+    } else {
+      // Si ya existe, actualizar el idioma
+      existingConversation.language = selectedLanguage;
+      existingConversation.updated_at = new Date().toISOString();
+      await saveConversation(existingConversation);
+    }
     
     // Append eventos al transcript
     await appendToTranscript(conversationId, {
@@ -2241,9 +2641,10 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
     });
     
     const langText = selectedLanguage === 'es-AR' ? 'Español' : 'English';
+    // El ID ya se mostró en GDPR, no repetirlo aquí
     const replyText = selectedLanguage === 'es-AR' 
-      ? `¡Perfecto! Vamos a continuar en Español.\n\n🆔 **${conversationId}**\n\n¿Con quién tengo el gusto de hablar? 😊`
-      : `Great! Let's continue in English.\n\n🆔 **${conversationId}**\n\nWhat's your name? 😊`;
+      ? `¡Perfecto! Vamos a continuar en Español.\n\n¿Con quién tengo el gusto de hablar? 😊`
+      : `Great! Let's continue in English.\n\nWhat's your name? 😊`;
     
     return {
       reply: replyText,
@@ -2589,6 +2990,18 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     text: userInput
   });
   
+  // P2-1: Emitir evento PROCESSING_START antes de llamar a IA
+  await appendToTranscript(conversation.conversation_id, {
+    role: 'system',
+    type: 'event',
+    name: 'PROCESSING_START',
+    payload: { 
+      stage: session.stage,
+      type: 'classifier',
+      user_input_length: userInput.length
+    }
+  });
+  
   // Llamar a IA_CLASSIFIER
   await appendToTranscript(conversation.conversation_id, {
     role: 'system',
@@ -2598,6 +3011,19 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
   });
   
   const classification = await iaClassifier(session, userInput, requestId);
+  
+  // P2-1: Emitir evento PROCESSING_END después de obtener clasificación
+  await appendToTranscript(conversation.conversation_id, {
+    role: 'system',
+    type: 'event',
+    name: 'PROCESSING_END',
+    payload: { 
+      stage: session.stage,
+      type: 'classifier',
+      intent: classification.intent,
+      confidence: classification.confidence
+    }
+  });
   
   session.context.problem_category = classification.intent;
   session.context.risk_level = classification.risk_level;
@@ -2683,6 +3109,24 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
         token: b.token
       })),
       stage: 'ASK_DEVICE_CATEGORY'
+    };
+  }
+  
+  // P2-02: Detectar si una imagen sería útil para el diagnóstico
+  const shouldRequestImage = detectImageUsefulness(userInput, classification, session);
+  if (shouldRequestImage && !session.context.image_requested) {
+    session.context.image_requested = true;
+    session.context.image_request_reason = shouldRequestImage.reason;
+    
+    const imageRequestText = session.language === 'es-AR'
+      ? `📸 Para ayudarte mejor, sería útil ver una foto. ${shouldRequestImage.instruction}\n\n¿Podés adjuntar una imagen? (Podés usar el ícono 📎 para adjuntar)`
+      : `📸 To help you better, it would be useful to see a photo. ${shouldRequestImage.instruction}\n\nCan you attach an image? (You can use the 📎 icon to attach)`;
+    
+    return {
+      reply: imageRequestText,
+      buttons: [],
+      stage: 'ASK_PROBLEM', // Mantener en ASK_PROBLEM para que pueda adjuntar imagen
+      request_image: true
     };
   }
   
@@ -3884,7 +4328,10 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       releaseLock = await acquireLock(session.conversation_id);
       
       // P1.2: Persistir imagen si viene
+      // P2-02: Si viene imagen, marcar que ya se recibió y continuar con diagnóstico
       if (imageBase64 && conversation) {
+        session.context.image_received = true;
+        session.context.image_requested = false; // Ya no necesitamos pedir más
         // R31.2: Validar formato MIME type (magic bytes)
         const validImagePrefixes = [
           'data:image/jpeg;base64,',
@@ -3924,27 +4371,47 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
             preview: imageBase64.substring(0, 50)
           });
         } else {
-          // Validar tamaño de imagen (máximo 5MB en base64)
-          const imageSize = (imageBase64.length * 3) / 4; // Aproximación del tamaño en bytes
-          if (imageSize > 5 * 1024 * 1024) {
-            await log('WARN', 'Imagen demasiado grande, ignorando', {
-              conversation_id: session.conversation_id,
-              size_bytes: imageSize
-            });
-          } else {
-            // Guardar referencia de imagen en transcript
+          // Guardar imagen físicamente
+          try {
+            const imageResult = await saveImageFromBase64(
+              conversation.conversation_id,
+              imageBase64,
+              requestId
+            );
+            
+            // Guardar referencia completa en transcript
             await appendToTranscript(conversation.conversation_id, {
               role: 'user',
               type: 'image',
-              image_base64: imageBase64.substring(0, 100) + '...', // Solo guardar preview
-              image_name: requestId ? `image_${requestId}.jpg` : `image_${Date.now()}.jpg`,
-              image_size_bytes: imageSize
+              image_url: imageResult.imageUrl,
+              image_path: imageResult.relativePath,
+              image_filename: imageResult.filename,
+              image_size_bytes: imageResult.sizeBytes,
+              image_mime_type: imageResult.mimeType,
+              uploaded_at: new Date().toISOString()
             });
             
-            await log('INFO', 'Imagen recibida y persistida', {
+            await log('INFO', 'Imagen recibida, guardada y referenciada', {
               conversation_id: session.conversation_id,
-              image_size_bytes: imageSize,
+              image_url: imageResult.imageUrl,
+              image_path: imageResult.relativePath,
+              size_bytes: imageResult.sizeBytes,
               has_text: !!userInput
+            });
+          } catch (imageErr) {
+            // Si falla el guardado, al menos guardar referencia de que se intentó
+            await log('ERROR', 'Error guardando imagen, pero continuando', {
+              conversation_id: session.conversation_id,
+              error: imageErr.message,
+              has_text: !!userInput
+            });
+            
+            // Guardar evento de error en transcript
+            await appendToTranscript(conversation.conversation_id, {
+              role: 'system',
+              type: 'event',
+              name: 'IMAGE_SAVE_ERROR',
+              payload: { error: imageErr.message }
             });
           }
         }
@@ -4014,6 +4481,44 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       }
       await saveConversation(conversation);
     }
+  
+  // P2-2: Detectar prompt injection en el input del usuario
+  if (userInput && typeof userInput === 'string') {
+    const injectionCheck = detectPromptInjection(userInput);
+    if (injectionCheck.detected) {
+      await log('WARN', 'Posible prompt injection detectado en input del usuario', {
+        conversation_id: session.conversation_id,
+        severity: injectionCheck.severity,
+        patterns: injectionCheck.patterns,
+        input_preview: userInput.substring(0, 100)
+      });
+      
+      // Si es alta severidad, rechazar el input
+      if (injectionCheck.severity === 'high') {
+        if (conversation && conversation.conversation_id) {
+          await appendToTranscript(conversation.conversation_id, {
+            role: 'system',
+            type: 'event',
+            name: 'PROMPT_INJECTION_DETECTED',
+            payload: { 
+              severity: 'high',
+              patterns: injectionCheck.patterns,
+              action: 'rejected'
+            }
+          });
+        }
+        
+        return {
+          reply: session.language === 'es-AR'
+            ? 'No puedo procesar ese tipo de solicitud. Por favor, contame sobre el problema técnico que tenés con tu equipo.'
+            : 'I cannot process that type of request. Please tell me about the technical problem you have with your device.',
+          buttons: [],
+          stage: session.stage
+        };
+      }
+      // Si es media/baja severidad, solo loguear y continuar (puede ser falso positivo)
+    }
+  }
   
   // F28.1: Detectar preguntas fuera de alcance
   if (isOutOfScope(userInput) && session.stage !== 'ASK_CONSENT' && session.stage !== 'ASK_LANGUAGE') {
@@ -4128,8 +4633,15 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       // Reiniciar conversación
       session.stage = 'ASK_CONSENT';
       session.meta.updated_at = new Date().toISOString();
+      
+      // Incluir ID de conversación si ya existe
+      let consentReply = TEXTS.ASK_CONSENT[session.language || 'es'];
+      if (session.conversation_id) {
+        consentReply = `${consentReply}\n\n🆔 **ID de la conversación: ${session.conversation_id}**`;
+      }
+      
       return {
-        reply: TEXTS.ASK_CONSENT[session.language || 'es'],
+        reply: consentReply,
         buttons: ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
           label: b.label,
           value: b.value,
@@ -4682,6 +5194,96 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'STI Chat API is running', version: '2.0.0' });
 });
 
+// ========================================================
+// SERVIR IMÁGENES (solo lectura, sin path traversal)
+// ========================================================
+
+/**
+ * Endpoint seguro para servir imágenes subidas
+ * Formato: /api/images/<conversation_id>/<filename>
+ * Validaciones:
+ * - conversation_id debe tener formato AA0000-ZZ9999
+ * - filename debe ser alfanumérico con extensiones permitidas
+ * - Path debe estar dentro de UPLOADS_DIR
+ */
+app.get('/api/images/:conversationId/:filename', async (req, res) => {
+  try {
+    const { conversationId, filename } = req.params;
+    
+    // Validar formato de conversation_id (previene path traversal)
+    if (!/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      return res.status(400).json({ ok: false, error: 'Formato de conversation_id inválido' });
+    }
+    
+    // Validar nombre de archivo (solo alfanumérico, guiones, puntos y extensiones permitidas)
+    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(filename)) {
+      return res.status(400).json({ ok: false, error: 'Nombre de archivo inválido' });
+    }
+    
+    // Extensiones permitidas
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    const fileExtension = filename.split('.').pop().toLowerCase();
+    if (!allowedExtensions.includes(fileExtension)) {
+      return res.status(400).json({ ok: false, error: 'Extensión de archivo no permitida' });
+    }
+    
+    // Construir path seguro
+    const imagePath = path.join(UPLOADS_DIR, conversationId, filename);
+    
+    // Verificar que el path resuelto esté dentro de UPLOADS_DIR (previene path traversal)
+    const resolvedPath = path.resolve(imagePath);
+    const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+    if (!resolvedPath.startsWith(resolvedUploadsDir)) {
+      await log('WARN', 'Intento de path traversal detectado', {
+        conversation_id: conversationId,
+        filename,
+        resolved_path: resolvedPath,
+        uploads_dir: resolvedUploadsDir
+      });
+      return res.status(403).json({ ok: false, error: 'Acceso denegado' });
+    }
+    
+    // Verificar que el archivo existe
+    try {
+      await fs.access(imagePath);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return res.status(404).json({ ok: false, error: 'Imagen no encontrada' });
+      }
+      throw err;
+    }
+    
+    // Leer archivo y determinar MIME type
+    const mimeTypes = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp'
+    };
+    
+    const mimeType = mimeTypes[fileExtension] || 'application/octet-stream';
+    
+    // Leer y servir archivo
+    const fileBuffer = await fs.readFile(imagePath);
+    
+    // Headers de seguridad
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache 24 horas
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    res.send(fileBuffer);
+  } catch (err) {
+    await log('ERROR', 'Error sirviendo imagen', {
+      error: err.message,
+      conversation_id: req.params.conversationId,
+      filename: req.params.filename
+    });
+    res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+  }
+});
+
 // Endpoint para resetear sesión
 app.post('/api/reset', async (req, res) => {
   try {
@@ -5193,7 +5795,60 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
       session.stage = 'ASK_CONSENT';
     }
     
-    const reply = TEXTS.ASK_CONSENT.es; // Por defecto español, luego se puede cambiar
+    // Generar conversation_id ANTES de mostrar GDPR (si no existe)
+    let conversationId = session.conversation_id;
+    if (!conversationId) {
+      try {
+        conversationId = await reserveUniqueConversationId();
+        session.conversation_id = conversationId;
+        session.meta.updated_at = new Date().toISOString();
+        
+        // Vincular boot_id a conversation_id
+        const bootId = req.bootId || trace.generateBootId();
+        if (bootId) {
+          trace.linkBootIdToConversationId(bootId, conversationId);
+        }
+        
+        // Crear conversación inmediatamente para poder guardar el transcript
+        const newConversation = {
+          conversation_id: conversationId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          flow_version: FLOW_VERSION,
+          schema_version: SCHEMA_VERSION,
+          language: 'es', // Por defecto, se actualizará cuando seleccione idioma
+          user: { name_norm: null },
+          status: 'open',
+          feedback: 'none',
+          transcript: [],
+          started_at: new Date().toISOString()
+        };
+        
+        await saveConversation(newConversation);
+        
+        // Guardar mensaje de GDPR en transcript
+        const consentText = TEXTS.ASK_CONSENT.es;
+        await appendToTranscript(conversationId, {
+          role: 'bot',
+          type: 'text',
+          text: `${consentText}\n\n🆔 **ID de la conversación: ${conversationId}**`
+        });
+      } catch (err) {
+        await log('ERROR', 'Error generando conversation_id en /api/greeting', {
+          error: err.message,
+          session_id: sessionId,
+          boot_id: req.bootId
+        });
+        // Continuar sin conversation_id si falla
+      }
+    }
+    
+    // Incluir ID de conversación en el mensaje de GDPR
+    let reply = TEXTS.ASK_CONSENT.es; // Por defecto español, luego se puede cambiar
+    if (conversationId) {
+      reply = `${reply}\n\n🆔 **ID de la conversación: ${conversationId}**`;
+    }
+    
     const buttons = ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
       label: b.label,
       value: b.value,
@@ -5463,6 +6118,235 @@ app.get('/api/historial/:conversationId', async (req, res) => {
     res.status(500).json({
       ok: false,
       error: 'Error interno del servidor'
+    });
+  }
+});
+
+// ========================================================
+// REANUDACIÓN DE SESIONES (P1-2)
+// ========================================================
+
+/**
+ * Endpoint para reanudar una conversación existente
+ * GET /api/resume/:conversationId
+ * 
+ * Retorna:
+ * - ok: true/false
+ * - conversation_id: ID de la conversación
+ * - stage: Stage actual
+ * - reply: Mensaje de bienvenida/reanudación
+ * - buttons: Botones apropiados para el stage actual
+ * - status: Estado de la conversación (open/closed/legacy_incompatible)
+ * - message: Mensaje explicativo si hay algún problema
+ */
+app.get('/api/resume/:conversationId', async (req, res) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
+    
+    // Validar formato de conversation_id (AA0000-ZZ9999)
+    if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'Formato de ID inválido. Debe ser formato AA0000 (2 letras + 4 dígitos)' 
+      });
+    }
+    
+    // Cargar conversación (ya valida versión internamente)
+    const conversation = await loadConversation(conversationId);
+    
+    if (!conversation) {
+      return res.status(404).json({ 
+        ok: false, 
+        error: 'Conversación no encontrada',
+        message: 'No se encontró una conversación con ese ID. Podés iniciar una nueva conversación.'
+      });
+    }
+    
+    // Verificar si la conversación está cerrada
+    if (conversation.status === 'closed' || conversation.status === 'ended') {
+      const language = conversation.language || 'es-AR';
+      const closedMessage = language === 'es-AR'
+        ? 'Esta conversación ya fue cerrada. Podés iniciar una nueva conversación si necesitás ayuda.'
+        : 'This conversation has been closed. You can start a new conversation if you need help.';
+      
+      return res.json({
+        ok: true,
+        conversation_id: conversationId,
+        status: 'closed',
+        message: closedMessage,
+        reply: closedMessage,
+        buttons: [],
+        stage: 'ENDED'
+      });
+    }
+    
+    // Verificar si la conversación es legacy_incompatible
+    if (conversation.legacy_incompatible) {
+      const language = conversation.language || 'es-AR';
+      const incompatibleMessage = language === 'es-AR'
+        ? `Esta conversación fue creada con una versión antigua del sistema y ya no es compatible. Por favor, iniciá una nueva conversación.`
+        : `This conversation was created with an old version of the system and is no longer compatible. Please start a new conversation.`;
+      
+      return res.json({
+        ok: true,
+        conversation_id: conversationId,
+        status: 'legacy_incompatible',
+        message: incompatibleMessage,
+        reply: incompatibleMessage,
+        buttons: ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
+          label: b.label,
+          value: b.value,
+          token: b.token
+        })),
+        stage: 'ASK_CONSENT',
+        legacy_reason: conversation.legacy_incompatible_reason
+      });
+    }
+    
+    // Determinar stage actual desde el transcript
+    let currentStage = 'ASK_CONSENT';
+    let lastBotMessage = null;
+    let lastUserMessage = null;
+    
+    if (conversation.transcript && conversation.transcript.length > 0) {
+      // Buscar último evento STAGE_CHANGED
+      for (let i = conversation.transcript.length - 1; i >= 0; i--) {
+        const entry = conversation.transcript[i];
+        if (entry.name === 'STAGE_CHANGED' && entry.payload && entry.payload.to) {
+          currentStage = entry.payload.to;
+          break;
+        }
+      }
+      
+      // Si no hay STAGE_CHANGED, inferir desde los últimos mensajes
+      if (currentStage === 'ASK_CONSENT') {
+        for (let i = conversation.transcript.length - 1; i >= 0; i--) {
+          const entry = conversation.transcript[i];
+          if (entry.role === 'bot' && entry.type === 'text' && entry.text) {
+            lastBotMessage = entry.text;
+            // Intentar inferir stage desde el mensaje
+            if (entry.text.includes('idioma') || entry.text.includes('language')) {
+              currentStage = 'ASK_LANGUAGE';
+            } else if (entry.text.includes('nombre') || entry.text.includes('name')) {
+              currentStage = 'ASK_NAME';
+            } else if (entry.text.includes('nivel') || entry.text.includes('level')) {
+              currentStage = 'ASK_USER_LEVEL';
+            } else if (entry.text.includes('problema') || entry.text.includes('problem')) {
+              currentStage = 'ASK_PROBLEM';
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // Validar que el stage sea válido
+    const validStages = ['ASK_CONSENT', 'ASK_LANGUAGE', 'ASK_NAME', 'ASK_USER_LEVEL', 
+                         'ASK_PROBLEM', 'ASK_DEVICE_CATEGORY', 'ASK_DEVICE_TYPE_MAIN', 
+                         'ASK_DEVICE_TYPE_EXTERNAL', 'DIAGNOSTIC_STEP', 'ASK_FEEDBACK', 'ENDED'];
+    if (!validStages.includes(currentStage)) {
+      currentStage = 'ASK_CONSENT';
+    }
+    
+    // Generar mensaje de reanudación
+    const language = conversation.language || 'es-AR';
+    let resumeMessage = '';
+    let buttons = [];
+    
+    if (currentStage === 'ASK_CONSENT') {
+      resumeMessage = language === 'es-AR'
+        ? TEXTS.ASK_CONSENT.es
+        : TEXTS.ASK_CONSENT.en;
+      buttons = ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+    } else if (currentStage === 'ASK_LANGUAGE') {
+      resumeMessage = TEXTS.ASK_LANGUAGE[language] || TEXTS.ASK_LANGUAGE.es;
+      buttons = ALLOWED_BUTTONS_BY_ASK.ASK_LANGUAGE.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+    } else if (currentStage === 'ASK_NAME') {
+      resumeMessage = language === 'es-AR'
+        ? TEXTS.ASK_NAME.es
+        : TEXTS.ASK_NAME.en;
+      buttons = [];
+    } else if (currentStage === 'ASK_USER_LEVEL') {
+      resumeMessage = TEXTS.ASK_USER_LEVEL[language] || TEXTS.ASK_USER_LEVEL.es;
+      buttons = ALLOWED_BUTTONS_BY_ASK.ASK_USER_LEVEL.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+    } else if (currentStage === 'ASK_PROBLEM') {
+      resumeMessage = language === 'es-AR'
+        ? 'Contame qué problema tenés con tu equipo.'
+        : 'Tell me what problem you have with your device.';
+      buttons = [];
+    } else if (currentStage === 'DIAGNOSTIC_STEP') {
+      resumeMessage = language === 'es-AR'
+        ? 'Continuemos con el diagnóstico. ¿Qué resultado obtuviste del paso anterior?'
+        : 'Let\'s continue with the diagnosis. What result did you get from the previous step?';
+      buttons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+    } else {
+      // Stage desconocido o ENDED - reiniciar
+      resumeMessage = language === 'es-AR'
+        ? 'Bienvenido de nuevo. ¿En qué puedo ayudarte?'
+        : 'Welcome back. How can I help you?';
+      buttons = ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+      currentStage = 'ASK_CONSENT';
+    }
+    
+    // Agregar mensaje de reanudación si hay contexto previo
+    if (conversation.transcript && conversation.transcript.length > 0) {
+      const resumePrefix = language === 'es-AR'
+        ? '¡Hola de nuevo! Retomamos donde lo dejamos.\n\n'
+        : 'Hello again! Let\'s continue where we left off.\n\n';
+      resumeMessage = resumePrefix + resumeMessage;
+    }
+    
+    await log('INFO', 'Conversación reanudada exitosamente', {
+      conversation_id: conversationId,
+      stage: currentStage,
+      language,
+      transcript_length: conversation.transcript?.length || 0
+    });
+    
+    res.json({
+      ok: true,
+      conversation_id: conversationId,
+      status: conversation.status || 'open',
+      stage: currentStage,
+      reply: resumeMessage,
+      buttons,
+      language,
+      user_name: conversation.user?.name_norm || null,
+      user_level: conversation.user?.user_level || null
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/resume', { 
+      error: err.message, 
+      stack: err.stack,
+      conversation_id: req.params.conversationId,
+      boot_id: req.bootId
+    });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor',
+      message: 'Ocurrió un error al intentar reanudar la conversación. Por favor, intentá de nuevo.'
     });
   }
 });
@@ -6065,8 +6949,11 @@ function applyDiffSimple(originalContent, diffText) {
   const lines = originalContent.split('\n');
   const diffLines = diffText.split('\n');
   
-  // Inicializar result con todas las líneas originales
-  let result = [...lines];
+  // P0-03: Inicializar result con todas las líneas originales (validación defensiva)
+  if (!Array.isArray(lines)) {
+    throw new Error('originalContent.split() no retornó array');
+  }
+  let result = [...lines]; // Spread operator válido
   let inHunk = false;
   let hunkStart = 0;
   let hunkLines = [];

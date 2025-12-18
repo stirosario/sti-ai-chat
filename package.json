@@ -11,7 +11,10 @@
     "test:modular": "node test-modular.js",
     "test": "node --check server.js && echo '✅ Syntax check passed'",
     "test:smoke": "bash scripts/smoke-tests.sh",
-    "lint": "node --check server.js"
+    "lint": "node --check server.js",
+    "check": "node --check server.js && echo '✅ Quality Gate: Syntax check passed' || (echo '❌ Quality Gate: Syntax check FAILED' && exit 1)",
+    "test:ids": "node scripts/test-ids.js",
+    "test:traversal": "node scripts/test-path-traversal.js"
   },
   "engines": {
     "node": ">=20.0.0"
