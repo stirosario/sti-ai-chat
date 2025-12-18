@@ -1948,7 +1948,7 @@ function hashContent(content) {
 // IA - CLASSIFIER (Etapa 1)
 // ========================================================
 
-async function iaClassifier(session, userInput, requestId = null) {
+async function iaClassifier(session, userInput, requestId = null, traceContext = null) {
   // LOG DETALLADO: Inicio de iaClassifier
   await logDebug('DEBUG', 'iaClassifier - Inicio', {
     conversation_id: session.conversation_id,
@@ -1957,10 +1957,25 @@ async function iaClassifier(session, userInput, requestId = null) {
     user_input_preview: userInput ? userInput.substring(0, 100) : 'null/empty',
     request_id: requestId,
     session_language: session.language,
-    user_level: session.user_level
-  }, 'server.js', 1536, 1536);
+    user_level: session.user_level,
+    has_trace_context: !!traceContext
+  }, 'server.js', 1951, 1951);
   
   const conversationId = session.conversation_id;
+  
+  // Crear traceContext si no se proporciona
+  if (!traceContext) {
+    const bootId = trace.generateBootId();
+    traceContext = trace.createTraceContext(
+      conversationId,
+      `ia-classifier-${Date.now()}`,
+      session.stage || 'ASK_PROBLEM',
+      session.language || 'es',
+      NODE_ENV,
+      requestId,
+      bootId
+    );
+  }
   if (!openai) {
     await log('WARN', 'OpenAI no disponible, usando fallback');
     return {
@@ -3566,7 +3581,7 @@ async function handleAskDeviceType(session, userInput, conversation) {
   }
 }
 
-async function handleAskProblem(session, userInput, conversation, requestId = null) {
+async function handleAskProblem(session, userInput, conversation, requestId = null, traceContext = null) {
   // LOG DETALLADO: Inicio de handleAskProblem
   await logDebug('DEBUG', 'handleAskProblem - Inicio', {
     conversation_id: conversation?.conversation_id || 'none',
@@ -3576,8 +3591,23 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     session_language: session?.language,
     user_level: session?.user_level || 'none',
     request_id: requestId,
-    has_image: false // Se agregará si hay imagen
-  }, 'server.js', 3302, 3302);
+    has_image: false, // Se agregará si hay imagen
+    has_trace_context: !!traceContext
+  }, 'server.js', 3584, 3584);
+  
+  // Crear traceContext si no se proporciona
+  if (!traceContext) {
+    const bootId = trace.generateBootId();
+    traceContext = trace.createTraceContext(
+      conversation?.conversation_id || null,
+      `handle-ask-problem-${Date.now()}`,
+      session.stage || 'ASK_PROBLEM',
+      session.language || 'es',
+      NODE_ENV,
+      requestId,
+      bootId
+    );
+  }
   
   session.context.problem_description_raw = userInput;
   session.meta.updated_at = new Date().toISOString();
@@ -3608,7 +3638,7 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     payload: { user_input: userInput, request_id: requestId }
   });
   
-  const classification = await iaClassifier(session, userInput, requestId);
+  const classification = await iaClassifier(session, userInput, requestId, traceContext);
   
   // P2-1: Emitir evento PROCESSING_END después de obtener clasificación
   await appendToTranscript(conversation.conversation_id, {
@@ -5435,7 +5465,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       break;
     case 'ASK_PROBLEM':
     case 'ASK_PROBLEM_CLARIFICATION':
-      response = await handleAskProblem(session, userInput, conversation || {}, requestId);
+      response = await handleAskProblem(session, userInput, conversation || {}, requestId, traceContext);
       break;
     case 'ASK_INTERACTION_MODE':
       response = await handleAskInteractionMode(session, userInput, conversation || {});
