@@ -4525,13 +4525,81 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     // F23.1: Validación estricta de eventos entrantes
     const validation = validateChatRequest(req.body);
     if (!validation.valid) {
-      // Log error de validación
+      // Log error de validación con información completa
       await trace.logEvent('ERROR', 'VALIDATION_ERROR', {
         actor: 'system',
         endpoint: '/api/chat',
         error: validation.error,
-        boot_id: bootId
+        boot_id: bootId,
+        request_body: {
+          sessionId: req.body?.sessionId,
+          has_message: !!req.body?.message,
+          has_image: !!req.body?.imageBase64,
+          stage: req.body?.stage || 'unknown',
+          message_type: typeof req.body?.message,
+          imageBase64_type: typeof req.body?.imageBase64,
+          sessionId_type: typeof req.body?.sessionId
+        },
+        expected_behavior: `Request body debería cumplir con el esquema de validación: sessionId (string), message (string opcional), imageBase64 (string opcional)`,
+        actual_behavior: `Validación falló: ${validation.error}`,
+        expected_result: `Request válido que pase todas las validaciones`,
+        actual_result: `Request inválido: ${validation.error}`,
+        preconditions: [
+          `sessionId debe ser string no vacío`,
+          `message debe ser string (si está presente)`,
+          `imageBase64 debe ser string (si está presente)`,
+          `request_id debe ser string (si está presente)`
+        ],
+        conditions_met: false,
+        decision_reason: `Validación de esquema falló`,
+        decision_evidence: {
+          validation_error: validation.error,
+          request_body: {
+            sessionId: req.body?.sessionId,
+            sessionId_type: typeof req.body?.sessionId,
+            sessionId_length: req.body?.sessionId?.length || 0,
+            has_message: !!req.body?.message,
+            message_type: typeof req.body?.message,
+            has_imageBase64: !!req.body?.imageBase64,
+            imageBase64_type: typeof req.body?.imageBase64
+          }
+        },
+        decision_outcome: `Request rechazado con HTTP 400`,
+        state_snapshot: {
+          endpoint: '/api/chat',
+          method: req.method,
+          validation_error: validation.error,
+          request_body_keys: Object.keys(req.body || {}),
+          request_body_size: JSON.stringify(req.body || {}).length
+        },
+        validation_passed: false,
+        validation_errors: validation.error,
+        validation_rules: [
+          'sessionId: string, longitud > 0',
+          'message: string (opcional)',
+          'imageBase64: string (opcional)',
+          'request_id: string (opcional)'
+        ],
+        troubleshooting_hints: [
+          `Revisar el error de validación: ${validation.error}`,
+          `Verificar tipos de datos en el request body`,
+          `Verificar que sessionId sea string y no esté vacío`,
+          `Revisar código del frontend que construye el request`,
+          `Verificar que no haya problemas de serialización JSON`
+        ],
+        suggested_fix: `Corregir el request body para cumplir con el esquema de validación. Asegurar que sessionId sea string no vacío y que message/imageBase64 sean strings si están presentes.`
       }, traceContext);
+      
+      await log('ERROR', 'Validación fallida en /api/chat', { 
+        error: validation.error,
+        boot_id: bootId,
+        body: req.body,
+        validation_details: {
+          sessionId_type: typeof req.body?.sessionId,
+          message_type: typeof req.body?.message,
+          imageBase64_type: typeof req.body?.imageBase64
+        }
+      });
       
       return res.status(400).json({ ok: false, error: validation.error });
     }
@@ -4543,12 +4611,54 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         actor: 'system',
         endpoint: '/api/chat',
         boot_id: bootId,
-        request_body: req.body
+        request_body: req.body,
+        expected_behavior: `Request a /api/chat debería incluir 'sessionId' (string) en el body`,
+        actual_behavior: `Request recibido sin 'sessionId' en el body`,
+        expected_result: `Request válido con sessionId presente`,
+        actual_result: `Request inválido: falta sessionId`,
+        preconditions: [
+          `Request body debe contener 'sessionId'`,
+          `sessionId debe ser string no vacío`,
+          `sessionId debe ser válido (formato esperado)`
+        ],
+        conditions_met: false,
+        decision_reason: `Validación falló: request sin sessionId`,
+        decision_evidence: {
+          has_sessionId: false,
+          request_body_keys: Object.keys(req.body || {}),
+          request_method: req.method,
+          request_path: req.path,
+          body_preview: JSON.stringify(req.body || {}).substring(0, 200)
+        },
+        decision_outcome: `Request rechazado con HTTP 400`,
+        state_snapshot: {
+          endpoint: '/api/chat',
+          method: req.method,
+          has_sessionId: false,
+          request_body_size: JSON.stringify(req.body || {}).length,
+          request_body_keys: Object.keys(req.body || {})
+        },
+        validation_passed: false,
+        validation_errors: 'Falta campo requerido: sessionId',
+        validation_rules: [
+          'sessionId debe estar presente en body',
+          'sessionId debe ser string',
+          'sessionId debe tener longitud > 0'
+        ],
+        troubleshooting_hints: [
+          `Verificar que el frontend esté enviando 'sessionId' en el body`,
+          `Verificar que el body del request no esté vacío o malformado`,
+          `Revisar código del frontend que hace el POST a /api/chat`,
+          `Verificar que no haya problemas de serialización JSON`,
+          `Revisar si el sessionId se está perdiendo en algún middleware`
+        ],
+        suggested_fix: `Asegurar que el frontend siempre envíe 'sessionId' en el body del POST. Verificar que el sessionId se genere correctamente en el frontend antes de hacer el request.`
       }, traceContext);
       
       await log('ERROR', 'sessionId faltante en /api/chat', { 
         boot_id: bootId,
-        body: req.body
+        body: req.body,
+        request_body_keys: Object.keys(req.body || {})
       });
       
       return res.status(400).json({ ok: false, error: 'sessionId requerido' });
@@ -4559,12 +4669,59 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         actor: 'system',
         endpoint: '/api/chat',
         boot_id: bootId,
-        session_id: sessionId
+        session_id: sessionId,
+        expected_behavior: `Request a /api/chat debería incluir 'message' (string) o 'imageBase64' (string base64) en el body`,
+        actual_behavior: `Request recibido sin 'message' ni 'imageBase64' en el body`,
+        expected_result: `Request válido con al menos message o imageBase64`,
+        actual_result: `Request inválido: falta message e imageBase64`,
+        preconditions: [
+          `Request body debe contener 'message' o 'imageBase64'`,
+          `Al menos uno de los dos campos debe estar presente`,
+          `Los campos deben ser strings válidos`
+        ],
+        conditions_met: false,
+        decision_reason: `Validación falló: request sin message ni imageBase64`,
+        decision_evidence: {
+          has_message: !!message,
+          has_imageBase64: !!imageBase64,
+          request_body_keys: Object.keys(req.body || {}),
+          request_method: req.method,
+          request_path: req.path
+        },
+        decision_outcome: `Request rechazado con HTTP 400`,
+        state_snapshot: {
+          endpoint: '/api/chat',
+          method: req.method,
+          session_id: sessionId,
+          has_message: false,
+          has_imageBase64: false,
+          request_body_size: JSON.stringify(req.body || {}).length
+        },
+        validation_passed: false,
+        validation_errors: 'Falta campo requerido: message o imageBase64',
+        validation_rules: [
+          'message debe ser string (opcional si hay imageBase64)',
+          'imageBase64 debe ser string base64 (opcional si hay message)',
+          'Al menos uno de los dos debe estar presente'
+        ],
+        troubleshooting_hints: [
+          `Verificar que el frontend esté enviando 'message' o 'imageBase64' en el body`,
+          `Verificar que el body del request no esté vacío`,
+          `Revisar código del frontend que hace el POST a /api/chat`,
+          `Verificar que no haya problemas de serialización JSON`,
+          `Revisar logs anteriores del mismo boot_id para ver el flujo completo`
+        ],
+        suggested_fix: `Asegurar que el frontend siempre envíe 'message' o 'imageBase64' en el body del POST. Si el usuario no envía mensaje, enviar string vacío: { message: "" }`
       }, traceContext);
       
       await log('ERROR', 'message o imageBase64 faltante en /api/chat', { 
         boot_id: bootId,
-        session_id: sessionId
+        session_id: sessionId,
+        request_body: {
+          keys: Object.keys(req.body || {}),
+          has_message: !!message,
+          has_imageBase64: !!imageBase64
+        }
       });
       
       return res.status(400).json({ ok: false, error: 'message o imageBase64 requerido' });
