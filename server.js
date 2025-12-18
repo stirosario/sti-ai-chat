@@ -6534,14 +6534,48 @@ FORMATO DE RESPUESTA (JSON ESTRICTO):
     // Leer extractos de código relevantes si es necesario
     let codeContext = '';
     try {
-      // Leer server.js para contexto (solo primeras líneas y estructura)
-      const serverPath = path.join(__dirname, 'server.js');
-      const serverContent = await fs.readFile(serverPath, 'utf-8');
-      const serverLines = serverContent.split('\n');
-      // Tomar primeras 100 líneas (imports y configuración)
-      codeContext += `\n\nESTRUCTURA DEL PROYECTO (server.js - primeras líneas):\n${serverLines.slice(0, 100).join('\n')}\n`;
+      // Determinar ruta base del proyecto
+      // Prioridad: 1) Variable de entorno PROJECT_BASE_PATH, 2) __dirname
+      const PROJECT_BASE_PATH = process.env.PROJECT_BASE_PATH || __dirname;
+      
+      // Intentar leer server.js desde la ruta base configurada
+      const serverPath = path.join(PROJECT_BASE_PATH, 'server.js');
+      
+      // Verificar si el archivo existe antes de leerlo
+      try {
+        await fs.access(serverPath);
+        const serverContent = await fs.readFile(serverPath, 'utf-8');
+        const serverLines = serverContent.split('\n');
+        // Tomar primeras 100 líneas (imports y configuración)
+        codeContext += `\n\nESTRUCTURA DEL PROYECTO (server.js - primeras líneas desde ${PROJECT_BASE_PATH}):\n${serverLines.slice(0, 100).join('\n')}\n`;
+      } catch (accessErr) {
+        // Si no se puede acceder, intentar con __dirname como fallback
+        if (PROJECT_BASE_PATH !== __dirname) {
+          try {
+            const fallbackPath = path.join(__dirname, 'server.js');
+            await fs.access(fallbackPath);
+            const serverContent = await fs.readFile(fallbackPath, 'utf-8');
+            const serverLines = serverContent.split('\n');
+            codeContext += `\n\nESTRUCTURA DEL PROYECTO (server.js - primeras líneas desde __dirname fallback):\n${serverLines.slice(0, 100).join('\n')}\n`;
+          } catch (fallbackErr) {
+            // Ignorar si tampoco se puede leer desde fallback
+            await log('WARN', 'No se pudo leer server.js para contexto de AutoFix', { 
+              projectPath: PROJECT_BASE_PATH, 
+              __dirname: __dirname,
+              error: accessErr.message,
+              fallbackError: fallbackErr.message 
+            });
+          }
+        } else {
+          await log('WARN', 'No se pudo leer server.js para contexto de AutoFix', { 
+            path: serverPath,
+            error: accessErr.message 
+          });
+        }
+      }
     } catch (err) {
       // Ignorar si no se puede leer
+      await log('WARN', 'Error general leyendo server.js para AutoFix', { error: err.message });
     }
     
     const { live_events, boot_id } = req.body;
@@ -6683,6 +6717,9 @@ app.post('/api/autofix/repair', async (req, res) => {
     await fs.mkdir(sandboxDir, { recursive: true });
     
     try {
+      // Determinar ruta base del proyecto (mismo que en analyze)
+      const PROJECT_BASE_PATH = process.env.PROJECT_BASE_PATH || __dirname;
+      
       // Copiar archivos relevantes al sandbox
       const filesToCopy = new Set();
       result.patches.forEach(patch => {
@@ -6695,19 +6732,44 @@ app.post('/api/autofix/repair', async (req, res) => {
       for (const patch of result.patches) {
         if (!patch.file || !patch.diff) continue;
         
-        const filePath = path.join(__dirname, patch.file);
-        const sandboxFilePath = path.join(sandboxDir, patch.file);
+        // Normalizar path del archivo (eliminar ./ si existe)
+        const normalizedFile = patch.file.replace(/^\.\//, '');
+        
+        // Intentar desde PROJECT_BASE_PATH primero, luego __dirname como fallback
+        let filePath = path.join(PROJECT_BASE_PATH, normalizedFile);
+        let fileExists = false;
+        
+        try {
+          await fs.access(filePath);
+          fileExists = true;
+        } catch (err) {
+          // Si no existe en PROJECT_BASE_PATH, intentar __dirname
+          if (PROJECT_BASE_PATH !== __dirname) {
+            const fallbackPath = path.join(__dirname, normalizedFile);
+            try {
+              await fs.access(fallbackPath);
+              filePath = fallbackPath;
+              fileExists = true;
+            } catch (fallbackErr) {
+              fileExists = false;
+            }
+          }
+        }
+        
+        const sandboxFilePath = path.join(sandboxDir, normalizedFile);
         
         // Crear directorio si no existe
         await fs.mkdir(path.dirname(sandboxFilePath), { recursive: true });
         
         // Leer archivo original
         let fileContent = '';
-        try {
-          fileContent = await fs.readFile(filePath, 'utf-8');
-        } catch (err) {
-          // Archivo no existe, crear vacío
-          fileContent = '';
+        if (fileExists) {
+          try {
+            fileContent = await fs.readFile(filePath, 'utf-8');
+          } catch (err) {
+            // Archivo no existe, crear vacío
+            fileContent = '';
+          }
         }
         
         // Aplicar diff (simplificado - en producción usar una librería de diff)
@@ -6773,6 +6835,9 @@ app.post('/api/autofix/apply', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'No hay parches para aplicar' });
     }
     
+    // Determinar ruta base del proyecto (mismo que en analyze y repair)
+    const PROJECT_BASE_PATH = process.env.PROJECT_BASE_PATH || __dirname;
+    
     // Aplicar parches al código real
     const appliedFiles = [];
     const failedFiles = [];
@@ -6785,28 +6850,54 @@ app.post('/api/autofix/apply', async (req, res) => {
       
       // Normalizar path del archivo (eliminar ./ si existe)
       const normalizedFile = patch.file.replace(/^\.\//, '');
-      const filePath = path.join(__dirname, normalizedFile);
+      
+      // Intentar desde PROJECT_BASE_PATH primero, luego __dirname como fallback
+      let filePath = path.join(PROJECT_BASE_PATH, normalizedFile);
+      let fileExists = false;
+      
+      try {
+        await fs.access(filePath);
+        fileExists = true;
+      } catch (err) {
+        // Si no existe en PROJECT_BASE_PATH, intentar __dirname
+        if (PROJECT_BASE_PATH !== __dirname) {
+          const fallbackPath = path.join(__dirname, normalizedFile);
+          try {
+            await fs.access(fallbackPath);
+            filePath = fallbackPath;
+            fileExists = true;
+            await log('INFO', `AutoFix: Usando fallback path para ${normalizedFile}`, { 
+              projectPath: PROJECT_BASE_PATH,
+              fallbackPath: fallbackPath
+            });
+          } catch (fallbackErr) {
+            fileExists = false;
+          }
+        }
+      }
       
       await log('INFO', `AutoFix: Aplicando patch a ${normalizedFile}`, { 
         file: normalizedFile,
         filePath: filePath,
+        projectBasePath: PROJECT_BASE_PATH,
         diff_length: patch.diff.length
       });
       
       // Leer archivo original
       let fileContent = '';
       let originalStats = null;
-      try {
-        fileContent = await fs.readFile(filePath, 'utf-8');
-        originalStats = await fs.stat(filePath);
-        await log('INFO', `AutoFix: Archivo ${normalizedFile} leído`, { 
-          size: originalStats.size,
-          mtime: originalStats.mtime.toISOString()
-        });
-      } catch (err) {
-        if (err.code === 'ENOENT') {
-          // Archivo no existe, crear vacío
-          fileContent = '';
+      if (fileExists) {
+        try {
+          fileContent = await fs.readFile(filePath, 'utf-8');
+          originalStats = await fs.stat(filePath);
+          await log('INFO', `AutoFix: Archivo ${normalizedFile} leído`, { 
+            size: originalStats.size,
+            mtime: originalStats.mtime.toISOString()
+          });
+        } catch (err) {
+          if (err.code === 'ENOENT') {
+            // Archivo no existe, crear vacío
+            fileContent = '';
           await log('INFO', `AutoFix: Archivo ${normalizedFile} no existe, se creará`, { file: normalizedFile });
         } else {
           await log('ERROR', `AutoFix: Error leyendo ${normalizedFile}`, { error: err.message });
