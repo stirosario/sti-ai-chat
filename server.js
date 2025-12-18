@@ -1944,7 +1944,7 @@ async function handleAskConsent(session, userInput, conversation) {
   };
 }
 
-async function handleAskLanguage(session, userInput, conversation) {
+async function handleAskLanguage(session, userInput, conversation, traceContext = null) {
   const inputLower = userInput.toLowerCase().trim();
   let selectedLanguage = null;
   
@@ -1975,6 +1975,23 @@ async function handleAskLanguage(session, userInput, conversation) {
     session.language = selectedLanguage;
     session.stage = 'ASK_NAME';
     session.meta.updated_at = new Date().toISOString();
+    
+    // Vincular boot_id a conversation_id cuando se genera (SIEMPRE que exista boot_id)
+    if (traceContext && traceContext.boot_id) {
+      trace.linkBootIdToConversationId(traceContext.boot_id, conversationId);
+      
+      // Actualizar traceContext con conversation_id
+      traceContext.conversation_id = conversationId;
+      
+      // Log la vinculación
+      await trace.logEvent('INFO', 'CONVERSATION_ID_GENERATED', {
+        actor: 'system',
+        boot_id: traceContext.boot_id,
+        conversation_id: conversationId,
+        endpoint: '/api/chat',
+        stage: 'ASK_NAME'
+      }, traceContext);
+    }
     
     // Crear conversación persistente
     const newConversation = {
@@ -3399,18 +3416,30 @@ async function handleInstallationFlow(session, userInput, conversation) {
 // MAIN HANDLER - Router de stages
 // ========================================================
 
-async function handleChatMessage(sessionId, userInput, imageBase64 = null, requestId = null) {
+async function handleChatMessage(sessionId, userInput, imageBase64 = null, requestId = null, bootId = null) {
   const session = getSession(sessionId);
   let conversation = null;
   let releaseLock = null;
   
-  // Crear contexto de trace
+  // Crear contexto de trace con boot_id (SIEMPRE debe existir)
+  const finalBootId = bootId || trace.generateBootId();
   const traceContext = trace.createTraceContext(
-    session.conversation_id || sessionId,
+    session.conversation_id || sessionId, // Puede ser null si aún no se generó
     requestId || `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     null,
     session.stage,
-    NODE_ENV
+    NODE_ENV,
+    null,
+    finalBootId // SIEMPRE incluir boot_id
+  );
+  
+  // Log entrada de mensaje con boot_id
+  await trace.logUserInput(
+    traceContext,
+    userInput,
+    userInput.trim().toLowerCase(),
+    session.language,
+    session.context.device_type || session.context.external_type
   );
   
   try {
@@ -3743,7 +3772,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       response = await handleAskConsent(session, userInput, conversation || {});
       break;
     case 'ASK_LANGUAGE':
-      response = await handleAskLanguage(session, userInput, conversation || {});
+      response = await handleAskLanguage(session, userInput, conversation || {}, traceContext);
       break;
     case 'ASK_NAME':
       response = await handleAskName(session, userInput, conversation || {});
@@ -4083,6 +4112,37 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Middleware para generar boot_id al inicio de cada request
+app.use((req, res, next) => {
+  // Generar boot_id SIEMPRE al inicio (antes de cualquier otra lógica)
+  const bootId = trace.generateBootId();
+  req.bootId = bootId;
+  
+  // Crear contexto de trace básico con boot_id
+  const traceContext = trace.createTraceContext(
+    null, // conversation_id aún no existe
+    `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    null,
+    null,
+    NODE_ENV,
+    null,
+    bootId
+  );
+  
+  // Log inicio de request
+  trace.logEvent('INFO', 'REQUEST_START', {
+    actor: 'system',
+    endpoint: req.path,
+    method: req.method,
+    ip: req.ip
+  }, traceContext).catch(() => {}); // No bloquear si falla
+  
+  // Guardar contexto en request para uso posterior
+  req.traceContext = traceContext;
+  
+  next();
+});
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'STI Chat API is running', version: '2.0.0' });
@@ -4090,20 +4150,44 @@ app.get('/', (req, res) => {
 
 // Endpoint principal de chat
 app.post('/api/chat', chatLimiter, async (req, res) => {
+  // boot_id ya está asignado por el middleware
+  const bootId = req.bootId;
+  const traceContext = req.traceContext;
+  
   try {
     // F23.1: Validación estricta de eventos entrantes
     const validation = validateChatRequest(req.body);
     if (!validation.valid) {
+      // Log error de validación
+      await trace.logEvent('ERROR', 'VALIDATION_ERROR', {
+        actor: 'system',
+        endpoint: '/api/chat',
+        error: validation.error,
+        boot_id: bootId
+      }, traceContext);
+      
       return res.status(400).json({ ok: false, error: validation.error });
     }
     
     const { sessionId, message, imageBase64, imageName, request_id } = req.body;
     
     if (!sessionId) {
+      await trace.logEvent('ERROR', 'MISSING_SESSION_ID', {
+        actor: 'system',
+        endpoint: '/api/chat',
+        boot_id: bootId
+      }, traceContext);
+      
       return res.status(400).json({ ok: false, error: 'sessionId requerido' });
     }
     
     if (!message && !imageBase64) {
+      await trace.logEvent('ERROR', 'MISSING_MESSAGE', {
+        actor: 'system',
+        endpoint: '/api/chat',
+        boot_id: bootId
+      }, traceContext);
+      
       return res.status(400).json({ ok: false, error: 'message o imageBase64 requerido' });
     }
     
@@ -4116,6 +4200,13 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
           const lastEvent = conversation.transcript[conversation.transcript.length - 1];
           if (lastEvent && lastEvent.t && new Date(req.body.timestamp) < new Date(lastEvent.t)) {
             // Evento fuera de orden - rechazar
+            await trace.logEvent('WARN', 'OUT_OF_ORDER_EVENT', {
+              actor: 'system',
+              endpoint: '/api/chat',
+              boot_id: bootId,
+              conversation_id: session.conversation_id
+            }, traceContext);
+            
             return res.status(400).json({ 
               ok: false, 
               error: 'Evento fuera de orden cronológico' 
@@ -4128,9 +4219,22 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     // P1.1: Generar request_id si no viene
     const requestId = request_id || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    await log('INFO', `Chat request`, { sessionId, hasMessage: !!message, hasImage: !!imageBase64, request_id: requestId });
+    // Actualizar traceContext con request_id
+    traceContext.request_id = requestId;
     
-    const response = await handleChatMessage(sessionId, message || '', imageBase64, requestId);
+    await log('INFO', `Chat request`, { sessionId, hasMessage: !!message, hasImage: !!imageBase64, request_id: requestId, boot_id: bootId });
+    
+    // Log entrada de request
+    await trace.logEvent('INFO', 'CHAT_REQUEST', {
+      actor: 'user',
+      endpoint: '/api/chat',
+      session_id: sessionId,
+      has_message: !!message,
+      has_image: !!imageBase64,
+      boot_id: bootId
+    }, traceContext);
+    
+    const response = await handleChatMessage(sessionId, message || '', imageBase64, requestId, bootId);
     
     // F23.3: Validar que frontend pueda representar estados
     if (response.buttons && !validateButtonsForFrontend(response.buttons)) {
@@ -4155,23 +4259,23 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     
     res.json(frontendResponse);
   } catch (err) {
-    await log('ERROR', 'Error en /api/chat', { error: err.message, stack: err.stack });
+    await log('ERROR', 'Error en /api/chat', { error: err.message, stack: err.stack, boot_id: bootId });
     
-    // Log error en trace si hay contexto
-    if (req.body.sessionId) {
-      try {
-        const session = getSession(req.body.sessionId);
-        const traceContext = trace.createTraceContext(
-          session.conversation_id || req.body.sessionId,
-          req.body.request_id || `req-${Date.now()}`,
-          null,
-          session.stage,
-          NODE_ENV
-        );
-        await trace.logError(traceContext, err, 'recoverable', null, false);
-      } catch (traceErr) {
-        // Ignorar errores de trace
-      }
+    // Log error en trace (usar traceContext del request que ya tiene boot_id)
+    try {
+      const errorContext = traceContext || trace.createTraceContext(
+        null,
+        requestId || `req-${Date.now()}`,
+        null,
+        null,
+        NODE_ENV,
+        null,
+        bootId || trace.generateBootId()
+      );
+      
+      await trace.logError(errorContext, err, 'recoverable', null, false);
+    } catch (traceErr) {
+      // Ignorar errores de trace
     }
     
     res.status(500).json({
@@ -4210,6 +4314,85 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
     });
   } catch (err) {
     await log('ERROR', 'Error en /api/greeting', { error: err.message });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// Endpoint para obtener eventos en vivo
+app.get('/api/live-events', async (req, res) => {
+  try {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    // Validar token (usar LOG_TOKEN si está configurado)
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    // Filtros opcionales
+    const filters = {
+      boot_id: req.query.boot_id || null,
+      conversation_id: req.query.conversation_id || null,
+      level: req.query.level ? req.query.level.split(',') : null,
+      endpoint: req.query.endpoint || null,
+      limit: req.query.limit ? parseInt(req.query.limit) : 500
+    };
+    
+    // Obtener eventos del buffer
+    const events = trace.getLiveEvents(filters);
+    
+    res.json({
+      ok: true,
+      events: events,
+      total: events.length,
+      filters: filters
+    });
+  } catch (err) {
+    await log('ERROR', 'Error en /api/live-events', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// Endpoint para obtener último error por boot_id
+app.get('/api/live-events/last-error', async (req, res) => {
+  try {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    const lastError = trace.getLastErrorByBootId();
+    const bootId = lastError ? lastError.boot_id : null;
+    
+    if (!bootId) {
+      return res.json({
+        ok: true,
+        has_error: false,
+        message: 'No hay errores recientes'
+      });
+    }
+    
+    // Obtener todos los eventos de ese boot_id
+    const events = trace.getEventsByBootId(bootId);
+    
+    res.json({
+      ok: true,
+      has_error: true,
+      boot_id: bootId,
+      last_error: lastError,
+      all_events: events,
+      total_events: events.length
+    });
+  } catch (err) {
+    await log('ERROR', 'Error en /api/live-events/last-error', { error: err.message });
     res.status(500).json({
       ok: false,
       error: 'Error interno del servidor'
@@ -4344,20 +4527,37 @@ FORMATO DE RESPUESTA (JSON ESTRICTO):
       // Ignorar si no se puede leer
     }
     
-    const userPrompt = `OBJETIVO: ${objective || 'Analizar y reparar problemas detectados en el flujo'}
-
-HISTORIAL DETALLADO (trace):
-${trace.substring(0, 40000)}${trace.length > 40000 ? '\n\n[... trace truncado por longitud ...]' : ''}
-${codeContext}
-
-INSTRUCCIONES:
+    const { live_events, boot_id } = req.body;
+    const isPreIdMode = mode === 'diagnostic-preid' || mode === 'repair-preid';
+    
+    let userPrompt = `OBJETIVO: ${objective || 'Analizar y reparar problemas detectados en el flujo'}`;
+    
+    if (isPreIdMode) {
+      userPrompt += `\n\n⚠️ MODO PRE-ID: Esta es una falla que ocurrió ANTES de generar conversation_id.
+      - boot_id: ${boot_id || 'N/A'}
+      - Los eventos muestran la secuencia completa desde el inicio del request hasta el fallo.
+      - Debes identificar por qué no se generó conversation_id y reparar el flujo para que sí se genere.`;
+    }
+    
+    userPrompt += `\n\nHISTORIAL DETALLADO (trace):\n${trace.substring(0, 30000)}${trace.length > 30000 ? '\n\n[... trace truncado por longitud ...]' : ''}`;
+    
+    if (live_events && live_events.trim()) {
+      userPrompt += `\n\nEVENTOS EN VIVO / PRE-ID:\n${live_events.substring(0, 20000)}${live_events.length > 20000 ? '\n\n[... eventos truncados por longitud ...]' : ''}`;
+    }
+    
+    if (boot_id) {
+      userPrompt += `\n\nBOOT_ID: ${boot_id}\nEste es el identificador provisorio asignado al inicio del request.`;
+    }
+    
+    userPrompt += `\n${codeContext}\n\nINSTRUCCIONES:
 1. Analiza el trace completo para identificar problemas
-2. Identifica la causa raíz de cada problema
+2. ${isPreIdMode ? 'Identifica por qué NO se generó conversation_id y qué causó el fallo prematuro.' : 'Identifica la causa raíz de cada problema'}
 3. Genera un plan de reparación claro
 4. Crea diffs en formato git unificado para cada archivo a modificar
 5. Evalúa riesgos y proporciona tests a ejecutar
 6. NO expongas secretos, tokens o credenciales en los diffs
 7. Asegúrate de que los diffs sean aplicables y no rompan el flujo
+${isPreIdMode ? '8. Los smoke tests deben verificar que ahora se genera boot_id y conversation_id correctamente' : ''}
 
 Analiza este trace y genera una solución completa.`;
 
@@ -4391,6 +4591,10 @@ Analiza este trace y genera una solución completa.`;
     analysis.model_used = model;
     analysis.analyzed_at = new Date().toISOString();
     analysis.safe_to_apply = false; // Se determinará después de verificación
+    analysis.mode = mode; // Guardar modo para verificación
+    if (boot_id) {
+      analysis.boot_id = boot_id;
+    }
     
     res.json({
       ok: true,
@@ -4688,6 +4892,7 @@ function applyHunk(lines, start, hunkLines) {
 async function verifySandbox(sandboxDir, result) {
   const details = [];
   let allPassed = true;
+  const isPreIdMode = result.mode === 'repair-preid' || result.mode === 'diagnostic-preid';
   
   // Verificación 1: Archivos existen y son válidos
   try {
@@ -4736,6 +4941,16 @@ async function verifySandbox(sandboxDir, result) {
         allPassed = false;
         details.push(`❌ server.js puede tener problemas estructurales`);
       }
+      
+      // Verificación específica para modo pre-ID: debe generar boot_id
+      if (isPreIdMode) {
+        if (serverContent.includes('bootId') || serverContent.includes('boot_id') || serverContent.includes('generateBootId')) {
+          details.push(`✅ server.js incluye generación de boot_id`);
+        } else {
+          allPassed = false;
+          details.push(`❌ server.js NO incluye generación de boot_id (requerido para modo pre-ID)`);
+        }
+      }
     }
   } catch (verifyErr) {
     // No crítico si server.js no fue modificado
@@ -4765,6 +4980,11 @@ async function verifySandbox(sandboxDir, result) {
     }
   } catch (secretErr) {
     details.push(`⚠️ Verificación de secretos omitida: ${secretErr.message}`);
+  }
+  
+  // Verificación 5: Smoke tests específicos para pre-ID
+  if (isPreIdMode) {
+    details.push(`ℹ️ Modo pre-ID: Los smoke tests deben verificar que boot_id y conversation_id se generan correctamente`);
   }
   
   return {

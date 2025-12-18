@@ -16,11 +16,17 @@ const __dirname = path.dirname(__filename);
 
 // Directorio para traces
 const TRACES_DIR = path.join(__dirname, 'data', 'traces');
+const LIVE_EVENTS_FILE = path.join(__dirname, 'data', 'live-events.jsonl');
+const MAX_LIVE_EVENTS = 2000; // Buffer circular: mantener últimos 2000 eventos
 
 // Asegurar que el directorio existe
 if (!fsSync.existsSync(TRACES_DIR)) {
   fsSync.mkdirSync(TRACES_DIR, { recursive: true });
 }
+
+// Buffer circular en memoria para live events (últimos N eventos)
+let liveEventsBuffer = [];
+let bootIdToConversationId = new Map(); // Mapeo boot_id -> conversation_id
 
 // Cache de versiones y commit hash (se calcula una vez)
 let serverVersion = null;
@@ -107,14 +113,44 @@ function sanitize(payload) {
 }
 
 /**
+ * Genera un boot_id (UUID corto) para identificar requests antes de conversation_id
+ */
+export function generateBootId() {
+  return `boot-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+/**
+ * Vincula boot_id a conversation_id cuando se genera
+ */
+export function linkBootIdToConversationId(bootId, conversationId) {
+  if (bootId && conversationId) {
+    bootIdToConversationId.set(bootId, conversationId);
+  }
+}
+
+/**
+ * Obtiene conversation_id asociado a un boot_id
+ */
+export function getConversationIdFromBootId(bootId) {
+  return bootIdToConversationId.get(bootId) || null;
+}
+
+/**
  * Crea un contexto de trace para una conversación
  */
-export function createTraceContext(conversationId, requestId, messageId = null, stage = null, env = null, version = null) {
+export function createTraceContext(conversationId, requestId, messageId = null, stage = null, env = null, version = null, bootId = null) {
   const serverInfo = getServerInfo();
   const envValue = env || process.env.NODE_ENV || 'production';
   
+  // Si hay boot_id pero no conversation_id, intentar obtenerlo del mapeo
+  let finalConversationId = conversationId;
+  if (!finalConversationId && bootId) {
+    finalConversationId = getConversationIdFromBootId(bootId);
+  }
+  
   return {
-    conversation_id: conversationId,
+    conversation_id: finalConversationId,
+    boot_id: bootId, // SIEMPRE incluir boot_id
     request_id: requestId || `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     message_id: messageId,
     stage: stage,
@@ -126,17 +162,19 @@ export function createTraceContext(conversationId, requestId, messageId = null, 
 }
 
 /**
- * Registra un evento en el trace
+ * Registra un evento en el trace y en live events
  */
 export async function logEvent(level, type, payload = {}, context = null) {
-  if (!context || !context.conversation_id) {
+  // SIEMPRE loguear si hay boot_id, incluso sin conversation_id
+  if (!context || !context.boot_id) {
     // Si no hay contexto válido, no loguear (evitar errores)
     return;
   }
   
   const event = {
     // Metadata de correlación
-    conversation_id: context.conversation_id,
+    conversation_id: context.conversation_id || null, // Puede ser null si aún no se generó
+    boot_id: context.boot_id, // SIEMPRE presente
     request_id: context.request_id || `req-${Date.now()}`,
     event_id: `evt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     timestamp: context.timestamp || new Date().toISOString(),
@@ -146,6 +184,7 @@ export async function logEvent(level, type, payload = {}, context = null) {
     stage: context.stage || null,
     actor: payload.actor || 'system',
     message_id: context.message_id || null,
+    endpoint: payload.endpoint || context.endpoint || null,
     
     // Evento específico
     level: level.toUpperCase(), // INFO, WARN, ERROR, DEBUG
@@ -157,18 +196,103 @@ export async function logEvent(level, type, payload = {}, context = null) {
     
     // Archivo/módulo origen (si se proporciona)
     file: payload.file || null,
-    module: payload.module || null
+    module: payload.module || null,
+    
+    // Stack trace si hay error
+    error_stack: payload.error_stack || (payload.error && payload.error.stack) || null
   };
   
-  // Escribir en JSONL (append-only)
-  const traceFile = path.join(TRACES_DIR, `${context.conversation_id}.jsonl`);
+  // SIEMPRE agregar a live events buffer (incluso sin conversation_id)
+  addToLiveEvents(event);
   
-  try {
-    await fs.appendFile(traceFile, JSON.stringify(event) + '\n', 'utf-8');
-  } catch (err) {
-    // Si falla, al menos loguear en consola (no romper el flujo)
-    console.error('[TRACE] Error escribiendo trace:', err.message);
+  // Escribir en JSONL por conversation_id (solo si existe)
+  if (context.conversation_id) {
+    const traceFile = path.join(TRACES_DIR, `${context.conversation_id}.jsonl`);
+    
+    try {
+      await fs.appendFile(traceFile, JSON.stringify(event) + '\n', 'utf-8');
+    } catch (err) {
+      // Si falla, al menos loguear en consola (no romper el flujo)
+      console.error('[TRACE] Error escribiendo trace:', err.message);
+    }
   }
+  
+  // También escribir en archivo de live events (append-only)
+  try {
+    await fs.appendFile(LIVE_EVENTS_FILE, JSON.stringify(event) + '\n', 'utf-8');
+  } catch (err) {
+    // Si falla, no romper el flujo
+    console.error('[TRACE] Error escribiendo live events:', err.message);
+  }
+}
+
+/**
+ * Agrega evento al buffer circular de live events
+ */
+function addToLiveEvents(event) {
+  liveEventsBuffer.push(event);
+  
+  // Mantener solo los últimos MAX_LIVE_EVENTS
+  if (liveEventsBuffer.length > MAX_LIVE_EVENTS) {
+    liveEventsBuffer.shift(); // Eliminar el más antiguo
+  }
+}
+
+/**
+ * Obtiene eventos en vivo (del buffer en memoria)
+ */
+export function getLiveEvents(filters = {}) {
+  let filtered = [...liveEventsBuffer];
+  
+  // Filtrar por boot_id
+  if (filters.boot_id) {
+    filtered = filtered.filter(e => e.boot_id === filters.boot_id);
+  }
+  
+  // Filtrar por conversation_id
+  if (filters.conversation_id) {
+    filtered = filtered.filter(e => e.conversation_id === filters.conversation_id);
+  }
+  
+  // Filtrar por level
+  if (filters.level) {
+    const levels = Array.isArray(filters.level) ? filters.level : [filters.level];
+    filtered = filtered.filter(e => levels.includes(e.level));
+  }
+  
+  // Filtrar por endpoint
+  if (filters.endpoint) {
+    filtered = filtered.filter(e => e.endpoint && e.endpoint.includes(filters.endpoint));
+  }
+  
+  // Ordenar por timestamp (más reciente primero)
+  filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  
+  // Limitar cantidad si se especifica
+  if (filters.limit) {
+    filtered = filtered.slice(0, filters.limit);
+  }
+  
+  return filtered;
+}
+
+/**
+ * Obtiene el último error por boot_id
+ */
+export function getLastErrorByBootId() {
+  const errors = liveEventsBuffer.filter(e => e.level === 'ERROR');
+  if (errors.length === 0) return null;
+  
+  // Ordenar por timestamp y tomar el más reciente
+  errors.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return errors[0];
+}
+
+/**
+ * Obtiene eventos agrupados por boot_id
+ */
+export function getEventsByBootId(bootId) {
+  return liveEventsBuffer.filter(e => e.boot_id === bootId);
 }
 
 /**
