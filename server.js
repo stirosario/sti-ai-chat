@@ -6898,11 +6898,12 @@ app.post('/api/autofix/apply', async (req, res) => {
           if (err.code === 'ENOENT') {
             // Archivo no existe, crear vacío
             fileContent = '';
-          await log('INFO', `AutoFix: Archivo ${normalizedFile} no existe, se creará`, { file: normalizedFile });
-        } else {
-          await log('ERROR', `AutoFix: Error leyendo ${normalizedFile}`, { error: err.message });
-          failedFiles.push({ file: normalizedFile, error: err.message });
-          continue;
+            await log('INFO', `AutoFix: Archivo ${normalizedFile} no existe, se creará`, { file: normalizedFile });
+          } else {
+            await log('ERROR', `AutoFix: Error leyendo ${normalizedFile}`, { error: err.message });
+            failedFiles.push({ file: normalizedFile, error: err.message });
+            continue;
+          }
         }
       }
       
