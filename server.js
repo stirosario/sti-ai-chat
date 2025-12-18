@@ -300,6 +300,66 @@ async function reserveUniqueConversationId() {
 }
 
 // ========================================================
+// HELPERS DE VALIDACIÓN DEFENSIVA (NASA-GRADE)
+// ========================================================
+
+/**
+ * Obtiene conversation_id de forma segura desde session o conversation
+ * NUNCA retorna null/undefined - siempre genera uno si falta
+ * @param {object} session - Sesión del usuario
+ * @param {object|null} conversation - Objeto de conversación (opcional)
+ * @returns {Promise<string>} - conversation_id válido
+ */
+async function getConversationIdSafe(session, conversation = null) {
+  // Prioridad 1: conversation.conversation_id
+  if (conversation?.conversation_id && /^[A-Z]{2}\d{4}$/.test(conversation.conversation_id)) {
+    return conversation.conversation_id;
+  }
+  
+  // Prioridad 2: session.conversation_id
+  if (session?.conversation_id && /^[A-Z]{2}\d{4}$/.test(session.conversation_id)) {
+    return session.conversation_id;
+  }
+  
+  // Prioridad 3: Generar uno nuevo (CRÍTICO: nunca fallar)
+  await log('WARN', 'getConversationIdSafe - Generando nuevo ID (faltante en session/conversation)', {
+    has_session: !!session,
+    has_conversation: !!conversation,
+    session_id: session?.sessionId || 'none',
+    session_conversation_id: session?.conversation_id || 'none',
+    conversation_conversation_id: conversation?.conversation_id || 'none'
+  });
+  
+  try {
+    const newId = await reserveUniqueConversationId();
+    // Asignar a session para futuras llamadas
+    if (session) {
+      session.conversation_id = newId;
+    }
+    return newId;
+  } catch (err) {
+    // ÚLTIMO RECURSO: ID de emergencia (nunca fallar)
+    await log('ERROR', 'getConversationIdSafe - Error generando ID, usando emergencia', {
+      error: err.message
+    });
+    const emergencyId = `EM${Date.now().toString().slice(-4)}`;
+    if (session) {
+      session.conversation_id = emergencyId;
+    }
+    return emergencyId;
+  }
+}
+
+/**
+ * Valida que conversation_id exista y tenga formato válido
+ * @param {string} conversationId - ID a validar
+ * @returns {boolean} - true si es válido
+ */
+function isValidConversationId(conversationId) {
+  return conversationId && typeof conversationId === 'string' && /^[A-Z]{2}\d{4}$/.test(conversationId);
+}
+
+// ========================================================
 // PERSISTENCIA DE CONVERSACIONES
 // ========================================================
 
@@ -3296,12 +3356,15 @@ async function handleAskName(session, userInput, conversation) {
   await saveConversation(conversation);
   
   // Guardar nombre del usuario (MODELO MEJORADO)
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'text',
     stage: 'ASK_NAME',
     text: nameRaw,
-    conversation_id: conversation.conversation_id,
+    conversation_id: conversationId,
     payload: {
       name_raw: nameRaw,
       name_norm: firstName,
@@ -3366,7 +3429,10 @@ async function handleAskUserLevel(session, userInput, conversation) {
   
   // Guardar selección de nivel (MODELO MEJORADO)
   const levelLabel = level === 'basico' ? 'Básico' : level === 'intermedio' ? 'Intermedio' : 'Avanzado';
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     stage: 'ASK_USER_LEVEL',
@@ -3376,7 +3442,7 @@ async function handleAskUserLevel(session, userInput, conversation) {
       value: level,
       token: level
     },
-    conversation_id: conversation.conversation_id,
+    conversation_id: conversationId,
     payload: {
       user_level: level,
       stage_before: 'ASK_USER_LEVEL',
@@ -3445,7 +3511,10 @@ async function handleAskDeviceCategory(session, userInput, conversation) {
   session.stage = category === 'main' ? 'ASK_DEVICE_TYPE_MAIN' : 'ASK_DEVICE_TYPE_EXTERNAL';
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     label: category === 'main' ? 'Equipo principal' : 'Dispositivo externo / periférico',
@@ -3557,7 +3626,10 @@ async function handleAskDeviceType(session, userInput, conversation) {
   
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     label: userInput,
@@ -3600,7 +3672,7 @@ async function handleAskDeviceType(session, userInput, conversation) {
 async function handleAskProblem(session, userInput, conversation, requestId = null, traceContext = null) {
   // LOG DETALLADO: Inicio de handleAskProblem
   await logDebug('DEBUG', 'handleAskProblem - Inicio', {
-    conversation_id: conversation?.conversation_id || 'none',
+    conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
     user_input_length: userInput?.length || 0,
     user_input_preview: userInput ? userInput.substring(0, 100) : 'null/empty',
     session_stage: session?.stage,
@@ -3611,11 +3683,14 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     has_trace_context: !!traceContext
   }, 'server.js', 3584, 3584);
   
+  // OBTENER conversation_id DE FORMA SEGURA (NASA-GRADE)
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
   // Crear traceContext si no se proporciona
   if (!traceContext) {
     const bootId = trace.generateBootId();
     traceContext = trace.createTraceContext(
-      conversation?.conversation_id || null,
+      conversationId,
       `handle-ask-problem-${Date.now()}`,
       session.stage || 'ASK_PROBLEM',
       session.language || 'es',
@@ -3625,17 +3700,22 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     );
   }
   
+  // Asegurar que session tenga el conversation_id
+  if (!session.conversation_id) {
+    session.conversation_id = conversationId;
+  }
+  
   session.context.problem_description_raw = userInput;
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'text',
     text: userInput
   });
   
   // P2-1: Emitir evento PROCESSING_START antes de llamar a IA
-  await appendToTranscript(conversation.conversation_id, {
+  await appendToTranscript(conversationId, {
     role: 'system',
     type: 'event',
     name: 'PROCESSING_START',
@@ -3647,7 +3727,7 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
   });
   
   // Llamar a IA_CLASSIFIER
-  await appendToTranscript(conversation.conversation_id, {
+  await appendToTranscript(conversationId, {
     role: 'system',
     type: 'event',
     name: 'IA_CLASSIFIER_CALL',
@@ -3657,7 +3737,7 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
   const classification = await iaClassifier(session, userInput, requestId, traceContext);
   
   // P2-1: Emitir evento PROCESSING_END después de obtener clasificación
-  await appendToTranscript(conversation.conversation_id, {
+  await appendToTranscript(conversationId, {
     role: 'system',
     type: 'event',
     name: 'PROCESSING_END',
@@ -4008,8 +4088,11 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
       conversation.status = 'escalated';
       await saveConversation(conversation);
       
+      // OBTENER conversation_id DE FORMA SEGURA
+      const conversationId = await getConversationIdSafe(session, conversation);
+      
       // F30.1: Registrar métrica de escalamiento
-      const metrics = resolutionMetrics.get(conversation.conversation_id) || { resolved: false, escalated: false, steps_taken: 0 };
+      const metrics = resolutionMetrics.get(conversationId) || { resolved: false, escalated: false, steps_taken: 0 };
       metrics.escalated = true;
       metrics.steps_taken = session.context.diagnostic_attempts || 0;
       if (conversation.started_at) {
@@ -4017,29 +4100,29 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
         const escalatedAt = new Date();
         metrics.escalation_time_minutes = (escalatedAt - startedAt) / (1000 * 60);
       }
-      resolutionMetrics.set(conversation.conversation_id, metrics);
+      resolutionMetrics.set(conversationId, metrics);
       
       // Validar formato de conversation_id antes de usar en path
-      if (!/^[A-Z]{2}\d{4}$/.test(conversation.conversation_id)) {
-        await log('ERROR', `Formato inválido de conversation_id en escalateToTechnician: ${conversation.conversation_id}`);
+      if (!isValidConversationId(conversationId)) {
+        await log('ERROR', `Formato inválido de conversation_id en escalateToTechnician: ${conversationId}`);
         throw new Error('Invalid conversation_id format');
       }
       
       // Crear ticket
       const ticket = {
-        conversation_id: conversation.conversation_id,
+        conversation_id: conversationId,
         created_at: new Date().toISOString(),
         user: conversation.user,
         problem: session.context.problem_description_raw,
         reason,
-        transcript_path: path.join(CONVERSATIONS_DIR, `${conversation.conversation_id}.json`),
+        transcript_path: path.join(CONVERSATIONS_DIR, `${conversationId}.json`),
         whatsapp_url: `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-          `Hola, soy ${conversation.user.name_norm || 'Usuario'}. Conversación ${conversation.conversation_id}. Problema: ${session.context.problem_description_raw || 'N/A'}`
+          `Hola, soy ${conversation.user.name_norm || 'Usuario'}. Conversación ${conversationId}. Problema: ${session.context.problem_description_raw || 'N/A'}`
         )}`
       };
       
       // Write temp + rename para atomicidad (con reintento)
-      const ticketPath = path.join(TICKETS_DIR, `${conversation.conversation_id}.json`);
+      const ticketPath = path.join(TICKETS_DIR, `${conversationId}.json`);
       const tempTicketPath = ticketPath + '.tmp';
       
       try {
@@ -4169,7 +4252,10 @@ async function handleAskInteractionMode(session, userInput, conversation) {
   session.stage = 'DIAGNOSTIC_STEP';
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     label: mode === 'fast' ? '⚡ Ir rápido' : '🧭 Paso a paso',
@@ -4232,8 +4318,11 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   
   // Si es "Se resolvió"
   if (buttonToken === 'BTN_RESOLVED' || inputLower.includes('resolvió') || inputLower.includes('resolved')) {
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
     // F30.1: Registrar métrica de resolución
-    const metrics = resolutionMetrics.get(conversation.conversation_id) || { resolved: false, escalated: false, steps_taken: 0 };
+    const metrics = resolutionMetrics.get(conversationId) || { resolved: false, escalated: false, steps_taken: 0 };
     metrics.resolved = true;
     metrics.steps_taken = session.context.diagnostic_attempts || 0;
     if (conversation.started_at) {
@@ -4241,10 +4330,10 @@ async function handleDiagnosticStep(session, userInput, conversation) {
       const resolvedAt = new Date();
       metrics.resolution_time_minutes = (resolvedAt - startedAt) / (1000 * 60);
     }
-    resolutionMetrics.set(conversation.conversation_id, metrics);
+    resolutionMetrics.set(conversationId, metrics);
     
     session.stage = 'ASK_FEEDBACK';
-    await appendToTranscript(conversation.conversation_id, {
+    await appendToTranscript(conversationId, {
       role: 'user',
       type: 'button',
       label: '✅ Se resolvió',
@@ -4278,7 +4367,10 @@ async function handleDiagnosticStep(session, userInput, conversation) {
     }
     session.context.diagnostic_attempts++;
     
-    await appendToTranscript(conversation.conversation_id, {
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    await appendToTranscript(conversationId, {
       role: 'user',
       type: 'button',
       label: '❌ Sigue igual',
@@ -4337,6 +4429,9 @@ async function showRiskSummary(session, conversation, riskLevel, actionDescripti
   if (riskLevel === 'high' || riskLevel === 'medium') {
     session.context.impact_summary_shown = true;
     
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
     const summaryText = session.language === 'es-AR'
       ? `⚠️ **Resumen de Impacto**
 
@@ -4363,7 +4458,7 @@ ${actionDescription}
 
 Are you sure you want to continue?`;
     
-    await appendToTranscript(conversation.conversation_id, {
+    await appendToTranscript(conversationId, {
       role: 'system',
       type: 'event',
       name: 'RISK_SUMMARY_SHOWN',
@@ -4413,7 +4508,10 @@ async function handleAskLearningDepth(session, userInput, conversation) {
   session.modes.learning_depth = depth;
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     label: depth === 'simple' ? 'Simple (explicaciones básicas)' : 'Técnico (detalles avanzados)',
@@ -4453,7 +4551,10 @@ async function handleEmotionalRelease(session, userInput, conversation) {
       ? `Entiendo que estás frustrado. Contame, ¿qué es lo que más te está molestando de esta situación?`
       : `I understand you're frustrated. Tell me, what's bothering you most about this situation?`;
     
-    await appendToTranscript(conversation.conversation_id, {
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    await appendToTranscript(conversationId, {
       role: 'system',
       type: 'event',
       name: 'EMOTIONAL_RELEASE_ACTIVATED',
@@ -4501,7 +4602,10 @@ async function handleAskExecutorRole(session, userInput, conversation) {
   session.modes.executor_role = role;
   session.meta.updated_at = new Date().toISOString();
   
-  await appendToTranscript(conversation.conversation_id, {
+  // OBTENER conversation_id DE FORMA SEGURA
+  const conversationId = await getConversationIdSafe(session, conversation);
+  
+  await appendToTranscript(conversationId, {
     role: 'user',
     type: 'button',
     label: role === 'self' ? 'Estoy frente al equipo' : 'Ayudo a otra persona',
@@ -4555,8 +4659,11 @@ async function handleGuidedStory(session, conversation) {
   
   // Si estamos procesando una respuesta (no es la primera llamada)
   if (session.context.guided_story_step > 0) {
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
     // Guardar respuesta del usuario
-    await appendToTranscript(conversation.conversation_id, {
+    await appendToTranscript(conversationId, {
       role: 'user',
       type: 'text',
       text: session.context.guided_story_last_input || ''
@@ -4868,7 +4975,10 @@ async function handleInstallationFlow(session, userInput, conversation) {
       stepResult.reply += extraHelp;
     }
     
-    await appendToTranscript(conversation.conversation_id, {
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    await appendToTranscript(conversationId, {
       role: 'system',
       type: 'event',
       name: 'INSTALLATION_STEP_WITH_EXTRA',
@@ -5130,8 +5240,11 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
               requestId
             );
             
+            // OBTENER conversation_id DE FORMA SEGURA
+            const conversationId = await getConversationIdSafe(session, conversation);
+            
             // Guardar referencia completa en transcript
-            await appendToTranscript(conversation.conversation_id, {
+            await appendToTranscript(conversationId, {
               role: 'user',
               type: 'image',
               image_url: imageResult.imageUrl,
@@ -5157,8 +5270,11 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
               has_text: !!userInput
             });
             
+            // OBTENER conversation_id DE FORMA SEGURA
+            const conversationId = await getConversationIdSafe(session, conversation);
+            
             // Guardar evento de error en transcript
-            await appendToTranscript(conversation.conversation_id, {
+            await appendToTranscript(conversationId, {
               role: 'system',
               type: 'event',
               name: 'IMAGE_SAVE_ERROR',
@@ -5246,8 +5362,11 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       
       // Si es alta severidad, rechazar el input
       if (injectionCheck.severity === 'high') {
-        if (conversation && conversation.conversation_id) {
-          await appendToTranscript(conversation.conversation_id, {
+        if (conversation || session.conversation_id) {
+          // OBTENER conversation_id DE FORMA SEGURA
+          const conversationId = await getConversationIdSafe(session, conversation);
+          
+          await appendToTranscript(conversationId, {
             role: 'system',
             type: 'event',
             name: 'PROMPT_INJECTION_DETECTED',
@@ -5315,13 +5434,16 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
                            'ASK_INTERACTION_MODE', 'DIAGNOSTIC_STEP', 'CONNECTIVITY_FLOW', 'INSTALLATION_STEP'];
       
       if (freeQA.resumeStage === originalStage && validStages.includes(freeQA.resumeStage)) {
+        // OBTENER conversation_id DE FORMA SEGURA
+        const conversationId = await getConversationIdSafe(session, conversation);
+        
         // Guardar respuesta FREE_QA
-        await appendToTranscript(conversation.conversation_id, {
+        await appendToTranscript(conversationId, {
           role: 'user',
           type: 'text',
           text: userInput
         });
-        await appendToTranscript(conversation.conversation_id, {
+        await appendToTranscript(conversationId, {
           role: 'bot',
           type: 'text',
           text: freeQA.reply
@@ -5724,12 +5846,15 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     const stageAfter = response.stage;
     
     if (conversation && stageBefore !== stageAfter) {
-      await appendToTranscript(conversation.conversation_id, {
+      // OBTENER conversation_id DE FORMA SEGURA
+      const conversationId = await getConversationIdSafe(session, conversation);
+      
+      await appendToTranscript(conversationId, {
         role: 'system',
         type: 'event',
         stage: stageAfter,
         name: 'STAGE_CHANGED',
-        conversation_id: conversation.conversation_id,
+        conversation_id: conversationId,
         boot_id: finalBootId || null,
         payload: { 
           from: stageBefore, 
@@ -5781,8 +5906,11 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   
   // PERSISTENCIA ROBUSTA: Guardar input del usuario SIEMPRE (si hay conversación)
   // CRÍTICO: Guardar incluso si userInput está vacío (puede ser selección de botón)
-  if (conversation && conversation.conversation_id) {
+  if (conversation || session.conversation_id) {
     try {
+      // OBTENER conversation_id DE FORMA SEGURA
+      const conversationId = await getConversationIdSafe(session, conversation);
+      
       // Si userInput está vacío pero hay action/button, guardar igual
       const hasInput = userInput && userInput.trim().length > 0;
       
@@ -5790,12 +5918,12 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         // Detectar si es selección de botón o texto libre
         const isButtonSelection = userInput.match(/^(Sí, acepto|No acepto|Español|English|Básico|Intermedio|Avanzado)/i);
         
-        await appendToTranscript(conversation.conversation_id, {
+        await appendToTranscript(conversationId, {
           role: 'user',
           type: isButtonSelection ? 'button' : 'text',
           stage: session.stage || 'unknown',
           text: userInput,
-          conversation_id: conversation.conversation_id,
+          conversation_id: conversationId,
           boot_id: finalBootId || null,
           payload: {
             input_length: userInput.length,
@@ -5805,7 +5933,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         });
         
         await log('DEBUG', 'Input de usuario guardado en transcript', {
-          conversation_id: conversation.conversation_id,
+          conversation_id: conversationId,
           input_preview: userInput.substring(0, 50),
           stage: session.stage,
           is_button: !!isButtonSelection
@@ -5814,7 +5942,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         // Si no hay input pero hay conversación, puede ser un botón sin texto
         // Los botones se guardan en los handlers específicos (handleAskConsent, etc.)
         await log('DEBUG', 'Input vacío, no se guarda (botones se guardan en handlers)', {
-          conversation_id: conversation.conversation_id,
+          conversation_id: conversationId,
           stage: session.stage
         });
       }
@@ -5822,7 +5950,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       await log('ERROR', 'Error guardando input de usuario en transcript', {
         error: err.message,
         stack: err.stack,
-        conversation_id: conversation.conversation_id,
+        conversation_id: conversationId,
         boot_id: finalBootId,
         userInput_preview: userInput ? userInput.substring(0, 50) : 'null/undefined'
       });
@@ -5837,15 +5965,18 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   }
   
   // Guardar respuesta del bot en transcript (MODELO MEJORADO)
-  if (conversation && response.reply) {
+  if ((conversation || session.conversation_id) && response.reply) {
     try {
+      // OBTENER conversation_id DE FORMA SEGURA
+      const conversationId = await getConversationIdSafe(session, conversation);
+      
       // Evento principal: respuesta del bot
-      await appendToTranscript(conversation.conversation_id, {
+      await appendToTranscript(conversationId, {
         role: 'bot',
         type: 'text',
         stage: response.stage || session.stage || 'unknown',
         text: response.reply,
-        conversation_id: conversation.conversation_id,
+        conversation_id: conversationId,
         boot_id: finalBootId || null,
         payload: {
           reply_length: response.reply.length,
@@ -5858,7 +5989,10 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     
     // Si hay botones, guardarlos como evento separado pero vinculado
     if (response.buttons && response.buttons.length > 0) {
-      await appendToTranscript(conversation.conversation_id, {
+      // OBTENER conversation_id DE FORMA SEGURA (ya obtenido arriba, pero por seguridad)
+      const conversationId = await getConversationIdSafe(session, conversation);
+      
+      await appendToTranscript(conversationId, {
         role: 'bot',
         type: 'buttons',
         stage: response.stage || session.stage || 'unknown',
@@ -5867,7 +6001,7 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
           value: b.value || b.token || '',
           token: b.token || b.value || ''
         })),
-        conversation_id: conversation.conversation_id,
+        conversation_id: conversationId,
         boot_id: finalBootId || null,
         payload: {
           buttons_count: response.buttons.length,
@@ -5913,7 +6047,10 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       });
       // Si falla guardar, al menos persistir evento de error
       try {
-        await appendToTranscript(conversation.conversation_id, {
+        // OBTENER conversation_id DE FORMA SEGURA
+        const conversationId = await getConversationIdSafe(session, conversation);
+        
+        await appendToTranscript(conversationId, {
           role: 'system',
           type: 'event',
           name: 'ERROR',
