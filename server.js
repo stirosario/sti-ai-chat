@@ -4723,34 +4723,121 @@ app.post('/api/autofix/apply', async (req, res) => {
     
     // Aplicar parches al código real
     const appliedFiles = [];
+    const failedFiles = [];
     
     for (const patch of result.patches) {
-      if (!patch.file || !patch.diff) continue;
+      if (!patch.file || !patch.diff) {
+        await log('WARN', 'AutoFix: Patch sin file o diff', { patch: patch });
+        continue;
+      }
       
-      const filePath = path.join(__dirname, patch.file);
+      // Normalizar path del archivo (eliminar ./ si existe)
+      const normalizedFile = patch.file.replace(/^\.\//, '');
+      const filePath = path.join(__dirname, normalizedFile);
+      
+      await log('INFO', `AutoFix: Aplicando patch a ${normalizedFile}`, { 
+        file: normalizedFile,
+        filePath: filePath,
+        diff_length: patch.diff.length
+      });
       
       // Leer archivo original
       let fileContent = '';
+      let originalStats = null;
       try {
         fileContent = await fs.readFile(filePath, 'utf-8');
+        originalStats = await fs.stat(filePath);
+        await log('INFO', `AutoFix: Archivo ${normalizedFile} leído`, { 
+          size: originalStats.size,
+          mtime: originalStats.mtime.toISOString()
+        });
       } catch (err) {
         if (err.code === 'ENOENT') {
           // Archivo no existe, crear vacío
           fileContent = '';
+          await log('INFO', `AutoFix: Archivo ${normalizedFile} no existe, se creará`, { file: normalizedFile });
         } else {
-          throw err;
+          await log('ERROR', `AutoFix: Error leyendo ${normalizedFile}`, { error: err.message });
+          failedFiles.push({ file: normalizedFile, error: err.message });
+          continue;
         }
       }
       
       // Aplicar diff
       const newContent = applyDiffSimple(fileContent, patch.diff);
       
-      // Crear directorio si no existe
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      
-      // Escribir archivo
-      await fs.writeFile(filePath, newContent, 'utf-8');
-      appliedFiles.push(patch.file);
+      // Verificar que el contenido cambió
+      if (newContent === fileContent) {
+        await log('WARN', `AutoFix: El diff no modificó el archivo ${normalizedFile}`, { 
+          file: normalizedFile,
+          diff_preview: patch.diff.substring(0, 200)
+        });
+        // Intentar aplicar de forma más agresiva
+        const newContent2 = await applyDiffAdvanced(filePath, fileContent, patch.diff);
+        if (newContent2 !== fileContent) {
+          // Crear directorio si no existe
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          
+          // Escribir archivo
+          await fs.writeFile(filePath, newContent2, 'utf-8');
+          
+          // Verificar que se escribió correctamente
+          const verifyStats = await fs.stat(filePath);
+          const verifyContent = await fs.readFile(filePath, 'utf-8');
+          
+          if (verifyContent === newContent2) {
+            appliedFiles.push(normalizedFile);
+            await log('INFO', `AutoFix: Archivo ${normalizedFile} modificado (método avanzado)`, { 
+              file: normalizedFile,
+              original_size: fileContent.length,
+              new_size: newContent2.length,
+              mtime: verifyStats.mtime.toISOString()
+            });
+          } else {
+            await log('ERROR', `AutoFix: Verificación falló para ${normalizedFile}`, { 
+              file: normalizedFile,
+              expected_size: newContent2.length,
+              actual_size: verifyContent.length
+            });
+            failedFiles.push({ file: normalizedFile, error: 'Verificación de escritura falló' });
+          }
+        } else {
+          await log('ERROR', `AutoFix: No se pudo aplicar diff a ${normalizedFile}`, { 
+            file: normalizedFile,
+            original_size: fileContent.length,
+            diff_size: patch.diff.length
+          });
+          failedFiles.push({ file: normalizedFile, error: 'Diff no aplicó cambios' });
+        }
+      } else {
+        // Crear directorio si no existe
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        
+        // Escribir archivo
+        await fs.writeFile(filePath, newContent, 'utf-8');
+        
+        // Verificar que se escribió correctamente
+        const verifyStats = await fs.stat(filePath);
+        const verifyContent = await fs.readFile(filePath, 'utf-8');
+        
+        if (verifyContent === newContent) {
+          appliedFiles.push(normalizedFile);
+          await log('INFO', `AutoFix: Archivo ${normalizedFile} modificado exitosamente`, { 
+            file: normalizedFile,
+            original_size: fileContent.length,
+            new_size: newContent.length,
+            original_mtime: originalStats ? originalStats.mtime.toISOString() : 'N/A',
+            new_mtime: verifyStats.mtime.toISOString()
+          });
+        } else {
+          await log('ERROR', `AutoFix: Verificación falló para ${normalizedFile}`, { 
+            file: normalizedFile,
+            expected_size: newContent.length,
+            actual_size: verifyContent.length
+          });
+          failedFiles.push({ file: normalizedFile, error: 'Verificación de escritura falló' });
+        }
+      }
     }
     
     // Registrar auditoría
@@ -4758,18 +4845,36 @@ app.post('/api/autofix/apply', async (req, res) => {
       timestamp: new Date().toISOString(),
       action: 'autofix_apply',
       files_applied: appliedFiles,
+      files_failed: failedFiles,
+      total_patches: result.patches.length,
       result: result
     };
     
     const auditFile = path.join(LOGS_DIR, `autofix-${Date.now()}.json`);
     await fs.writeFile(auditFile, JSON.stringify(auditLog, null, 2), 'utf-8');
     
-    await log('INFO', 'AutoFix: Cambios aplicados', { files: appliedFiles });
+    if (appliedFiles.length > 0) {
+      await log('INFO', 'AutoFix: Cambios aplicados', { 
+        files: appliedFiles,
+        total: appliedFiles.length
+      });
+    }
+    
+    if (failedFiles.length > 0) {
+      await log('ERROR', 'AutoFix: Algunos archivos fallaron', { 
+        failed: failedFiles,
+        total: failedFiles.length
+      });
+    }
     
     res.json({
       ok: true,
-      message: 'Cambios aplicados exitosamente',
-      files_applied: appliedFiles
+      message: appliedFiles.length > 0 
+        ? `Cambios aplicados exitosamente a ${appliedFiles.length} archivo(s)`
+        : 'No se pudieron aplicar los cambios',
+      files_applied: appliedFiles,
+      files_failed: failedFiles,
+      total_patches: result.patches.length
     });
     
   } catch (err) {
@@ -4792,8 +4897,8 @@ function applyDiffSimple(originalContent, diffText) {
   const lines = originalContent.split('\n');
   const diffLines = diffText.split('\n');
   
-  let result = [];
-  let i = 0; // Índice en lines original
+  // Inicializar result con todas las líneas originales
+  let result = [...lines];
   let inHunk = false;
   let hunkStart = 0;
   let hunkLines = [];
@@ -4801,10 +4906,19 @@ function applyDiffSimple(originalContent, diffText) {
   for (let j = 0; j < diffLines.length; j++) {
     const diffLine = diffLines[j];
     
+    // Ignorar líneas de encabezado del diff
+    if (diffLine.startsWith('diff --git') || 
+        diffLine.startsWith('index ') || 
+        diffLine.startsWith('---') || 
+        diffLine.startsWith('+++') ||
+        diffLine.trim() === '') {
+      continue;
+    }
+    
     // Detectar inicio de hunk: @@ -start,count +start,count @@
     const hunkMatch = diffLine.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (hunkMatch) {
-      if (inHunk) {
+      if (inHunk && hunkLines.length > 0) {
         // Aplicar hunk anterior
         result = applyHunk(result, hunkStart, hunkLines);
         hunkLines = [];
@@ -4816,7 +4930,7 @@ function applyDiffSimple(originalContent, diffText) {
     
     if (inHunk) {
       if (diffLine.startsWith(' ')) {
-        // Línea sin cambios
+        // Línea sin cambios (contexto)
         hunkLines.push({ type: 'context', line: diffLine.substring(1) });
       } else if (diffLine.startsWith('-')) {
         // Línea eliminada
@@ -4827,10 +4941,15 @@ function applyDiffSimple(originalContent, diffText) {
       } else if (diffLine.startsWith('\\')) {
         // Fin de archivo sin nueva línea
         continue;
+      } else if (diffLine.trim() === '') {
+        // Línea vacía, continuar
+        continue;
       } else {
-        // Fin de hunk o línea inválida
-        result = applyHunk(result, hunkStart, hunkLines);
-        hunkLines = [];
+        // Fin de hunk o línea inválida - aplicar hunk actual
+        if (hunkLines.length > 0) {
+          result = applyHunk(result, hunkStart, hunkLines);
+          hunkLines = [];
+        }
         inHunk = false;
       }
     }
@@ -4841,51 +4960,142 @@ function applyDiffSimple(originalContent, diffText) {
     result = applyHunk(result, hunkStart, hunkLines);
   }
   
-  // Si no se aplicó ningún hunk, retornar original
-  if (result.length === 0) {
-    return originalContent;
-  }
-  
   return result.join('\n');
 }
 
 // Helper para aplicar un hunk
 function applyHunk(lines, start, hunkLines) {
   const result = [...lines];
-  let pos = start;
+  let pos = Math.max(0, Math.min(start, result.length));
+  let contextMatched = 0;
   
+  // Primero, verificar que el contexto inicial coincida
   for (const hunkLine of hunkLines) {
-    if (hunkLine.type === 'context') {
-      // Verificar que la línea coincide
+    if (hunkLine.type === 'context' || hunkLine.type === 'delete') {
       if (pos < result.length && result[pos] === hunkLine.line) {
-        pos++;
-      } else {
-        // No coincide, puede ser un problema con el diff
-        pos++;
-      }
-    } else if (hunkLine.type === 'delete') {
-      // Eliminar línea
-      if (pos < result.length && result[pos] === hunkLine.line) {
-        result.splice(pos, 1);
-      } else {
-        // No coincide exactamente, intentar encontrar
-        const found = result.findIndex((line, idx) => idx >= pos && line === hunkLine.line);
-        if (found >= 0) {
-          result.splice(found, 1);
-          pos = found;
+        contextMatched++;
+        if (hunkLine.type === 'delete') {
+          result.splice(pos, 1);
+          // No incrementar pos porque eliminamos la línea
         } else {
-          // No se encontró, saltar
+          pos++;
+        }
+      } else {
+        // Buscar la línea en las siguientes 10 líneas
+        let found = false;
+        for (let searchPos = pos; searchPos < Math.min(pos + 10, result.length); searchPos++) {
+          if (result[searchPos] === hunkLine.line) {
+            // Eliminar líneas entre pos y searchPos
+            if (hunkLine.type === 'delete') {
+              result.splice(searchPos, 1);
+              pos = searchPos;
+            } else {
+              pos = searchPos + 1;
+            }
+            found = true;
+            break;
+          }
+        }
+        if (!found && hunkLine.type === 'delete') {
+          // Si no encontramos la línea a eliminar, saltarla
+          continue;
+        } else if (!found) {
           pos++;
         }
       }
     } else if (hunkLine.type === 'add') {
-      // Agregar línea
+      // Agregar línea antes de la posición actual
       result.splice(pos, 0, hunkLine.line);
       pos++;
     }
   }
   
   return result;
+}
+
+// Método avanzado para aplicar diffs (fallback)
+async function applyDiffAdvanced(filePath, originalContent, diffText) {
+  if (!diffText || !diffText.trim()) {
+    return originalContent;
+  }
+  
+  const lines = originalContent.split('\n');
+  const diffLines = diffText.split('\n');
+  let result = [...lines];
+  let currentLine = 0;
+  let inHunk = false;
+  let hunkStart = 0;
+  let pendingDeletes = [];
+  let pendingAdds = [];
+  
+  for (let i = 0; i < diffLines.length; i++) {
+    const line = diffLines[i];
+    
+    // Ignorar encabezados
+    if (line.startsWith('diff --git') || line.startsWith('index ') || 
+        line.startsWith('---') || line.startsWith('+++') || line.trim() === '') {
+      continue;
+    }
+    
+    // Detectar hunk
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (hunkMatch) {
+      // Aplicar cambios pendientes del hunk anterior
+      if (inHunk && (pendingDeletes.length > 0 || pendingAdds.length > 0)) {
+        // Aplicar deletes en orden inverso para no afectar índices
+        for (let d = pendingDeletes.length - 1; d >= 0; d--) {
+          const deleteLine = pendingDeletes[d];
+          const idx = result.findIndex((l, i) => i >= hunkStart && l === deleteLine);
+          if (idx >= 0) {
+            result.splice(idx, 1);
+          }
+        }
+        // Aplicar adds
+        const insertPos = hunkStart;
+        for (let a = 0; a < pendingAdds.length; a++) {
+          result.splice(insertPos + a, 0, pendingAdds[a]);
+        }
+        pendingDeletes = [];
+        pendingAdds = [];
+      }
+      
+      inHunk = true;
+      hunkStart = parseInt(hunkMatch[1]) - 1;
+      currentLine = hunkStart;
+      continue;
+    }
+    
+    if (inHunk) {
+      if (line.startsWith('-')) {
+        pendingDeletes.push(line.substring(1));
+      } else if (line.startsWith('+')) {
+        pendingAdds.push(line.substring(1));
+      } else if (line.startsWith(' ')) {
+        // Contexto - verificar coincidencia
+        const contextLine = line.substring(1);
+        if (currentLine < result.length && result[currentLine] === contextLine) {
+          currentLine++;
+        }
+      }
+    }
+  }
+  
+  // Aplicar último hunk
+  if (inHunk && (pendingDeletes.length > 0 || pendingAdds.length > 0)) {
+    for (let d = pendingDeletes.length - 1; d >= 0; d--) {
+      const deleteLine = pendingDeletes[d];
+      const idx = result.findIndex((l, i) => i >= hunkStart && l === deleteLine);
+      if (idx >= 0) {
+        result.splice(idx, 1);
+      }
+    }
+    const insertPos = hunkStart;
+    for (let a = 0; a < pendingAdds.length; a++) {
+      result.splice(insertPos + a, 0, pendingAdds[a]);
+    }
+  }
+  
+  return result.join('\n');
 }
 
 // Helper para verificar sandbox
