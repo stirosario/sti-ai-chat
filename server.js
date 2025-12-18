@@ -58,17 +58,38 @@ const SERVER_LOG_FILE = path.join(LOGS_DIR, 'server.log');
 
 // Cleanup: eliminar lock file huérfano al iniciar (si existe)
 async function cleanupOrphanedLock() {
+  // LOG DETALLADO: Inicio de cleanupOrphanedLock
+  await logDebug('DEBUG', 'cleanupOrphanedLock - Inicio', {
+    lock_file_exists: fsSync.existsSync(USED_IDS_LOCK)
+  }, 'server.js', 60, 60);
+  
   try {
     if (fsSync.existsSync(USED_IDS_LOCK)) {
       // Verificar si el lock es muy antiguo (> 5 minutos)
       const lockStats = await fs.stat(USED_IDS_LOCK);
       const lockAge = Date.now() - lockStats.mtimeMs;
+      await logDebug('DEBUG', 'cleanupOrphanedLock - Lock file encontrado', {
+        age_ms: lockAge,
+        age_minutes: Math.floor(lockAge / 60000),
+        threshold_minutes: 5
+      }, 'server.js', 63, 66);
+      
       if (lockAge > 5 * 60 * 1000) {
         await fs.unlink(USED_IDS_LOCK);
+        await logDebug('WARN', 'cleanupOrphanedLock - Lock file huérfano eliminado', {
+          age_ms: lockAge,
+          age_minutes: Math.floor(lockAge / 60000)
+        }, 'server.js', 67, 68);
         await log('WARN', 'Lock file huérfano eliminado al iniciar', { age_ms: lockAge });
       }
+    } else {
+      await logDebug('DEBUG', 'cleanupOrphanedLock - No hay lock file', {}, 'server.js', 70, 70);
     }
   } catch (err) {
+    await logDebug('WARN', 'cleanupOrphanedLock - Error en cleanup', {
+      error: err.message,
+      error_code: err.code
+    }, 'server.js', 71, 73);
     await log('WARN', 'Error en cleanup de lock file', { error: err.message });
   }
 }
@@ -104,9 +125,53 @@ const SCHEMA_VERSION = '1.0';
 // LOGGING
 // ========================================================
 
-async function log(level, message, data = null) {
+/**
+ * Función de logging mejorada con información de archivo y líneas
+ * @param {string} level - Nivel de log (DEBUG, INFO, WARN, ERROR)
+ * @param {string} message - Mensaje del log
+ * @param {object|null} data - Datos adicionales
+ * @param {string} file - Nombre del archivo (automático si no se proporciona)
+ * @param {number} lineStart - Línea inicial del código (opcional)
+ * @param {number} lineEnd - Línea final del código (opcional)
+ */
+async function log(level, message, data = null, file = null, lineStart = null, lineEnd = null) {
   const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] [${level}] ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`;
+  
+  // Obtener información del stack trace si no se proporciona
+  if (!file) {
+    const stack = new Error().stack;
+    const stackLines = stack.split('\n');
+    // Buscar la primera línea que no sea esta función ni logDebug
+    for (let i = 2; i < stackLines.length; i++) {
+      const match = stackLines[i].match(/at\s+(.+?):(\d+):(\d+)/);
+      if (match) {
+        const filePath = match[1].replace(/\\/g, '/');
+        const fileName = filePath.split('/').pop();
+        file = fileName || 'server.js';
+        if (!lineStart) {
+          lineStart = parseInt(match[2]);
+          lineEnd = lineStart;
+        }
+        break;
+      }
+    }
+  }
+  
+  // Construir mensaje con información de archivo y líneas
+  let locationInfo = '';
+  if (file) {
+    locationInfo = `[${file}`;
+    if (lineStart !== null) {
+      if (lineEnd !== null && lineEnd !== lineStart) {
+        locationInfo += `:${lineStart}-${lineEnd}`;
+      } else {
+        locationInfo += `:${lineStart}`;
+      }
+    }
+    locationInfo += '] ';
+  }
+  
+  const logLine = `[${timestamp}] [${level}] ${locationInfo}${message}${data ? ' ' + JSON.stringify(data, null, 2) : ''}\n`;
   
   try {
     await fs.appendFile(SERVER_LOG_FILE, logLine);
@@ -114,9 +179,29 @@ async function log(level, message, data = null) {
     console.error('Error escribiendo log:', err);
   }
   
-  if (NODE_ENV === 'development' || level === 'ERROR') {
+  // En desarrollo o errores, siempre mostrar en consola
+  if (NODE_ENV === 'development' || level === 'ERROR' || level === 'WARN' || level === 'DEBUG') {
     console.log(logLine.trim());
   }
+}
+
+/**
+ * Función helper para logging detallado con contexto de código
+ * @param {string} level - Nivel de log
+ * @param {string} message - Mensaje
+ * @param {object} context - Contexto adicional (conversation_id, stage, etc.)
+ * @param {string} file - Archivo
+ * @param {number} lineStart - Línea inicial
+ * @param {number} lineEnd - Línea final
+ */
+async function logDebug(level, message, context = {}, file = 'server.js', lineStart = null, lineEnd = null) {
+  const fullContext = {
+    ...context,
+    timestamp: new Date().toISOString(),
+    file: file,
+    lines: lineStart ? (lineEnd && lineEnd !== lineStart ? `${lineStart}-${lineEnd}` : `${lineStart}`) : 'unknown'
+  };
+  await log(level, message, fullContext, file, lineStart, lineEnd);
 }
 
 // ========================================================
@@ -128,6 +213,11 @@ async function log(level, message, data = null) {
  * Reserva atómica usando file lock
  */
 async function reserveUniqueConversationId() {
+  // LOG DETALLADO: Inicio de reserveUniqueConversationId
+  await logDebug('DEBUG', 'reserveUniqueConversationId - Inicio', {
+    max_attempts: 50
+  }, 'server.js', 194, 194);
+  
   const maxAttempts = 50;
   let attempts = 0;
   
@@ -218,9 +308,22 @@ async function reserveUniqueConversationId() {
  * Usa write temp + rename para atomicidad
  */
 async function saveConversation(conversation) {
+  // LOG DETALLADO: Inicio de saveConversation
+  await logDebug('DEBUG', 'saveConversation - Inicio', {
+    conversation_id: conversation?.conversation_id,
+    transcript_length: conversation?.transcript?.length || 0,
+    status: conversation?.status,
+    stage: conversation?.stage || 'unknown',
+    flow_version: conversation?.flow_version,
+    schema_version: conversation?.schema_version
+  }, 'server.js', 284, 284);
+  
   // Validar formato de conversation_id para prevenir path traversal
   if (!/^[A-Z]{2}\d{4}$/.test(conversation.conversation_id)) {
-    await log('ERROR', `Formato inválido de conversation_id: ${conversation.conversation_id}`);
+    await logDebug('ERROR', 'saveConversation - Formato inválido de conversation_id', {
+      conversation_id: conversation.conversation_id,
+      format_valid: /^[A-Z]{2}\d{4}$/.test(conversation.conversation_id)
+    }, 'server.js', 285, 289);
     throw new Error('Invalid conversation_id format');
   }
   
@@ -231,45 +334,90 @@ async function saveConversation(conversation) {
     conversation.legacy_incompatible = true;
     conversation.legacy_incompatible_reason = versionValidation.reason;
     conversation.legacy_incompatible_at = new Date().toISOString();
-    await log('WARN', 'Conversación marcada como legacy_incompatible antes de guardar', {
+    await logDebug('WARN', 'saveConversation - Conversación marcada como legacy_incompatible', {
       conversation_id: conversation.conversation_id,
-      reason: versionValidation.reason
-    });
+      reason: versionValidation.reason,
+      flow_version: conversation.flow_version,
+      schema_version: conversation.schema_version
+    }, 'server.js', 291, 301);
   }
   
   const filePath = path.join(CONVERSATIONS_DIR, `${conversation.conversation_id}.json`);
   const tempPath = filePath + '.tmp';
   conversation.updated_at = new Date().toISOString();
   
+  // LOG DETALLADO: Antes de escribir archivo
+  await logDebug('DEBUG', 'saveConversation - Escribiendo archivo', {
+    conversation_id: conversation.conversation_id,
+    file_path: filePath,
+    temp_path: tempPath,
+    conversation_size: JSON.stringify(conversation).length,
+    transcript_events: conversation.transcript?.length || 0
+  }, 'server.js', 304, 310);
+  
   // Write temp + rename para atomicidad
   await fs.writeFile(tempPath, JSON.stringify(conversation, null, 2), 'utf-8');
   await fs.rename(tempPath, filePath);
-  await log('INFO', `Conversación guardada: ${conversation.conversation_id}`);
+  
+  // LOG DETALLADO: Archivo guardado exitosamente
+  await logDebug('INFO', 'saveConversation - Conversación guardada exitosamente', {
+    conversation_id: conversation.conversation_id,
+    file_path: filePath,
+    updated_at: conversation.updated_at
+  }, 'server.js', 311, 311);
 }
 
 /**
  * Carga una conversación existente
  */
 async function loadConversation(conversationId) {
+  // LOG DETALLADO: Inicio de loadConversation
+  await logDebug('DEBUG', 'loadConversation - Inicio', {
+    conversation_id: conversationId,
+    format_valid: /^[A-Z]{2}\d{4}$/.test(conversationId)
+  }, 'server.js', 317, 317);
+  
   // Validar formato para prevenir path traversal
   if (!/^[A-Z]{2}\d{4}$/.test(conversationId)) {
-    await log('ERROR', `Formato inválido de conversation_id en loadConversation: ${conversationId}`);
+    await logDebug('ERROR', 'loadConversation - Formato inválido de conversation_id', {
+      conversation_id: conversationId,
+      format_valid: false
+    }, 'server.js', 319, 322);
     return null;
   }
   
   const filePath = path.join(CONVERSATIONS_DIR, `${conversationId}.json`);
+  
+  // LOG DETALLADO: Antes de leer archivo
+  await logDebug('DEBUG', 'loadConversation - Leyendo archivo', {
+    conversation_id: conversationId,
+    file_path: filePath
+  }, 'server.js', 324, 324);
+  
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const conversation = JSON.parse(content);
     
+    // LOG DETALLADO: Archivo leído y parseado
+    await logDebug('DEBUG', 'loadConversation - Archivo leído y parseado', {
+      conversation_id: conversationId,
+      content_length: content.length,
+      transcript_length: conversation.transcript?.length || 0,
+      status: conversation.status,
+      flow_version: conversation.flow_version,
+      schema_version: conversation.schema_version
+    }, 'server.js', 326, 328);
+    
     // P1-3: Validar versión siempre al cargar
     const versionValidation = await validateConversationVersion(conversation);
     if (!versionValidation.valid) {
-      await log('WARN', 'Conversación con versión incompatible detectada al cargar', {
+      await logDebug('WARN', 'loadConversation - Conversación con versión incompatible', {
         conversation_id: conversationId,
         flow_version: conversation.flow_version,
-        reason: versionValidation.reason
-      });
+        schema_version: conversation.schema_version,
+        reason: versionValidation.reason,
+        should_restart: versionValidation.shouldRestart
+      }, 'server.js', 330, 336);
       
       // Marcar como legacy_incompatible si no se puede migrar
       if (versionValidation.shouldRestart) {
@@ -281,9 +429,28 @@ async function loadConversation(conversationId) {
       }
     }
     
+    // LOG DETALLADO: Conversación cargada exitosamente
+    await logDebug('DEBUG', 'loadConversation - Conversación cargada exitosamente', {
+      conversation_id: conversationId,
+      transcript_events: conversation.transcript?.length || 0,
+      legacy_incompatible: conversation.legacy_incompatible || false
+    }, 'server.js', 348, 348);
+    
     return conversation;
   } catch (err) {
-    if (err.code === 'ENOENT') return null;
+    if (err.code === 'ENOENT') {
+      await logDebug('DEBUG', 'loadConversation - Archivo no encontrado (ENOENT)', {
+        conversation_id: conversationId,
+        file_path: filePath
+      }, 'server.js', 350, 350);
+      return null;
+    }
+    await logDebug('ERROR', 'loadConversation - Error al cargar conversación', {
+      conversation_id: conversationId,
+      error: err.message,
+      error_code: err.code,
+      stack: err.stack
+    }, 'server.js', 350, 352);
     throw err;
   }
 }
@@ -292,15 +459,35 @@ async function loadConversation(conversationId) {
  * Agrega un evento al transcript de la conversación
  */
 async function appendToTranscript(conversationId, event) {
+  // LOG DETALLADO: Inicio de appendToTranscript
+  await logDebug('DEBUG', 'appendToTranscript - Inicio', {
+    conversation_id: conversationId,
+    event_role: event?.role,
+    event_type: event?.type,
+    event_stage: event?.stage,
+    event_has_text: !!event?.text,
+    event_text_preview: event?.text ? event.text.substring(0, 50) : 'no text',
+    event_has_buttons: !!(event?.buttons && event.buttons.length > 0),
+    event_buttons_count: event?.buttons?.length || 0
+  }, 'server.js', 358, 358);
+  
   // Validar formato para prevenir path traversal
   if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
-    await log('ERROR', `Formato inválido de conversation_id en appendToTranscript: ${conversationId}`);
+    await logDebug('ERROR', 'appendToTranscript - Formato inválido de conversation_id', {
+      conversation_id: conversationId,
+      format_valid: conversationId ? /^[A-Z]{2}\d{4}$/.test(conversationId) : false
+    }, 'server.js', 360, 363);
     return;
   }
   
   // P0-01: Validación defensiva del evento
   if (!event || typeof event !== 'object') {
-    await log('ERROR', `Event inválido en appendToTranscript: ${typeof event}`, { conversationId });
+    await logDebug('ERROR', 'appendToTranscript - Event inválido', {
+      conversation_id: conversationId,
+      event_type: typeof event,
+      event_is_null: event === null,
+      event_is_undefined: event === undefined
+    }, 'server.js', 365, 369);
     return;
   }
   
@@ -313,7 +500,10 @@ async function appendToTranscript(conversationId, event) {
     if (event.hasOwnProperty(key)) {
       // Validar que la clave sea válida (no empiece con punto)
       if (key.startsWith('.')) {
-        await log('WARN', `Propiedad inválida detectada en evento (ignorada): ${key}`, { conversationId });
+        await logDebug('WARN', 'appendToTranscript - Propiedad inválida detectada (ignorada)', {
+          conversation_id: conversationId,
+          invalid_key: key
+        }, 'server.js', 375, 378);
         continue;
       }
       // Validar que el valor sea serializable
@@ -321,27 +511,47 @@ async function appendToTranscript(conversationId, event) {
         JSON.stringify(event[key]);
         safeEvent[key] = event[key];
       } catch (err) {
-        await log('WARN', `Valor no serializable en evento (ignorado): ${key}`, { conversationId, error: err.message });
+        await logDebug('WARN', 'appendToTranscript - Valor no serializable (ignorado)', {
+          conversation_id: conversationId,
+          key: key,
+          error: err.message
+        }, 'server.js', 380, 383);
       }
     }
   }
   
   // P0-01: Asegurar que tenga al menos role o type
   if (!safeEvent.role && !safeEvent.type) {
-    await log('WARN', `Event sin role ni type, agregando defaults`, { conversationId });
+    await logDebug('WARN', 'appendToTranscript - Event sin role ni type, agregando defaults', {
+      conversation_id: conversationId,
+      safe_event_keys: Object.keys(safeEvent)
+    }, 'server.js', 386, 390);
     safeEvent.role = safeEvent.role || 'system';
     safeEvent.type = safeEvent.type || 'event';
   }
   
   // P0-01: Validar payload si existe
   if (safeEvent.payload && typeof safeEvent.payload !== 'object') {
-    await log('WARN', `Payload inválido en evento, convirtiendo a objeto`, { conversationId });
+    await logDebug('WARN', 'appendToTranscript - Payload inválido, convirtiendo a objeto', {
+      conversation_id: conversationId,
+      payload_type: typeof safeEvent.payload
+    }, 'server.js', 393, 396);
     safeEvent.payload = { value: safeEvent.payload };
   }
   
+  // LOG DETALLADO: Evento validado y sanitizado
+  await logDebug('DEBUG', 'appendToTranscript - Evento validado y sanitizado', {
+    conversation_id: conversationId,
+    safe_event_role: safeEvent.role,
+    safe_event_type: safeEvent.type,
+    safe_event_keys: Object.keys(safeEvent)
+  }, 'server.js', 398, 398);
+  
   const conversation = await loadConversation(conversationId);
   if (!conversation) {
-    await log('ERROR', `Conversación no encontrada para append: ${conversationId}`);
+    await logDebug('ERROR', 'appendToTranscript - Conversación no encontrada', {
+      conversation_id: conversationId
+    }, 'server.js', 400, 403);
     return;
   }
   
@@ -358,9 +568,40 @@ async function appendToTranscript(conversationId, event) {
     ...safeEvent
   };
   
+  // LOG DETALLADO: Antes de agregar al transcript
+  await logDebug('DEBUG', 'appendToTranscript - Agregando entrada al transcript', {
+    conversation_id: conversationId,
+    transcript_length_before: conversation.transcript.length,
+    transcript_entry: {
+      t: transcriptEntry.t,
+      role: transcriptEntry.role,
+      type: transcriptEntry.type,
+      stage: transcriptEntry.stage,
+      has_text: !!transcriptEntry.text,
+      text_preview: transcriptEntry.text ? transcriptEntry.text.substring(0, 50) : 'no text'
+    }
+  }, 'server.js', 410, 415);
+  
   conversation.transcript.push(transcriptEntry);
   
+  // LOG DETALLADO: Después de agregar al transcript
+  await logDebug('DEBUG', 'appendToTranscript - Entrada agregada, guardando conversación', {
+    conversation_id: conversationId,
+    transcript_length_after: conversation.transcript.length
+  }, 'server.js', 417, 417);
+  
   await saveConversation(conversation);
+  
+  // LOG DETALLADO: Transcript guardado exitosamente
+  await logDebug('DEBUG', 'appendToTranscript - Transcript guardado exitosamente', {
+    conversation_id: conversationId,
+    transcript_length: conversation.transcript.length,
+    last_entry: {
+      t: conversation.transcript[conversation.transcript.length - 1]?.t,
+      role: conversation.transcript[conversation.transcript.length - 1]?.role,
+      type: conversation.transcript[conversation.transcript.length - 1]?.type
+    }
+  }, 'server.js', 419, 419);
 }
 
 /**
@@ -368,9 +609,22 @@ async function appendToTranscript(conversationId, event) {
  * Retorna el path relativo y la URL para servir la imagen
  */
 async function saveImageFromBase64(conversationId, imageBase64, requestId = null) {
+  // LOG DETALLADO: Inicio de saveImageFromBase64
+  await logDebug('DEBUG', 'saveImageFromBase64 - Inicio', {
+    conversation_id: conversationId,
+    has_image: !!imageBase64,
+    image_length: imageBase64?.length || 0,
+    image_preview: imageBase64 ? imageBase64.substring(0, 50) : 'null',
+    request_id: requestId
+  }, 'server.js', 585, 585);
+  
   try {
     // Validar formato de conversation_id
     if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      await logDebug('ERROR', 'saveImageFromBase64 - Formato inválido de conversation_id', {
+        conversation_id: conversationId,
+        format_valid: conversationId ? /^[A-Z]{2}\d{4}$/.test(conversationId) : false
+      }, 'server.js', 588, 590);
       throw new Error(`Formato inválido de conversation_id: ${conversationId}`);
     }
     
@@ -462,10 +716,20 @@ const conversationLocks = new Map(); // conversationId -> Promise resolver
  * Adquiere un lock para una conversación (serializa requests concurrentes)
  */
 async function acquireLock(conversationId) {
+  // LOG DETALLADO: Inicio de acquireLock
+  await logDebug('DEBUG', 'acquireLock - Inicio', {
+    conversation_id: conversationId,
+    has_existing_lock: conversationLocks.has(conversationId),
+    total_locks: conversationLocks.size
+  }, 'server.js', 679, 679);
+  
   if (!conversationId) return null; // No lock si no hay conversation_id
   
   while (conversationLocks.has(conversationId)) {
     // Esperar a que se libere el lock
+    await logDebug('DEBUG', 'acquireLock - Esperando lock existente', {
+      conversation_id: conversationId
+    }, 'server.js', 682, 685);
     await conversationLocks.get(conversationId);
   }
   
@@ -475,6 +739,12 @@ async function acquireLock(conversationId) {
   });
   
   conversationLocks.set(conversationId, lockPromise);
+  
+  await logDebug('DEBUG', 'acquireLock - Lock adquirido', {
+    conversation_id: conversationId,
+    total_locks: conversationLocks.size
+  }, 'server.js', 692, 693);
+  
   return releaseLock;
 }
 
@@ -490,6 +760,12 @@ const aiCallCounts = new Map(); // conversationId -> { total: number, classifier
  * Verifica si se puede hacer una llamada a IA (límite de 3 por minuto)
  */
 async function checkAICallLimit(conversationId, maxCallsPerMinute = 3) {
+  // LOG DETALLADO: Inicio de checkAICallLimit
+  await logDebug('DEBUG', 'checkAICallLimit - Inicio', {
+    conversation_id: conversationId,
+    max_calls_per_minute: maxCallsPerMinute
+  }, 'server.js', 707, 707);
+  
   if (!conversationId) return true; // Sin límite si no hay conversation_id
   
   const now = Date.now();
@@ -501,10 +777,20 @@ async function checkAICallLimit(conversationId, maxCallsPerMinute = 3) {
       count: 1,
       resetAt: now + 60000 // 1 minuto
     });
+    await logDebug('DEBUG', 'checkAICallLimit - Límite inicializado/reseteado', {
+      conversation_id: conversationId,
+      count: 1,
+      reset_at: new Date(now + 60000).toISOString()
+    }, 'server.js', 713, 719);
     return true;
   }
   
   if (limit.count >= maxCallsPerMinute) {
+    await logDebug('WARN', 'checkAICallLimit - Límite excedido', {
+      conversation_id: conversationId,
+      count: limit.count,
+      max: maxCallsPerMinute
+    }, 'server.js', 722, 728);
     await log('WARN', 'Límite de llamadas IA excedido', { 
       conversation_id: conversationId, 
       count: limit.count,
@@ -514,6 +800,11 @@ async function checkAICallLimit(conversationId, maxCallsPerMinute = 3) {
   }
   
   limit.count++;
+  await logDebug('DEBUG', 'checkAICallLimit - Llamada permitida', {
+    conversation_id: conversationId,
+    count: limit.count,
+    max: maxCallsPerMinute
+  }, 'server.js', 731, 732);
   return true;
 }
 
@@ -521,12 +812,27 @@ async function checkAICallLimit(conversationId, maxCallsPerMinute = 3) {
  * Verifica si hay cooldown activo tras errores repetidos
  */
 async function checkAICooldown(conversationId) {
+  // LOG DETALLADO: Inicio de checkAICooldown
+  await logDebug('DEBUG', 'checkAICooldown - Inicio', {
+    conversation_id: conversationId,
+    has_cooldown: aiErrorCooldowns.has(conversationId)
+  }, 'server.js', 788, 788);
+  
   if (!conversationId) return true;
   
   const cooldown = aiErrorCooldowns.get(conversationId);
   if (cooldown && Date.now() < cooldown.until) {
+    await logDebug('DEBUG', 'checkAICooldown - En cooldown activo', {
+      conversation_id: conversationId,
+      until: new Date(cooldown.until).toISOString(),
+      remaining_ms: cooldown.until - Date.now()
+    }, 'server.js', 791, 793);
     return false; // En cooldown
   }
+  
+  await logDebug('DEBUG', 'checkAICooldown - Sin cooldown', {
+    conversation_id: conversationId
+  }, 'server.js', 794, 795);
   return true;
 }
 
@@ -534,14 +840,28 @@ async function checkAICooldown(conversationId) {
  * Activa cooldown exponencial tras errores
  */
 function setAICooldown(conversationId, errorCount) {
+  // LOG DETALLADO: Inicio de setAICooldown
+  logDebug('DEBUG', 'setAICooldown - Inicio', {
+    conversation_id: conversationId,
+    error_count: errorCount
+  }, 'server.js', 801, 801).catch(() => {});
+  
   if (!conversationId) return;
   
   // Cooldown exponencial: 5s, 10s, 20s, 30s
   const cooldownSeconds = Math.min(5 * Math.pow(2, errorCount - 1), 30);
+  const until = Date.now() + (cooldownSeconds * 1000);
   aiErrorCooldowns.set(conversationId, {
-    until: Date.now() + (cooldownSeconds * 1000),
+    until: until,
     errorCount: errorCount + 1
   });
+  
+  logDebug('DEBUG', 'setAICooldown - Cooldown establecido', {
+    conversation_id: conversationId,
+    error_count: errorCount + 1,
+    cooldown_seconds: cooldownSeconds,
+    until: new Date(until).toISOString()
+  }, 'server.js', 808, 812).catch(() => {});
   
   // Limpiar después del cooldown
   setTimeout(() => {
@@ -553,6 +873,12 @@ function setAICooldown(conversationId, errorCount) {
  * Incrementa contador de llamadas a IA para monitoreo
  */
 function incrementAICallCount(conversationId, type) {
+  // LOG DETALLADO: Inicio de incrementAICallCount
+  logDebug('DEBUG', 'incrementAICallCount - Inicio', {
+    conversation_id: conversationId,
+    type: type
+  }, 'server.js', 820, 820).catch(() => {});
+  
   if (!conversationId) return;
   
   const now = Date.now();
@@ -592,6 +918,13 @@ function incrementAICallCount(conversationId, type) {
  * P2.1: Protección mejorada contra prompt leakage
  */
 function sanitizeReply(reply) {
+  // LOG DETALLADO: Inicio de sanitizeReply
+  logDebug('DEBUG', 'sanitizeReply - Inicio', {
+    reply_length: reply?.length || 0,
+    reply_type: typeof reply,
+    reply_preview: reply ? reply.substring(0, 50) : 'null/empty'
+  }, 'server.js', 859, 859).catch(() => {});
+  
   if (!reply || typeof reply !== 'string') return '';
   
   // 1. Límite de longitud (máximo 2000 caracteres)
@@ -636,6 +969,13 @@ function sanitizeReply(reply) {
  * P1.2: Normalización mejorada
  */
 function normalizeButtons(buttons) {
+  // LOG DETALLADO: Inicio de normalizeButtons
+  logDebug('DEBUG', 'normalizeButtons - Inicio', {
+    buttons_type: Array.isArray(buttons) ? 'array' : typeof buttons,
+    buttons_count: Array.isArray(buttons) ? buttons.length : 0,
+    buttons_preview: Array.isArray(buttons) ? buttons.slice(0, 3).map(b => b.token || b.value || b.label) : []
+  }, 'server.js', 903, 903).catch(() => {});
+  
   if (!Array.isArray(buttons)) return [];
   
   // 1. Eliminar duplicados por token
@@ -1072,7 +1412,13 @@ function hashInput(conversationId, userInput) {
 }
 
 function createSession(sessionId) {
-  return {
+  // LOG DETALLADO: Inicio de createSession
+  logDebug('DEBUG', 'createSession - Inicio', {
+    session_id: sessionId,
+    session_id_length: sessionId?.length || 0
+  }, 'server.js', 1339, 1339).catch(() => {});
+  
+  const session = {
     sessionId,
     conversation_id: null,
     stage: 'ASK_CONSENT',
@@ -1106,10 +1452,30 @@ function createSession(sessionId) {
 }
 
 function getSession(sessionId) {
+  // LOG DETALLADO: Inicio de getSession
+  logDebug('DEBUG', 'getSession - Inicio', {
+    session_id: sessionId,
+    session_exists: sessions.has(sessionId),
+    total_sessions: sessions.size
+  }, 'server.js', 1373, 1373).catch(() => {});
+  
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, createSession(sessionId));
+    const newSession = createSession(sessionId);
+    sessions.set(sessionId, newSession);
+    logDebug('DEBUG', 'getSession - Nueva sesión creada', {
+      session_id: sessionId,
+      stage: newSession.stage
+    }, 'server.js', 1375, 1376).catch(() => {});
   }
-  return sessions.get(sessionId);
+  
+  const session = sessions.get(sessionId);
+  logDebug('DEBUG', 'getSession - Sesión obtenida', {
+    session_id: sessionId,
+    stage: session.stage,
+    conversation_id: session.conversation_id
+  }, 'server.js', 1377, 1378).catch(() => {});
+  
+  return session;
 }
 
 // ========================================================
@@ -1534,6 +1900,18 @@ function hashContent(content) {
 // ========================================================
 
 async function iaClassifier(session, userInput, requestId = null) {
+  // LOG DETALLADO: Inicio de iaClassifier
+  await logDebug('DEBUG', 'iaClassifier - Inicio', {
+    conversation_id: session.conversation_id,
+    session_stage: session.stage,
+    user_input_length: userInput?.length || 0,
+    user_input_preview: userInput ? userInput.substring(0, 100) : 'null/empty',
+    request_id: requestId,
+    session_language: session.language,
+    user_level: session.user_level
+  }, 'server.js', 1536, 1536);
+  
+  const conversationId = session.conversation_id;
   if (!openai) {
     await log('WARN', 'OpenAI no disponible, usando fallback');
     return {
@@ -1550,7 +1928,6 @@ async function iaClassifier(session, userInput, requestId = null) {
     };
   }
   
-  const conversationId = session.conversation_id;
   const stageBefore = session.stage;
   const startTime = Date.now();
   
@@ -2002,6 +2379,20 @@ function detectEmotion(userInput, session) {
 // ========================================================
 
 async function iaStep(session, allowedButtons, previousButtonResult = null, requestId = null) {
+  // LOG DETALLADO: Inicio de iaStep
+  const conversationId = session.conversation_id;
+  await logDebug('DEBUG', 'iaStep - Inicio', {
+    conversation_id: session.conversation_id,
+    session_stage: session.stage,
+    allowed_buttons_count: allowedButtons?.length || 0,
+    allowed_buttons: allowedButtons?.map(b => b.token || b.value || b.label).slice(0, 5) || [],
+    has_previous_button: !!previousButtonResult,
+    request_id: requestId,
+    session_language: session.language,
+    user_level: session.user_level,
+    emotion: session.meta?.emotion || 'neutral'
+  }, 'server.js', 2004, 2004);
+  
   if (!openai) {
     await log('WARN', 'OpenAI no disponible, usando fallback para STEP');
     return {
@@ -2010,7 +2401,6 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     };
   }
   
-  const conversationId = session.conversation_id;
   const stageBefore = session.stage;
   const startTime = Date.now();
   
@@ -2459,13 +2849,37 @@ IMPORTANTE: Solo podés usar tokens de la lista de botones permitidos.`;
 // ========================================================
 
 async function handleAskConsent(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskConsent
+  await logDebug('DEBUG', 'handleAskConsent - Inicio', {
+    session_id: session?.sessionId || 'unknown',
+    conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language
+  }, 'server.js', 2525, 2525);
+  
   const inputLower = userInput.toLowerCase().trim();
   const accepted = inputLower.includes('sí') || inputLower.includes('si') || 
                    inputLower.includes('yes') || inputLower.includes('acepto') || 
                    inputLower.includes('accept') || inputLower === 'sí, acepto ✔️' ||
                    inputLower === 'no acepto ❌';
   
+  // LOG DETALLADO: Análisis de input
+  await logDebug('DEBUG', 'handleAskConsent - Análisis de input', {
+    conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
+    input_lower: inputLower,
+    accepted: accepted,
+    includes_no: inputLower.includes('no'),
+    includes_reject: inputLower.includes('❌')
+  }, 'server.js', 2526, 2530);
+  
   if (inputLower.includes('no') || inputLower.includes('❌')) {
+    await logDebug('INFO', 'handleAskConsent - Usuario rechazó términos GDPR', {
+      conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
+      input: inputLower
+    }, 'server.js', 2532, 2538);
+    
     return {
       reply: 'Entiendo. Para usar este servicio necesitás aceptar la política de privacidad.\n\nSi cambiás de opinión, podés volver a iniciar el chat cuando quieras.\n\n¡Que tengas un buen día!',
       buttons: [],
@@ -2475,6 +2889,11 @@ async function handleAskConsent(session, userInput, conversation) {
   }
   
   if (accepted && !inputLower.includes('no')) {
+    await logDebug('INFO', 'handleAskConsent - Usuario aceptó términos GDPR', {
+      conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
+      input: inputLower,
+      session_conversation_id: session?.conversation_id
+    }, 'server.js', 2541, 2543);
     session.stage = 'ASK_LANGUAGE';
     session.meta.updated_at = new Date().toISOString();
     
@@ -2558,6 +2977,17 @@ async function handleAskConsent(session, userInput, conversation) {
 }
 
 async function handleAskLanguage(session, userInput, conversation, traceContext = null) {
+  // LOG DETALLADO: Inicio de handleAskLanguage
+  await logDebug('DEBUG', 'handleAskLanguage - Inicio', {
+    conversation_id: conversation?.conversation_id || session?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language,
+    has_trace_context: !!traceContext,
+    trace_boot_id: traceContext?.boot_id || 'none'
+  }, 'server.js', 2828, 2828);
+  
   const inputLower = userInput.toLowerCase().trim();
   let selectedLanguage = null;
   
@@ -2750,6 +3180,15 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
 }
 
 async function handleAskName(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskName
+  await logDebug('DEBUG', 'handleAskName - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language
+  }, 'server.js', 3020, 3020);
+  
   // Normalizar nombre (tomar primera palabra, 2-30 caracteres)
   const nameRaw = userInput.trim();
   const nameParts = nameRaw.split(/\s+/);
@@ -2807,6 +3246,16 @@ async function handleAskName(session, userInput, conversation) {
 }
 
 async function handleAskUserLevel(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskUserLevel
+  await logDebug('DEBUG', 'handleAskUserLevel - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language,
+    current_user_level: session?.user_level || 'none'
+  }, 'server.js', 3077, 3077);
+  
   const inputLower = userInput.toLowerCase().trim();
   let level = null;
   
@@ -2867,6 +3316,15 @@ async function handleAskUserLevel(session, userInput, conversation) {
 }
 
 async function handleAskDeviceCategory(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskDeviceCategory
+  await logDebug('DEBUG', 'handleAskDeviceCategory - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language
+  }, 'server.js', 3167, 3167);
+  
   const inputLower = userInput.toLowerCase().trim();
   let category = null;
   
@@ -2925,6 +3383,16 @@ async function handleAskDeviceCategory(session, userInput, conversation) {
 }
 
 async function handleAskDeviceType(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskDeviceType
+  await logDebug('DEBUG', 'handleAskDeviceType - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language,
+    device_category: session.context?.device_category || 'none'
+  }, 'server.js', 3225, 3225);
+  
   const inputLower = userInput.toLowerCase().trim();
   let deviceType = null;
   
@@ -3032,6 +3500,18 @@ async function handleAskDeviceType(session, userInput, conversation) {
 }
 
 async function handleAskProblem(session, userInput, conversation, requestId = null) {
+  // LOG DETALLADO: Inicio de handleAskProblem
+  await logDebug('DEBUG', 'handleAskProblem - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input_length: userInput?.length || 0,
+    user_input_preview: userInput ? userInput.substring(0, 100) : 'null/empty',
+    session_stage: session?.stage,
+    session_language: session?.language,
+    user_level: session?.user_level || 'none',
+    request_id: requestId,
+    has_image: false // Se agregará si hay imagen
+  }, 'server.js', 3302, 3302);
+  
   session.context.problem_description_raw = userInput;
   session.meta.updated_at = new Date().toISOString();
   
@@ -3269,8 +3749,24 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
  * Retorna null si no es pregunta libre, o la respuesta si lo es
  */
 async function handleFreeQA(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleFreeQA
+  await logDebug('DEBUG', 'handleFreeQA - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language,
+    user_name: session.user?.name_norm || 'none',
+    can_activate: !!(session.user.name_norm && session.stage !== 'ASK_CONSENT' && session.stage !== 'ASK_LANGUAGE')
+  }, 'server.js', 3581, 3581);
+  
   // Solo activar FREE_QA después de ASK_NAME (cuando ya hay contexto)
   if (!session.user.name_norm || session.stage === 'ASK_CONSENT' || session.stage === 'ASK_LANGUAGE') {
+    await logDebug('DEBUG', 'handleFreeQA - No se activa (condiciones no cumplidas)', {
+      conversation_id: conversation?.conversation_id || 'none',
+      has_user_name: !!session.user.name_norm,
+      stage: session.stage
+    }, 'server.js', 3583, 3585);
     return null;
   }
   
@@ -3523,6 +4019,15 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
 // ========================================================
 
 async function handleAskInteractionMode(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleAskInteractionMode
+  await logDebug('DEBUG', 'handleAskInteractionMode - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language
+  }, 'server.js', 3870, 3870);
+  
   const inputLower = userInput.toLowerCase().trim();
   let mode = null;
   
@@ -3578,6 +4083,16 @@ async function handleAskInteractionMode(session, userInput, conversation) {
 // ========================================================
 
 async function handleDiagnosticStep(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleDiagnosticStep
+  await logDebug('DEBUG', 'handleDiagnosticStep - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    user_input: userInput,
+    user_input_length: userInput?.length || 0,
+    session_stage: session?.stage,
+    session_language: session?.language,
+    diagnostic_attempts: session.context?.diagnostic_attempts || 0
+  }, 'server.js', 3925, 3925);
+  
   const inputLower = userInput.toLowerCase().trim();
   
   // Detectar si es respuesta a botones
@@ -3958,7 +4473,20 @@ async function handleGuidedStory(session, conversation) {
  * 8. ADVISORY_MODE - Modo consultoría (pros/contras + recomendación)
  */
 async function handleAdvisoryMode(session, conversation, optionA, optionB) {
+  // LOG DETALLADO: Inicio de handleAdvisoryMode
+  await logDebug('DEBUG', 'handleAdvisoryMode - Inicio', {
+    conversation_id: conversation?.conversation_id || 'none',
+    session_stage: session?.stage,
+    session_language: session?.language,
+    advisory_mode: session.modes?.advisory_mode || false,
+    option_a: optionA,
+    option_b: optionB
+  }, 'server.js', 4374, 4374);
+  
   if (!session.modes.advisory_mode) {
+    await logDebug('DEBUG', 'handleAdvisoryMode - Advisory mode no activo', {
+      conversation_id: conversation?.conversation_id || 'none'
+    }, 'server.js', 4376, 4378);
     return null;
   }
   
@@ -4253,9 +4781,30 @@ async function handleInstallationFlow(session, userInput, conversation) {
 // ========================================================
 
 async function handleChatMessage(sessionId, userInput, imageBase64 = null, requestId = null, bootId = null) {
+  // LOG DETALLADO: Inicio de handleChatMessage
+  await logDebug('DEBUG', 'handleChatMessage - Inicio', {
+    session_id: sessionId,
+    user_input_length: userInput ? userInput.length : 0,
+    user_input_preview: userInput ? userInput.substring(0, 100) : 'null/empty',
+    has_image: !!imageBase64,
+    image_size: imageBase64 ? imageBase64.length : 0,
+    request_id: requestId,
+    boot_id: bootId
+  }, 'server.js', 4319, 4319);
+  
   const session = getSession(sessionId);
   let conversation = null;
   let releaseLock = null;
+  
+  // LOG DETALLADO: Session obtenida
+  await logDebug('DEBUG', 'handleChatMessage - Session obtenida', {
+    session_id: sessionId,
+    session_stage: session.stage,
+    session_language: session.language,
+    session_conversation_id: session.conversation_id,
+    session_user_name: session.user?.name_norm || 'none',
+    boot_id: bootId
+  }, 'server.js', 4320, 4322);
   
   // Crear contexto de trace con boot_id (SIEMPRE debe existir)
   const finalBootId = bootId || trace.generateBootId();
@@ -4269,6 +4818,14 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     finalBootId // SIEMPRE incluir boot_id
   );
   
+  // LOG DETALLADO: TraceContext creado
+  await logDebug('DEBUG', 'handleChatMessage - TraceContext creado', {
+    boot_id: finalBootId,
+    conversation_id: traceContext.conversation_id,
+    request_id: traceContext.request_id,
+    stage: traceContext.stage
+  }, 'server.js', 4324, 4334);
+  
   // Log entrada de mensaje con boot_id
   await trace.logUserInput(
     traceContext,
@@ -4280,7 +4837,37 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   
   try {
     if (session.conversation_id) {
+      // LOG DETALLADO: Antes de cargar conversación
+      await logDebug('DEBUG', 'handleChatMessage - Cargando conversación', {
+        conversation_id: session.conversation_id,
+        boot_id: finalBootId
+      }, 'server.js', 4346, 4347);
+      
       conversation = await loadConversation(session.conversation_id);
+      
+      // DEBUG: Verificar que la conversación se cargó correctamente
+      if (!conversation) {
+        await logDebug('ERROR', 'handleChatMessage - Conversación no encontrada después de loadConversation', {
+          conversation_id: session.conversation_id,
+          session_stage: session.stage,
+          boot_id: finalBootId
+        }, 'server.js', 4349, 4355);
+      } else {
+        await logDebug('DEBUG', 'handleChatMessage - Conversación cargada correctamente', {
+          conversation_id: conversation.conversation_id,
+          transcript_length: conversation.transcript ? conversation.transcript.length : 0,
+          transcript_events: conversation.transcript ? conversation.transcript.map((e, i) => ({
+            index: i,
+            role: e.role,
+            type: e.type,
+            stage: e.stage,
+            has_text: !!e.text,
+            text_preview: e.text ? e.text.substring(0, 50) : 'no text'
+          })) : [],
+          session_stage: session.stage,
+          boot_id: finalBootId
+        }, 'server.js', 4357, 4363);
+      }
       
       // Log entrada de mensaje del usuario
       await trace.logUserInput(
@@ -5080,31 +5667,60 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   // ========================================================
   
   // PERSISTENCIA ROBUSTA: Guardar input del usuario SIEMPRE (si hay conversación)
-  if (conversation && userInput && userInput.trim().length > 0) {
+  // CRÍTICO: Guardar incluso si userInput está vacío (puede ser selección de botón)
+  if (conversation && conversation.conversation_id) {
     try {
-      // Detectar si es selección de botón o texto libre
-      const isButtonSelection = userInput.match(/^(Sí, acepto|No acepto|Español|English|Básico|Intermedio|Avanzado)/i);
+      // Si userInput está vacío pero hay action/button, guardar igual
+      const hasInput = userInput && userInput.trim().length > 0;
       
-      await appendToTranscript(conversation.conversation_id, {
-        role: 'user',
-        type: isButtonSelection ? 'button' : 'text',
-        stage: session.stage || 'unknown',
-        text: userInput,
-        conversation_id: conversation.conversation_id,
-        boot_id: finalBootId || null,
-        payload: {
-          input_length: userInput.length,
-          is_button: !!isButtonSelection,
-          stage_before: session.stage || 'unknown'
-        }
-      });
+      if (hasInput) {
+        // Detectar si es selección de botón o texto libre
+        const isButtonSelection = userInput.match(/^(Sí, acepto|No acepto|Español|English|Básico|Intermedio|Avanzado)/i);
+        
+        await appendToTranscript(conversation.conversation_id, {
+          role: 'user',
+          type: isButtonSelection ? 'button' : 'text',
+          stage: session.stage || 'unknown',
+          text: userInput,
+          conversation_id: conversation.conversation_id,
+          boot_id: finalBootId || null,
+          payload: {
+            input_length: userInput.length,
+            is_button: !!isButtonSelection,
+            stage_before: session.stage || 'unknown'
+          }
+        });
+        
+        await log('DEBUG', 'Input de usuario guardado en transcript', {
+          conversation_id: conversation.conversation_id,
+          input_preview: userInput.substring(0, 50),
+          stage: session.stage,
+          is_button: !!isButtonSelection
+        });
+      } else {
+        // Si no hay input pero hay conversación, puede ser un botón sin texto
+        // Los botones se guardan en los handlers específicos (handleAskConsent, etc.)
+        await log('DEBUG', 'Input vacío, no se guarda (botones se guardan en handlers)', {
+          conversation_id: conversation.conversation_id,
+          stage: session.stage
+        });
+      }
     } catch (err) {
       await log('ERROR', 'Error guardando input de usuario en transcript', {
         error: err.message,
+        stack: err.stack,
         conversation_id: conversation.conversation_id,
-        boot_id: finalBootId
+        boot_id: finalBootId,
+        userInput_preview: userInput ? userInput.substring(0, 50) : 'null/undefined'
       });
     }
+  } else {
+    await log('WARN', 'No se puede guardar input: conversación no disponible', {
+      has_conversation: !!conversation,
+      conversation_id: conversation?.conversation_id || session.conversation_id || 'none',
+      session_stage: session.stage,
+      userInput_preview: userInput ? userInput.substring(0, 50) : 'null/undefined'
+    });
   }
   
   // Guardar respuesta del bot en transcript (MODELO MEJORADO)
@@ -5455,6 +6071,22 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   // boot_id ya está asignado por el middleware
   const bootId = req.bootId;
   const traceContext = req.traceContext;
+  
+  // LOG DETALLADO: Inicio del endpoint
+  await logDebug('DEBUG', 'POST /api/chat - Inicio de request', {
+    boot_id: bootId,
+    session_id: req.body?.sessionId,
+    has_message: !!req.body?.message,
+    has_image: !!req.body?.imageBase64,
+    has_action: !!req.body?.action,
+    action: req.body?.action,
+    request_body_keys: Object.keys(req.body || {}),
+    headers: {
+      'content-type': req.headers['content-type'],
+      'user-agent': req.headers['user-agent']?.substring(0, 100),
+      'origin': req.headers['origin']
+    }
+  }, 'server.js', 5454, 5460);
   
   try {
     // F23.1: Validación estricta de eventos entrantes
@@ -6021,6 +6653,86 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
 });
 
 // Endpoint para obtener eventos en vivo
+// Endpoint para logs de depuración en tiempo real
+app.get('/api/debug-logs', async (req, res) => {
+  try {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    if (token !== CONFIG.logToken) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    const limit = parseInt(req.query.limit || '500');
+    const since = req.query.since ? parseInt(req.query.since) : null; // Timestamp para obtener solo logs nuevos
+    
+    // Leer archivo de logs
+    let logContent = '';
+    try {
+      logContent = await fs.readFile(SERVER_LOG_FILE, 'utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return res.json({ ok: true, logs: [], total: 0 });
+      }
+      throw err;
+    }
+    
+    // Parsear líneas de log
+    const lines = logContent.split('\n').filter(l => l.trim());
+    const parsedLogs = [];
+    
+    for (const line of lines) {
+      // Formato: [timestamp] [level] (archivo:linea) mensaje {data}
+      const match = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\](?:\s+\(([^)]+)\))?\s+(.+)$/);
+      if (match) {
+        const [, timestamp, level, fileInfo, message] = match;
+        const fileMatch = fileInfo ? fileInfo.match(/^([^:]+):(\d+)(?:-(\d+))?$/) : null;
+        
+        parsedLogs.push({
+          timestamp,
+          level: level.toLowerCase(),
+          file: fileMatch ? fileMatch[1] : (fileInfo || 'unknown'),
+          line: fileMatch ? parseInt(fileMatch[2]) : null,
+          message: message.trim(),
+          raw: line,
+          timestamp_ms: new Date(timestamp).getTime()
+        });
+      } else {
+        // Si no coincide el formato, agregar como log crudo
+        parsedLogs.push({
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          file: 'unknown',
+          line: null,
+          message: line.trim(),
+          raw: line,
+          timestamp_ms: Date.now()
+        });
+      }
+    }
+    
+    // Filtrar por timestamp si se proporciona
+    let filteredLogs = parsedLogs;
+    if (since) {
+      filteredLogs = parsedLogs.filter(log => log.timestamp_ms > since);
+    }
+    
+    // Ordenar por timestamp descendente (más nuevos primero) y tomar los últimos N
+    filteredLogs.sort((a, b) => b.timestamp_ms - a.timestamp_ms);
+    const limitedLogs = filteredLogs.slice(0, limit);
+    
+    res.json({
+      ok: true,
+      logs: limitedLogs,
+      total: parsedLogs.length,
+      filtered: filteredLogs.length,
+      returned: limitedLogs.length,
+      latest_timestamp: limitedLogs.length > 0 ? limitedLogs[0].timestamp_ms : null
+    });
+  } catch (err) {
+    await log('ERROR', 'Error en /api/debug-logs', { error: err.message });
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/live-events', async (req, res) => {
   try {
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
