@@ -177,3 +177,4 @@ Si OpenAI falla o tarda más de 15 segundos:
 - Para `wont_turn_on` con nivel `basic`, se genera un diagnóstico básico automático
 - Si no hay `intent` o es `unknown`, se muestra mensaje genérico sugiriendo técnico
 
+
