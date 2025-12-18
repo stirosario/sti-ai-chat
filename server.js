@@ -2088,6 +2088,10 @@ Devolvé un JSON con esta estructura exacta:
     .replace('"${problemDesc}"', `"${problemDesc}"`)
     .replace('"${userInput}"', `"${userInput}"`);
 
+  // Definir nombre y versión del prompt para logging
+  const promptName = 'ia_classifier_problem_analysis';
+  const promptVersion = '2.0.0';
+
   // Log construcción de prompt
   await trace.logPromptConstruction(
     traceContext,
@@ -3075,13 +3079,25 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
     };
   }
   
-  // Usar conversation_id existente o generar uno nuevo si no existe
+  // Usar conversation_id existente (debe existir desde /api/greeting)
   try {
     let conversationId = session.conversation_id;
     if (!conversationId) {
-      // Si no existe, generarlo (fallback por seguridad)
+      // CRÍTICO: Si no existe, es un error de estado. Generar uno nuevo pero loguear el problema.
+      await log('ERROR', 'handleAskLanguage - conversation_id faltante en sesión, generando nuevo ID', {
+        session_id: session.sessionId,
+        session_stage: session.stage,
+        has_conversation_param: !!conversation?.conversation_id,
+        conversation_id_from_param: conversation?.conversation_id || 'none'
+      });
       conversationId = await reserveUniqueConversationId();
       session.conversation_id = conversationId;
+    } else {
+      // Log para verificar que estamos usando el ID correcto
+      await logDebug('DEBUG', 'handleAskLanguage - Usando conversation_id existente', {
+        conversation_id: conversationId,
+        session_id: session.sessionId
+      }, 'server.js', 3084, 3089);
     }
     
     session.language = selectedLanguage;
