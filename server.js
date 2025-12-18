@@ -4448,6 +4448,10 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
 
 const app = express();
 
+// Configurar trust proxy para que express-rate-limit funcione correctamente detrás de un proxy
+// Esto es necesario cuando la app está detrás de un proxy reverso (como Render, nginx, etc.)
+app.set('trust proxy', true);
+
 // Rate Limiting
 const chatLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
@@ -5125,6 +5129,84 @@ app.get('/api/trace/:conversationId', async (req, res) => {
 // AUTOFIX IA - ENDPOINTS
 // ========================================================
 
+/**
+ * Detecta errores comunes específicos en el trace/log
+ * Retorna array de issues detectados automáticamente
+ */
+function detectCommonErrors(trace, liveEvents = '') {
+  const issues = [];
+  const combinedText = (trace || '') + '\n' + (liveEvents || '');
+  
+  // 1. Detectar ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+  if (combinedText.includes('ERR_ERL_UNEXPECTED_X_FORWARDED_FOR') || 
+      combinedText.includes("'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false")) {
+    issues.push({
+      id: 'trust-proxy-missing',
+      severity: 'alta',
+      type: 'ERR_ERL_UNEXPECTED_X_FORWARDED_FOR',
+      evidence: [
+        'Error: ValidationError: The \'X-Forwarded-For\' header is set but the Express \'trust proxy\' setting is false',
+        'Este error ocurre cuando express-rate-limit detecta headers de proxy pero Express no confía en ellos'
+      ],
+      root_cause: 'Express no está configurado para confiar en proxies reversos (Render, nginx, etc.). Esto impide que express-rate-limit identifique correctamente las IPs de los clientes.',
+      solution: 'Agregar app.set(\'trust proxy\', true) ANTES de configurar express-rate-limit en server.js',
+      files: ['server.js'],
+      line_hint: 'Después de const app = express() y antes de rateLimit()',
+      patch_hint: {
+        file: 'server.js',
+        location: 'Después de const app = express()',
+        code: "app.set('trust proxy', true);"
+      }
+    });
+  }
+  
+  // 2. Detectar error de validación: message o imageBase64 faltante
+  if (combinedText.includes('message o imageBase64 faltante') || 
+      (combinedText.includes('VALIDATION_ERROR') && 
+       (combinedText.includes('has_message:false') || combinedText.includes('has_message":false')) &&
+       (combinedText.includes('has_imageBase64:false') || combinedText.includes('has_imageBase64":false')))) {
+    issues.push({
+      id: 'validation-missing-fields',
+      severity: 'media',
+      type: 'VALIDATION_ERROR',
+      evidence: [
+        'Error: message o imageBase64 faltante en /api/chat',
+        'Request body no contiene ni message ni imageBase64, lo cual es inválido'
+      ],
+      root_cause: 'El request a /api/chat no contiene ni el campo "message" ni "imageBase64", lo cual viola las reglas de validación. Esto puede ocurrir por problemas en el frontend o en la serialización del request.',
+      solution: 'Verificar la función validateChatRequest() y asegurar que el frontend siempre envíe al menos uno de los dos campos (message o imageBase64)',
+      files: ['server.js'],
+      line_hint: 'Función validateChatRequest y endpoint /api/chat',
+      patch_hint: {
+        file: 'server.js',
+        location: 'Función validateChatRequest',
+        note: 'Asegurar que la validación permita al menos uno de los dos campos'
+      }
+    });
+  }
+  
+  // 3. Detectar MISSING_SESSION_ID
+  if (combinedText.includes('MISSING_SESSION_ID') || 
+      combinedText.includes('sessionId faltante') ||
+      (combinedText.includes('VALIDATION_ERROR') && combinedText.includes('sessionId'))) {
+    issues.push({
+      id: 'missing-session-id',
+      severity: 'alta',
+      type: 'MISSING_SESSION_ID',
+      evidence: [
+        'Error: MISSING_SESSION_ID en /api/chat',
+        'Request body no contiene sessionId'
+      ],
+      root_cause: 'El request a /api/chat no incluye el campo sessionId requerido. Esto puede ocurrir por problemas en el frontend o pérdida de estado de sesión.',
+      solution: 'Verificar que el frontend siempre incluya sessionId en el request body y que la validación lo requiera explícitamente',
+      files: ['server.js'],
+      line_hint: 'Validación de sessionId en /api/chat'
+    });
+  }
+  
+  return issues;
+}
+
 // Endpoint para analizar trace y generar solución
 app.post('/api/autofix/analyze', async (req, res) => {
   try {
@@ -5157,6 +5239,32 @@ REGLAS:
 - Genera un plan de reparación claro y completo
 - Proporciona diffs en formato git unificado
 - Evalúa riesgos de cada cambio
+
+ERRORES COMUNES A DETECTAR ESPECÍFICAMENTE:
+
+1. ERR_ERL_UNEXPECTED_X_FORWARDED_FOR:
+   - Patrón: "ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false"
+   - Causa: Express no está configurado para confiar en proxies reversos (Render, nginx, etc.)
+   - Solución: Agregar app.set('trust proxy', true) ANTES de configurar express-rate-limit
+   - Severidad: ALTA (afecta identificación de IPs y rate limiting)
+   - Archivo: server.js (inicialización de Express)
+
+2. Validación de request faltante en /api/chat:
+   - Patrón: "message o imageBase64 faltante en /api/chat" o "VALIDATION_ERROR" con has_message:false y has_imageBase64:false
+   - Causa: Request body no contiene ni 'message' ni 'imageBase64', lo cual es inválido
+   - Solución: Verificar validación de request body y asegurar que al menos uno de los dos campos esté presente
+   - Severidad: MEDIA (afecta funcionalidad del chat)
+   - Archivo: server.js (endpoint /api/chat, función validateChatRequest)
+
+3. Errores de rate limiting:
+   - Patrón: "ERR_ERL_" o "express-rate-limit" en errores
+   - Verificar: Configuración de trust proxy y headers de proxy
+   - Severidad: ALTA (puede bloquear usuarios legítimos)
+
+4. Errores de validación de request:
+   - Patrón: "VALIDATION_ERROR", "MISSING_SESSION_ID", "message o imageBase64 faltante"
+   - Verificar: Esquema de validación y manejo de casos edge
+   - Severidad: MEDIA (afecta UX pero no rompe el sistema)
 
 FORMATO DE RESPUESTA (JSON ESTRICTO):
 {
@@ -5228,12 +5336,16 @@ FORMATO DE RESPUESTA (JSON ESTRICTO):
     userPrompt += `\n${codeContext}\n\nINSTRUCCIONES:
 1. Analiza el trace completo para identificar problemas
 2. ${isPreIdMode ? 'Identifica por qué NO se generó conversation_id y qué causó el fallo prematuro.' : 'Identifica la causa raíz de cada problema'}
-3. Genera un plan de reparación claro
-4. Crea diffs en formato git unificado para cada archivo a modificar
-5. Evalúa riesgos y proporciona tests a ejecutar
-6. NO expongas secretos, tokens o credenciales en los diffs
-7. Asegúrate de que los diffs sean aplicables y no rompan el flujo
-${isPreIdMode ? '8. Los smoke tests deben verificar que ahora se genera boot_id y conversation_id correctamente' : ''}
+3. Busca específicamente estos errores comunes:
+   - ERR_ERL_UNEXPECTED_X_FORWARDED_FOR: Si aparece, la solución es agregar app.set('trust proxy', true) antes de rate limiting
+   - "message o imageBase64 faltante": Indica problema de validación en /api/chat
+   - Errores de validación (VALIDATION_ERROR, MISSING_SESSION_ID)
+4. Genera un plan de reparación claro
+5. Crea diffs en formato git unificado para cada archivo a modificar
+6. Evalúa riesgos y proporciona tests a ejecutar
+7. NO expongas secretos, tokens o credenciales en los diffs
+8. Asegúrate de que los diffs sean aplicables y no rompan el flujo
+${isPreIdMode ? '9. Los smoke tests deben verificar que ahora se genera boot_id y conversation_id correctamente' : ''}
 
 Analiza este trace y genera una solución completa.`;
 
@@ -5263,11 +5375,42 @@ Analiza este trace y genera una solución completa.`;
       return res.status(500).json({ ok: false, error: 'Respuesta de IA inválida' });
     }
     
+    // Detectar errores comunes automáticamente y fusionar con issues de IA
+    const autoDetectedIssues = detectCommonErrors(trace, live_events);
+    
+    // Fusionar issues detectados automáticamente con los de IA
+    // Evitar duplicados por ID
+    const existingIds = new Set(analysis.issues.map(issue => issue.id));
+    for (const autoIssue of autoDetectedIssues) {
+      if (!existingIds.has(autoIssue.id)) {
+        analysis.issues.push(autoIssue);
+        existingIds.add(autoIssue.id);
+      }
+    }
+    
+    // Actualizar summary si se detectaron issues automáticamente
+    if (autoDetectedIssues.length > 0) {
+      const autoDetectedCount = autoDetectedIssues.length;
+      const autoDetectedTypes = autoDetectedIssues.map(i => i.type).join(', ');
+      analysis.summary = `[DETECCIÓN AUTOMÁTICA: ${autoDetectedCount} error(es) detectado(s): ${autoDetectedTypes}] ${analysis.summary}`;
+      
+      // Agregar nota sobre detección automática
+      if (!analysis.notes) {
+        analysis.notes = [];
+      }
+      analysis.notes.push({
+        type: 'auto_detection',
+        message: `${autoDetectedCount} error(es) común(es) detectado(s) automáticamente antes del análisis de IA`,
+        detected_issues: autoDetectedIssues.map(i => ({ id: i.id, type: i.type, severity: i.severity }))
+      });
+    }
+    
     // Agregar metadata
     analysis.model_used = model;
     analysis.analyzed_at = new Date().toISOString();
     analysis.safe_to_apply = false; // Se determinará después de verificación
     analysis.mode = mode; // Guardar modo para verificación
+    analysis.auto_detected_count = autoDetectedIssues.length; // Contador de issues detectados automáticamente
     if (boot_id) {
       analysis.boot_id = boot_id;
     }
