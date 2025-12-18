@@ -595,6 +595,143 @@ async function validateConversationVersion(conversation) {
 /**
  * F23.1: Validación estricta de eventos entrantes del frontend
  */
+/**
+ * Detecta el código de estado HTTP de un error
+ * Retorna { status, errorType, severity, description }
+ */
+function detectHttpError(err) {
+  // Intentar obtener status del error directamente
+  let status = err.status || err.statusCode || err.code;
+  
+  // Si no hay status directo, intentar detectarlo del mensaje
+  if (!status) {
+    const message = (err.message || '').toLowerCase();
+    
+    // 400 - Bad Request
+    if (message.includes('400') || message.includes('bad request') || 
+        message.includes('requerido') || message.includes('inválido') || 
+        message.includes('faltante') || message.includes('invalid') ||
+        message.includes('missing') || message.includes('required')) {
+      status = 400;
+    }
+    // 401 - Unauthorized
+    else if (message.includes('401') || message.includes('unauthorized') || 
+             message.includes('no autorizado') || message.includes('autenticación')) {
+      status = 401;
+    }
+    // 403 - Forbidden
+    else if (message.includes('403') || message.includes('forbidden') || 
+             message.includes('prohibido') || message.includes('token inválido') ||
+             message.includes('invalid token') || message.includes('acceso denegado')) {
+      status = 403;
+    }
+    // 404 - Not Found
+    else if (message.includes('404') || message.includes('not found') || 
+             message.includes('no encontrado') || message.includes('no existe')) {
+      status = 404;
+    }
+    // 429 - Too Many Requests
+    else if (message.includes('429') || message.includes('too many requests') || 
+             message.includes('rate limit') || message.includes('demasiadas solicitudes') ||
+             message.includes('límite excedido')) {
+      status = 429;
+    }
+    // 500 - Internal Server Error
+    else if (message.includes('500') || message.includes('internal server error') || 
+             message.includes('error interno')) {
+      status = 500;
+    }
+    // 502 - Bad Gateway
+    else if (message.includes('502') || message.includes('bad gateway') || 
+             message.includes('puerta de enlace')) {
+      status = 502;
+    }
+    // 503 - Service Unavailable
+    else if (message.includes('503') || message.includes('service unavailable') || 
+             message.includes('servicio no disponible')) {
+      status = 503;
+    }
+    // 504 - Gateway Timeout
+    else if (message.includes('504') || message.includes('gateway timeout') || 
+             message.includes('timeout')) {
+      status = 504;
+    }
+    // Por defecto, 500
+    else {
+      status = 500;
+    }
+  }
+  
+  // Normalizar status a número
+  status = parseInt(status) || 500;
+  
+  // Determinar tipo de error, severidad y descripción
+  let errorType, severity, description;
+  
+  if (status >= 400 && status < 500) {
+    // Errores del cliente
+    severity = 'recoverable';
+    
+    switch (status) {
+      case 400:
+        errorType = 'HTTP_400_BAD_REQUEST';
+        description = 'Solicitud inválida';
+        break;
+      case 401:
+        errorType = 'HTTP_401_UNAUTHORIZED';
+        description = 'No autorizado';
+        break;
+      case 403:
+        errorType = 'HTTP_403_FORBIDDEN';
+        description = 'Acceso prohibido';
+        break;
+      case 404:
+        errorType = 'HTTP_404_NOT_FOUND';
+        description = 'Recurso no encontrado';
+        break;
+      case 429:
+        errorType = 'HTTP_429_TOO_MANY_REQUESTS';
+        description = 'Demasiadas solicitudes';
+        break;
+      default:
+        errorType = `HTTP_${status}_CLIENT_ERROR`;
+        description = `Error del cliente (${status})`;
+    }
+  } else if (status >= 500) {
+    // Errores del servidor
+    severity = 'fatal';
+    
+    switch (status) {
+      case 500:
+        errorType = 'HTTP_500_INTERNAL_SERVER_ERROR';
+        description = 'Error interno del servidor';
+        break;
+      case 502:
+        errorType = 'HTTP_502_BAD_GATEWAY';
+        description = 'Puerta de enlace inválida';
+        break;
+      case 503:
+        errorType = 'HTTP_503_SERVICE_UNAVAILABLE';
+        description = 'Servicio no disponible';
+        break;
+      case 504:
+        errorType = 'HTTP_504_GATEWAY_TIMEOUT';
+        description = 'Timeout de puerta de enlace';
+        break;
+      default:
+        errorType = `HTTP_${status}_SERVER_ERROR`;
+        description = `Error del servidor (${status})`;
+    }
+  } else {
+    // Otros códigos (no deberían llegar aquí normalmente)
+    severity = 'recoverable';
+    errorType = `HTTP_${status}_UNKNOWN`;
+    description = `Error HTTP ${status}`;
+  }
+  
+  return { status, errorType, severity, description };
+}
+
 function validateChatRequest(body) {
   if (!body.sessionId || typeof body.sessionId !== 'string' || body.sessionId.length < 1) {
     return { valid: false, error: 'sessionId debe ser string no vacío' };
@@ -613,6 +750,66 @@ function validateChatRequest(body) {
   }
   
   return { valid: true };
+}
+
+/**
+ * Helper para registrar errores HTTP con logging completo
+ * @param {Object} traceContext - Contexto de trace
+ * @param {Error} err - Error capturado
+ * @param {string} endpoint - Endpoint donde ocurrió el error
+ * @param {Object} req - Request object (opcional)
+ * @param {Object} res - Response object
+ */
+async function logHttpError(traceContext, err, endpoint, req = null, res = null) {
+  const httpError = detectHttpError(err);
+  const { status, errorType, severity, description } = httpError;
+  
+  // Log en sistema de logs
+  await log('ERROR', `Error en ${endpoint} (${errorType})`, { 
+    error: err.message, 
+    stack: err.stack, 
+    boot_id: traceContext?.boot_id,
+    session_id: req?.body?.sessionId || req?.params?.sessionId || req?.params?.conversationId,
+    endpoint: endpoint,
+    http_status: status,
+    error_type: errorType,
+    severity: severity,
+    description: description
+  });
+  
+  // Log en trace
+  try {
+    const errorContext = traceContext || trace.createTraceContext(
+      null,
+      `req-${Date.now()}`,
+      null,
+      null,
+      NODE_ENV,
+      null,
+      trace.generateBootId()
+    );
+    
+    await trace.logError(errorContext, err, severity, 
+      `Error en ${endpoint} (${status}): ${err.message}`, false);
+    
+    // Log evento específico
+    await trace.logEvent('ERROR', errorType, {
+      actor: 'system',
+      endpoint: endpoint,
+      error: err.message,
+      http_status: status,
+      severity: severity,
+      description: description,
+      boot_id: errorContext.boot_id,
+      session_id: req?.body?.sessionId || req?.params?.sessionId || req?.params?.conversationId,
+      request_method: req?.method,
+      request_path: req?.path || req?.url
+    }, errorContext);
+  } catch (traceErr) {
+    await log('WARN', 'Error al loguear en trace', { trace_error: traceErr.message });
+  }
+  
+  return { status, errorType, severity, description };
 }
 
 /**
@@ -2036,12 +2233,71 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
       stage: 'ASK_NAME'
     };
   } catch (err) {
-    await log('ERROR', 'Error asignando ID único', { error: err.message });
-    return {
-      reply: 'Hubo un error técnico. Por favor, intentá de nuevo.',
-      buttons: [],
-      stage: 'ASK_LANGUAGE'
-    };
+      // Log error detallado con trace
+      if (traceContext) {
+        await trace.logError(
+          traceContext, 
+          err, 
+          'recoverable', 
+          `Error en handleAskLanguage al asignar conversation_id: ${err.message}`, 
+          false,
+          `handleAskLanguage debería generar conversation_id único y crear conversación persistente`,
+          `Error al generar conversation_id: ${err.message}`,
+          [
+            `Verificar que reserveUniqueConversationId() funcione correctamente`,
+            `Verificar permisos de escritura en directorio de conversaciones`,
+            `Verificar que no haya problemas de concurrencia`,
+            `Revisar stack trace para ubicación exacta del error`
+          ]
+        );
+        
+        await trace.logEvent('ERROR', 'CONVERSATION_ID_GENERATION_FAILED', {
+          actor: 'system',
+          endpoint: '/api/chat',
+          error: err.message,
+          stack: err.stack,
+          boot_id: traceContext.boot_id,
+          stage: 'ASK_LANGUAGE',
+          user_input: userInput,
+          expected_behavior: `Sistema debería generar conversation_id único y crear conversación`,
+          actual_behavior: `Error al generar conversation_id: ${err.message}`,
+          expected_result: `Conversación creada con ID único`,
+          actual_result: `Error: ${err.name} - ${err.message}`,
+          preconditions: [
+            `Función reserveUniqueConversationId() disponible`,
+            `Directorio de conversaciones accesible`,
+            `Sistema de archivos operativo`
+          ],
+          conditions_met: false,
+          decision_reason: `Error detectado en generación de ID`,
+          decision_evidence: err.stack,
+          decision_outcome: `No se pudo generar conversation_id`,
+          state_snapshot: {
+            stage: 'ASK_LANGUAGE',
+            user_input: userInput.substring(0, 100),
+            session_language: session.language,
+            has_conversation_id: false
+          },
+          troubleshooting_hints: [
+            `Revisar función reserveUniqueConversationId()`,
+            `Verificar permisos de escritura`,
+            `Revisar logs del sistema de archivos`,
+            `Verificar que no haya locks bloqueando`
+          ],
+          suggested_fix: `Revisar y corregir función reserveUniqueConversationId() o sistema de archivos`
+        }, traceContext);
+      }
+    
+    await log('ERROR', 'Error asignando ID único en handleAskLanguage', { 
+      error: err.message, 
+      stack: err.stack,
+      boot_id: traceContext?.boot_id,
+      stage: 'ASK_LANGUAGE',
+      user_input: userInput
+    });
+    
+    // Retornar error que será capturado por el catch principal
+    throw new Error(`Error al generar conversation_id: ${err.message}`);
   }
 }
 
@@ -3459,9 +3715,43 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       if (conversation) {
         const stateValidation = validateConversationState(session, conversation);
         if (!stateValidation.valid) {
+          await trace.logEvent('ERROR', 'CONVERSATION_STATE_INVALID', {
+            actor: 'system',
+            endpoint: '/api/chat',
+            expected_behavior: `Estado de conversación debería ser coherente con session.stage: ${session.stage}`,
+            actual_behavior: `Estado inválido detectado: ${stateValidation.reason}`,
+            expected_result: `Conversación válida y coherente`,
+            actual_result: `Estado inválido, reseteando a ASK_CONSENT`,
+            preconditions: [
+              `session.stage válido: ${session.stage}`,
+              `conversation.status coherente`,
+              `Campos requeridos presentes`
+            ],
+            conditions_met: false,
+            decision_reason: `Estado inválido detectado: ${stateValidation.reason}`,
+            decision_evidence: {
+              session_stage: session.stage,
+              conversation_status: conversation.status,
+              validation_reason: stateValidation.reason
+            },
+            decision_outcome: `Conversación reseteada a ASK_CONSENT`,
+            state_snapshot: {
+              session_stage: session.stage,
+              conversation_status: conversation.status,
+              conversation_id: session.conversation_id
+            },
+            troubleshooting_hints: [
+              `Verificar que session.stage sea válido`,
+              `Verificar coherencia entre session y conversation`,
+              `Revisar logs anteriores para entender cómo llegó a este estado`
+            ],
+            suggested_fix: `Mejorar validación de estado o corregir lógica que causó inconsistencia`
+          }, traceContext);
+          
           await log('ERROR', 'Estado de conversación inválido', { 
             conversation_id: session.conversation_id,
-            reason: stateValidation.reason 
+            reason: stateValidation.reason,
+            boot_id: finalBootId
           });
           // Resetear a estado seguro
           session.stage = 'ASK_CONSENT';
@@ -3769,10 +4059,64 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   
   switch (session.stage) {
     case 'ASK_CONSENT':
-      response = await handleAskConsent(session, userInput, conversation || {});
+      try {
+        response = await handleAskConsent(session, userInput, conversation || {});
+      } catch (err) {
+        await trace.logError(
+          traceContext, 
+          err, 
+          'recoverable', 
+          'Error en handleAskConsent', 
+          false,
+          `handleAskConsent debería procesar input "${userInput.substring(0, 50)}" y retornar respuesta con stage apropiado`,
+          `Error al procesar: ${err.message}`,
+          [
+            `Verificar que session.stage sea válido: ${session.stage}`,
+            `Verificar que userInput sea válido: ${userInput ? 'Sí' : 'No'}`,
+            `Revisar lógica de detección de aceptación/rechazo GDPR`,
+            `Verificar que TEXTS.ASK_CONSENT esté definido correctamente`
+          ]
+        );
+        await log('ERROR', 'Error en handleAskConsent', { 
+          error: err.message, 
+          stack: err.stack, 
+          stage: session.stage,
+          boot_id: finalBootId,
+          user_input: userInput.substring(0, 100)
+        });
+        throw err; // Re-lanzar para que se capture en el catch principal
+      }
       break;
     case 'ASK_LANGUAGE':
-      response = await handleAskLanguage(session, userInput, conversation || {}, traceContext);
+      try {
+        response = await handleAskLanguage(session, userInput, conversation || {}, traceContext);
+      } catch (err) {
+        await trace.logError(
+          traceContext, 
+          err, 
+          'recoverable', 
+          'Error en handleAskLanguage', 
+          false,
+          `handleAskLanguage debería detectar idioma de "${userInput.substring(0, 50)}", generar conversation_id y avanzar a ASK_NAME`,
+          `Error al procesar: ${err.message}`,
+          [
+            `Verificar que reserveUniqueConversationId() funcione correctamente`,
+            `Verificar que session.language sea válido: ${session.language}`,
+            `Verificar que userInput contenga indicador de idioma`,
+            `Revisar lógica de detección de idioma (español/english)`,
+            `Verificar permisos de escritura en directorio de conversaciones`
+          ]
+        );
+        await log('ERROR', 'Error en handleAskLanguage', { 
+          error: err.message, 
+          stack: err.stack, 
+          stage: session.stage,
+          boot_id: finalBootId,
+          user_input: userInput.substring(0, 100),
+          session_language: session.language
+        });
+        throw err; // Re-lanzar para que se capture en el catch principal
+      }
       break;
     case 'ASK_NAME':
       response = await handleAskName(session, userInput, conversation || {});
@@ -4014,12 +4358,21 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       });
       
       // Log transición de stage
+      // Log transición con información completa
       await trace.logStageTransition(
         traceContext,
         stageBefore,
         stageAfter,
         'stage_transition',
-        { user_input: userInput.substring(0, 100) }
+        { 
+          user_input: userInput.substring(0, 100),
+          session_state: {
+            has_conversation_id: !!session.conversation_id,
+            language: session.language,
+            user_level: session.context.user_level
+          }
+        },
+        null // expectedStage - se puede pasar si hay validación
       );
     }
     
@@ -4051,12 +4404,26 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       );
     }
     
-    // Log respuesta final
+    // Log respuesta final con información completa
     await trace.logResponse(
       traceContext,
       response.reply,
       response.buttons || null,
-      null
+      null,
+      {
+        expected_behavior: `Bot debería generar respuesta apropiada para stage ${response.stage}`,
+        actual_behavior: `Respuesta generada: ${response.reply.substring(0, 100)}...`,
+        expected_result: `Respuesta válida con stage ${response.stage}`,
+        actual_result: `Respuesta generada, stage: ${response.stage}, buttons: ${response.buttons?.length || 0}`,
+        state_snapshot: {
+          stage: response.stage,
+          has_buttons: !!(response.buttons && response.buttons.length > 0),
+          response_length: response.reply.length,
+          end_conversation: response.endConversation || false,
+          conversation_id: session.conversation_id,
+          language: session.language
+        }
+      }
     );
   }
   
@@ -4175,8 +4542,14 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       await trace.logEvent('ERROR', 'MISSING_SESSION_ID', {
         actor: 'system',
         endpoint: '/api/chat',
-        boot_id: bootId
+        boot_id: bootId,
+        request_body: req.body
       }, traceContext);
+      
+      await log('ERROR', 'sessionId faltante en /api/chat', { 
+        boot_id: bootId,
+        body: req.body
+      });
       
       return res.status(400).json({ ok: false, error: 'sessionId requerido' });
     }
@@ -4185,8 +4558,14 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       await trace.logEvent('ERROR', 'MISSING_MESSAGE', {
         actor: 'system',
         endpoint: '/api/chat',
-        boot_id: bootId
+        boot_id: bootId,
+        session_id: sessionId
       }, traceContext);
+      
+      await log('ERROR', 'message o imageBase64 faltante en /api/chat', { 
+        boot_id: bootId,
+        session_id: sessionId
+      });
       
       return res.status(400).json({ ok: false, error: 'message o imageBase64 requerido' });
     }
@@ -4259,7 +4638,21 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     
     res.json(frontendResponse);
   } catch (err) {
-    await log('ERROR', 'Error en /api/chat', { error: err.message, stack: err.stack, boot_id: bootId });
+    // Detectar código HTTP y tipo de error
+    const httpError = detectHttpError(err);
+    const { status, errorType, severity, description } = httpError;
+    
+    await log('ERROR', `Error en /api/chat (${errorType})`, { 
+      error: err.message, 
+      stack: err.stack, 
+      boot_id: bootId,
+      session_id: req.body?.sessionId,
+      stage: req.body?.stage || 'unknown',
+      http_status: status,
+      error_type: errorType,
+      severity: severity,
+      description: description
+    });
     
     // Log error en trace (usar traceContext del request que ya tiene boot_id)
     try {
@@ -4273,15 +4666,96 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         bootId || trace.generateBootId()
       );
       
-      await trace.logError(errorContext, err, 'recoverable', null, false);
+      // Log error con información completa para reparación
+      await trace.logError(
+        errorContext, 
+        err, 
+        severity, 
+        `Error en /api/chat (${status}): ${err.message}`, 
+        false,
+        `Endpoint /api/chat debería procesar request y retornar respuesta JSON válida`,
+        `Error HTTP ${status}: ${err.message}`,
+        [
+          `Verificar que request body sea válido: sessionId=${!!req.body?.sessionId}, message=${!!req.body?.message}`,
+          `Verificar que session exista y sea válida`,
+          `Revisar logs anteriores para contexto completo`,
+          status >= 500 ? `Error del servidor, revisar código en ${err.stack?.split('\n')[1]?.trim() || 'ubicación desconocida'}` : `Error del cliente, verificar validación de entrada`
+        ]
+      );
+      
+      // Log evento específico para el tipo de error HTTP con información completa
+      await trace.logEvent('ERROR', errorType, {
+        actor: 'system',
+        endpoint: '/api/chat',
+        error: err.message,
+        http_status: status,
+        severity: severity,
+        description: description,
+        boot_id: bootId,
+        session_id: req.body?.sessionId,
+        stage: req.body?.stage || 'unknown',
+        request_body: {
+          has_sessionId: !!req.body?.sessionId,
+          has_message: !!req.body?.message,
+          has_image: !!req.body?.imageBase64,
+          message_preview: req.body?.message?.substring(0, 50) || null
+        },
+        expected_behavior: `Endpoint debería procesar request y retornar respuesta exitosa`,
+        actual_behavior: `Error HTTP ${status}: ${err.message}`,
+        expected_result: `Respuesta JSON con ok: true`,
+        actual_result: `Error HTTP ${status}`,
+        preconditions: [
+          `Request body válido`,
+          `Session válida (si aplica)`,
+          `Sistema operativo correctamente`
+        ],
+        conditions_met: false,
+        decision_reason: `Error detectado, retornar código HTTP ${status}`,
+        decision_evidence: err.stack,
+        decision_outcome: `Request fallido con código ${status}`,
+        state_snapshot: {
+          endpoint: '/api/chat',
+          method: req.method,
+          has_sessionId: !!req.body?.sessionId,
+          has_message: !!req.body?.message,
+          stage: req.body?.stage || 'unknown'
+        },
+        troubleshooting_hints: [
+          `Revisar stack trace completo`,
+          `Verificar precondiciones del request`,
+          `Revisar logs anteriores del mismo boot_id: ${bootId}`,
+          status >= 500 ? `Error interno, revisar código del servidor` : `Error de validación, revisar formato del request`
+        ],
+        suggested_fix: status >= 500 
+          ? `Revisar y corregir código en ${err.stack?.split('\n')[1]?.trim() || 'ubicación desconocida'}`
+          : `Mejorar validación de entrada o manejo de casos edge`
+      }, errorContext);
     } catch (traceErr) {
-      // Ignorar errores de trace
+      // Ignorar errores de trace pero loguear
+      await log('WARN', 'Error al loguear en trace', { trace_error: traceErr.message });
     }
     
-    res.status(500).json({
+    // Mensaje de error apropiado según el código HTTP
+    let errorMessage = description;
+    if (status === 400) {
+      errorMessage = err.message || 'Solicitud inválida';
+    } else if (status === 401) {
+      errorMessage = 'No autorizado. Verificá tus credenciales.';
+    } else if (status === 403) {
+      errorMessage = 'Acceso prohibido. Token inválido o sin permisos.';
+    } else if (status === 404) {
+      errorMessage = 'Recurso no encontrado.';
+    } else if (status === 429) {
+      errorMessage = 'Demasiadas solicitudes. Por favor, esperá un momento.';
+    } else if (status >= 500) {
+      errorMessage = 'Error interno del servidor';
+    }
+    
+    res.status(status).json({
       ok: false,
-      error: 'Error interno del servidor',
-      message: NODE_ENV === 'development' ? err.message : undefined
+      error: errorMessage,
+      message: NODE_ENV === 'development' ? err.message : undefined,
+      http_status: status
     });
   }
 });
@@ -4313,10 +4787,23 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
       buttons
     });
   } catch (err) {
-    await log('ERROR', 'Error en /api/greeting', { error: err.message });
-    res.status(500).json({
+    const bootId = req.bootId || trace.generateBootId();
+    const traceContext = req.traceContext || trace.createTraceContext(
+      null,
+      `req-${Date.now()}`,
+      null,
+      null,
+      NODE_ENV,
+      null,
+      bootId
+    );
+    
+    const httpError = await logHttpError(traceContext, err, '/api/greeting', req, res);
+    
+    res.status(httpError.status).json({
       ok: false,
-      error: 'Error interno del servidor'
+      error: httpError.status >= 500 ? 'Error interno del servidor' : err.message || httpError.description,
+      message: NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });
@@ -4329,6 +4816,25 @@ app.get('/api/live-events', async (req, res) => {
     // Validar token (usar LOG_TOKEN si está configurado)
     const LOG_TOKEN = process.env.LOG_TOKEN;
     if (LOG_TOKEN && token !== LOG_TOKEN) {
+      const bootId = req.bootId || trace.generateBootId();
+      const traceContext = req.traceContext || trace.createTraceContext(
+        null,
+        `req-${Date.now()}`,
+        null,
+        null,
+        NODE_ENV,
+        null,
+        bootId
+      );
+      
+      await trace.logEvent('ERROR', 'HTTP_403_FORBIDDEN', {
+        actor: 'system',
+        endpoint: '/api/live-events',
+        error: 'Token inválido',
+        boot_id: bootId,
+        has_token: !!token
+      }, traceContext);
+      
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -4351,10 +4857,23 @@ app.get('/api/live-events', async (req, res) => {
       filters: filters
     });
   } catch (err) {
-    await log('ERROR', 'Error en /api/live-events', { error: err.message, stack: err.stack });
-    res.status(500).json({
+    const bootId = req.bootId || trace.generateBootId();
+    const traceContext = req.traceContext || trace.createTraceContext(
+      null,
+      `req-${Date.now()}`,
+      null,
+      null,
+      NODE_ENV,
+      null,
+      bootId
+    );
+    
+    const httpError = await logHttpError(traceContext, err, '/api/live-events', req, res);
+    
+    res.status(httpError.status).json({
       ok: false,
-      error: 'Error interno del servidor'
+      error: httpError.status >= 500 ? 'Error interno del servidor' : err.message || httpError.description,
+      message: NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });

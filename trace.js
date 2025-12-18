@@ -172,7 +172,9 @@ export async function logEvent(level, type, payload = {}, context = null) {
   }
   
   const event = {
-    // Metadata de correlación
+    // ============================================
+    // METADATA DE CORRELACIÓN (OBLIGATORIO)
+    // ============================================
     conversation_id: context.conversation_id || null, // Puede ser null si aún no se generó
     boot_id: context.boot_id, // SIEMPRE presente
     request_id: context.request_id || `req-${Date.now()}`,
@@ -186,20 +188,74 @@ export async function logEvent(level, type, payload = {}, context = null) {
     message_id: context.message_id || null,
     endpoint: payload.endpoint || context.endpoint || null,
     
-    // Evento específico
+    // ============================================
+    // INFORMACIÓN DEL EVENTO
+    // ============================================
     level: level.toUpperCase(), // INFO, WARN, ERROR, DEBUG
     type: type,
     payload: sanitize(payload),
     
-    // Latencia (si existe)
-    latency_ms: payload.latency_ms || null,
+    // ============================================
+    // CONTEXTO DEL SISTEMA (PARA DIAGNÓSTICO)
+    // ============================================
+    // Estado esperado vs real
+    expected_behavior: payload.expected_behavior || payload.expected || null, // Lo que se esperaba
+    actual_behavior: payload.actual_behavior || payload.actual || null, // Lo que realmente pasó
+    expected_result: payload.expected_result || null, // Resultado esperado
+    actual_result: payload.actual_result || null, // Resultado real
     
-    // Archivo/módulo origen (si se proporciona)
+    // Condiciones previas
+    preconditions: payload.preconditions || null, // Estado previo necesario
+    conditions_met: payload.conditions_met !== undefined ? payload.conditions_met : null, // Si se cumplieron
+    
+    // Decisiones y razonamiento
+    decision_reason: payload.decision_reason || payload.reason || null, // Por qué se tomó una decisión
+    decision_evidence: payload.decision_evidence || payload.evidence || null, // Evidencia que llevó a la decisión
+    decision_outcome: payload.decision_outcome || payload.outcome || null, // Resultado de la decisión
+    
+    // Flujo y transiciones
+    flow_step: payload.flow_step || null, // Paso del flujo
+    flow_previous_step: payload.flow_previous_step || null, // Paso anterior
+    flow_next_step: payload.flow_next_step || null, // Siguiente paso esperado
+    
+    // Validaciones y verificaciones
+    validation_passed: payload.validation_passed !== undefined ? payload.validation_passed : null,
+    validation_errors: payload.validation_errors || null,
+    validation_rules: payload.validation_rules || null,
+    
+    // ============================================
+    // INFORMACIÓN TÉCNICA
+    // ============================================
+    latency_ms: payload.latency_ms || null,
     file: payload.file || null,
     module: payload.module || null,
+    function_name: payload.function_name || payload.fn || null, // Nombre de la función
+    line_number: payload.line_number || payload.line || null, // Línea de código (si aplica)
     
     // Stack trace si hay error
-    error_stack: payload.error_stack || (payload.error && payload.error.stack) || null
+    error_stack: payload.error_stack || (payload.error && payload.error.stack) || null,
+    error_name: payload.error_name || (payload.error && payload.error.name) || null,
+    error_message: payload.error_message || (payload.error && payload.error.message) || null,
+    
+    // ============================================
+    // INFORMACIÓN ADICIONAL PARA REPARACIÓN
+    // ============================================
+    // Variables de estado relevantes
+    state_snapshot: payload.state_snapshot || null, // Snapshot del estado en este momento
+    variables: payload.variables || null, // Variables relevantes
+    
+    // Configuración y parámetros
+    config_used: payload.config_used || null, // Configuración aplicada
+    parameters: payload.parameters || null, // Parámetros de la operación
+    
+    // Dependencias y recursos
+    dependencies: payload.dependencies || null, // Dependencias usadas
+    resources_accessed: payload.resources_accessed || null, // Recursos accedidos
+    
+    // Información de debugging
+    debug_info: payload.debug_info || null, // Información adicional para debugging
+    troubleshooting_hints: payload.troubleshooting_hints || null, // Pistas para troubleshooting
+    suggested_fix: payload.suggested_fix || null // Sugerencia de reparación (si aplica)
   };
   
   // SIEMPRE agregar a live events buffer (incluso sin conversation_id)
@@ -371,7 +427,7 @@ export async function logIntentDetection(context, intent, confidence, needsClari
 /**
  * Helper para loguear transición de stage
  */
-export async function logStageTransition(context, fromStage, toStage, reason, evidence = null) {
+export async function logStageTransition(context, fromStage, toStage, reason, evidence = null, expectedStage = null) {
   await logEvent('INFO', 'STAGE_TRANSITION', {
     actor: 'system',
     stage_from: fromStage,
@@ -379,7 +435,19 @@ export async function logStageTransition(context, fromStage, toStage, reason, ev
     reason: reason,
     reason_code: reason,
     evidence: evidence,
-    outcome: `Transición de ${fromStage} a ${toStage}`
+    outcome: `Transición de ${fromStage} a ${toStage}`,
+    expected_behavior: expectedStage ? `Se esperaba transición a ${expectedStage}` : `Transición de ${fromStage} a ${toStage}`,
+    actual_behavior: `Transición realizada a ${toStage}`,
+    expected_result: expectedStage ? `Stage debería ser ${expectedStage}` : null,
+    actual_result: `Stage es ${toStage}`,
+    decision_reason: reason,
+    decision_evidence: evidence,
+    decision_outcome: `Stage cambiado de ${fromStage} a ${toStage}`,
+    flow_step: `STAGE_TRANSITION`,
+    flow_previous_step: fromStage,
+    flow_next_step: toStage,
+    validation_passed: expectedStage ? (toStage === expectedStage) : null,
+    validation_errors: expectedStage && toStage !== expectedStage ? `Stage esperado ${expectedStage} pero se obtuvo ${toStage}` : null
   }, context);
 }
 
@@ -413,9 +481,17 @@ export async function logPromptConstruction(context, promptName, promptVersion, 
 }
 
 /**
- * Helper para loguear llamada a OpenAI
+ * Helper para loguear llamada a OpenAI con información completa
  */
-export async function logOpenAICall(context, model, params, tokens, latency, error = null) {
+export async function logOpenAICall(context, model, params, tokens, latency, error = null, expectedResponse = null) {
+  const expectedBehavior = expectedResponse 
+    ? `OpenAI debería retornar respuesta válida en formato JSON`
+    : `OpenAI debería procesar la solicitud y retornar respuesta`;
+  
+  const actualBehavior = error
+    ? `Error en llamada a OpenAI: ${error.message}`
+    : `Llamada exitosa, respuesta recibida`;
+  
   await logEvent(error ? 'ERROR' : 'INFO', 'OPENAI_CALL', {
     actor: 'system',
     model: model,
@@ -430,7 +506,28 @@ export async function logOpenAICall(context, model, params, tokens, latency, err
       name: error.name,
       message: error.message,
       stack: error.stack
-    } : null
+    } : null,
+    expected_behavior: expectedBehavior,
+    actual_behavior: actualBehavior,
+    expected_result: expectedResponse || `Respuesta JSON válida con campos requeridos`,
+    actual_result: error ? `Error: ${error.message}` : `Respuesta recibida (${tokens?.total_tokens || 0} tokens)`,
+    preconditions: [
+      `Modelo ${model} disponible`,
+      `API key configurada`,
+      `Parámetros válidos`,
+      `Conexión a internet estable`
+    ],
+    conditions_met: !error,
+    decision_reason: error ? `Error en llamada, aplicar fallback` : `Llamada exitosa, procesar respuesta`,
+    decision_evidence: error ? error.stack : `Tokens usados: ${tokens?.total_tokens || 0}, Latencia: ${latency}ms`,
+    decision_outcome: error ? `Fallback necesario` : `Respuesta procesada exitosamente`,
+    troubleshooting_hints: error ? [
+      `Verificar conexión a OpenAI API`,
+      `Revisar API key y límites de rate`,
+      `Verificar formato de parámetros`,
+      `Revisar logs de red si persiste`
+    ] : null,
+    suggested_fix: error ? `Implementar retry con backoff exponencial o fallback a respuesta genérica` : null
   }, context);
 }
 
@@ -504,7 +601,10 @@ export async function logDecision(context, ruleId, reasonCode, evidence, outcome
 /**
  * Helper para loguear error con stack
  */
-export async function logError(context, error, classification = 'recoverable', fallback = null, messageSent = false) {
+/**
+ * Helper para loguear error con información completa para reparación
+ */
+export async function logError(context, error, classification = 'recoverable', fallback = null, messageSent = false, expectedBehavior = null, actualBehavior = null, troubleshootingHints = null) {
   await logEvent('ERROR', 'ERROR', {
     actor: 'system',
     error_name: error.name,
@@ -512,14 +612,38 @@ export async function logError(context, error, classification = 'recoverable', f
     error_stack: error.stack,
     classification: classification, // 'recoverable' o 'fatal'
     fallback_executed: fallback,
-    message_sent: messageSent
+    message_sent: messageSent,
+    expected_behavior: expectedBehavior || `Operación debería completarse sin errores`,
+    actual_behavior: actualBehavior || `Error: ${error.message}`,
+    expected_result: `Operación exitosa`,
+    actual_result: `Error: ${error.name} - ${error.message}`,
+    preconditions: `Sistema debería estar en estado válido`,
+    conditions_met: false,
+    decision_reason: `Error detectado, clasificado como ${classification}`,
+    decision_evidence: error.stack,
+    decision_outcome: fallback ? `Fallback ejecutado: ${fallback}` : `Error no recuperado`,
+    troubleshooting_hints: troubleshootingHints || [
+      `Revisar stack trace: ${error.stack?.split('\n')[0] || 'N/A'}`,
+      `Verificar precondiciones del sistema`,
+      `Revisar logs anteriores para contexto`,
+      classification === 'recoverable' ? `Error es recuperable, verificar fallback` : `Error fatal, requiere intervención`
+    ],
+    suggested_fix: classification === 'recoverable' 
+      ? `Implementar o mejorar fallback para este caso`
+      : `Revisar código en ${error.stack?.split('\n')[1]?.trim() || 'ubicación desconocida'}`
   }, context);
 }
 
 /**
  * Helper para loguear respuesta final
  */
-export async function logResponse(context, responseText, buttons = null, safetyFlags = null) {
+/**
+ * Helper para loguear respuesta final con información completa
+ */
+export async function logResponse(context, responseText, buttons = null, safetyFlags = null, additionalInfo = null) {
+  const expectedBehavior = additionalInfo?.expected_behavior || `Bot debería generar respuesta apropiada para el contexto`;
+  const actualBehavior = additionalInfo?.actual_behavior || `Respuesta generada: ${responseText.substring(0, 100)}...`;
+  
   await logEvent('INFO', 'RESPONSE', {
     actor: 'tecnos',
     final_response_text: responseText,
@@ -528,7 +652,18 @@ export async function logResponse(context, responseText, buttons = null, safetyF
       label: b.label,
       value: b.value || b.token
     })) : null,
-    safety_flags: safetyFlags
+    safety_flags: safetyFlags,
+    expected_behavior: expectedBehavior,
+    actual_behavior: actualBehavior,
+    expected_result: additionalInfo?.expected_result || `Respuesta válida con contenido apropiado`,
+    actual_result: additionalInfo?.actual_result || `Respuesta generada (${responseText.length} caracteres, ${buttons?.length || 0} botones)`,
+    state_snapshot: additionalInfo?.state_snapshot || {
+      response_length: responseText.length,
+      buttons_count: buttons?.length || 0,
+      has_safety_flags: !!safetyFlags
+    },
+    validation_passed: responseText && responseText.length > 0,
+    validation_errors: !responseText || responseText.length === 0 ? 'Respuesta vacía' : null
   }, context);
 }
 
