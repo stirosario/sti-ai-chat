@@ -2501,12 +2501,23 @@ async function handleAskConsent(session, userInput, conversation) {
           await saveConversation(newConversation);
         }
         
-        // Guardar aceptación de GDPR en transcript
+        // Guardar aceptación de GDPR en transcript (MODELO MEJORADO)
         await appendToTranscript(session.conversation_id, {
           role: 'user',
           type: 'button',
-          label: 'Sí, acepto ✔️',
-          value: 'accept'
+          stage: 'ASK_CONSENT',
+          text: 'Sí, acepto ✔️',
+          button_chosen: {
+            label: 'Sí, acepto ✔️',
+            value: 'accept',
+            token: 'accept'
+          },
+          conversation_id: session.conversation_id,
+          payload: {
+            gdpr_accepted: true,
+            stage_before: 'ASK_CONSENT',
+            stage_after: 'ASK_LANGUAGE'
+          }
         });
       } catch (err) {
         await log('ERROR', 'Error guardando aceptación GDPR en transcript', {
@@ -2625,19 +2636,37 @@ async function handleAskLanguage(session, userInput, conversation, traceContext 
       await saveConversation(existingConversation);
     }
     
-    // Append eventos al transcript
+    // Append eventos al transcript (MODELO MEJORADO)
+    const languageLabel = selectedLanguage === 'es-AR' ? 'Español (Argentina)' : 'English';
     await appendToTranscript(conversationId, {
       role: 'user',
       type: 'button',
-      label: selectedLanguage === 'es-AR' ? 'Español (Argentina)' : 'English',
-      value: selectedLanguage
+      stage: 'ASK_LANGUAGE',
+      text: languageLabel,
+      button_chosen: {
+        label: languageLabel,
+        value: selectedLanguage,
+        token: selectedLanguage
+      },
+      conversation_id: conversationId,
+      payload: {
+        language_selected: selectedLanguage,
+        stage_before: 'ASK_LANGUAGE',
+        stage_after: 'ASK_NAME'
+      }
     });
     
     await appendToTranscript(conversationId, {
       role: 'system',
       type: 'event',
+      stage: 'ASK_NAME',
       name: 'CONVERSATION_ID_ASSIGNED',
-      payload: { conversation_id: conversationId }
+      conversation_id: conversationId,
+      payload: { 
+        conversation_id: conversationId,
+        language: selectedLanguage,
+        stage: 'ASK_NAME'
+      }
     });
     
     const langText = selectedLanguage === 'es-AR' ? 'Español' : 'English';
@@ -2747,10 +2776,19 @@ async function handleAskName(session, userInput, conversation) {
   conversation.user.name_norm = firstName;
   await saveConversation(conversation);
   
+  // Guardar nombre del usuario (MODELO MEJORADO)
   await appendToTranscript(conversation.conversation_id, {
     role: 'user',
     type: 'text',
-    text: nameRaw
+    stage: 'ASK_NAME',
+    text: nameRaw,
+    conversation_id: conversation.conversation_id,
+    payload: {
+      name_raw: nameRaw,
+      name_norm: firstName,
+      stage_before: 'ASK_NAME',
+      stage_after: 'ASK_USER_LEVEL'
+    }
   });
   
   const greeting = session.language === 'es-AR'
@@ -2797,11 +2835,24 @@ async function handleAskUserLevel(session, userInput, conversation) {
   session.stage = 'ASK_PROBLEM';
   session.meta.updated_at = new Date().toISOString();
   
+  // Guardar selección de nivel (MODELO MEJORADO)
+  const levelLabel = level === 'basico' ? 'Básico' : level === 'intermedio' ? 'Intermedio' : 'Avanzado';
   await appendToTranscript(conversation.conversation_id, {
     role: 'user',
     type: 'button',
-    label: level === 'basico' ? 'Básico' : level === 'intermedio' ? 'Intermedio' : 'Avanzado',
-    value: level
+    stage: 'ASK_USER_LEVEL',
+    text: levelLabel,
+    button_chosen: {
+      label: levelLabel,
+      value: level,
+      token: level
+    },
+    conversation_id: conversation.conversation_id,
+    payload: {
+      user_level: level,
+      stage_before: 'ASK_USER_LEVEL',
+      stage_after: 'ASK_PROBLEM'
+    }
   });
   
   const confirmation = session.language === 'es-AR'
@@ -4976,8 +5027,15 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       await appendToTranscript(conversation.conversation_id, {
         role: 'system',
         type: 'event',
+        stage: stageAfter,
         name: 'STAGE_CHANGED',
-        payload: { from: stageBefore, to: stageAfter }
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId || null,
+        payload: { 
+          from: stageBefore, 
+          to: stageAfter,
+          transition_reason: 'user_input_processed'
+        }
       });
       
       // Log transición de stage
@@ -5003,13 +5061,42 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     session.meta.updated_at = new Date().toISOString();
   }
   
+  // ========================================================
+  // MODELO DE LOG MEJORADO - PERSISTENCIA COMPLETA
+  // ========================================================
+  // Modelo estándar para eventos de transcript:
+  // {
+  //   t: ISO8601 timestamp,
+  //   role: 'user' | 'bot' | 'system',
+  //   type: 'text' | 'button' | 'buttons' | 'image' | 'event',
+  //   stage: string (stage actual),
+  //   text: string (para mensajes de texto),
+  //   buttons: array (para botones mostrados/seleccionados),
+  //   button_chosen: object (para selección de botón por usuario),
+  //   conversation_id: string,
+  //   boot_id: string,
+  //   payload: object (metadata adicional)
+  // }
+  // ========================================================
+  
   // PERSISTENCIA ROBUSTA: Guardar input del usuario SIEMPRE (si hay conversación)
   if (conversation && userInput && userInput.trim().length > 0) {
     try {
+      // Detectar si es selección de botón o texto libre
+      const isButtonSelection = userInput.match(/^(Sí, acepto|No acepto|Español|English|Básico|Intermedio|Avanzado)/i);
+      
       await appendToTranscript(conversation.conversation_id, {
         role: 'user',
-        type: 'text',
-        text: userInput
+        type: isButtonSelection ? 'button' : 'text',
+        stage: session.stage || 'unknown',
+        text: userInput,
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId || null,
+        payload: {
+          input_length: userInput.length,
+          is_button: !!isButtonSelection,
+          stage_before: session.stage || 'unknown'
+        }
       });
     } catch (err) {
       await log('ERROR', 'Error guardando input de usuario en transcript', {
@@ -5020,23 +5107,46 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     }
   }
   
-  // Guardar respuesta del bot en transcript
+  // Guardar respuesta del bot en transcript (MODELO MEJORADO)
   if (conversation && response.reply) {
     try {
+      // Evento principal: respuesta del bot
       await appendToTranscript(conversation.conversation_id, {
         role: 'bot',
         type: 'text',
-        text: response.reply
+        stage: response.stage || session.stage || 'unknown',
+        text: response.reply,
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId || null,
+        payload: {
+          reply_length: response.reply.length,
+          has_buttons: !!(response.buttons && response.buttons.length > 0),
+          buttons_count: response.buttons ? response.buttons.length : 0,
+          end_conversation: response.endConversation || false,
+          stage_after: response.stage || session.stage || 'unknown'
+        }
       });
     
+    // Si hay botones, guardarlos como evento separado pero vinculado
     if (response.buttons && response.buttons.length > 0) {
       await appendToTranscript(conversation.conversation_id, {
         role: 'bot',
         type: 'buttons',
-        buttons: response.buttons
+        stage: response.stage || session.stage || 'unknown',
+        buttons: response.buttons.map(b => ({
+          label: b.label || b.text || '',
+          value: b.value || b.token || '',
+          token: b.token || b.value || ''
+        })),
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId || null,
+        payload: {
+          buttons_count: response.buttons.length,
+          attached_to_reply: true
+        }
       });
       
-      // Log botones mostrados
+      // Log botones mostrados en trace
       await trace.logButtonSelection(
         traceContext,
         response.buttons,
@@ -5826,12 +5936,37 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
         
         await saveConversation(newConversation);
         
-        // Guardar mensaje de GDPR en transcript
+        // Guardar mensaje de GDPR en transcript (MODELO MEJORADO)
         const consentText = TEXTS.ASK_CONSENT.es;
+        const gdprMessage = `${consentText}\n\n🆔 **ID de la conversación: ${conversationId}**`;
         await appendToTranscript(conversationId, {
           role: 'bot',
           type: 'text',
-          text: `${consentText}\n\n🆔 **ID de la conversación: ${conversationId}**`
+          stage: 'ASK_CONSENT',
+          text: gdprMessage,
+          conversation_id: conversationId,
+          payload: {
+            is_initial_message: true,
+            has_buttons: true
+          }
+        });
+        
+        // Guardar botones de consentimiento
+        const consentButtons = ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
+          label: b.label,
+          value: b.value,
+          token: b.token
+        }));
+        await appendToTranscript(conversationId, {
+          role: 'bot',
+          type: 'buttons',
+          stage: 'ASK_CONSENT',
+          buttons: consentButtons,
+          conversation_id: conversationId,
+          payload: {
+            attached_to_reply: true,
+            buttons_count: consentButtons.length
+          }
         });
       } catch (err) {
         await log('ERROR', 'Error generando conversation_id en /api/greeting', {
