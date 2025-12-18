@@ -1607,6 +1607,21 @@ Antes de continuar, quiero contarte:
 ⚠️ **Importante:** Te puedo ayudar con problemas de conectividad, instalaciones y diagnóstico básico. Si el problema requiere acciones avanzadas o hay riesgo de pérdida de datos, te recomendaré contactar con un técnico.
 
 ¿Aceptás estos términos?`,
+    'es-AR': `📋 Política de Privacidad y Consentimiento
+
+Antes de continuar, quiero contarte:
+
+✅ Voy a guardar tu nombre y nuestra conversación durante 48 horas
+✅ Los datos se usan solo para brindarte soporte técnico
+✅ Podés pedir que borre tus datos en cualquier momento
+✅ No compartimos tu información con terceros
+✅ Cumplimos con GDPR y normativas de privacidad
+
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+
+⚠️ **Importante:** Te puedo ayudar con problemas de conectividad, instalaciones y diagnóstico básico. Si el problema requiere acciones avanzadas o hay riesgo de pérdida de datos, te recomendaré contactar con un técnico.
+
+¿Aceptás estos términos?`,
     en: `📋 Privacy Policy and Consent
 
 Before continuing, I want to tell you:
@@ -1625,26 +1640,32 @@ Do you accept these terms?`
   },
   ASK_LANGUAGE: {
     es: `Seleccioná tu idioma:`,
+    'es-AR': `Seleccioná tu idioma:`,
     en: `Select your language:`
   },
   ASK_NAME: {
     es: `¿Con quién tengo el gusto de hablar? 😊`,
+    'es-AR': `¿Con quién tengo el gusto de hablar? 😊`,
     en: `What's your name? 😊`
   },
   ASK_USER_LEVEL: {
     es: `Por favor, seleccioná tu nivel de conocimiento técnico:`,
+    'es-AR': `Por favor, seleccioná tu nivel de conocimiento técnico:`,
     en: `Please select your technical knowledge level:`
   },
   ASK_DEVICE_CATEGORY: {
     es: `¿Es tu equipo principal o un dispositivo externo/periférico?`,
+    'es-AR': `¿Es tu equipo principal o un dispositivo externo/periférico?`,
     en: `Is it your main device or an external/peripheral device?`
   },
   ASK_PROBLEM: {
     es: `Contame, ¿qué problema estás teniendo?`,
+    'es-AR': `Contame, ¿qué problema estás teniendo?`,
     en: `Tell me, what problem are you having?`
   },
   ASK_FEEDBACK: {
     es: `Antes de cerrar, ¿me decís si esta ayuda te resultó útil?`,
+    'es-AR': `Antes de cerrar, ¿me decís si esta ayuda te resultó útil?`,
     en: `Before closing, can you tell me if this help was useful?`
   }
 };
@@ -3332,9 +3353,22 @@ async function handleAskUserLevel(session, userInput, conversation) {
     }
   });
   
+  // Normalizar idioma para acceder a TEXTS (es-AR -> es)
+  const langKey = session.language === 'es-AR' ? 'es' : (session.language === 'en' ? 'en' : 'es');
+  const askProblemText = TEXTS.ASK_PROBLEM[langKey] || TEXTS.ASK_PROBLEM.es;
+  
   const confirmation = session.language === 'es-AR'
-    ? `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${level}.\n\n${TEXTS.ASK_PROBLEM[session.language || 'es']}`
-    : `Perfect! I'll adjust my explanations to your ${level} level.\n\n${TEXTS.ASK_PROBLEM[session.language || 'en']}`;
+    ? `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${level}.\n\n${askProblemText}`
+    : `Perfect! I'll adjust my explanations to your ${level} level.\n\n${askProblemText}`;
+  
+  // LOG DETALLADO: Confirmación generada
+  await logDebug('DEBUG', 'handleAskUserLevel - Confirmación generada', {
+    conversation_id: conversation?.conversation_id || 'none',
+    level: level,
+    language: session.language,
+    lang_key: langKey,
+    confirmation_length: confirmation.length
+  }, 'server.js', 3338, 3343);
   
   return {
     reply: confirmation,
@@ -3519,8 +3553,13 @@ async function handleAskDeviceType(session, userInput, conversation) {
   } else {
     // No tenemos problema aún → preguntarlo
     session.stage = 'ASK_PROBLEM';
+    
+    // Normalizar idioma para acceder a TEXTS (es-AR -> es-AR, ahora soportado)
+    const langKey = session.language || 'es';
+    const askProblemText = TEXTS.ASK_PROBLEM[langKey] || TEXTS.ASK_PROBLEM.es;
+    
     return {
-      reply: TEXTS.ASK_PROBLEM[session.language || 'es'],
+      reply: askProblemText,
       buttons: [],
       stage: 'ASK_PROBLEM'
     };
@@ -6040,56 +6079,119 @@ app.get('/api/images/:conversationId/:filename', async (req, res) => {
 
 // Endpoint para resetear sesión
 app.post('/api/reset', async (req, res) => {
+  // LOG DETALLADO: Inicio de /api/reset
+  const bootId = req.bootId || trace.generateBootId();
+  await logDebug('DEBUG', '/api/reset - Inicio', {
+    boot_id: bootId,
+    has_body: !!req.body,
+    body_keys: req.body ? Object.keys(req.body) : [],
+    session_id: req.body?.sessionId || 'none'
+  }, 'server.js', 6042, 6042);
+  
   try {
     const { sessionId } = req.body;
     
-    if (!sessionId || typeof sessionId !== 'string') {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'sessionId requerido' 
-      });
+    // Validación más flexible: si no hay sessionId, intentar obtenerlo de query o generar uno nuevo
+    let effectiveSessionId = sessionId;
+    if (!effectiveSessionId || typeof effectiveSessionId !== 'string') {
+      effectiveSessionId = req.query.sessionId || req.headers['x-session-id'];
+      
+      if (!effectiveSessionId || typeof effectiveSessionId !== 'string') {
+        await logDebug('WARN', '/api/reset - sessionId no proporcionado', {
+          boot_id: bootId,
+          body: req.body,
+          query: req.query
+        }, 'server.js', 6046, 6050);
+        
+        // Retornar éxito sin hacer nada (idempotente)
+        return res.json({ 
+          ok: true, 
+          message: 'sessionId no proporcionado, operación omitida',
+          stage: 'ASK_CONSENT'
+        });
+      }
     }
     
-    const session = getSession(sessionId);
+    const session = getSession(effectiveSessionId);
     if (!session) {
       // Si la sesión no existe, retornar éxito (idempotente)
+      await logDebug('DEBUG', '/api/reset - Sesión no encontrada', {
+        boot_id: bootId,
+        session_id: effectiveSessionId
+      }, 'server.js', 6054, 6059);
+      
       return res.json({ 
         ok: true, 
-        message: 'Sesión no encontrada o ya reseteada' 
+        message: 'Sesión no encontrada o ya reseteada',
+        stage: 'ASK_CONSENT'
       });
     }
     
     // Resetear sesión a estado inicial
     session.stage = 'ASK_CONSENT';
-    session.context = {};
-    session.user = {};
+    session.language = null;
+    session.user = { name_raw: null, name_norm: null };
+    session.user_level = null;
+    session.context = {
+      risk_level: 'low',
+      impact_summary_shown: false,
+      device_category: null,
+      device_type: null,
+      external_type: null,
+      problem_description_raw: null,
+      problem_category: null,
+      last_known_step: null
+    };
+    session.modes = {
+      interaction_mode: null,
+      learning_depth: null,
+      tech_format: false,
+      executor_role: null,
+      advisory_mode: false,
+      emotional_release_used: false
+    };
     session.meta = {
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_at: session.meta?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      emotion: 'neutral'
     };
     session.conversation_id = null;
     
+    await logDebug('DEBUG', '/api/reset - Sesión reseteada', {
+      boot_id: bootId,
+      session_id: effectiveSessionId,
+      stage: session.stage
+    }, 'server.js', 6072, 6075);
+    
     await log('INFO', 'Sesión reseteada', { 
-      session_id: sessionId,
-      boot_id: req.bootId
+      session_id: effectiveSessionId,
+      boot_id: bootId
     });
     
     res.json({ 
       ok: true, 
       message: 'Sesión reseteada correctamente',
-      stage: 'ASK_CONSENT'
+      stage: 'ASK_CONSENT',
+      sid: effectiveSessionId
     });
     
   } catch (err) {
+    await logDebug('ERROR', '/api/reset - Error', {
+      boot_id: bootId,
+      error: err.message,
+      stack: err.stack
+    }, 'server.js', 6083, 6088).catch(() => {});
+    
     await log('ERROR', 'Error en /api/reset', { 
       error: err.message, 
       stack: err.stack,
-      boot_id: req.bootId
+      boot_id: bootId
     });
     
     res.status(500).json({
       ok: false,
-      error: 'Error interno del servidor'
+      error: 'Error interno del servidor',
+      message: NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });
@@ -6864,6 +6966,89 @@ app.get('/api/live-events/last-error', async (req, res) => {
     });
   } catch (err) {
     await log('ERROR', 'Error en /api/live-events/last-error', { error: err.message });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// Endpoint para obtener transcript en formato JSON
+app.get('/api/transcript-json/:conversationId', async (req, res) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    // Validar token (usar LOG_TOKEN si está configurado)
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      const bootId = req.bootId || trace.generateBootId();
+      const traceContext = req.traceContext || trace.createTraceContext(
+        null,
+        `req-${Date.now()}`,
+        null,
+        null,
+        NODE_ENV,
+        null,
+        bootId
+      );
+      
+      await trace.logEvent('ERROR', 'HTTP_403_FORBIDDEN', {
+        actor: 'system',
+        endpoint: '/api/transcript-json',
+        error: 'Token inválido',
+        boot_id: bootId,
+        conversation_id: conversationId,
+        has_token: !!token
+      }, traceContext);
+      
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    // Validar formato de conversation_id (AA0000-ZZ9999)
+    if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'Formato de ID inválido. Debe ser formato AA0000 (2 letras + 4 dígitos)' 
+      });
+    }
+    
+    // Cargar conversación
+    const conversation = await loadConversation(conversationId);
+    
+    if (!conversation) {
+      await log('INFO', `Conversación no encontrada en /api/transcript-json`, { 
+        conversation_id: conversationId,
+        boot_id: req.bootId
+      });
+      
+      return res.status(404).json({ 
+        ok: false, 
+        error: 'Conversación no encontrada. Verificá que el ID sea correcto.' 
+      });
+    }
+    
+    // Retornar transcript en formato JSON
+    res.json({
+      ok: true,
+      conversation_id: conversationId,
+      transcript: conversation.transcript || [],
+      total_events: conversation.transcript?.length || 0,
+      flow_version: conversation.flow_version,
+      schema_version: conversation.schema_version,
+      status: conversation.status,
+      created_at: conversation.created_at,
+      updated_at: conversation.updated_at
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/transcript-json', { 
+      error: err.message, 
+      stack: err.stack,
+      conversation_id: req.params.conversationId,
+      boot_id: req.bootId
+    });
+    
     res.status(500).json({
       ok: false,
       error: 'Error interno del servidor'
