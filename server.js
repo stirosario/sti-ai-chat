@@ -1040,7 +1040,7 @@ const TEXTS = {
 
 Antes de continuar, quiero contarte:
 
-✅ Voy a guardar tu nombre y nuestra conversación de forma indefinida
+✅ Voy a guardar tu nombre y nuestra conversación durante 48 horas
 ✅ Los datos se usan solo para brindarte soporte técnico
 ✅ Podés pedir que borre tus datos en cualquier momento
 ✅ No compartimos tu información con terceros
@@ -2461,12 +2461,25 @@ async function handleAskDeviceType(session, userInput, conversation) {
   const inputLower = userInput.toLowerCase().trim();
   let deviceType = null;
   
+  // Log diagnóstico para botones
+  await log('INFO', 'SELECCION_DEVICE_TYPE_MAIN', {
+    session_id: session.sessionId,
+    conversation_id: session.conversation_id,
+    stage: session.stage,
+    user_input: userInput,
+    input_lower: inputLower
+  });
+  
   if (session.stage === 'ASK_DEVICE_TYPE_MAIN') {
-    if (inputLower.includes('escritorio') || inputLower.includes('desktop') || inputLower === 'desktop') {
+    // Normalizar entrada: aceptar valores de botones y texto libre
+    if (inputLower.includes('escritorio') || inputLower.includes('desktop') || 
+        inputLower === 'desktop' || inputLower === 'btn_desktop' || inputLower.includes('pc de escritorio')) {
       deviceType = 'desktop';
-    } else if (inputLower.includes('notebook') || inputLower.includes('laptop') || inputLower === 'notebook') {
+    } else if (inputLower.includes('notebook') || inputLower.includes('laptop') || 
+               inputLower === 'notebook' || inputLower === 'btn_notebook' || inputLower === 'laptop') {
       deviceType = 'notebook';
-    } else if (inputLower.includes('all-in-one') || inputLower.includes('allinone') || inputLower === 'allinone') {
+    } else if (inputLower.includes('all-in-one') || inputLower.includes('allinone') || 
+               inputLower === 'allinone' || inputLower === 'btn_allinone' || inputLower.includes('todo en uno')) {
       deviceType = 'allinone';
     }
   } else {
@@ -4344,6 +4357,32 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       };
   }
   
+  // GARANTÍA DE CONTRATO: Asegurar que SIEMPRE haya reply no vacío
+  if (!response || !response.reply || typeof response.reply !== 'string' || response.reply.trim().length === 0) {
+    await log('ERROR', 'Respuesta sin reply detectada', {
+      session_id: sessionId,
+      conversation_id: session.conversation_id,
+      stage: session.stage,
+      response_received: response ? JSON.stringify(response).substring(0, 200) : 'null/undefined',
+      user_input: userInput.substring(0, 100),
+      boot_id: finalBootId
+    });
+    
+    // Fallback seguro: re-render de botones del stage actual
+    const currentButtons = ALLOWED_BUTTONS_BY_ASK[session.stage] || [];
+    response = {
+      reply: session.language === 'es-AR'
+        ? '😕 Hubo un problema procesando tu selección. ¿Podés elegir nuevamente?'
+        : '😕 There was a problem processing your selection. Can you choose again?',
+      buttons: currentButtons.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      })),
+      stage: session.stage // Mantener stage actual
+    };
+  }
+  
   // Actualizar stage en session
   if (response.stage) {
     // P2.3: Usar stageBefore capturado al inicio (no session.stage que ya puede haber cambiado)
@@ -4380,13 +4419,31 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
     session.meta.updated_at = new Date().toISOString();
   }
   
+  // PERSISTENCIA ROBUSTA: Guardar input del usuario SIEMPRE (si hay conversación)
+  if (conversation && userInput && userInput.trim().length > 0) {
+    try {
+      await appendToTranscript(conversation.conversation_id, {
+        role: 'user',
+        type: 'text',
+        text: userInput
+      });
+    } catch (err) {
+      await log('ERROR', 'Error guardando input de usuario en transcript', {
+        error: err.message,
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId
+      });
+    }
+  }
+  
   // Guardar respuesta del bot en transcript
   if (conversation && response.reply) {
-    await appendToTranscript(conversation.conversation_id, {
-      role: 'bot',
-      type: 'text',
-      text: response.reply
-    });
+    try {
+      await appendToTranscript(conversation.conversation_id, {
+        role: 'bot',
+        type: 'text',
+        text: response.reply
+      });
     
     if (response.buttons && response.buttons.length > 0) {
       await appendToTranscript(conversation.conversation_id, {
@@ -4425,11 +4482,45 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         }
       }
     );
+    } catch (err) {
+      await log('ERROR', 'Error guardando respuesta del bot en transcript', {
+        error: err.message,
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId
+      });
+      // Si falla guardar, al menos persistir evento de error
+      try {
+        await appendToTranscript(conversation.conversation_id, {
+          role: 'system',
+          type: 'event',
+          name: 'ERROR',
+          payload: {
+            error: 'Error guardando respuesta del bot',
+            message: err.message,
+            reply_fallback: response.reply.substring(0, 100)
+          }
+        });
+      } catch (appendErr) {
+        // Si incluso esto falla, solo loguear
+        await log('ERROR', 'Error crítico: no se pudo guardar ni evento de error', {
+          error: appendErr.message,
+          conversation_id: conversation.conversation_id
+        });
+      }
+    }
   }
   
   // Guardar conversación actualizada
   if (conversation) {
-    await saveConversation(conversation);
+    try {
+      await saveConversation(conversation);
+    } catch (err) {
+      await log('ERROR', 'Error guardando conversación', {
+        error: err.message,
+        conversation_id: conversation.conversation_id,
+        boot_id: finalBootId
+      });
+    }
   }
   
   return response;
@@ -4517,6 +4608,62 @@ app.use((req, res, next) => {
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'STI Chat API is running', version: '2.0.0' });
+});
+
+// Endpoint para resetear sesión
+app.post('/api/reset', async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'sessionId requerido' 
+      });
+    }
+    
+    const session = getSession(sessionId);
+    if (!session) {
+      // Si la sesión no existe, retornar éxito (idempotente)
+      return res.json({ 
+        ok: true, 
+        message: 'Sesión no encontrada o ya reseteada' 
+      });
+    }
+    
+    // Resetear sesión a estado inicial
+    session.stage = 'ASK_CONSENT';
+    session.context = {};
+    session.user = {};
+    session.meta = {
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    session.conversation_id = null;
+    
+    await log('INFO', 'Sesión reseteada', { 
+      session_id: sessionId,
+      boot_id: req.bootId
+    });
+    
+    res.json({ 
+      ok: true, 
+      message: 'Sesión reseteada correctamente',
+      stage: 'ASK_CONSENT'
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/reset', { 
+      error: err.message, 
+      stack: err.stack,
+      boot_id: req.bootId
+    });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
 });
 
 // Endpoint principal de chat
@@ -4833,7 +4980,10 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       stage: response.stage,
       options: response.buttons ? response.buttons.map(b => b.label || b.value) : [],
       buttons: response.buttons || [],
-      endConversation: response.endConversation || false
+      endConversation: response.endConversation || false,
+      capabilities: {
+        images: true // Habilitar imágenes (puede ser controlado por variable de entorno)
+      }
     };
     
     res.json(frontendResponse);
