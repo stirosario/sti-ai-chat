@@ -178,3 +178,4 @@ Si OpenAI falla o tarda más de 15 segundos:
 - Si no hay `intent` o es `unknown`, se muestra mensaje genérico sugiriendo técnico
 
 
+

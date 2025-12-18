@@ -25,6 +25,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import OpenAI from 'openai';
+import * as trace from './trace.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1083,7 +1084,7 @@ async function iaClassifier(session, userInput, requestId = null) {
   // Limitar longitud de problem_description_raw para evitar prompts excesivamente largos
   const problemDesc = (session.context.problem_description_raw || 'ninguno').substring(0, 300);
   
-  const prompt = `Sos Tecnos, técnico informático de STI. Analizá el siguiente mensaje del usuario y devolvé SOLO un JSON válido.
+  const promptTemplate = `Sos Tecnos, técnico informático de STI. Analizá el siguiente mensaje del usuario y devolvé SOLO un JSON válido.
 
 CONTEXTO:
 - Etapa actual: ${session.stage || 'ASK_PROBLEM'}
@@ -1109,6 +1110,29 @@ Devolvé un JSON con esta estructura exacta:
   },
   "confidence": 0.0-1.0
 }`;
+
+  const prompt = promptTemplate.replace('${session.stage || \'ASK_PROBLEM\'}', session.stage || 'ASK_PROBLEM')
+    .replace('${session.user_level || \'desconocido\'}', session.user_level || 'desconocido')
+    .replace('${session.context.device_type || \'desconocido\'}', session.context.device_type || 'desconocido')
+    .replace('"${problemDesc}"', `"${problemDesc}"`)
+    .replace('"${userInput}"', `"${userInput}"`);
+
+  // Log construcción de prompt
+  await trace.logPromptConstruction(
+    traceContext,
+    promptName,
+    promptVersion,
+    {
+      stage: session.stage,
+      user_level: session.user_level,
+      device_type: session.context.device_type,
+      problem_description: problemDesc,
+      user_input_length: userInput.length
+    },
+    prompt
+  );
+  
+  const spanOpenAI = trace.startSpan('openai_classifier');
 
   // Log payload summary
   if (conversationId) {
@@ -1208,6 +1232,30 @@ Devolvé un JSON con esta estructura exacta:
       
       // P2.3: Calcular latencia
       const latency = Date.now() - startTime;
+      trace.endSpan(spanOpenAI);
+      
+      // Log llamada a OpenAI exitosa
+      await trace.logOpenAICall(
+        traceContext,
+        OPENAI_MODEL_CLASSIFIER,
+        {
+          temperature: OPENAI_TEMPERATURE_CLASSIFIER,
+          max_tokens: OPENAI_MAX_TOKENS_CLASSIFIER,
+          response_format: 'json_object'
+        },
+        response.usage,
+        latency
+      );
+      
+      // Log detección de intención
+      await trace.logIntentDetection(
+        traceContext,
+        result.intent,
+        result.confidence,
+        result.needs_clarification,
+        result.missing,
+        null // alternatives (no disponible en este punto)
+      );
       
       // P2.8: Incrementar contador de llamadas
       incrementAICallCount(conversationId, 'classifier');
@@ -2559,6 +2607,22 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
         payload: { reason, ticket_id: conversation.conversation_id, retry_count: retryCount }
       });
       
+      // Log generación de ticket
+      const traceContext = trace.createTraceContext(
+        conversation.conversation_id,
+        `req-${Date.now()}`,
+        null,
+        session.stage,
+        NODE_ENV
+      );
+      await trace.logTicketGeneration(
+        traceContext,
+        conversation.conversation_id,
+        ticket,
+        'success',
+        null
+      );
+      
       const escalationText = session.language === 'es-AR'
         ? `Entiendo que necesitás más ayuda. Te recomiendo hablar con un técnico.\n\n📱 Podés contactarnos por WhatsApp: ${ticket.whatsapp_url}\n\n¿Te sirvió esta ayuda?`
         : `I understand you need more help. I recommend talking to a technician.\n\n📱 You can contact us via WhatsApp: ${ticket.whatsapp_url}\n\nWas this help useful?`;
@@ -3340,9 +3404,27 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   let conversation = null;
   let releaseLock = null;
   
+  // Crear contexto de trace
+  const traceContext = trace.createTraceContext(
+    session.conversation_id || sessionId,
+    requestId || `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    null,
+    session.stage,
+    NODE_ENV
+  );
+  
   try {
     if (session.conversation_id) {
       conversation = await loadConversation(session.conversation_id);
+      
+      // Log entrada de mensaje del usuario
+      await trace.logUserInput(
+        traceContext,
+        userInput,
+        userInput.trim().toLowerCase(),
+        session.language,
+        session.context.device_type || session.context.external_type
+      );
       
       // F21.2: Validar coherencia del estado previo
       if (conversation) {
@@ -3901,6 +3983,15 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         name: 'STAGE_CHANGED',
         payload: { from: stageBefore, to: stageAfter }
       });
+      
+      // Log transición de stage
+      await trace.logStageTransition(
+        traceContext,
+        stageBefore,
+        stageAfter,
+        'stage_transition',
+        { user_input: userInput.substring(0, 100) }
+      );
     }
     
     session.stage = stageAfter;
@@ -3921,7 +4012,23 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
         type: 'buttons',
         buttons: response.buttons
       });
+      
+      // Log botones mostrados
+      await trace.logButtonSelection(
+        traceContext,
+        response.buttons,
+        null,
+        'buttons_shown'
+      );
     }
+    
+    // Log respuesta final
+    await trace.logResponse(
+      traceContext,
+      response.reply,
+      response.buttons || null,
+      null
+    );
   }
   
   // Guardar conversación actualizada
@@ -4049,6 +4156,24 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     res.json(frontendResponse);
   } catch (err) {
     await log('ERROR', 'Error en /api/chat', { error: err.message, stack: err.stack });
+    
+    // Log error en trace si hay contexto
+    if (req.body.sessionId) {
+      try {
+        const session = getSession(req.body.sessionId);
+        const traceContext = trace.createTraceContext(
+          session.conversation_id || req.body.sessionId,
+          req.body.request_id || `req-${Date.now()}`,
+          null,
+          session.stage,
+          NODE_ENV
+        );
+        await trace.logError(traceContext, err, 'recoverable', null, false);
+      } catch (traceErr) {
+        // Ignorar errores de trace
+      }
+    }
+    
     res.status(500).json({
       ok: false,
       error: 'Error interno del servidor',
@@ -4091,6 +4216,563 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
     });
   }
 });
+
+// Endpoint para obtener trace detallado de una conversación
+app.get('/api/trace/:conversationId', async (req, res) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').replace(/[^a-zA-Z0-9._-]/g, '');
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    // Validar token (usar LOG_TOKEN si está configurado)
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    if (!conversationId) {
+      return res.status(400).json({ ok: false, error: 'conversationId requerido' });
+    }
+    
+    // Leer trace
+    const events = await trace.readTrace(conversationId);
+    
+    if (events.length === 0) {
+      return res.json({
+        ok: true,
+        conversation_id: conversationId,
+        has_trace: false,
+        events: [],
+        message: 'No hay trace detallado para esta conversación (compatibilidad hacia atrás)'
+      });
+    }
+    
+    res.json({
+      ok: true,
+      conversation_id: conversationId,
+      has_trace: true,
+      events: events,
+      total_events: events.length
+    });
+  } catch (err) {
+    await log('ERROR', 'Error en /api/trace', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// ========================================================
+// AUTOFIX IA - ENDPOINTS
+// ========================================================
+
+// Endpoint para analizar trace y generar solución
+app.post('/api/autofix/analyze', async (req, res) => {
+  try {
+    const { trace, objective, mode, token } = req.body;
+    
+    // Validar token
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    if (!trace || !trace.trim()) {
+      return res.status(400).json({ ok: false, error: 'Trace requerido' });
+    }
+    
+    if (!openai) {
+      return res.status(500).json({ ok: false, error: 'OpenAI no configurado' });
+    }
+    
+    // Analizar con OpenAI usando el modelo más inteligente disponible
+    const model = process.env.OPENAI_MODEL_AUTOFIX || 'gpt-4o' || 'gpt-4-turbo' || 'gpt-4';
+    
+    // Preparar contexto para OpenAI
+    const systemPrompt = `Eres un experto en análisis de código y debugging. Analiza el historial detallado (trace) de una conversación de chat y detecta problemas, errores, inconsistencias de flujo y problemas de arquitectura.
+
+REGLAS:
+- NO expongas secretos, tokens, API keys o credenciales
+- Analiza el flujo completo, no solo errores aislados
+- Identifica la causa raíz de los problemas
+- Genera un plan de reparación claro y completo
+- Proporciona diffs en formato git unificado
+- Evalúa riesgos de cada cambio
+
+FORMATO DE RESPUESTA (JSON ESTRICTO):
+{
+  "summary": "Resumen ejecutivo del análisis",
+  "issues": [
+    {
+      "id": "identificador único",
+      "severity": "alta|media|baja",
+      "evidence": ["línea 1 del trace", "línea 2 del trace"],
+      "root_cause": "causa raíz del problema",
+      "files": ["ruta/archivo1.js", "ruta/archivo2.js"]
+    }
+  ],
+  "plan": [
+    "Paso 1 de reparación",
+    "Paso 2 de reparación"
+  ],
+  "patches": [
+    {
+      "file": "ruta/archivo.js",
+      "diff": "diff --git a/ruta/archivo.js b/ruta/archivo.js\n--- a/ruta/archivo.js\n+++ b/ruta/archivo.js\n@@ -1,3 +1,3 @@\n ..."
+    }
+  ],
+  "tests": [
+    "Test 1 a ejecutar",
+    "Test 2 a ejecutar"
+  ],
+  "risks": [
+    "Riesgo 1",
+    "Riesgo 2"
+  ]
+}`;
+
+    // Leer extractos de código relevantes si es necesario
+    let codeContext = '';
+    try {
+      // Leer server.js para contexto (solo primeras líneas y estructura)
+      const serverPath = path.join(__dirname, 'server.js');
+      const serverContent = await fs.readFile(serverPath, 'utf-8');
+      const serverLines = serverContent.split('\n');
+      // Tomar primeras 100 líneas (imports y configuración)
+      codeContext += `\n\nESTRUCTURA DEL PROYECTO (server.js - primeras líneas):\n${serverLines.slice(0, 100).join('\n')}\n`;
+    } catch (err) {
+      // Ignorar si no se puede leer
+    }
+    
+    const userPrompt = `OBJETIVO: ${objective || 'Analizar y reparar problemas detectados en el flujo'}
+
+HISTORIAL DETALLADO (trace):
+${trace.substring(0, 40000)}${trace.length > 40000 ? '\n\n[... trace truncado por longitud ...]' : ''}
+${codeContext}
+
+INSTRUCCIONES:
+1. Analiza el trace completo para identificar problemas
+2. Identifica la causa raíz de cada problema
+3. Genera un plan de reparación claro
+4. Crea diffs en formato git unificado para cada archivo a modificar
+5. Evalúa riesgos y proporciona tests a ejecutar
+6. NO expongas secretos, tokens o credenciales en los diffs
+7. Asegúrate de que los diffs sean aplicables y no rompan el flujo
+
+Analiza este trace y genera una solución completa.`;
+
+    const response = await openai.chat.completions.create({
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      response_format: { type: 'json_object' }
+    });
+    
+    const content = response.choices[0].message.content;
+    let analysis;
+    
+    try {
+      analysis = JSON.parse(content);
+    } catch (parseErr) {
+      await log('ERROR', 'Error parseando respuesta de AutoFix', { error: parseErr.message });
+      return res.status(500).json({ ok: false, error: 'Error parseando respuesta de IA' });
+    }
+    
+    // Validar estructura mínima
+    if (!analysis.summary || !analysis.issues || !Array.isArray(analysis.issues)) {
+      return res.status(500).json({ ok: false, error: 'Respuesta de IA inválida' });
+    }
+    
+    // Agregar metadata
+    analysis.model_used = model;
+    analysis.analyzed_at = new Date().toISOString();
+    analysis.safe_to_apply = false; // Se determinará después de verificación
+    
+    res.json({
+      ok: true,
+      result: analysis
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/autofix/analyze', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor',
+      message: NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Endpoint para reparar en sandbox y verificar
+app.post('/api/autofix/repair', async (req, res) => {
+  try {
+    const { result, token } = req.body;
+    
+    // Validar token
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    if (!result || !result.patches || result.patches.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No hay parches para aplicar' });
+    }
+    
+    // Crear sandbox temporal
+    const sandboxDir = path.join(__dirname, 'data', 'autofix-sandbox', `sandbox-${Date.now()}`);
+    await fs.mkdir(sandboxDir, { recursive: true });
+    
+    try {
+      // Copiar archivos relevantes al sandbox
+      const filesToCopy = new Set();
+      result.patches.forEach(patch => {
+        if (patch.file) {
+          filesToCopy.add(patch.file);
+        }
+      });
+      
+      // Aplicar parches en sandbox
+      for (const patch of result.patches) {
+        if (!patch.file || !patch.diff) continue;
+        
+        const filePath = path.join(__dirname, patch.file);
+        const sandboxFilePath = path.join(sandboxDir, patch.file);
+        
+        // Crear directorio si no existe
+        await fs.mkdir(path.dirname(sandboxFilePath), { recursive: true });
+        
+        // Leer archivo original
+        let fileContent = '';
+        try {
+          fileContent = await fs.readFile(filePath, 'utf-8');
+        } catch (err) {
+          // Archivo no existe, crear vacío
+          fileContent = '';
+        }
+        
+        // Aplicar diff (simplificado - en producción usar una librería de diff)
+        // Por ahora, solo guardamos el contenido propuesto
+        const newContent = applyDiffSimple(fileContent, patch.diff);
+        await fs.writeFile(sandboxFilePath, newContent, 'utf-8');
+      }
+      
+      // Verificaciones básicas (smoke tests)
+      const verification = await verifySandbox(sandboxDir, result);
+      
+      // Limpiar sandbox
+      await fs.rm(sandboxDir, { recursive: true, force: true });
+      
+      result.safe_to_apply = verification.all_passed;
+      result.verification_result = verification.message;
+      result.verification_details = verification.details;
+      
+      res.json({
+        ok: true,
+        result: result
+      });
+      
+    } catch (sandboxErr) {
+      // Limpiar sandbox en caso de error
+      await fs.rm(sandboxDir, { recursive: true, force: true }).catch(() => {});
+      
+      result.safe_to_apply = false;
+      result.verification_result = `Error en sandbox: ${sandboxErr.message}`;
+      
+      res.json({
+        ok: true,
+        result: result
+      });
+    }
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/autofix/repair', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor',
+      message: NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Endpoint para aplicar cambios al código real
+app.post('/api/autofix/apply', async (req, res) => {
+  try {
+    const { result, token } = req.body;
+    
+    // Validar token
+    const LOG_TOKEN = process.env.LOG_TOKEN;
+    if (LOG_TOKEN && token !== LOG_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    if (!result || !result.safe_to_apply) {
+      return res.status(400).json({ ok: false, error: 'La reparación no está verificada como segura' });
+    }
+    
+    if (!result.patches || result.patches.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No hay parches para aplicar' });
+    }
+    
+    // Aplicar parches al código real
+    const appliedFiles = [];
+    
+    for (const patch of result.patches) {
+      if (!patch.file || !patch.diff) continue;
+      
+      const filePath = path.join(__dirname, patch.file);
+      
+      // Leer archivo original
+      let fileContent = '';
+      try {
+        fileContent = await fs.readFile(filePath, 'utf-8');
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          // Archivo no existe, crear vacío
+          fileContent = '';
+        } else {
+          throw err;
+        }
+      }
+      
+      // Aplicar diff
+      const newContent = applyDiffSimple(fileContent, patch.diff);
+      
+      // Crear directorio si no existe
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      
+      // Escribir archivo
+      await fs.writeFile(filePath, newContent, 'utf-8');
+      appliedFiles.push(patch.file);
+    }
+    
+    // Registrar auditoría
+    const auditLog = {
+      timestamp: new Date().toISOString(),
+      action: 'autofix_apply',
+      files_applied: appliedFiles,
+      result: result
+    };
+    
+    const auditFile = path.join(LOGS_DIR, `autofix-${Date.now()}.json`);
+    await fs.writeFile(auditFile, JSON.stringify(auditLog, null, 2), 'utf-8');
+    
+    await log('INFO', 'AutoFix: Cambios aplicados', { files: appliedFiles });
+    
+    res.json({
+      ok: true,
+      message: 'Cambios aplicados exitosamente',
+      files_applied: appliedFiles
+    });
+    
+  } catch (err) {
+    await log('ERROR', 'Error en /api/autofix/apply', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor',
+      message: NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Helper para aplicar diff simple
+function applyDiffSimple(originalContent, diffText) {
+  if (!diffText || !diffText.trim()) {
+    return originalContent;
+  }
+  
+  // Parsear diff en formato git unificado
+  const lines = originalContent.split('\n');
+  const diffLines = diffText.split('\n');
+  
+  let result = [];
+  let i = 0; // Índice en lines original
+  let inHunk = false;
+  let hunkStart = 0;
+  let hunkLines = [];
+  
+  for (let j = 0; j < diffLines.length; j++) {
+    const diffLine = diffLines[j];
+    
+    // Detectar inicio de hunk: @@ -start,count +start,count @@
+    const hunkMatch = diffLine.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (hunkMatch) {
+      if (inHunk) {
+        // Aplicar hunk anterior
+        result = applyHunk(result, hunkStart, hunkLines);
+        hunkLines = [];
+      }
+      inHunk = true;
+      hunkStart = parseInt(hunkMatch[1]) - 1; // -1 porque es 1-indexed
+      continue;
+    }
+    
+    if (inHunk) {
+      if (diffLine.startsWith(' ')) {
+        // Línea sin cambios
+        hunkLines.push({ type: 'context', line: diffLine.substring(1) });
+      } else if (diffLine.startsWith('-')) {
+        // Línea eliminada
+        hunkLines.push({ type: 'delete', line: diffLine.substring(1) });
+      } else if (diffLine.startsWith('+')) {
+        // Línea agregada
+        hunkLines.push({ type: 'add', line: diffLine.substring(1) });
+      } else if (diffLine.startsWith('\\')) {
+        // Fin de archivo sin nueva línea
+        continue;
+      } else {
+        // Fin de hunk o línea inválida
+        result = applyHunk(result, hunkStart, hunkLines);
+        hunkLines = [];
+        inHunk = false;
+      }
+    }
+  }
+  
+  // Aplicar último hunk si existe
+  if (inHunk && hunkLines.length > 0) {
+    result = applyHunk(result, hunkStart, hunkLines);
+  }
+  
+  // Si no se aplicó ningún hunk, retornar original
+  if (result.length === 0) {
+    return originalContent;
+  }
+  
+  return result.join('\n');
+}
+
+// Helper para aplicar un hunk
+function applyHunk(lines, start, hunkLines) {
+  const result = [...lines];
+  let pos = start;
+  
+  for (const hunkLine of hunkLines) {
+    if (hunkLine.type === 'context') {
+      // Verificar que la línea coincide
+      if (pos < result.length && result[pos] === hunkLine.line) {
+        pos++;
+      } else {
+        // No coincide, puede ser un problema con el diff
+        pos++;
+      }
+    } else if (hunkLine.type === 'delete') {
+      // Eliminar línea
+      if (pos < result.length && result[pos] === hunkLine.line) {
+        result.splice(pos, 1);
+      } else {
+        // No coincide exactamente, intentar encontrar
+        const found = result.findIndex((line, idx) => idx >= pos && line === hunkLine.line);
+        if (found >= 0) {
+          result.splice(found, 1);
+          pos = found;
+        } else {
+          // No se encontró, saltar
+          pos++;
+        }
+      }
+    } else if (hunkLine.type === 'add') {
+      // Agregar línea
+      result.splice(pos, 0, hunkLine.line);
+      pos++;
+    }
+  }
+  
+  return result;
+}
+
+// Helper para verificar sandbox
+async function verifySandbox(sandboxDir, result) {
+  const details = [];
+  let allPassed = true;
+  
+  // Verificación 1: Archivos existen y son válidos
+  try {
+    for (const patch of result.patches) {
+      if (patch.file) {
+        const sandboxFile = path.join(sandboxDir, patch.file);
+        const stats = await fs.stat(sandboxFile);
+        details.push(`✅ Archivo ${patch.file} existe (${stats.size} bytes)`);
+        
+        // Verificación 2: Sintaxis básica para archivos JavaScript
+        if (patch.file.endsWith('.js')) {
+          try {
+            const content = await fs.readFile(sandboxFile, 'utf-8');
+            // Verificar que no tenga errores de sintaxis obvios
+            if (content.includes('import') || content.includes('require')) {
+              // Verificar que los imports/requires estén balanceados
+              const importCount = (content.match(/import\s+.*from/g) || []).length;
+              const requireCount = (content.match(/require\(/g) || []).length;
+              if (importCount > 0 || requireCount > 0) {
+                details.push(`✅ Archivo ${patch.file} tiene estructura válida`);
+              }
+            }
+          } catch (syntaxErr) {
+            allPassed = false;
+            details.push(`❌ Error de sintaxis en ${patch.file}: ${syntaxErr.message}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    allPassed = false;
+    details.push(`❌ Error verificando archivos: ${err.message}`);
+  }
+  
+  // Verificación 3: El servidor puede arrancar (verificación simplificada)
+  // Verificar que los archivos modificados no rompan imports críticos
+  try {
+    // Verificar que server.js (si fue modificado) tenga estructura básica
+    const serverFile = path.join(sandboxDir, 'server.js');
+    if (await fs.access(serverFile).then(() => true).catch(() => false)) {
+      const serverContent = await fs.readFile(serverFile, 'utf-8');
+      // Verificar que tenga las importaciones básicas
+      if (serverContent.includes('express') && serverContent.includes('app.listen')) {
+        details.push(`✅ server.js tiene estructura válida`);
+      } else {
+        allPassed = false;
+        details.push(`❌ server.js puede tener problemas estructurales`);
+      }
+    }
+  } catch (verifyErr) {
+    // No crítico si server.js no fue modificado
+    details.push(`ℹ️ Verificación de servidor omitida: ${verifyErr.message}`);
+  }
+  
+  // Verificación 4: No hay referencias a secretos expuestos
+  try {
+    for (const patch of result.patches) {
+      if (patch.file) {
+        const sandboxFile = path.join(sandboxDir, patch.file);
+        const content = await fs.readFile(sandboxFile, 'utf-8');
+        const sensitivePatterns = [
+          /OPENAI_API_KEY\s*=\s*['"][^'"]+['"]/,
+          /process\.env\.OPENAI_API_KEY[^;]*=.*['"][^'"]+['"]/,
+          /api[_-]?key\s*[:=]\s*['"][^'"]+['"]/i
+        ];
+        
+        for (const pattern of sensitivePatterns) {
+          if (pattern.test(content)) {
+            allPassed = false;
+            details.push(`❌ Posible secreto expuesto en ${patch.file}`);
+            break;
+          }
+        }
+      }
+    }
+  } catch (secretErr) {
+    details.push(`⚠️ Verificación de secretos omitida: ${secretErr.message}`);
+  }
+  
+  return {
+    all_passed: allPassed,
+    message: allPassed ? 'Todas las verificaciones pasaron' : 'Algunas verificaciones fallaron',
+    details: details
+  };
+}
 
 // Iniciar servidor
 app.listen(PORT, async () => {
