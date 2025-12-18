@@ -1449,6 +1449,13 @@ function createSession(sessionId) {
       updated_at: new Date().toISOString()
     }
   };
+  
+  logDebug('DEBUG', 'createSession - Sesión creada', {
+    session_id: sessionId,
+    stage: session.stage
+  }, 'server.js', 1370, 1370).catch(() => {});
+  
+  return session;
 }
 
 function getSession(sessionId) {
@@ -1469,11 +1476,32 @@ function getSession(sessionId) {
   }
   
   const session = sessions.get(sessionId);
+  
+  // Validación defensiva: si session es undefined, recrearla
+  if (!session) {
+    logDebug('WARN', 'getSession - Sesión undefined detectada, recreando', {
+      session_id: sessionId,
+      sessions_has: sessions.has(sessionId),
+      total_sessions: sessions.size
+    }, 'server.js', 1478, 1478).catch(() => {});
+    const newSession = createSession(sessionId);
+    if (!newSession) {
+      // Si createSession también falla, lanzar error
+      throw new Error(`No se pudo crear sesión para sessionId: ${sessionId}`);
+    }
+    sessions.set(sessionId, newSession);
+    logDebug('DEBUG', 'getSession - Sesión recreada exitosamente', {
+      session_id: sessionId,
+      stage: newSession.stage
+    }, 'server.js', 1481, 1483).catch(() => {});
+    return newSession;
+  }
+  
   logDebug('DEBUG', 'getSession - Sesión obtenida', {
     session_id: sessionId,
     stage: session.stage,
     conversation_id: session.conversation_id
-  }, 'server.js', 1377, 1378).catch(() => {});
+  }, 'server.js', 1485, 1487).catch(() => {});
   
   return session;
 }
