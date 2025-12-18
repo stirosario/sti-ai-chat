@@ -4608,7 +4608,21 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       return res.status(400).json({ ok: false, error: validation.error });
     }
     
-    const { sessionId, message, imageBase64, imageName, request_id } = req.body;
+    const { sessionId, message, imageBase64, imageName, request_id, action, value, label } = req.body;
+    
+    // Si hay action (botón), convertir value/label a message para compatibilidad
+    let effectiveMessage = message;
+    if (action === 'button' && value && !message && !imageBase64) {
+      // Request de botón sin message: usar value como mensaje
+      effectiveMessage = value;
+      await log('INFO', 'Request de botón convertido a message', { 
+        boot_id: bootId,
+        session_id: sessionId,
+        action,
+        value,
+        label
+      });
+    }
     
     if (!sessionId) {
       await trace.logEvent('ERROR', 'MISSING_SESSION_ID', {
@@ -4668,26 +4682,34 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'sessionId requerido' });
     }
     
-    if (!message && !imageBase64) {
+    // Validar que haya al menos message, imageBase64, o action (botón)
+    const hasMessage = !!effectiveMessage;
+    const hasImage = !!imageBase64;
+    const hasButtonAction = action === 'button' && value;
+    
+    if (!hasMessage && !hasImage && !hasButtonAction) {
       await trace.logEvent('ERROR', 'MISSING_MESSAGE', {
         actor: 'system',
         endpoint: '/api/chat',
         boot_id: bootId,
         session_id: sessionId,
-        expected_behavior: `Request a /api/chat debería incluir 'message' (string) o 'imageBase64' (string base64) en el body`,
-        actual_behavior: `Request recibido sin 'message' ni 'imageBase64' en el body`,
-        expected_result: `Request válido con al menos message o imageBase64`,
-        actual_result: `Request inválido: falta message e imageBase64`,
+        expected_behavior: `Request a /api/chat debería incluir 'message' (string), 'imageBase64' (string base64), o 'action'='button' con 'value' en el body`,
+        actual_behavior: `Request recibido sin 'message', 'imageBase64', ni 'action'='button' válido en el body`,
+        expected_result: `Request válido con al menos message, imageBase64, o action=button`,
+        actual_result: `Request inválido: falta message, imageBase64 y action válido`,
         preconditions: [
-          `Request body debe contener 'message' o 'imageBase64'`,
-          `Al menos uno de los dos campos debe estar presente`,
-          `Los campos deben ser strings válidos`
+          `Request body debe contener 'message', 'imageBase64', o 'action'='button' con 'value'`,
+          `Al menos uno de estos campos debe estar presente`,
+          `Los campos deben ser válidos según su tipo`
         ],
         conditions_met: false,
-        decision_reason: `Validación falló: request sin message ni imageBase64`,
+        decision_reason: `Validación falló: request sin message, imageBase64 ni action válido`,
         decision_evidence: {
           has_message: !!message,
           has_imageBase64: !!imageBase64,
+          has_action: !!action,
+          action_value: action,
+          has_value: !!value,
           request_body_keys: Object.keys(req.body || {}),
           request_method: req.method,
           request_path: req.path
@@ -4699,36 +4721,43 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
           session_id: sessionId,
           has_message: false,
           has_imageBase64: false,
+          has_action: !!action,
+          action: action,
           request_body_size: JSON.stringify(req.body || {}).length
         },
         validation_passed: false,
-        validation_errors: 'Falta campo requerido: message o imageBase64',
+        validation_errors: 'Falta campo requerido: message, imageBase64, o action=button con value',
         validation_rules: [
-          'message debe ser string (opcional si hay imageBase64)',
-          'imageBase64 debe ser string base64 (opcional si hay message)',
-          'Al menos uno de los dos debe estar presente'
+          'message debe ser string (opcional si hay imageBase64 o action)',
+          'imageBase64 debe ser string base64 (opcional si hay message o action)',
+          'action debe ser "button" con value (opcional si hay message o imageBase64)',
+          'Al menos uno de los tres debe estar presente'
         ],
         troubleshooting_hints: [
-          `Verificar que el frontend esté enviando 'message' o 'imageBase64' en el body`,
+          `Verificar que el frontend esté enviando 'message', 'imageBase64', o 'action'='button' con 'value' en el body`,
           `Verificar que el body del request no esté vacío`,
           `Revisar código del frontend que hace el POST a /api/chat`,
           `Verificar que no haya problemas de serialización JSON`,
-          `Revisar logs anteriores del mismo boot_id para ver el flujo completo`
+          `Revisar logs anteriores del mismo boot_id para ver el flujo completo`,
+          `Si es un botón, asegurar que action='button' y value esté presente`
         ],
-        suggested_fix: `Asegurar que el frontend siempre envíe 'message' o 'imageBase64' en el body del POST. Si el usuario no envía mensaje, enviar string vacío: { message: "" }`
+        suggested_fix: `Asegurar que el frontend siempre envíe 'message', 'imageBase64', o 'action'='button' con 'value' en el body del POST. Si el usuario hace clic en un botón, enviar: { action: 'button', value: 'valor_del_boton', label: 'Etiqueta', sessionId: '...' }`
       }, traceContext);
       
-      await log('ERROR', 'message o imageBase64 faltante en /api/chat', { 
+      await log('ERROR', 'message, imageBase64 o action faltante en /api/chat', { 
         boot_id: bootId,
         session_id: sessionId,
         request_body: {
           keys: Object.keys(req.body || {}),
           has_message: !!message,
-          has_imageBase64: !!imageBase64
+          has_imageBase64: !!imageBase64,
+          has_action: !!action,
+          action: action,
+          has_value: !!value
         }
       });
       
-      return res.status(400).json({ ok: false, error: 'message o imageBase64 requerido' });
+      return res.status(400).json({ ok: false, error: 'message, imageBase64 o action requerido' });
     }
     
     // F23.2: Validar orden cronológico (si viene timestamp)
@@ -4762,19 +4791,29 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     // Actualizar traceContext con request_id
     traceContext.request_id = requestId;
     
-    await log('INFO', `Chat request`, { sessionId, hasMessage: !!message, hasImage: !!imageBase64, request_id: requestId, boot_id: bootId });
+    await log('INFO', `Chat request`, { 
+      sessionId, 
+      hasMessage: !!effectiveMessage, 
+      hasImage: !!imageBase64, 
+      hasAction: !!action,
+      action: action,
+      request_id: requestId, 
+      boot_id: bootId 
+    });
     
     // Log entrada de request
     await trace.logEvent('INFO', 'CHAT_REQUEST', {
       actor: 'user',
       endpoint: '/api/chat',
       session_id: sessionId,
-      has_message: !!message,
+      has_message: !!effectiveMessage,
       has_image: !!imageBase64,
+      has_action: !!action,
+      action: action,
       boot_id: bootId
     }, traceContext);
     
-    const response = await handleChatMessage(sessionId, message || '', imageBase64, requestId, bootId);
+    const response = await handleChatMessage(sessionId, effectiveMessage || '', imageBase64, requestId, bootId);
     
     // F23.3: Validar que frontend pueda representar estados
     if (response.buttons && !validateButtonsForFrontend(response.buttons)) {
@@ -5160,27 +5199,34 @@ function detectCommonErrors(trace, liveEvents = '') {
     });
   }
   
-  // 2. Detectar error de validación: message o imageBase64 faltante
-  if (combinedText.includes('message o imageBase64 faltante') || 
-      (combinedText.includes('VALIDATION_ERROR') && 
-       (combinedText.includes('has_message:false') || combinedText.includes('has_message":false')) &&
-       (combinedText.includes('has_imageBase64:false') || combinedText.includes('has_imageBase64":false')))) {
+  // 2. Detectar error de validación: message, imageBase64 o action faltante
+  // Solo detectar si realmente falta todo (no hay action válido)
+  const hasActionInTrace = combinedText.includes('"action"') || combinedText.includes("'action'") || 
+                          (combinedText.includes('action') && combinedText.includes('button'));
+  const hasValueInTrace = combinedText.includes('"value"') || combinedText.includes("'value'");
+  
+  if ((combinedText.includes('message o imageBase64 faltante') || 
+       combinedText.includes('message, imageBase64 o action faltante') ||
+       (combinedText.includes('MISSING_MESSAGE') && 
+        (combinedText.includes('has_message:false') || combinedText.includes('has_message":false')) &&
+        (combinedText.includes('has_imageBase64:false') || combinedText.includes('has_imageBase64":false')))) &&
+      !(hasActionInTrace && hasValueInTrace)) {
     issues.push({
       id: 'validation-missing-fields',
       severity: 'media',
       type: 'VALIDATION_ERROR',
       evidence: [
-        'Error: message o imageBase64 faltante en /api/chat',
-        'Request body no contiene ni message ni imageBase64, lo cual es inválido'
+        'Error: message, imageBase64 o action faltante en /api/chat',
+        'Request body no contiene ni message, ni imageBase64, ni action=button con value, lo cual es inválido'
       ],
-      root_cause: 'El request a /api/chat no contiene ni el campo "message" ni "imageBase64", lo cual viola las reglas de validación. Esto puede ocurrir por problemas en el frontend o en la serialización del request.',
-      solution: 'Verificar la función validateChatRequest() y asegurar que el frontend siempre envíe al menos uno de los dos campos (message o imageBase64)',
+      root_cause: 'El request a /api/chat no contiene ni el campo "message", ni "imageBase64", ni "action"="button" con "value", lo cual viola las reglas de validación. Esto puede ocurrir por problemas en el frontend o en la serialización del request.',
+      solution: 'Verificar que el frontend siempre envíe al menos uno de: (1) message, (2) imageBase64, o (3) action="button" con value. Si es un botón, asegurar que se envíe: { action: "button", value: "...", label: "...", sessionId: "..." }',
       files: ['server.js'],
-      line_hint: 'Función validateChatRequest y endpoint /api/chat',
+      line_hint: 'Validación en endpoint /api/chat',
       patch_hint: {
         file: 'server.js',
-        location: 'Función validateChatRequest',
-        note: 'Asegurar que la validación permita al menos uno de los dos campos'
+        location: 'Endpoint /api/chat - validación de campos',
+        note: 'La validación ya permite action=button con value como alternativa a message/imageBase64'
       }
     });
   }
