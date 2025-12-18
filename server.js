@@ -1135,7 +1135,7 @@ function validateClassifierResult(result) {
   }
   
   // Validación opcional: advertir sobre campos adicionales no esperados
-  const allowedFields = ['intent', 'needs_clarification', 'missing', 'risk_level', 'confidence', 'suggest_modes', 'suggested_next_ask'];
+  const allowedFields = ['intent', 'needs_clarification', 'missing', 'risk_level', 'confidence', 'suggest_modes', 'suggested_next_ask', 'detected_device', 'detected_device_category', 'missing_device'];
   const extraFields = Object.keys(result).filter(f => !allowedFields.includes(f));
   if (extraFields.length > 0) {
     // Log warning pero no fallar (mejora opcional)
@@ -1227,6 +1227,9 @@ async function iaClassifier(session, userInput, requestId = null) {
       missing: ['device_type'],
       suggested_next_ask: 'ASK_DEVICE_TYPE',
       risk_level: 'low',
+      detected_device: null,
+      detected_device_category: null,
+      missing_device: true,
       suggest_modes: {},
       confidence: 0.0
     };
@@ -1245,6 +1248,9 @@ async function iaClassifier(session, userInput, requestId = null) {
       missing: ['device_type'],
       suggested_next_ask: 'ASK_DEVICE_TYPE',
       risk_level: 'low',
+      detected_device: null,
+      detected_device_category: null,
+      missing_device: true,
       suggest_modes: {},
       confidence: 0.0
     };
@@ -1259,6 +1265,9 @@ async function iaClassifier(session, userInput, requestId = null) {
       missing: ['device_type'],
       suggested_next_ask: 'ASK_DEVICE_TYPE',
       risk_level: 'low',
+      detected_device: null,
+      detected_device_category: null,
+      missing_device: true,
       suggest_modes: {},
       confidence: 0.0
     };
@@ -1290,6 +1299,12 @@ CONTEXTO:
 - Problema descrito: "${problemDesc}"
 - Mensaje actual: "${userInput}"
 
+INSTRUCCIONES IMPORTANTES:
+- Detectá el dispositivo mencionado en el problema (pc, notebook, all_in_one, impresora, router, monitor, teclado, mouse, cámara, storage, audio, etc.)
+- Si el problema menciona claramente un dispositivo (ej: "mi notebook no prende", "la impresora no imprime"), establecé detected_device con ese valor y missing_device = false
+- Si el problema es ambiguo o no menciona dispositivo (ej: "no tengo wifi", "mi compu no funciona"), establecé detected_device = null y missing_device = true
+- detected_device_category debe ser "main" para pc/notebook/all_in_one, "external" para periféricos, o null si no se detecta
+
 Devolvé un JSON con esta estructura exacta:
 {
   "intent": "network|power|install_os|install_app|peripheral|malware|unknown",
@@ -1297,6 +1312,9 @@ Devolvé un JSON con esta estructura exacta:
   "missing": ["device_type", "os", ...],
   "suggested_next_ask": "ASK_DEVICE_TYPE|ASK_PROBLEM|...",
   "risk_level": "low|medium|high",
+  "detected_device": "pc|notebook|all_in_one|impresora|router|monitor|teclado|mouse|cámara|storage|audio|null",
+  "detected_device_category": "main|external|null",
+  "missing_device": true|false,
   "suggest_modes": {
     "ask_interaction_mode": true|false,
     "ask_learning_depth": true|false,
@@ -2374,7 +2392,8 @@ async function handleAskUserLevel(session, userInput, conversation) {
   }
   
   session.user_level = level;
-  session.stage = 'ASK_DEVICE_CATEGORY';
+  session.context.user_level = level;
+  session.stage = 'ASK_PROBLEM';
   session.meta.updated_at = new Date().toISOString();
   
   await appendToTranscript(conversation.conversation_id, {
@@ -2385,17 +2404,13 @@ async function handleAskUserLevel(session, userInput, conversation) {
   });
   
   const confirmation = session.language === 'es-AR'
-    ? `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${level}.\n\n${TEXTS.ASK_DEVICE_CATEGORY.es}`
-    : `Perfect! I'll adjust my explanations to your ${level} level.\n\n${TEXTS.ASK_DEVICE_CATEGORY.en}`;
+    ? `¡Perfecto! Voy a ajustar mis explicaciones a tu nivel ${level}.\n\n${TEXTS.ASK_PROBLEM[session.language || 'es']}`
+    : `Perfect! I'll adjust my explanations to your ${level} level.\n\n${TEXTS.ASK_PROBLEM[session.language || 'en']}`;
   
   return {
     reply: confirmation,
-    buttons: ALLOWED_BUTTONS_BY_ASK.ASK_DEVICE_CATEGORY.map(b => ({
-      label: b.label,
-      value: b.value,
-      token: b.token
-    })),
-    stage: 'ASK_DEVICE_CATEGORY'
+    buttons: [],
+    stage: 'ASK_PROBLEM'
   };
 }
 
@@ -2527,7 +2542,6 @@ async function handleAskDeviceType(session, userInput, conversation) {
     session.context.external_type = deviceType;
   }
   
-  session.stage = 'ASK_PROBLEM';
   session.meta.updated_at = new Date().toISOString();
   
   await appendToTranscript(conversation.conversation_id, {
@@ -2537,11 +2551,32 @@ async function handleAskDeviceType(session, userInput, conversation) {
     value: deviceType
   });
   
-  return {
-    reply: TEXTS.ASK_PROBLEM[session.language || 'es'],
-    buttons: [],
-    stage: 'ASK_PROBLEM'
-  };
+  // FLUJO PROBLEMA PRIMERO: Si ya tenemos problema, ir directo a diagnóstico
+  // Si no tenemos problema aún, preguntarlo
+  if (session.context.problem_description_raw) {
+    // Ya tenemos problema → ir a diagnóstico
+    session.stage = 'DIAGNOSTIC_STEP';
+    const allowedButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
+    const stepResult = await iaStep(session, allowedButtons, null, null);
+    
+    return {
+      reply: stepResult.reply,
+      buttons: stepResult.buttons.map(b => ({
+        label: b.label,
+        value: b.value || b.token,
+        token: b.token
+      })),
+      stage: 'DIAGNOSTIC_STEP'
+    };
+  } else {
+    // No tenemos problema aún → preguntarlo
+    session.stage = 'ASK_PROBLEM';
+    return {
+      reply: TEXTS.ASK_PROBLEM[session.language || 'es'],
+      buttons: [],
+      stage: 'ASK_PROBLEM'
+    };
+  }
 }
 
 async function handleAskProblem(session, userInput, conversation, requestId = null) {
@@ -2566,6 +2601,40 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
   
   session.context.problem_category = classification.intent;
   session.context.risk_level = classification.risk_level;
+  
+  // FLUJO PROBLEMA PRIMERO: Detectar dispositivo del problema
+  const detectedDevice = classification.detected_device || null;
+  const detectedCategory = classification.detected_device_category || null;
+  const missingDevice = classification.missing_device !== undefined ? classification.missing_device : (detectedDevice === null);
+  
+  // Si se detectó dispositivo, guardarlo en session
+  if (detectedDevice && detectedDevice !== 'null') {
+    if (detectedCategory === 'main') {
+      session.context.device_category = 'main';
+      session.context.device_type = detectedDevice;
+    } else if (detectedCategory === 'external') {
+      session.context.device_category = 'external';
+      session.context.external_type = detectedDevice;
+    } else {
+      // Si no hay categoría pero hay dispositivo, inferir categoría
+      const mainDevices = ['pc', 'notebook', 'all_in_one', 'desktop', 'laptop'];
+      if (mainDevices.includes(detectedDevice)) {
+        session.context.device_category = 'main';
+        session.context.device_type = detectedDevice === 'pc' ? 'desktop' : detectedDevice === 'laptop' ? 'notebook' : detectedDevice;
+      } else {
+        session.context.device_category = 'external';
+        session.context.external_type = detectedDevice;
+      }
+    }
+    
+    await log('INFO', 'Dispositivo detectado del problema', {
+      conversation_id: session.conversation_id,
+      detected_device: detectedDevice,
+      detected_category: detectedCategory,
+      device_type: session.context.device_type,
+      external_type: session.context.external_type
+    });
+  }
   
   // Si necesita clarificación, decidir entre ASK_PROBLEM_CLARIFICATION o GUIDED_STORY
   if (classification.needs_clarification && classification.missing.length > 0) {
@@ -2600,17 +2669,20 @@ async function handleAskProblem(session, userInput, conversation, requestId = nu
     };
   }
   
-  // Si falta device_type y no está definido, preguntar
-  if (classification.missing.includes('device_type') && !session.context.device_type) {
-    session.stage = 'ASK_DEVICE_TYPE_MAIN';
+  // FLUJO PROBLEMA PRIMERO: Preguntar dispositivo SOLO si falta y no se detectó
+  if (missingDevice && !session.context.device_type && !session.context.external_type) {
+    // Primero preguntar categoría (main/external)
+    session.stage = 'ASK_DEVICE_CATEGORY';
     return {
-      reply: session.language === 'es-AR' ? '¿Qué tipo de dispositivo?' : 'What type of device?',
-      buttons: ALLOWED_BUTTONS_BY_ASK.ASK_DEVICE_TYPE_MAIN.map(b => ({
+      reply: session.language === 'es-AR' 
+        ? 'Para ayudarte mejor, ¿es un dispositivo principal (PC, Notebook, etc.) o un dispositivo externo (impresora, router, etc.)?'
+        : 'To help you better, is it a main device (PC, Notebook, etc.) or an external device (printer, router, etc.)?',
+      buttons: ALLOWED_BUTTONS_BY_ASK.ASK_DEVICE_CATEGORY.map(b => ({
         label: b.label,
         value: b.value,
         token: b.token
       })),
-      stage: 'ASK_DEVICE_TYPE_MAIN'
+      stage: 'ASK_DEVICE_CATEGORY'
     };
   }
   
