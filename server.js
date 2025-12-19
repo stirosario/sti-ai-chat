@@ -634,10 +634,19 @@ async function appendToTranscript(conversationId, event) {
   
   const conversation = await loadConversation(conversationId);
   if (!conversation) {
-    await logDebug('ERROR', 'appendToTranscript - Conversación no encontrada', {
+    // Crear conversación mínima para no perder eventos
+    await logDebug('WARN', 'appendToTranscript - Conversación no encontrada, creando stub', {
       conversation_id: conversationId
-    }, 'server.js', 400, 403);
-    return;
+    }, 'server.js', 400, 405);
+    conversation = {
+      conversation_id: conversationId,
+      status: 'open',
+      flow_version: FLOW_VERSION,
+      schema_version: SCHEMA_VERSION,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      transcript: []
+    };
   }
   
   if (!conversation.transcript) {
@@ -4141,9 +4150,15 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
         problem: session.context.problem_description_raw,
         reason,
         transcript_path: path.join(CONVERSATIONS_DIR, `${conversationId}.json`),
-        whatsapp_url: `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-          `Hola, soy ${conversation.user.name_norm || 'Usuario'}. Conversación ${conversationId}. Problema: ${session.context.problem_description_raw || 'N/A'}`
-        )}`
+        whatsapp_url: (() => {
+          const userNameRaw = conversation.user?.name_norm || conversation.user?.name || 'Usuario';
+          const userName = String(userNameRaw).replace(/Conversaci.+/i, '').trim() || 'Usuario';
+          const problemRaw = session.context.problem_description_raw || session.context.problem_description || session.context.last_user_message || 'No especificado';
+          const problemClean = String(problemRaw).replace(/Problema[:]?/i, '').trim() || 'No especificado';
+          const renderLink = `${PUBLIC_BASE_URL}/api/historial/${conversationId}`;
+          const whatsappText = `Hola, soy ${userName}. Conversación ${conversationId}. Problema: ${problemClean}. Link: ${renderLink}`;
+          return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappText)}`;
+        })()
       };
       
       // Write temp + rename para atomicidad (con reintento)
@@ -7396,20 +7411,97 @@ app.get('/api/historial/:conversationId', async (req, res) => {
     }
     
     // Cargar conversación
-    const conversation = await loadConversation(conversationId);
-    
-    if (!conversation) {
-      await log('INFO', `Conversación no encontrada en /api/historial`, { 
-        conversation_id: conversationId,
-        boot_id: req.bootId
-      });
-      
-      return res.status(404).json({ 
-        ok: false, 
-        error: 'Conversación no encontrada. Verificá que el ID sea correcto.' 
-      });
+    let conversation = await loadConversation(conversationId);
+
+    // Intentar cargar trace detallado para reconstruir si falta transcript
+    let traceEvents = [];
+    try {
+      traceEvents = await trace.readTrace(conversationId);
+    } catch (traceErr) {
+      await log('WARN', 'No se pudo leer trace en /api/historial', { error: traceErr.message, conversation_id: conversationId });
     }
-    
+
+    // Normalizar eventos de trace a formato transcript
+    const normalizeTraceEvents = (events) => {
+      return (events || []).map(ev => {
+        const t = ev.ts_effective || ev.t || ev.timestamp || ev.ts || new Date().toISOString();
+        const role = ev.actor === 'user'
+          ? 'user'
+          : (ev.actor === 'bot' || ev.role === 'assistant' || ev.role === 'bot' ? 'bot' : 'system');
+        const type = ev.type || (ev.buttons && ev.buttons.length ? 'buttons' : 'text');
+        const text = ev.raw_text || ev.text || ev.content || '';
+        const stage = ev.stage || ev.payload?.stage || 'unknown';
+        const buttons = ev.buttons || ev.payload?.buttons || [];
+        return {
+          t,
+          role,
+          type,
+          stage,
+          text,
+          buttons,
+          conversation_id: conversationId,
+          payload: ev.payload || {}
+        };
+      });
+    };
+
+    const traceTranscript = normalizeTraceEvents(traceEvents);
+
+    if (!conversation) {
+      // Reconstruir conversación a partir de trace si existe
+      if (traceTranscript.length > 0) {
+        conversation = {
+          conversation_id: conversationId,
+          status: 'open',
+          flow_version: FLOW_VERSION,
+          schema_version: SCHEMA_VERSION,
+          created_at: traceTranscript[0].t,
+          updated_at: new Date().toISOString(),
+          transcript: traceTranscript
+        };
+        await log('WARN', 'Conversación reconstruida desde trace en /api/historial', {
+          conversation_id: conversationId,
+          events: traceTranscript.length
+        });
+        try { await saveConversation(conversation); } catch {}
+      } else {
+        await log('INFO', `Conversación no encontrada en /api/historial`, { 
+          conversation_id: conversationId,
+          boot_id: req.bootId
+        });
+
+        return res.status(404).json({ 
+          ok: false, 
+          error: 'Conversación no encontrada. Verificá que el ID sea correcto.' 
+        });
+      }
+    } else {
+      // Si el transcript está incompleto, fusionar con trace
+      const existing = conversation.transcript || [];
+      if (traceTranscript.length > existing.length) {
+        const key = (e) => `${e.t}|${e.role}|${e.type}|${e.text || ''}`;
+        const seen = new Set(existing.map(key));
+        const merged = [...existing];
+        traceTranscript.forEach(ev => {
+          const k = key(ev);
+          if (!seen.has(k)) {
+            seen.add(k);
+            merged.push(ev);
+          }
+        });
+        merged.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+        conversation.transcript = merged;
+        conversation.updated_at = new Date().toISOString();
+        await log('WARN', 'Conversación incompleta, transcript fusionado con trace', {
+          conversation_id: conversationId,
+          transcript_before: existing.length,
+          transcript_after: merged.length,
+          trace_events: traceTranscript.length
+        });
+        try { await saveConversation(conversation); } catch {}
+      }
+    }
+
     // Retornar conversación
     res.json({
       ok: true,
