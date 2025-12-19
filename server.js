@@ -7641,6 +7641,40 @@ app.get('/api/historial-public/:conversationId/:shareToken', async (req, res) =>
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
+    // Intentar reconstruir transcript desde trace si el archivo está incompleto
+    try {
+      const traceEvents = await trace.readTrace(conversationId);
+      const traceTranscript = (traceEvents || []).map(ev => {
+        const t = ev.ts_effective || ev.t || ev.timestamp || ev.ts || new Date().toISOString();
+        const role = ev.actor === 'user'
+          ? 'user'
+          : (ev.actor === 'bot' || ev.role === 'assistant' || ev.role === 'bot' ? 'bot' : 'system');
+        const type = ev.type || (ev.buttons && ev.buttons.length ? 'buttons' : 'text');
+        const text = ev.raw_text || ev.text || ev.content || '';
+        const stage = ev.stage || ev.payload?.stage || 'unknown';
+        const buttons = ev.buttons || ev.payload?.buttons || [];
+        return {
+          t,
+          role,
+          type,
+          stage,
+          text,
+          buttons,
+          conversation_id: conversationId,
+          payload: ev.payload || {}
+        };
+      });
+      
+      if (traceTranscript.length > 0 &&
+          (!conversation.transcript || conversation.transcript.length < traceTranscript.length)) {
+        conversation.transcript = traceTranscript;
+        conversation.updated_at = new Date().toISOString();
+        await saveConversation(conversation).catch(() => {});
+      }
+    } catch (traceErr) {
+      await log('WARN', 'No se pudo leer trace en /api/historial-public', { error: traceErr.message, conversation_id: conversationId });
+    }
+    
     // No exponer share_token en la respuesta
     const { share_token, ...safeConversation } = conversation;
     return res.json({ ok: true, historial: safeConversation });
