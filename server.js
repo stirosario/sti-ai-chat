@@ -2594,7 +2594,7 @@ function detectEmotion(userInput, session) {
 // IA - STEP (Etapa 2) - Mejorado con UX adaptativa
 // ========================================================
 
-async function iaStep(session, allowedButtons, previousButtonResult = null, requestId = null) {
+async function iaStep(session, allowedButtons, previousButtonResult = null, requestId = null, stepMode = 'diagnostic') {
   // LOG DETALLADO: Inicio de iaStep
   const conversationId = session.conversation_id;
   await logDebug('DEBUG', 'iaStep - Inicio', {
@@ -2606,7 +2606,8 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     request_id: requestId,
     session_language: session.language,
     user_level: session.user_level,
-    emotion: session.meta?.emotion || 'neutral'
+    emotion: session.meta?.emotion || 'neutral',
+    step_mode: stepMode
   }, 'server.js', 2004, 2004);
   
   if (!openai) {
@@ -2685,9 +2686,20 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     ? `\n\nRESULTADO DEL PASO ANTERIOR: El usuario indicó "${previousButtonResult}" (el paso anterior no resolvió el problema).`
     : '';
   
+    // Ajustar objetivo segun modo (clarify / retriage / diagnostic)
+  let modeInstructions = 'MODO: Diagnostico estandar, propone un paso claro y validable.';
+  let actionInstruction = 'Genera UN SOLO paso de diagnostico o asistencia.';
+  if (stepMode === 'clarify') {
+    modeInstructions = 'MODO: Clarificacion adaptativa. Busca destrabar pidiendo datos faltantes.';
+    actionInstruction = 'Genera de 2 a 4 preguntas cortas y directas (sin nuevas acciones) para obtener la info clave.';
+  } else if (stepMode === 'retriage') {
+    modeInstructions = 'MODO: Re-triaje. Antes de escalar, proba una rama alternativa o una prueba concluyente.';
+    actionInstruction = 'Propone UNA accion: (a) pregunta breve para elegir rama (energia/temperatura/eventos/drivers) o (b) prueba concreta que diferencie causas. Inclui una frase del por que.';
+  }
+  
   const allowedButtonsList = allowedButtons.map(b => `- ${b.label} (token: ${b.token})`).join('\n');
   
-  const prompt = `Sos Tecnos, técnico informático de STI. Generá UN SOLO paso de diagnóstico o asistencia.
+  const prompt = `Sos Tecnos, tecnico informatico de STI. ${actionInstruction}
 
 CONTEXTO:
 - Etapa actual: ${session.stage || 'DIAGNOSTIC_STEP'}
@@ -2696,26 +2708,27 @@ CONTEXTO:
 - Dispositivo: ${session.context.device_type || 'desconocido'}
 - Problema: ${session.context.problem_description_raw || 'ninguno'}
 - Intent: ${session.context.problem_category || 'unknown'}${previousButtonContext}${historyText}
+${modeInstructions}
 
 INSTRUCCIONES:
-1. Generá UN SOLO paso claro y conciso
-2. Adaptá el lenguaje al nivel del usuario
-3. Usá voseo argentino si el idioma es es-AR
-4. Podés incluir una "ayuda extra" opcional del mismo paso
+1. El paso/preguntas deben ser claras y validadas en menos de 2 minutos
+2. Adapta el lenguaje al nivel del usuario
+3. Usa voseo argentino si el idioma es es-AR
+4. Podes incluir una "ayuda extra" opcional del mismo paso
 5. NO repitas pasos anteriores${securityRestrictions}
 
-BOTONES PERMITIDOS (solo podés usar estos):
+BOTONES PERMITIDOS (solo podes usar estos):
 ${allowedButtonsList}
 
-Devolvé SOLO un JSON válido:
+Devolve SOLO un JSON valido:
 {
-  "reply": "Texto del paso + pregunta de confirmación + (opcional) ayuda extra",
+  "reply": "Texto del paso + pregunta de confirmacion + (opcional) ayuda extra",
   "buttons": [
     {"token": "BTN_XXX", "label": "Texto visible", "order": 1}
   ]
 }
 
-IMPORTANTE: Solo podés usar tokens de la lista de botones permitidos.`;
+IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
 
   // P2.4: Generar hash del payload para observabilidad
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex').substring(0, 16);
@@ -4378,7 +4391,6 @@ async function handleAskInteractionMode(session, userInput, conversation) {
 // ========================================================
 
 async function handleDiagnosticStep(session, userInput, conversation) {
-  // LOG DETALLADO: Inicio de handleDiagnosticStep
   await logDebug('DEBUG', 'handleDiagnosticStep - Inicio', {
     conversation_id: conversation?.conversation_id || 'none',
     user_input: userInput,
@@ -4389,125 +4401,76 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   }, 'server.js', 3925, 3925);
   
   const inputLower = userInput.toLowerCase().trim();
-  
-  // Detectar si es respuesta a botones
   const allowedButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
   let buttonToken = null;
-  
   for (const btn of allowedButtons) {
     const btnValue = btn.value?.toLowerCase() || '';
     const btnLabel = btn.label?.toLowerCase() || '';
-    if (inputLower === btnValue || inputLower === btnLabel || 
-        inputLower.includes(btnValue) || inputLower.includes(btnLabel)) {
+    if (inputLower === btnValue || inputLower === btnLabel || inputLower.includes(btnValue) || inputLower.includes(btnLabel)) {
       buttonToken = btn.token;
       break;
     }
   }
   
-  // Actualizar last_known_step para CONTEXT_RESUME
   if (conversation && session.context.problem_description_raw) {
-    const stepDescription = session.context.diagnostic_attempts 
-      ? `Paso ${session.context.diagnostic_attempts + 1} de diagnóstico para: ${session.context.problem_description_raw}`
-      : `Diagnóstico inicial para: ${session.context.problem_description_raw}`;
+    const stepDescription = session.context.diagnostic_attempts
+      ? `Paso ${session.context.diagnostic_attempts + 1} de diagnostico para: ${session.context.problem_description_raw}`
+      : `Diagnostico inicial para: ${session.context.problem_description_raw}`;
     session.context.last_known_step = stepDescription;
   }
   
-  // Si es "Se resolvió"
-  if (buttonToken === 'BTN_RESOLVED' || inputLower.includes('resolvió') || inputLower.includes('resolved')) {
-    // OBTENER conversation_id DE FORMA SEGURA
+  if (buttonToken === 'BTN_RESOLVED' || inputLower.includes('resolvi') || inputLower.includes('resolved')) {
     const conversationId = await getConversationIdSafe(session, conversation);
-    
-    // F30.1: Registrar métrica de resolución
     const metrics = resolutionMetrics.get(conversationId) || { resolved: false, escalated: false, steps_taken: 0 };
     metrics.resolved = true;
     metrics.steps_taken = session.context.diagnostic_attempts || 0;
-    if (conversation.started_at) {
+    if (conversation?.started_at) {
       const startedAt = new Date(conversation.started_at);
       const resolvedAt = new Date();
       metrics.resolution_time_minutes = (resolvedAt - startedAt) / (1000 * 60);
     }
     resolutionMetrics.set(conversationId, metrics);
-    
     session.stage = 'ASK_FEEDBACK';
-    await appendToTranscript(conversationId, {
-      role: 'user',
-      type: 'button',
-      label: '✅ Se resolvió',
-      value: 'resolved'
-    });
-    
+    await appendToTranscript(conversationId, { role: 'user', type: 'button', label: 'Se resolvio', value: 'resolved' });
     return {
       reply: TEXTS.ASK_FEEDBACK[session.language || 'es'],
-      buttons: ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK.map(b => ({
-        label: b.label,
-        value: b.value,
-        token: b.token
-      })),
+      buttons: ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK.map(b => ({ label: b.label, value: b.value, token: b.token })),
       stage: 'ASK_FEEDBACK'
     };
   }
   
-  // Si es "Necesito ayuda" o "Sigue igual" múltiples veces → escalar
-  if (buttonToken === 'BTN_NEED_HELP' || inputLower.includes('necesito ayuda') || 
-      inputLower.includes('técnico') || inputLower.includes('technician') ||
-      inputLower.includes('tecnico') || inputLower.includes('tecniko')) {
+  if (buttonToken === 'BTN_NEED_HELP' || inputLower.includes('necesito ayuda') || inputLower.includes('tecnico') || inputLower.includes('technician')) {
     return await escalateToTechnician(session, conversation, 'user_requested');
   }
   
-  // Si es "Sigue igual", continuar con siguiente paso
-  if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || 
-      inputLower.includes('not resolved')) {
-    // Incrementar contador de intentos (simplificado)
+  if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || inputLower.includes('not resolved')) {
     if (!session.context.diagnostic_attempts) {
       session.context.diagnostic_attempts = 0;
     }
     session.context.diagnostic_attempts++;
-    
-    // OBTENER conversation_id DE FORMA SEGURA
     const conversationId = await getConversationIdSafe(session, conversation);
-    
-    await appendToTranscript(conversationId, {
-      role: 'user',
-      type: 'button',
-      label: '❌ Sigue igual',
-      value: 'not_resolved'
-    });
-    
-    // Si más de 2 intentos, escalar
-    if (session.context.diagnostic_attempts >= 2) {
+    await appendToTranscript(conversationId, { role: 'user', type: 'button', label: 'Sigue igual', value: 'not_resolved' });
+    if (session.context.diagnostic_attempts === 1) {
+      const clarifyStep = await iaStep(session, allowedButtons, 'not_resolved', null, 'clarify');
+      return { reply: clarifyStep.reply, buttons: clarifyStep.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
+    }
+    if (session.context.diagnostic_attempts === 2) {
+      const retriageStep = await iaStep(session, allowedButtons, 'not_resolved', null, 'retriage');
+      return { reply: retriageStep.reply, buttons: retriageStep.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
+    }
+    if (session.context.diagnostic_attempts >= 3) {
       return await escalateToTechnician(session, conversation, 'multiple_attempts_failed');
     }
-    
-    // Continuar con siguiente paso (enviar resultado del botón anterior)
-    const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved');
-    return {
-      reply: nextStepResult.reply,
-      buttons: nextStepResult.buttons.map(b => ({
-        label: b.label,
-        value: b.value || b.token,
-        token: b.token
-      })),
-      stage: 'DIAGNOSTIC_STEP'
-    };
+    const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved', null, 'diagnostic');
+    return { reply: nextStepResult.reply, buttons: nextStepResult.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
   }
   
-  // Si no es respuesta a botón, tratar como pregunta libre o continuar
   const freeQA = await handleFreeQA(session, userInput, conversation);
   if (freeQA) {
     return freeQA;
   }
-  
-  // Por defecto, continuar con siguiente paso
   const stepResult = await iaStep(session, allowedButtons);
-  return {
-    reply: stepResult.reply,
-    buttons: stepResult.buttons.map(b => ({
-      label: b.label,
-      value: b.value || b.token,
-      token: b.token
-    })),
-    stage: 'DIAGNOSTIC_STEP'
-  };
+  return { reply: stepResult.reply, buttons: stepResult.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
 }
 
 // ========================================================
@@ -8935,3 +8898,5 @@ app.listen(PORT, async () => {
   await log('INFO', `Server iniciado en puerto ${PORT}`);
 });
 // Deploy marker 2025-12-19
+
+
