@@ -135,8 +135,8 @@ if (!process.env.OPENAI_API_KEY) {
 if (!process.env.ALLOWED_ORIGINS) {
   console.warn('[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.');
 }
-if (!process.env.LOG_TOKEN) {
-  console.warn('[WARN] LOG_TOKEN no configurado. Endpoint /api/logs sin protección.');
+if (!process.env.LOG_TOKEN && process.env.NODE_ENV !== 'production') {
+  console.warn('[WARN] LOG_TOKEN no configurado. Endpoints admin (/api/logs, /api/metrics, /api/transcript, /api/logs/stream) quedarán deshabilitados.');
 }
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -675,45 +675,55 @@ const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
 // SECURITY: Generar token seguro si no está configurado
 // Permitir fallback desde `SSE_TOKEN` en .env para despliegues donde se use ese nombre
 const LOG_TOKEN = process.env.LOG_TOKEN || process.env.SSE_TOKEN || crypto.randomBytes(32).toString('hex');
+
+// A3: Fail fast en producción si falta LOG_TOKEN
+const isProd = process.env.NODE_ENV === 'production';
+if (isProd && !process.env.LOG_TOKEN) {
+  console.error('[SECURITY CRITICAL] LOG_TOKEN requerido en producción. Abortando arranque.');
+  process.exit(1);
+}
+
 if (!process.env.LOG_TOKEN) {
+  const maskedToken = LOG_TOKEN.length > 12 
+    ? LOG_TOKEN.substring(0, 6) + '...' + LOG_TOKEN.substring(LOG_TOKEN.length - 6)
+    : '***masked***';
   console.error('\n'.repeat(3) + '='.repeat(80));
   console.error('[SECURITY CRITICAL] ⚠️  LOG_TOKEN NOT CONFIGURED!');
   console.error('[SECURITY] Generated RANDOM token for this session ONLY.');
   console.error('[SECURITY] This token will change on every restart!');
   console.error('[SECURITY] ');
-  console.error('[SECURITY] Current session token:', LOG_TOKEN);
+  console.error('[SECURITY] Current session token:', maskedToken);
   console.error('[SECURITY] ');
   console.error('[SECURITY] To fix: Add to your .env file:');
-  console.error('[SECURITY] LOG_TOKEN=' + LOG_TOKEN);
+  console.error('[SECURITY] LOG_TOKEN=' + maskedToken);
   console.error('='.repeat(80) + '\n'.repeat(2));
+}
+
+function getAdminToken(req) {
+  const h = String(req.headers.authorization || '');
+  const bearer = h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : '';
+  return bearer || String(req.query?.token || '');
+}
+function isAdmin(req) {
+  const tok = getAdminToken(req);
+  return !!(process.env.LOG_TOKEN && tok && tok === String(LOG_TOKEN));
 }
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
-// Escribir token de logs a archivo seguro para interfaces administrativas locales
-try {
-  const tokenPath = path.join(LOGS_DIR, 'log_token.txt');
-  try { fs.writeFileSync(tokenPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) { fs.writeFileSync(tokenPath, LOG_TOKEN); }
-  console.log('[SECURITY] Wrote log token to', tokenPath);
-} catch (e) {
-  console.error('[SECURITY] Failed to write log token file:', e && e.message);
+// A4: Escribir token de logs a archivo solo si está habilitado (opt-in)
+if (process.env.WRITE_LOG_TOKEN_FILE === 'true') {
+  try {
+    const tokenPath = path.join(LOGS_DIR, 'log_token.txt');
+    try { fs.writeFileSync(tokenPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) { fs.writeFileSync(tokenPath, LOG_TOKEN); }
+    console.log('[SECURITY] Wrote log token to', tokenPath);
+  } catch (e) {
+    console.warn('[SECURITY] Failed to write log token file:', e && e.message);
+  }
 }
 
-// Additionally attempt to write a copy into the repo's public_html/logs
-// (common deployment where PHP admin UI reads that path). This is best-effort
-// and won't override existing permissions if the folder isn't writable.
-try {
-  const altPath = path.join(process.cwd(), '..', 'public_html', 'logs', 'log_token.txt');
-  try { fs.mkdirSync(path.dirname(altPath), { recursive: true }); } catch (e) { /* ignore */ }
-  try { fs.writeFileSync(altPath, LOG_TOKEN, { mode: 0o600 }); } catch (e) {
-    try { fs.writeFileSync(altPath, LOG_TOKEN); } catch (err) { throw err; }
-  }
-  console.log('[SECURITY] Wrote public copy of log token to', altPath);
-} catch (e) {
-  console.warn('[SECURITY] Could not write public copy of log token:', e && e.message);
-}
 
 // ========================================================
 // 🔒 CORS CONFIGURATION (Production-ready)
@@ -857,6 +867,39 @@ function broadcastLog(entry) {
       try { res.end(); } catch (_) { }
       sseClients.delete(res);
     }
+  }
+}
+
+function logMsg(...args) {
+  try {
+    let level = 'info';
+    let parts = args;
+
+    // Soportar logMsg("warn", "msg") y logMsg("msg")
+    if (args.length >= 2) {
+      const first = String(args[0] || '').toLowerCase();
+      if (['info', 'warn', 'warning', 'error', 'debug'].includes(first)) {
+        level = first === 'warning' ? 'warn' : first;
+        parts = args.slice(1);
+      }
+    }
+
+    const line = (typeof formatLog === 'function')
+      ? formatLog(level, ...parts)
+      : `[${level.toUpperCase()}] ${parts.map(p => String(p)).join(' ')}`;
+
+    if (typeof appendToLogFile === 'function') appendToLogFile(line);
+    if (typeof broadcastLog === 'function') broadcastLog(line);
+
+    // fallback visible
+    if (level === 'error') console.error(line);
+    else if (level === 'warn') console.warn(line);
+    else console.log(line);
+
+    return line;
+  } catch (e) {
+    try { console.log('[logMsg:fallback]', ...args); } catch (_) {}
+    return null;
   }
 }
 
@@ -1889,14 +1932,18 @@ if (process.env.NODE_ENV !== 'production') {
 app.use((req, res, next) => {
   try {
     const isLogsPath = String(req.path || '').startsWith('/api/logs');
-    const token = String(req.query?.token || '');
-    if (isLogsPath && LOG_TOKEN && token && token === String(LOG_TOKEN)) {
-      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-      if (req.method === 'OPTIONS') return res.sendStatus(204);
-      return next();
+    if (isLogsPath && isAdmin(req)) {
+      const logsAllowed = (process.env.LOGS_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+      const origin = String(req.headers.origin || '');
+      if (origin && logsAllowed.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+        if (req.method === 'OPTIONS') return res.sendStatus(204);
+        return next();
+      }
     }
   } catch (e) { /* ignore and proceed to normal CORS */ }
   next();
@@ -2565,12 +2612,11 @@ app.get('/api/transcript/:sid', async (req, res) => {
 
   // SECURITY: Validar que el usuario tenga permiso para ver este transcript
   const requestSessionId = req.sessionId || req.headers['x-session-id'];
-  const adminToken = req.headers.authorization || req.query.token;
 
   // Permitir solo si:
   // 1. El session ID del request coincide con el transcript solicitado
   // 2. O tiene un admin token válido
-  if (sid !== requestSessionId && adminToken !== LOG_TOKEN) {
+  if (sid !== requestSessionId && !isAdmin(req)) {
     console.warn(`[SECURITY] Unauthorized transcript access attempt: requested=${sid}, session=${requestSessionId}, IP=${req.ip}`);
     return res.status(403).json({ ok: false, error: 'No autorizado para ver este transcript' });
   }
@@ -2591,7 +2637,7 @@ app.get('/api/transcript/:sid', async (req, res) => {
 // Logs SSE and plain endpoints
 app.get('/api/logs/stream', async (req, res) => {
   try {
-    if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+    if (!isAdmin(req)) {
       return res.status(401).send('unauthorized');
     }
     if (String(req.query.mode || '') === 'once') {
@@ -2645,17 +2691,47 @@ app.get('/api/logs/stream', async (req, res) => {
   }
 });
 
-app.get('/api/logs', (req, res) => {
-  if (LOG_TOKEN && String(req.query.token || '') !== LOG_TOKEN) {
+app.get('/api/logs', async (req, res) => {
+  if (!isAdmin(req)) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   try {
-    const txt = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
+    const MAX_LOG_BYTES = parseInt(process.env.LOGS_MAX_BYTES || '5242880', 10); // 5MB default
+    
+    if (!fs.existsSync(LOG_FILE)) {
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      return res.send('');
+    }
+
+    const stats = await fs.promises.stat(LOG_FILE);
+    const size = stats.size;
+    const start = Math.max(0, size - MAX_LOG_BYTES);
+    
+    let content = '';
+    let isTruncated = start > 0;
+    
+    if (start === 0) {
+      // Archivo completo cabe en el límite, leer todo
+      content = await fs.promises.readFile(LOG_FILE, 'utf8');
+    } else {
+      // Leer solo el tail
+      content = await new Promise((resolve, reject) => {
+        const chunks = [];
+        const stream = fs.createReadStream(LOG_FILE, { start, end: size - 1, encoding: 'utf8' });
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('end', () => resolve(chunks.join('')));
+        stream.on('error', reject);
+      });
+      if (isTruncated) {
+        content = `[...tail ${(MAX_LOG_BYTES / 1024 / 1024).toFixed(1)}MB...]\n${content}`;
+      }
+    }
+
     res.set('Content-Type', 'text/plain; charset=utf-8');
-    res.send(txt);
+    res.send(content);
   } catch (e) {
     console.error('[api/logs] Error', e.message);
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ ok: false, error: 'Error reading log file' });
   }
 });
 
@@ -3863,7 +3939,7 @@ async function generateAndShowSteps(session, sid, res) {
 // ========================================================
 // Image upload endpoint: /api/upload-image
 // ========================================================
-app.post('/api/upload-image', uploadLimiter, upload.single('image'), async (req, res) => {
+app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'), async (req, res) => {
   const uploadStartTime = Date.now();
   let uploadedFilePath = null;
 
@@ -6324,10 +6400,7 @@ app.get('/api/flow-audit/export', (req, res) => {
 // Metrics endpoint (Enhanced Production-Ready)
 // ========================================================
 app.get('/api/metrics', async (req, res) => {
-  const token = req.headers.authorization || req.query.token;
-
-  // Optional authentication
-  if (LOG_TOKEN && token !== LOG_TOKEN) {
+  if (!isAdmin(req)) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
 

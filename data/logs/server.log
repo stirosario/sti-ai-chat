@@ -5771,3 +5771,144 @@
 2025-12-04T14:03:57.936Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
 2025-12-04T14:03:57.937Z [INFO] [Performance] Compression enabled (gzip/brotli)
 2025-12-04T14:03:57.938Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:03:00.645Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:03:00.750Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:03:00.750Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:03:00.750Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:03:00.750Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:11:29.480Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:11:29.515Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:11:29.515Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:11:29.515Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:11:29.515Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:18:57.502Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T20:19:11.343Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:19:11.379Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:19:11.381Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:19:11.381Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:19:11.382Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:20:19.966Z [ERROR] [SECURITY] 🚨 CORS VIOLATION: Unauthorized origin attempted access: http://evil.com
+2025-12-19T20:20:19.971Z [ERROR] Error: CORS: origin not allowed
+    at origin (file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:16)
+    at C:\sti-ai-chat\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (C:\sti-ai-chat\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (C:\sti-ai-chat\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (C:\sti-ai-chat\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (C:\sti-ai-chat\node_modules\express\lib\router\index.js:328:13)
+    at C:\sti-ai-chat\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (C:\sti-ai-chat\node_modules\express\lib\router\index.js:346:12)
+    at next (C:\sti-ai-chat\node_modules\express\lib\router\index.js:280:10)
+    at file:///C:/sti-ai-chat/server.js:[PHONE_REDACTED]:3
+2025-12-19T20:25:33.350Z [INFO] [saveSession] ✅ Saved to memory web-6c69abbee697af[PHONE_REDACTED]f35f7e: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-19T20:27:43.247Z [INFO] [saveSession] ✅ Saved to memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-19T20:31:28.858Z [INFO] [getSession] ✅ Loaded from memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-19T20:31:28.886Z [ERROR] [COMPRESS] Error: {}
+2025-12-19T20:31:30.149Z [ERROR] [VISION] Error analyzing image: {"status":400,"headers":{"access-control-expose-headers":"X-Request-ID","alt-svc":"h3=\":443\"; ma=[PHONE_REDACTED]","cf-cache-status":"DYNAMIC","cf-ray":"9b09a9eec8b[PHONE_REDACTED]-EZE","connection":"keep-alive","content-length":"251","content-type":"application/json","date":"Fri, 19 Dec [PHONE_REDACTED]:31:30 GMT","openai-organization":"user-nkzaulztwzceowoi3be0v490","openai-processing-ms":"477","openai-project":"proj_NgmO1yH2cetjeGGxAhIRjJ8w","openai-version":"[PHONE_REDACTED]","server":"cloudflare","set-cookie":"__cf_bm=M0IrCccTYcuwi_bwHRWSAjsVVcg0xbBO.dZbqKYGTHY-[CUIT_REDACTED].0.1.1-OFs721PQRoqhxO2TpgvaZazck9FD4PQ6IW9mS0TRd5eMJvF38h2JWb1KCI4um5_lDKaUTT7YtesRtTfMjD6CvyybRDWJXx08YpT0bIlbQw8; path=/; expires=Fri, 19-Dec-[PHONE_REDACTED]:01:30 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=[TOKEN_REDACTED]-[PHONE_REDACTED]-0.0.1.[PHONE_REDACTED]; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=[DNI_REDACTED]; includeSubDomains; preload","x-content-type-options":"nosniff","x-envoy-upstream-service-time":"630","x-openai-proxy-wasm":"v0.1","x-ratelimit-limit-input-images":"[PHONE_REDACTED]","x-ratelimit-limit-requests":"[PHONE_REDACTED]","x-ratelimit-limit-tokens":"[PHONE_REDACTED]","x-ratelimit-remaining-input-images":"[PHONE_REDACTED]","x-ratelimit-remaining-requests":"[PHONE_REDACTED]","x-ratelimit-remaining-tokens":"[PHONE_REDACTED]","x-ratelimit-reset-input-images":"1ms","x-ratelimit-reset-requests":"8.64s","x-ratelimit-reset-tokens":"266ms","x-request-id":"req_b369da3cdd[PHONE_REDACTED]f99ed9badb[PHONE_REDACTED]f"},"request_id":"req_b369da3cdd[PHONE_REDACTED]f99ed9badb[PHONE_REDACTED]f","error":{"message":"Error while downloading https://sti-rosario-ai.onrender.com/uploads/web-95c16c17b[PHONE_REDACTED]bc_[PHONE_REDACTED]_94c685ab08c[PHONE_REDACTED]e.jpg.","type":"invalid_request_error","param":null,"code":"invalid_image_url"},"code":"invalid_image_url","param":null,"type":"invalid_request_error"}
+2025-12-19T20:31:30.155Z [INFO] [saveSession] ✅ Saved to memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-12-19T20:31:30.157Z [INFO] [saveSession] ✅ Saved to memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":3}
+2025-12-19T20:31:30.157Z [ERROR] [UPLOAD] Error: {}
+2025-12-19T20:31:30.218Z [INFO] [getSession] ✅ Loaded from memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-19T20:31:30.231Z [ERROR] [COMPRESS] Error: {}
+2025-12-19T20:31:31.371Z [ERROR] [VISION] Error analyzing image: {"status":400,"headers":{"access-control-expose-headers":"X-Request-ID","alt-svc":"h3=\":443\"; ma=[PHONE_REDACTED]","cf-cache-status":"DYNAMIC","cf-ray":"9b09a9f6ab4f[PHONE_REDACTED]-EZE","connection":"keep-alive","content-length":"251","content-type":"application/json","date":"Fri, 19 Dec [PHONE_REDACTED]:31:31 GMT","openai-organization":"user-nkzaulztwzceowoi3be0v490","openai-processing-ms":"465","openai-project":"proj_NgmO1yH2cetjeGGxAhIRjJ8w","openai-version":"[PHONE_REDACTED]","server":"cloudflare","set-cookie":"__cf_bm=e14jvx2hK8LPuSzg_A3gPqyw60hRMXmtIZ2xJAw5P0g-[CUIT_REDACTED].0.1.1-P4P0Y3M8ChnWODVYvQNTz_cM1MPNYrz7LTY2dK_g3ApYrDzCSm4cH89cLpBZZA9RhNNHCivmi2h364.MItOviA8Qk61AouCUwvkNjhL.SkY; path=/; expires=Fri, 19-Dec-[PHONE_REDACTED]:01:31 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=[TOKEN_REDACTED][PHONE_REDACTED]-0.0.1.[PHONE_REDACTED]; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=[DNI_REDACTED]; includeSubDomains; preload","x-content-type-options":"nosniff","x-envoy-upstream-service-time":"600","x-openai-proxy-wasm":"v0.1","x-ratelimit-limit-input-images":"[PHONE_REDACTED]","x-ratelimit-limit-requests":"[PHONE_REDACTED]","x-ratelimit-limit-tokens":"[PHONE_REDACTED]","x-ratelimit-remaining-input-images":"[PHONE_REDACTED]","x-ratelimit-remaining-requests":"[PHONE_REDACTED]","x-ratelimit-remaining-tokens":"[PHONE_REDACTED]","x-ratelimit-reset-input-images":"1ms","x-ratelimit-reset-requests":"16.032s","x-ratelimit-reset-tokens":"266ms","x-request-id":"req_4d91e5d6ef1e4ca18d304c6e704dbcd9"},"request_id":"req_4d91e5d6ef1e4ca18d304c6e704dbcd9","error":{"message":"Error while downloading https://sti-rosario-ai.onrender.com/uploads/web-95c16c17b[PHONE_REDACTED]bc_[PHONE_REDACTED]_2d91ce8cedf4a98c.jpg.","type":"invalid_request_error","param":null,"code":"invalid_image_url"},"code":"invalid_image_url","param":null,"type":"invalid_request_error"}
+2025-12-19T20:31:31.376Z [INFO] [saveSession] ✅ Saved to memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":4}
+2025-12-19T20:31:31.377Z [INFO] [saveSession] ✅ Saved to memory web-95c16c17b[PHONE_REDACTED]bc40a1ae0b: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":5}
+2025-12-19T20:31:31.378Z [ERROR] [UPLOAD] Error: {}
+2025-12-19T20:36:19.399Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-19T20:36:19.424Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-19T20:36:19.437Z [ERROR] [COMPRESS] Error: {}
+2025-12-19T20:36:20.315Z [ERROR] [VISION] Error analyzing image: {"status":400,"headers":{"access-control-expose-headers":"X-Request-ID","alt-svc":"h3=\":443\"; ma=[PHONE_REDACTED]","cf-cache-status":"DYNAMIC","cf-ray":"9b09b[PHONE_REDACTED]c11ca-EZE","connection":"keep-alive","content-length":"251","content-type":"application/json","date":"Fri, 19 Dec [PHONE_REDACTED]:36:20 GMT","openai-organization":"user-nkzaulztwzceowoi3be0v490","openai-processing-ms":"472","openai-project":"proj_NgmO1yH2cetjeGGxAhIRjJ8w","openai-version":"[PHONE_REDACTED]","server":"cloudflare","set-cookie":"__cf_bm=Lf2So8S7Ura7T6ubo2koTO_ddQIcfjabOL_xUQ8jLLc-[CUIT_REDACTED].0.1.1-[TOKEN_REDACTED].C959wF1a0idhqAzMS.o2CGDMvj.ADPc_jSkGKm3j0yM3rcOkt6mxAqfSJJ4IDG7bXzGqc.H4; path=/; expires=Fri, 19-Dec-[PHONE_REDACTED]:06:20 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=5.8FGXuWhK_75xNb3Nu6n_ZGpy2NanA8GMyn9.TGKzA-[PHONE_REDACTED]-0.0.1.[PHONE_REDACTED]; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=[DNI_REDACTED]; includeSubDomains; preload","x-content-type-options":"nosniff","x-envoy-upstream-service-time":"623","x-openai-proxy-wasm":"v0.1","x-ratelimit-limit-input-images":"[PHONE_REDACTED]","x-ratelimit-limit-requests":"[PHONE_REDACTED]","x-ratelimit-limit-tokens":"[PHONE_REDACTED]","x-ratelimit-remaining-input-images":"[PHONE_REDACTED]","x-ratelimit-remaining-requests":"[PHONE_REDACTED]","x-ratelimit-remaining-tokens":"[PHONE_REDACTED]","x-ratelimit-reset-input-images":"1ms","x-ratelimit-reset-requests":"8.64s","x-ratelimit-reset-tokens":"266ms","x-request-id":"req_f[PHONE_REDACTED]abc4a2da63a7c9ca2f598f5"},"request_id":"req_f[PHONE_REDACTED]abc4a2da63a7c9ca2f598f5","error":{"message":"Error while downloading https://sti-rosario-ai.onrender.com/uploads/web-[PHONE_REDACTED]f61c6e_[PHONE_REDACTED]_a3bd[PHONE_REDACTED]def[PHONE_REDACTED]d.jpg.","type":"invalid_request_error","param":null,"code":"invalid_image_url"},"code":"invalid_image_url","param":null,"type":"invalid_request_error"}
+2025-12-19T20:36:20.320Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-12-19T20:36:20.322Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":3}
+2025-12-19T20:36:20.323Z [ERROR] [UPLOAD] Error: {}
+2025-12-19T20:36:20.384Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-19T20:36:20.396Z [ERROR] [COMPRESS] Error: {}
+2025-12-19T20:36:21.192Z [ERROR] [VISION] Error analyzing image: {"status":400,"headers":{"access-control-expose-headers":"X-Request-ID","alt-svc":"h3=\":443\"; ma=[PHONE_REDACTED]","cf-cache-status":"DYNAMIC","cf-ray":"9b09b10c3ea511ca-EZE","connection":"keep-alive","content-length":"251","content-type":"application/json","date":"Fri, 19 Dec [PHONE_REDACTED]:36:21 GMT","openai-organization":"user-nkzaulztwzceowoi3be0v490","openai-processing-ms":"377","openai-project":"proj_NgmO1yH2cetjeGGxAhIRjJ8w","openai-version":"[PHONE_REDACTED]","server":"cloudflare","set-cookie":"__cf_bm=ODy8mhHmRGlfm4ZxzinLlf7WjBRvhzKXAP_2NZVt.Xo-[CUIT_REDACTED].0.1.1-XM1vLi8nF6Cz0cdN0nf4kPuM0R7.LV_sqaCxEdMLaBCXSjQxkxP55IMdzTs_S_V8fVWIoF2kBHR3f_ZQsky8yY7M7IO1e_YgK_CKyh_tbzQ; path=/; expires=Fri, 19-Dec-[PHONE_REDACTED]:06:21 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=DBMs0_oqOcOPnUxlJeuMrF9riLxtChZO_pZj1yUyF_U-[PHONE_REDACTED]-0.0.1.[PHONE_REDACTED]; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=[DNI_REDACTED]; includeSubDomains; preload","x-content-type-options":"nosniff","x-envoy-upstream-service-time":"531","x-openai-proxy-wasm":"v0.1","x-ratelimit-limit-input-images":"[PHONE_REDACTED]","x-ratelimit-limit-requests":"[PHONE_REDACTED]","x-ratelimit-limit-tokens":"[PHONE_REDACTED]","x-ratelimit-remaining-input-images":"[PHONE_REDACTED]","x-ratelimit-remaining-requests":"[PHONE_REDACTED]","x-ratelimit-remaining-tokens":"[PHONE_REDACTED]","x-ratelimit-reset-input-images":"1ms","x-ratelimit-reset-requests":"16.371s","x-ratelimit-reset-tokens":"266ms","x-request-id":"req_ede94aeb8b934f[PHONE_REDACTED]cc8f[PHONE_REDACTED]"},"request_id":"req_ede94aeb8b934f[PHONE_REDACTED]cc8f[PHONE_REDACTED]","error":{"message":"Error while downloading https://sti-rosario-ai.onrender.com/uploads/web-[PHONE_REDACTED]f61c6e_[PHONE_REDACTED]_893e1b82c21b3a9a.jpg.","type":"invalid_request_error","param":null,"code":"invalid_image_url"},"code":"invalid_image_url","param":null,"type":"invalid_request_error"}
+2025-12-19T20:36:21.197Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":4}
+2025-12-19T20:36:21.199Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]f61c6e066b[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":5}
+2025-12-19T20:36:21.200Z [ERROR] [UPLOAD] Error: {}
+2025-12-19T20:43:12.129Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:43:12.172Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:43:12.172Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:43:12.172Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:43:12.172Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:43:22.378Z [INFO] [saveSession] ✅ Saved to memory web-f[PHONE_REDACTED]f8cc1a: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-19T20:44:21.405Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":1}
+2025-12-19T20:44:21.439Z [INFO] [getSession] ✅ Loaded from memory web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE"}
+2025-12-19T20:44:21.454Z [info] [COMPRESS] web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]_[PHONE_REDACTED]_9c685e[PHONE_REDACTED]d106.jpg: 35.7KB → 20.2KB (saved 43.4%) in 10ms
+2025-12-19T20:44:21.455Z [INFO] [PHONE_REDACTED]T20:44:21.454Z [info] [COMPRESS] web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]_[PHONE_REDACTED]_9c685e[PHONE_REDACTED]d106.jpg: 35.7KB → 20.2KB (saved 43.4%) in 10ms
+2025-12-19T20:44:21.457Z [info] [UPLOAD] Compression saved 15.5KB
+2025-12-19T20:44:21.457Z [INFO] [PHONE_REDACTED]T20:44:21.457Z [info] [UPLOAD] Compression saved 15.5KB
+2025-12-19T20:44:22.686Z [ERROR] [VISION] Error analyzing image: {"status":400,"headers":{"access-control-expose-headers":"X-Request-ID","alt-svc":"h3=\":443\"; ma=[PHONE_REDACTED]","cf-cache-status":"DYNAMIC","cf-ray":"9b09bccb6ca811e8-EZE","connection":"keep-alive","content-length":"251","content-type":"application/json","date":"Fri, 19 Dec [PHONE_REDACTED]:44:22 GMT","openai-organization":"user-nkzaulztwzceowoi3be0v490","openai-processing-ms":"299","openai-project":"proj_NgmO1yH2cetjeGGxAhIRjJ8w","openai-version":"[PHONE_REDACTED]","server":"cloudflare","set-cookie":"__cf_bm=aljl_t122Mtj_OUA7c5EQ1nHxfB5.yCyf1t3wKlRsYs-[CUIT_REDACTED].0.1.1-jCpLEQk1OPTqmcqmUzOu9I5iN_iHqS4wX4LmGQpljUQgqKR_dT.[TOKEN_REDACTED]; path=/; expires=Fri, 19-Dec-[PHONE_REDACTED]:14:22 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=D6Xp2joqkr8JTJ9FzXiahcPYVsvXKI065dbrw_1KzUc-[PHONE_REDACTED]-0.0.1.[PHONE_REDACTED]; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=[DNI_REDACTED]; includeSubDomains; preload","x-content-type-options":"nosniff","x-envoy-upstream-service-time":"437","x-openai-proxy-wasm":"v0.1","x-ratelimit-limit-input-images":"[PHONE_REDACTED]","x-ratelimit-limit-requests":"[PHONE_REDACTED]","x-ratelimit-limit-tokens":"[PHONE_REDACTED]","x-ratelimit-remaining-input-images":"[PHONE_REDACTED]","x-ratelimit-remaining-requests":"[PHONE_REDACTED]","x-ratelimit-remaining-tokens":"[PHONE_REDACTED]","x-ratelimit-reset-input-images":"1ms","x-ratelimit-reset-requests":"8.64s","x-ratelimit-reset-tokens":"266ms","x-request-id":"req_e880df535dec460f93d7e263a6db61d7"},"request_id":"req_e880df535dec460f93d7e263a6db61d7","error":{"message":"Error while downloading https://sti-rosario-ai.onrender.com/uploads/web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]_[PHONE_REDACTED]_9c685e[PHONE_REDACTED]d106.jpg.","type":"invalid_request_error","param":null,"code":"invalid_image_url"},"code":"invalid_image_url","param":null,"type":"invalid_request_error"}
+2025-12-19T20:44:22.690Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":2}
+2025-12-19T20:44:22.692Z [INFO] [saveSession] ✅ Saved to memory web-[PHONE_REDACTED]e449d1f[PHONE_REDACTED]: {"userName":null,"stage":"ASK_LANGUAGE","transcriptLength":3}
+2025-12-19T20:44:22.692Z [info] [UPLOAD] Completed in [PHONE_REDACTED]ms (20.2KB)
+2025-12-19T20:44:22.692Z [INFO] [PHONE_REDACTED]T20:44:22.692Z [info] [UPLOAD] Completed in [PHONE_REDACTED]ms (20.2KB)
+2025-12-19T20:49:57.619Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T20:50:42.530Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:50:42.565Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:50:42.567Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:50:42.567Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:50:42.568Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:53:02.132Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T20:53:19.049Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:53:19.050Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:53:19.050Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:53:19.050Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:54:12.461Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T20:54:51.372Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:54:51.415Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:54:51.415Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:54:51.415Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:54:51.415Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T20:56:43.604Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T20:59:35.519Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T20:59:35.558Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T20:59:35.558Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T20:59:35.558Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T20:59:35.559Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:00:11.223Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:00:20.492Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T21:00:20.531Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:00:20.532Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:00:20.532Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:00:20.532Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:00:57.621Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:01:06.807Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:01:06.808Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:01:06.808Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:01:06.809Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:02:32.739Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:02:41.548Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:02:41.549Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:02:41.549Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:02:41.549Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:05:20.565Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:06:22.133Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:06:22.134Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:06:22.134Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:06:22.134Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:06:35.551Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:12:43.976Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T21:12:44.011Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:12:44.012Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:12:44.013Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:12:44.014Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:16:34.573Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
+2025-12-19T21:16:36.547Z [INFO] [CORS] Development mode: localhost origins enabled
+2025-12-19T21:16:36.591Z [INFO] STI Chat (v7) started on [PHONE_REDACTED]
+2025-12-19T21:16:36.592Z [INFO] [Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+2025-12-19T21:16:36.593Z [INFO] [Performance] Compression enabled (gzip/brotli)
+2025-12-19T21:16:36.594Z [INFO] [Performance] Session cache enabled (max [PHONE_REDACTED] sessions)
+2025-12-19T21:21:34.396Z [INFO] 
+[SIGINT] Iniciando apagado graceful...
