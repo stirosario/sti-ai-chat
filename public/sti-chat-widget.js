@@ -1,6 +1,7 @@
 /**
  * STI Chat Widget - Standalone
  * Widget embebible del chat de STI con efecto "PENSANDO"
+ * Actualizado para compatibilidad con server.js v7
  */
 
 (function() {
@@ -9,12 +10,47 @@
   // ========== CONFIGURACIÓN ==========
   const API_URL = 'https://sti-rosario-ai.onrender.com/api';
   let sessionId = null;
+  let csrfToken = null;
   let isProcessing = false;
+  let isInitialized = false;
+
+  // ========== MAPEO DE TOKENS A ETIQUETAS ==========
+  const BUTTON_LABELS = {
+    'BTN_SOLVED': 'Lo resolví ✔️',
+    'BTN_PERSIST': 'Sigue pasando ❌',
+    'BTN_MORE_TESTS': 'Más pruebas 🔍',
+    'BTN_CONNECT_TECH': 'Conectar con Técnico 🧑‍💻',
+    'BTN_WHATSAPP': 'Enviar WhatsApp 📱',
+    'BTN_CLOSE': 'Cerrar chat ❌',
+    'BTN_REPHRASE': 'Reformular problema ✏️',
+    'BTN_CONFIRM_TICKET': 'Sí, generar ticket ✅',
+    'BTN_CANCEL': 'Cancelar ❌',
+    'BTN_MORE_SIMPLE': 'Más simple 🔧',
+    'BTN_PROBLEMA': 'Tengo un problema',
+    'BTN_CONSULTA': 'Tengo una consulta'
+  };
+
+  // Mapear token a etiqueta legible
+  function getButtonLabel(token) {
+    if (token.startsWith('BTN_HELP_')) {
+      const stepNum = token.split('_').pop();
+      return `Ayuda paso ${stepNum} 🛠️`;
+    }
+    return BUTTON_LABELS[token] || token;
+  }
+
+  // Convertir array de tokens a array de objetos {label, value}
+  function tokensToButtons(tokens) {
+    if (!Array.isArray(tokens)) return [];
+    return tokens.map(token => ({
+      label: getButtonLabel(token),
+      value: token
+    }));
+  }
 
   // ========== INICIALIZACIÓN ==========
-  function initChat() {
-    // Generar sessionId única
-    sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  async function initChat() {
+    if (isInitialized) return;
     
     // Eventos
     const sendBtn = document.getElementById('sti-send');
@@ -37,8 +73,54 @@
       if (chatBox) chatBox.style.display = 'none';
     });
 
-    // Mensaje de bienvenida
-    addMessage('bot', '¡Hola! Soy Tecnos, tu asistente técnico de STI 👋\n\n¿En qué puedo ayudarte hoy?');
+    // Inicializar sesión llamando a /api/greeting
+    try {
+      showTypingIndicator();
+      const response = await fetch(`${API_URL}/greeting`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      hideTypingIndicator();
+
+      if (data.ok && data.sessionId) {
+        sessionId = data.sessionId;
+        csrfToken = data.csrfToken;
+        isInitialized = true;
+
+        // Mostrar mensaje de bienvenida del servidor
+        if (data.reply || data.greeting) {
+          const welcomeText = data.reply || data.greeting;
+          let buttons = null;
+          if (data.buttons && Array.isArray(data.buttons)) {
+            // Los botones del greeting vienen como { text, value }
+            buttons = data.buttons.map(b => ({
+              label: b.text || b.label || b.value,
+              value: b.value || b.token || b.text
+            }));
+          }
+          addMessage('bot', welcomeText, buttons);
+        } else {
+          addMessage('bot', '¡Hola! Soy Tecnos, tu asistente técnico de STI 👋\n\n¿En qué puedo ayudarte hoy?');
+        }
+      } else {
+        // Fallback si falla la inicialización
+        sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        isInitialized = true;
+        addMessage('bot', '¡Hola! Soy Tecnos, tu asistente técnico de STI 👋\n\n¿En qué puedo ayudarte hoy?');
+        console.warn('[STI Chat] No se pudo inicializar sesión correctamente, usando fallback');
+      }
+    } catch (error) {
+      console.error('[STI Chat] Error inicializando:', error);
+      hideTypingIndicator();
+      // Fallback si falla la conexión
+      sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      isInitialized = true;
+      addMessage('bot', '¡Hola! Soy Tecnos, tu asistente técnico de STI 👋\n\n¿En qué puedo ayudarte hoy?');
+    }
   }
 
   // ========== MOSTRAR INDICADOR "PENSANDO" ==========
@@ -108,17 +190,26 @@
   }
 
   // ========== ENVIAR MENSAJE ==========
-  async function sendMessage() {
+  async function sendMessage(buttonToken = null, buttonLabel = null) {
     if (isProcessing) return;
+    if (!isInitialized) {
+      await initChat();
+      return;
+    }
     
     const textInput = document.getElementById('sti-text');
     if (!textInput) return;
     
     const text = textInput.value.trim();
-    if (!text) return;
+    
+    // Si es un botón, usar el token; si no, usar el texto
+    const isButton = buttonToken !== null;
+    const displayText = isButton ? (buttonLabel || buttonToken) : text;
+    
+    if (!displayText) return;
 
     // Agregar mensaje del usuario
-    addMessage('user', text);
+    addMessage('user', displayText);
     textInput.value = '';
     isProcessing = true;
 
@@ -126,14 +217,34 @@
     showTypingIndicator();
 
     try {
+      // Preparar body según si es botón o texto
+      const body = {
+        sessionId: sessionId,
+        images: []
+      };
+
+      if (isButton) {
+        // Enviar como botón
+        body.action = 'button';
+        body.value = buttonToken;
+        body.text = buttonLabel || buttonToken; // Para contexto
+      } else {
+        // Enviar como texto (CORREGIDO: usar 'text' en lugar de 'message')
+        body.text = text;
+      }
+
+      // Headers con CSRF token si está disponible
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (csrfToken) {
+        headers['x-csrf-token'] = csrfToken;
+      }
+
       const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sessionId,
-          message: text,
-          imageUrls: []
-        })
+        headers: headers,
+        body: JSON.stringify(body)
       });
 
       const data = await response.json();
@@ -142,12 +253,27 @@
       hideTypingIndicator();
 
       if (data.reply) {
-        addMessage('bot', data.reply, data.buttons || null);
+        // CORREGIDO: usar 'options' en lugar de 'buttons'
+        // El servidor devuelve 'options' como array de tokens
+        let buttons = null;
+        if (data.options && Array.isArray(data.options)) {
+          buttons = tokensToButtons(data.options);
+        } else if (data.buttons && Array.isArray(data.buttons)) {
+          // Fallback: si viene 'buttons', intentar procesarlo
+          buttons = data.buttons.map(b => {
+            if (typeof b === 'string') {
+              return { label: getButtonLabel(b), value: b };
+            }
+            return { label: b.label || b.text || b.value, value: b.value || b.token };
+          });
+        }
+        
+        addMessage('bot', data.reply, buttons);
       } else {
         addMessage('bot', 'Lo siento, hubo un error. ¿Podrías intentar de nuevo?');
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('[STI Chat] Error:', error);
       hideTypingIndicator();
       addMessage('bot', 'No pude conectarme al servidor. Por favor, verifica tu conexión.');
     } finally {
@@ -157,11 +283,9 @@
 
   // ========== SELECCIONAR OPCIÓN DE BOTÓN ==========
   window.stiChatSelectOption = function(value) {
-    const textInput = document.getElementById('sti-text');
-    if (textInput) {
-      textInput.value = value;
-      sendMessage();
-    }
+    // value es el token del botón (ej: 'BTN_SOLVED')
+    const label = getButtonLabel(value);
+    sendMessage(value, label);
   };
 
   // ========== AUTO-INICIALIZAR ==========
