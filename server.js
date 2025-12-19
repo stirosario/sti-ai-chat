@@ -34,6 +34,7 @@ const __dirname = path.dirname(__filename);
 // CONFIGURACIÓN Y CONSTANTES
 // ========================================================
 
+// No-op marker para forzar deploy
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
