@@ -1067,12 +1067,23 @@ function sanitizeReply(reply) {
  * Normaliza botones (elimina duplicados, limita a 4, normaliza order, asegura label humano)
  * P1.2: Normalización mejorada
  */
-function normalizeButtons(buttons) {
+/**
+ * Normaliza botones: elimina duplicados, limita cantidad, asigna acciones y labels correctos
+ * @param {Array} buttons - Array de botones
+ * @param {string} stage - Stage actual (opcional, para determinar acciones)
+ * @param {string} responseKind - Tipo de respuesta (opcional: action_step, info_request, escalate)
+ * @param {string} language - Idioma (opcional: 'es-AR' o 'en')
+ * @returns {Array} - Botones normalizados con action y label correctos
+ */
+function normalizeButtons(buttons, stage = null, responseKind = null, language = 'es-AR') {
   // LOG DETALLADO: Inicio de normalizeButtons
   logDebug('DEBUG', 'normalizeButtons - Inicio', {
     buttons_type: Array.isArray(buttons) ? 'array' : typeof buttons,
     buttons_count: Array.isArray(buttons) ? buttons.length : 0,
-    buttons_preview: Array.isArray(buttons) ? buttons.slice(0, 3).map(b => b.token || b.value || b.label) : []
+    buttons_preview: Array.isArray(buttons) ? buttons.slice(0, 3).map(b => b.token || b.value || b.label) : [],
+    stage: stage,
+    response_kind: responseKind,
+    language: language
   }, 'server.js', 903, 903).catch(() => {});
   
   if (!Array.isArray(buttons)) return [];
@@ -1088,17 +1099,27 @@ function normalizeButtons(buttons) {
   // 2. Limitar a máximo 4 botones
   normalized = normalized.slice(0, 4);
   
-  // 3. Normalizar order (1, 2, 3, 4)
-  normalized = normalized.map((btn, idx) => ({
-    ...btn,
-    order: idx + 1
-  }));
-  
-  // 4. Asegurar que label es humano (no token)
-  normalized = normalized.map(btn => ({
-    ...btn,
-    label: btn.label || btn.token.replace(/BTN_|ASK_/, '').replace(/_/g, ' ')
-  }));
+  // 3. Asignar acciones y labels correctos según acción estándar
+  normalized = normalized.map((btn, idx) => {
+    const token = btn.token;
+    const action = mapButtonTokenToAction(token, stage, responseKind);
+    
+    // Si la acción tiene un label estándar, usarlo (sobrescribe el label original)
+    const standardLabel = getLabelForAction(action, language);
+    
+    // Para acciones especiales (ESCALATE_TECH, HELP_STEP, RESOLVED, etc.), usar label estándar
+    // Para otros botones (CUSTOM), mantener el label original si existe
+    const finalLabel = standardLabel || btn.label || token.replace(/BTN_|ASK_/, '').replace(/_/g, ' ');
+    
+    return {
+      ...btn,
+      token: token,
+      label: finalLabel,
+      value: btn.value || btn.token,
+      action: action,  // Nueva propiedad: acción estándar
+      order: idx + 1
+    };
+  });
   
   return normalized;
 }
@@ -1655,6 +1676,76 @@ function getSession(sessionId) {
 }
 
 // ========================================================
+// SISTEMA DE ACCIONES ESTANDARIZADAS
+// ========================================================
+
+// Acciones estándar para botones (separadas de labels)
+const BUTTON_ACTIONS = {
+  HELP_STEP: 'HELP_STEP',           // Ayuda contextual del paso actual (NO WhatsApp)
+  ESCALATE_TECH: 'ESCALATE_TECH',   // Derivar a técnico (WhatsApp / contacto humano)
+  RESOLVED: 'RESOLVED',              // Problema resuelto
+  NOT_RESOLVED_AFTER_TRY: 'NOT_RESOLVED_AFTER_TRY',  // Ya lo verifiqué, sigue igual
+  CANT_DO_STEP: 'CANT_DO_STEP',     // No pude hacer el paso
+  CUSTOM: 'CUSTOM'                   // Acción personalizada (para otros botones)
+};
+
+/**
+ * Mapea un token de botón a una acción estándar según el contexto/stage
+ * @param {string} token - Token del botón (ej: BTN_NEED_HELP)
+ * @param {string} stage - Stage actual de la conversación
+ * @param {string} responseKind - Tipo de respuesta (action_step, info_request, escalate)
+ * @returns {string} - Acción estándar (HELP_STEP, ESCALATE_TECH, etc.)
+ */
+function mapButtonTokenToAction(token, stage, responseKind = null) {
+  // Stages donde BTN_NEED_HELP debe ser ESCALATE_TECH (escalado real)
+  const escalationStages = ['ASK_FEEDBACK', 'ESCALATE', 'CONTACT_TECH'];
+  
+  // Si estamos en un stage de escalado, BTN_NEED_HELP siempre es ESCALATE_TECH
+  if (token === 'BTN_NEED_HELP' && escalationStages.includes(stage)) {
+    return BUTTON_ACTIONS.ESCALATE_TECH;
+  }
+  
+  // Si response_kind es 'escalate', cualquier ayuda debe ser ESCALATE_TECH
+  if (token === 'BTN_NEED_HELP' && responseKind === 'escalate') {
+    return BUTTON_ACTIONS.ESCALATE_TECH;
+  }
+  
+  // Por defecto, BTN_NEED_HELP es HELP_STEP (ayuda contextual, NO WhatsApp)
+  if (token === 'BTN_NEED_HELP') {
+    return BUTTON_ACTIONS.HELP_STEP;
+  }
+  
+  // Mapeo de otros tokens a acciones
+  const tokenActionMap = {
+    'BTN_RESOLVED': BUTTON_ACTIONS.RESOLVED,
+    'BTN_NOT_RESOLVED': BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY,
+    'BTN_CANT_DO_STEP': BUTTON_ACTIONS.CANT_DO_STEP
+  };
+  
+  return tokenActionMap[token] || BUTTON_ACTIONS.CUSTOM;
+}
+
+/**
+ * Obtiene el label correcto para una acción según el idioma
+ * @param {string} action - Acción estándar
+ * @param {string} language - Idioma ('es-AR' o 'en')
+ * @returns {string} - Label visible
+ */
+function getLabelForAction(action, language = 'es-AR') {
+  const isSpanish = language === 'es-AR' || language === 'es';
+  
+  const labels = {
+    [BUTTON_ACTIONS.ESCALATE_TECH]: isSpanish ? '📱 Hablar con un técnico' : '📱 Talk to a technician',
+    [BUTTON_ACTIONS.HELP_STEP]: isSpanish ? '🙋 Ayuda para este paso' : '🙋 Help with this step',
+    [BUTTON_ACTIONS.RESOLVED]: isSpanish ? '✅ Se resolvió' : '✅ Resolved',
+    [BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY]: isSpanish ? '❌ Ya lo verifiqué, sigue igual' : '❌ I checked, still the same',
+    [BUTTON_ACTIONS.CANT_DO_STEP]: isSpanish ? '⚠️ No pude hacerlo' : '⚠️ I couldn\'t do it'
+  };
+  
+  return labels[action] || '';
+}
+
+// ========================================================
 // CATÁLOGO DE BOTONES PERMITIDOS POR ASK
 // ========================================================
 
@@ -1705,8 +1796,8 @@ const ALLOWED_BUTTONS_BY_ASK = {
   ],
   ASK_RESOLUTION_STATUS: [
     { token: 'BTN_RESOLVED', label: '✅ Se resolvió', value: 'resolved' },
-    { token: 'BTN_NOT_RESOLVED', label: '❌ Sigue igual', value: 'not_resolved' },
-    { token: 'BTN_NEED_HELP', label: '🙋 Necesito ayuda', value: 'need_help' }
+    { token: 'BTN_NOT_RESOLVED', label: '❌ Ya lo verifiqué, sigue igual', value: 'not_resolved' },
+    { token: 'BTN_NEED_HELP', label: '🙋 Ayuda para este paso', value: 'need_help' }
   ],
   ASK_LEARNING_DEPTH: [
     { token: 'BTN_LEARNING_SIMPLE', label: 'Simple (explicaciones básicas)', value: 'simple' },
@@ -1991,6 +2082,22 @@ function validateClassifierResult(result) {
 function validateStepResult(result, allowedButtons = []) {
   if (!result.reply || typeof result.reply !== 'string') {
     throw new Error(`Missing or invalid reply field. Must be a non-empty string`);
+  }
+  
+  // Validar response_kind si está presente (opcional, pero si está debe ser válido)
+  if (result.response_kind !== undefined) {
+    const validResponseKinds = ['action_step', 'info_request', 'escalate'];
+    if (!validResponseKinds.includes(result.response_kind)) {
+      throw new Error(`Invalid response_kind: ${result.response_kind}. Must be one of: ${validResponseKinds.join(', ')}`);
+    }
+  }
+  
+  // Validar input_mode si está presente (opcional, pero si está debe ser válido)
+  if (result.input_mode !== undefined) {
+    const validInputModes = ['buttons', 'text', 'mixed'];
+    if (!validInputModes.includes(result.input_mode)) {
+      throw new Error(`Invalid input_mode: ${result.input_mode}. Must be one of: ${validInputModes.join(', ')}`);
+    }
   }
   
   // P2-2: Detectar prompt injection en el reply
@@ -2594,7 +2701,7 @@ function detectEmotion(userInput, session) {
 // IA - STEP (Etapa 2) - Mejorado con UX adaptativa
 // ========================================================
 
-async function iaStep(session, allowedButtons, previousButtonResult = null, requestId = null, stepMode = 'diagnostic') {
+async function iaStep(session, allowedButtons, previousButtonResult = null, requestId = null) {
   // LOG DETALLADO: Inicio de iaStep
   const conversationId = session.conversation_id;
   await logDebug('DEBUG', 'iaStep - Inicio', {
@@ -2606,8 +2713,7 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     request_id: requestId,
     session_language: session.language,
     user_level: session.user_level,
-    emotion: session.meta?.emotion || 'neutral',
-    step_mode: stepMode
+    emotion: session.meta?.emotion || 'neutral'
   }, 'server.js', 2004, 2004);
   
   if (!openai) {
@@ -2626,13 +2732,19 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     await log('WARN', 'Límite de IA excedido, usando fallback', { conversation_id: conversationId });
     if (allowedButtons.length > 0) {
       return {
-        reply: 'Continuemos con el siguiente paso. ¿Qué resultado obtuviste?',
-        buttons: normalizeButtons(allowedButtons.slice(0, 2))
+        reply: session.language === 'es-AR'
+          ? 'Disculpá, estoy teniendo dificultades técnicas. ¿Podés contarme qué problema tenés con tu dispositivo?'
+          : 'Sorry, I\'m having technical difficulties. Can you tell me what problem you\'re having with your device?',
+        buttons: normalizeButtons(allowedButtons.slice(0, 2), session.stage, null, session.language),
+        response_kind: 'info_request',
+        input_mode: 'mixed'
       };
     }
     return {
       reply: 'Disculpá, tuve un problema técnico. ¿Podés reformular tu pregunta?',
-      buttons: []
+      buttons: [],
+      response_kind: 'info_request',
+      input_mode: 'text'
     };
   }
   
@@ -2641,13 +2753,19 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     await log('WARN', 'Cooldown activo, usando fallback', { conversation_id: conversationId });
     if (allowedButtons.length > 0) {
       return {
-        reply: 'Continuemos con el siguiente paso. ¿Qué resultado obtuviste?',
-        buttons: normalizeButtons(allowedButtons.slice(0, 2))
+        reply: session.language === 'es-AR'
+          ? 'Disculpá, estoy teniendo dificultades técnicas. ¿Podés contarme qué problema tenés con tu dispositivo?'
+          : 'Sorry, I\'m having technical difficulties. Can you tell me what problem you\'re having with your device?',
+        buttons: normalizeButtons(allowedButtons.slice(0, 2), session.stage, null, session.language),
+        response_kind: 'info_request',
+        input_mode: 'mixed'
       };
     }
     return {
       reply: 'Disculpá, tuve un problema técnico. ¿Podés reformular tu pregunta?',
-      buttons: []
+      buttons: [],
+      response_kind: 'info_request',
+      input_mode: 'text'
     };
   }
   
@@ -2686,20 +2804,9 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
     ? `\n\nRESULTADO DEL PASO ANTERIOR: El usuario indicó "${previousButtonResult}" (el paso anterior no resolvió el problema).`
     : '';
   
-    // Ajustar objetivo segun modo (clarify / retriage / diagnostic)
-  let modeInstructions = 'MODO: Diagnostico estandar, propone un paso claro y validable.';
-  let actionInstruction = 'Genera UN SOLO paso de diagnostico o asistencia.';
-  if (stepMode === 'clarify') {
-    modeInstructions = 'MODO: Clarificacion adaptativa. Busca destrabar pidiendo datos faltantes.';
-    actionInstruction = 'Genera de 2 a 4 preguntas cortas y directas (sin nuevas acciones) para obtener la info clave.';
-  } else if (stepMode === 'retriage') {
-    modeInstructions = 'MODO: Re-triaje. Antes de escalar, proba una rama alternativa o una prueba concluyente.';
-    actionInstruction = 'Propone UNA accion: (a) pregunta breve para elegir rama (energia/temperatura/eventos/drivers) o (b) prueba concreta que diferencie causas. Inclui una frase del por que.';
-  }
-  
   const allowedButtonsList = allowedButtons.map(b => `- ${b.label} (token: ${b.token})`).join('\n');
   
-  const prompt = `Sos Tecnos, tecnico informatico de STI. ${actionInstruction}
+  const prompt = `Sos Tecnos, técnico informático de STI. Generá UN SOLO paso de diagnóstico o asistencia.
 
 CONTEXTO:
 - Etapa actual: ${session.stage || 'DIAGNOSTIC_STEP'}
@@ -2708,27 +2815,46 @@ CONTEXTO:
 - Dispositivo: ${session.context.device_type || 'desconocido'}
 - Problema: ${session.context.problem_description_raw || 'ninguno'}
 - Intent: ${session.context.problem_category || 'unknown'}${previousButtonContext}${historyText}
-${modeInstructions}
 
 INSTRUCCIONES:
-1. El paso/preguntas deben ser claras y validadas en menos de 2 minutos
-2. Adapta el lenguaje al nivel del usuario
-3. Usa voseo argentino si el idioma es es-AR
-4. Podes incluir una "ayuda extra" opcional del mismo paso
+1. Generá UN SOLO paso claro y conciso
+2. Adaptá el lenguaje al nivel del usuario
+3. Usá voseo argentino si el idioma es es-AR
+4. Podés incluir una "ayuda extra" opcional del mismo paso
 5. NO repitas pasos anteriores${securityRestrictions}
 
-BOTONES PERMITIDOS (solo podes usar estos):
+TIPOS DE RESPUESTA (response_kind):
+- "action_step": El mensaje incluye una instrucción concreta que el usuario debe realizar (ej: "Verificá si la luz está encendida", "Reiniciá el router"). Usá esto cuando el paso requiere una acción verificable.
+- "info_request": Es una pregunta de observación o información (ej: "¿Qué luces ves en el router?", "¿Escuchás algún sonido?"). Usá esto cuando necesitás información antes de continuar.
+- "escalate": Solo si hay un criterio claro de escalado (riesgo alto, bloqueo real, max_steps alcanzado). NO uses esto por defecto.
+
+MODO DE ENTRADA (input_mode):
+- "buttons": Usá cuando los botones son suficientes para responder (Sí/No, Se resolvió/Sigue igual, etc.)
+- "text": Usá cuando necesitás respuesta libre (descripciones, observaciones detalladas)
+- "mixed": Usá cuando podés aceptar ambos (botones para respuestas rápidas + texto opcional)
+
+BOTONES PERMITIDOS (solo podés usar estos):
 ${allowedButtonsList}
 
-Devolve SOLO un JSON valido:
+REGLAS DE BOTONES:
+- Si response_kind == "action_step": Usá botones de resultado (BTN_RESOLVED, BTN_NOT_RESOLVED, BTN_NEED_HELP para ayuda contextual)
+- Si response_kind == "info_request": input_mode debe ser "text" o "mixed". NO uses solo botones de resultado como únicos. Usá respuestas a la pregunta (Sí/No/No sé) + HELP_STEP si aplica.
+- Si response_kind == "escalate": Solo aquí ofrecé contacto con técnico. Esto debe incluir motivo.
+
+Devolvé SOLO un JSON válido:
 {
-  "reply": "Texto del paso + pregunta de confirmacion + (opcional) ayuda extra",
+  "reply": "Texto del paso + pregunta de confirmación + (opcional) ayuda extra",
+  "response_kind": "action_step" | "info_request" | "escalate",
+  "input_mode": "buttons" | "text" | "mixed",
   "buttons": [
     {"token": "BTN_XXX", "label": "Texto visible", "order": 1}
   ]
 }
 
-IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
+IMPORTANTE: 
+- Solo podés usar tokens de la lista de botones permitidos.
+- Si response_kind == "action_step", el reply DEBE incluir una instrucción concreta. NO digas "Continuemos con el siguiente paso" sin especificar QUÉ paso.
+- Si response_kind == "info_request", input_mode debe ser "text" o "mixed".`;
 
   // P2.4: Generar hash del payload para observabilidad
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex').substring(0, 16);
@@ -2851,15 +2977,17 @@ IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
           buttons: normalizeButtons(allowedButtons.slice(0, 2))
         };
       } else if (!hasValidReply && hasValidButtons) {
-        // Conservar botones válidos, usar fallback de reply
+        // Conservar botones válidos, usar fallback de reply (NO "siguiente paso" vacío)
         await log('WARN', 'Buttons válidos pero reply inválido, conservando buttons', { 
           buttons_count: result.buttons.length 
         });
         return {
           reply: session.language === 'es-AR'
-            ? 'Continuemos con el siguiente paso. ¿Qué resultado obtuviste?'
-            : 'Let\'s continue with the next step. What result did you get?',
-          buttons: normalizeButtons(result.buttons)
+            ? 'Disculpá, tuve un problema técnico. ¿Podés contarme qué observaste o qué pasó cuando intentaste seguir el paso anterior?'
+            : 'Sorry, I had a technical problem. Can you tell me what you observed or what happened when you tried to follow the previous step?',
+          buttons: normalizeButtons(result.buttons, session.stage, null, session.language),
+          response_kind: 'info_request',
+          input_mode: 'mixed'
         };
       }
       
@@ -2913,8 +3041,49 @@ IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
       }
     }
     
-    // P1.2: Normalizar botones (duplicados, order, máximo 4)
-    result.buttons = normalizeButtons(result.buttons);
+    // P1.2: Normalizar botones (duplicados, order, máximo 4) con acciones y labels correctos
+    // Usar response_kind para determinar acciones de botones (especialmente HELP_STEP vs ESCALATE_TECH)
+    result.buttons = normalizeButtons(result.buttons, session.stage, result.response_kind, session.language);
+    
+    // Validar que response_kind e input_mode estén presentes (si no, inferir por defecto)
+    if (!result.response_kind) {
+      // Inferir response_kind basado en el contenido del reply
+      const replyLower = result.reply.toLowerCase();
+      if (replyLower.includes('qué') || replyLower.includes('what') || replyLower.includes('cómo') || replyLower.includes('how') || replyLower.includes('cuál') || replyLower.includes('which')) {
+        result.response_kind = 'info_request';
+      } else if (replyLower.includes('contactar') || replyLower.includes('técnico') || replyLower.includes('technician') || replyLower.includes('whatsapp')) {
+        result.response_kind = 'escalate';
+      } else {
+        result.response_kind = 'action_step';
+      }
+    }
+    
+    if (!result.input_mode) {
+      // Inferir input_mode basado en response_kind y botones
+      if (result.response_kind === 'info_request') {
+        result.input_mode = result.buttons.length > 0 ? 'mixed' : 'text';
+      } else if (result.response_kind === 'action_step') {
+        result.input_mode = result.buttons.length > 0 ? 'buttons' : 'mixed';
+      } else {
+        result.input_mode = 'buttons';
+      }
+    }
+    
+    // Validar que no haya "siguiente paso" vacío
+    const replyLowerForValidation = result.reply.toLowerCase();
+    if ((replyLowerForValidation.includes('siguiente paso') || replyLowerForValidation.includes('next step')) && 
+        !replyLowerForValidation.match(/(verificá|verificá si|revisá|revisá si|comprobá|comprobá si|probá|probá si|hacé|hacé lo siguiente|realizá|realizá lo siguiente)/i)) {
+      await log('WARN', 'Detectado "siguiente paso" sin instrucción concreta, corrigiendo', {
+        conversation_id: conversationId,
+        reply_preview: result.reply.substring(0, 100)
+      });
+      // Convertir a pregunta concreta o generar paso concreto
+      result.response_kind = 'info_request';
+      result.input_mode = 'text';
+      result.reply = session.language === 'es-AR'
+        ? 'Contame qué observaste cuando intentaste seguir el paso anterior. ¿Qué viste o qué pasó?'
+        : 'Tell me what you observed when you tried to follow the previous step. What did you see or what happened?';
+    }
     
     // Validación post-IA: detectar comandos destructivos en la respuesta
     // P1.3: Expandir lista de keywords destructivas incluyendo acciones físicas
@@ -2976,11 +3145,13 @@ IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
         ? 'Este problema podría requerir acciones avanzadas. Te recomiendo contactar con un técnico para evitar daños en tu equipo.\n\n¿Querés que te ayude a contactar con un técnico?'
         : 'This problem might require advanced actions. I recommend contacting a technician to avoid damage to your device.\n\nWould you like me to help you contact a technician?';
       
-      // Cambiar botones a opciones de escalamiento
-      result.buttons = [
-        { token: 'BTN_NEED_HELP', label: session.language === 'es-AR' ? 'Sí, contactar técnico' : 'Yes, contact technician', order: 1 },
-        { token: 'BTN_NOT_RESOLVED', label: session.language === 'es-AR' ? 'No, seguir intentando' : 'No, keep trying', order: 2 }
-      ];
+      // Cambiar botones a opciones de escalamiento (response_kind = escalate)
+      result.response_kind = 'escalate';
+      result.input_mode = 'buttons';
+      result.buttons = normalizeButtons([
+        { token: 'BTN_NEED_HELP', label: getLabelForAction(BUTTON_ACTIONS.ESCALATE_TECH, session.language), order: 1 },
+        { token: 'BTN_NOT_RESOLVED', label: session.language === 'es-AR' ? '🔁 Seguir intentando' : '🔁 Keep trying', order: 2 }
+      ], session.stage, 'escalate', session.language);
     }
     
     // P0.3: Sanitizar reply antes de aplicar UX adaptativa
@@ -2994,7 +3165,8 @@ IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
       });
       
       // Corregir: si reply dice "resolvió" pero hay botón "sigue igual", cambiar botones
-      if (result.reply.toLowerCase().includes('resolvió') || result.reply.toLowerCase().includes('resolved')) {
+      const replyLowerCheck = result.reply.toLowerCase();
+      if (replyLowerCheck.includes('resolvió') || replyLowerCheck.includes('resolved')) {
         result.buttons = result.buttons.filter(b => b.token !== 'BTN_NOT_RESOLVED');
       }
       
@@ -3059,16 +3231,22 @@ IMPORTANTE: Solo podes usar tokens de la lista de botones permitidos.`;
       });
     }
     
-    // Fallback determinístico
+    // Fallback determinístico (NO "siguiente paso" vacío)
     if (allowedButtons.length > 0) {
       return {
-        reply: 'Continuemos con el siguiente paso. ¿Qué resultado obtuviste?',
-        buttons: normalizeButtons(allowedButtons.slice(0, 2))
+        reply: session.language === 'es-AR'
+          ? 'Disculpá, tuve un problema técnico. ¿Podés contarme qué problema tenés con tu dispositivo?'
+          : 'Sorry, I had a technical problem. Can you tell me what problem you\'re having with your device?',
+        buttons: normalizeButtons(allowedButtons.slice(0, 2), session.stage, null, session.language),
+        response_kind: 'info_request',
+        input_mode: 'mixed'
       };
     }
     return {
       reply: 'Disculpá, tuve un problema técnico. ¿Podés reformular tu pregunta?',
-      buttons: []
+      buttons: [],
+      response_kind: 'info_request',
+      input_mode: 'text'
     };
   }
 }
@@ -4281,14 +4459,18 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
         ? `Entiendo que necesitás más ayuda. Te recomiendo hablar con un técnico.\n\n📱 Podés contactarnos por WhatsApp: ${ticket.whatsapp_url}\n\n¿Te sirvió esta ayuda?`
         : `I understand you need more help. I recommend talking to a technician.\n\n📱 You can contact us via WhatsApp: ${ticket.whatsapp_url}\n\nWas this help useful?`;
       
+      // Enviar allowWhatsapp: true para que el frontend muestre el botón verde de WhatsApp
       return {
         reply: escalationText,
-        buttons: ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK.map(b => ({
-          label: b.label,
-          value: b.value,
-          token: b.token
-        })),
-        stage: 'ASK_FEEDBACK'
+        buttons: normalizeButtons(ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK, 'ASK_FEEDBACK', null, session.language),
+        stage: 'ASK_FEEDBACK',
+        response_kind: 'escalate',
+        input_mode: 'buttons',
+        allowWhatsapp: true,
+        whatsappUrl: ticket.whatsapp_url,
+        waUrl: ticket.whatsapp_url,
+        ticketId: conversationId,
+        ok: true
       };
     }
   } catch (err) {
@@ -4391,6 +4573,7 @@ async function handleAskInteractionMode(session, userInput, conversation) {
 // ========================================================
 
 async function handleDiagnosticStep(session, userInput, conversation) {
+  // LOG DETALLADO: Inicio de handleDiagnosticStep
   await logDebug('DEBUG', 'handleDiagnosticStep - Inicio', {
     conversation_id: conversation?.conversation_id || 'none',
     user_input: userInput,
@@ -4401,98 +4584,189 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   }, 'server.js', 3925, 3925);
   
   const inputLower = userInput.toLowerCase().trim();
-  const canonicalButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
+  
+  // Detectar si es respuesta a botones
   const allowedButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
   let buttonToken = null;
+  
   for (const btn of allowedButtons) {
     const btnValue = btn.value?.toLowerCase() || '';
     const btnLabel = btn.label?.toLowerCase() || '';
-    if (inputLower === btnValue || inputLower === btnLabel || inputLower.includes(btnValue) || inputLower.includes(btnLabel)) {
+    if (inputLower === btnValue || inputLower === btnLabel || 
+        inputLower.includes(btnValue) || inputLower.includes(btnLabel)) {
       buttonToken = btn.token;
       break;
     }
   }
-
-  // Normalizar nombre para evitar repeticiones/duplicados
-  if (session?.user?.name_norm) {
-    session.user.name_norm = session.user.name_norm.charAt(0).toUpperCase() + session.user.name_norm.slice(1).toLowerCase();
-  }
-
+  
+  // Actualizar last_known_step para CONTEXT_RESUME
   if (conversation && session.context.problem_description_raw) {
-    const stepDescription = session.context.diagnostic_attempts
-      ? `Paso ${session.context.diagnostic_attempts + 1} de diagnostico para: ${session.context.problem_description_raw}`
-      : `Diagnostico inicial para: ${session.context.problem_description_raw}`;
+    const stepDescription = session.context.diagnostic_attempts 
+      ? `Paso ${session.context.diagnostic_attempts + 1} de diagnóstico para: ${session.context.problem_description_raw}`
+      : `Diagnóstico inicial para: ${session.context.problem_description_raw}`;
     session.context.last_known_step = stepDescription;
   }
   
-  if (buttonToken === 'BTN_RESOLVED' || inputLower.includes('resolvi') || inputLower.includes('resolved')) {
+  // Si es "Se resolvió"
+  if (buttonToken === 'BTN_RESOLVED' || inputLower.includes('resolvió') || inputLower.includes('resolved')) {
+    // OBTENER conversation_id DE FORMA SEGURA
     const conversationId = await getConversationIdSafe(session, conversation);
+    
+    // F30.1: Registrar métrica de resolución
     const metrics = resolutionMetrics.get(conversationId) || { resolved: false, escalated: false, steps_taken: 0 };
     metrics.resolved = true;
     metrics.steps_taken = session.context.diagnostic_attempts || 0;
-    if (conversation?.started_at) {
+    if (conversation.started_at) {
       const startedAt = new Date(conversation.started_at);
       const resolvedAt = new Date();
       metrics.resolution_time_minutes = (resolvedAt - startedAt) / (1000 * 60);
     }
     resolutionMetrics.set(conversationId, metrics);
+    
     session.stage = 'ASK_FEEDBACK';
-    await appendToTranscript(conversationId, { role: 'user', type: 'button', label: 'Se resolvio', value: 'resolved' });
+    await appendToTranscript(conversationId, {
+      role: 'user',
+      type: 'button',
+      label: '✅ Se resolvió',
+      value: 'resolved'
+    });
+    
     return {
       reply: TEXTS.ASK_FEEDBACK[session.language || 'es'],
-      buttons: ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK.map(b => ({ label: b.label, value: b.value, token: b.token })),
+      buttons: normalizeButtons(ALLOWED_BUTTONS_BY_ASK.ASK_FEEDBACK, 'ASK_FEEDBACK', null, session.language),
       stage: 'ASK_FEEDBACK'
     };
   }
   
-  if (buttonToken === 'BTN_NEED_HELP' || inputLower.includes('necesito ayuda') || inputLower.includes('tecnico') || inputLower.includes('technician')) {
-    return await escalateToTechnician(session, conversation, 'user_requested');
-  }
-
-  if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || inputLower.includes('not resolved')) {
-    if (!session.context.diagnostic_attempts) {
-      session.context.diagnostic_attempts = 0;
-    }
-    session.context.diagnostic_attempts++;
+  // BTN_NEED_HELP: Por defecto es HELP_STEP (ayuda contextual), NO escalar automáticamente
+  // Solo escalar si viene explícitamente con palabras clave de escalado o si estamos en stage de escalado
+  const isExplicitEscalation = inputLower.includes('técnico') || inputLower.includes('technician') ||
+                                inputLower.includes('tecnico') || inputLower.includes('tecniko') ||
+                                inputLower.includes('whatsapp') || inputLower.includes('contactar');
+  
+  if (buttonToken === 'BTN_NEED_HELP' || inputLower.includes('necesito ayuda')) {
     const conversationId = await getConversationIdSafe(session, conversation);
-    await appendToTranscript(conversationId, { role: 'user', type: 'button', label: 'Sigue igual', value: 'not_resolved' });
-    if (session.context.diagnostic_attempts === 1) {
-      const clarifyStep = await iaStep(session, allowedButtons, 'not_resolved', null, 'clarify');
-      return { reply: clarifyStep.reply, buttons: clarifyStep.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
+    
+    if (isExplicitEscalation || session.stage === 'ASK_FEEDBACK' || session.stage === 'ESCALATE') {
+      // Escalado explícito o en stage de escalado
+      return await escalateToTechnician(session, conversation, 'user_requested');
     }
-    if (session.context.diagnostic_attempts === 2) {
-      const retriageStep = await iaStep(session, allowedButtons, 'not_resolved', null, 'retriage');
-      return { reply: retriageStep.reply, buttons: retriageStep.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
-    }
-    if (session.context.diagnostic_attempts >= 3) {
-      return await escalateToTechnician(session, conversation, 'multiple_attempts_failed');
-    }
-    const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved', null, 'diagnostic');
-    return { reply: nextStepResult.reply, buttons: nextStepResult.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
+    
+    // HELP_STEP: Ayuda contextual del paso actual (NO WhatsApp)
+    // Generar ayuda contextual usando iaStep con contexto de ayuda
+    await appendToTranscript(conversationId, {
+      role: 'user',
+      type: 'button',
+      label: getLabelForAction(BUTTON_ACTIONS.HELP_STEP, session.language),
+      value: 'help_step',
+      action: BUTTON_ACTIONS.HELP_STEP
+    });
+    
+    // Generar respuesta de ayuda contextual (podría ser una versión más detallada del paso actual)
+    const helpContext = `El usuario solicitó ayuda contextual para el paso actual. Proporcioná una explicación más detallada o alternativa del paso actual, o sugerí una forma más simple de realizarlo.`;
+    const helpStepResult = await iaStep(session, allowedButtons, helpContext);
+    
+    return {
+      reply: helpStepResult.reply,
+      buttons: normalizeButtons(helpStepResult.buttons || allowedButtons.slice(0, 3), session.stage, helpStepResult.response_kind, session.language),
+      stage: 'DIAGNOSTIC_STEP',
+      response_kind: helpStepResult.response_kind || 'action_step',
+      input_mode: helpStepResult.input_mode || 'mixed'
+    };
   }
-
-  // Si el usuario ya dio un resultado/observacion (ej. luces encendidas), avanzar sin repreguntar
-  const gaveObservation = /luz|luces|power|prende|enciende|beep|pitido|ventilador|fan|imagen|pantalla|monitor/.test(inputLower);
-  if (gaveObservation) {
+  
+  // BTN_NOT_RESOLVED: Ya lo verifiqué, sigue igual
+  if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || 
+      inputLower.includes('not resolved') || inputLower.includes('ya lo verifiqué')) {
+    // Incrementar contador de intentos
     if (!session.context.diagnostic_attempts) {
       session.context.diagnostic_attempts = 0;
     }
     session.context.diagnostic_attempts++;
-    // Branch segura para nivel basico: seguir con video/POST/ventiladores antes de escalar
-    const observationStep = await iaStep(session, canonicalButtons, 'not_resolved', null, 'diagnostic');
-    // Forzar botones canonicos
-    const buttons = canonicalButtons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token }));
-    return { reply: observationStep.reply, buttons, stage: 'DIAGNOSTIC_STEP' };
+    
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    await appendToTranscript(conversationId, {
+      role: 'user',
+      type: 'button',
+      label: getLabelForAction(BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY, session.language),
+      value: 'not_resolved',
+      action: BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY
+    });
+    
+    // Escalar solo si se alcanzó max_steps (3-5) o hay bloqueo real
+    const maxSteps = 3; // Configurable
+    const cantDoStepCount = session.context.cant_do_step_count || 0;
+    
+    if (session.context.diagnostic_attempts >= maxSteps || cantDoStepCount >= 2) {
+      // Criterio de escalado cumplido
+      return await escalateToTechnician(session, conversation, 
+        session.context.diagnostic_attempts >= maxSteps ? 'max_steps_reached' : 'cant_do_step_repeated');
+    }
+    
+    // Continuar con siguiente paso (enviar resultado del botón anterior)
+    const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved');
+    return {
+      reply: nextStepResult.reply,
+      buttons: normalizeButtons(nextStepResult.buttons || allowedButtons.slice(0, 3), session.stage, nextStepResult.response_kind, session.language),
+      stage: 'DIAGNOSTIC_STEP',
+      response_kind: nextStepResult.response_kind || 'action_step',
+      input_mode: nextStepResult.input_mode || 'buttons'
+    };
   }
-
+  
+  // BTN_CANT_DO_STEP: No pude hacerlo (aumenta contador de bloqueo)
+  if (buttonToken === 'BTN_CANT_DO_STEP' || inputLower.includes('no pude hacerlo') || 
+      inputLower.includes('no puedo hacerlo') || inputLower.includes('couldn\'t do it')) {
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    if (!session.context.cant_do_step_count) {
+      session.context.cant_do_step_count = 0;
+    }
+    session.context.cant_do_step_count++;
+    
+    await appendToTranscript(conversationId, {
+      role: 'user',
+      type: 'button',
+      label: getLabelForAction(BUTTON_ACTIONS.CANT_DO_STEP, session.language),
+      value: 'cant_do_step',
+      action: BUTTON_ACTIONS.CANT_DO_STEP
+    });
+    
+    // Si se repite CANT_DO_STEP múltiples veces, escalar
+    if (session.context.cant_do_step_count >= 2) {
+      return await escalateToTechnician(session, conversation, 'cant_do_step_repeated');
+    }
+    
+    // Ofrecer ayuda contextual (HELP_STEP) en lugar de escalar inmediatamente
+    const helpStepResult = await iaStep(session, allowedButtons, 'cant_do_step');
+    return {
+      reply: helpStepResult.reply,
+      buttons: normalizeButtons(helpStepResult.buttons || allowedButtons.slice(0, 3), session.stage, helpStepResult.response_kind, session.language),
+      stage: 'DIAGNOSTIC_STEP',
+      response_kind: helpStepResult.response_kind || 'action_step',
+      input_mode: helpStepResult.input_mode || 'mixed'
+    };
+  }
+  
+  // Si no es respuesta a botón, tratar como pregunta libre o continuar
   const freeQA = await handleFreeQA(session, userInput, conversation);
   if (freeQA) {
     return freeQA;
   }
+  
+  // Por defecto, continuar con siguiente paso
   const stepResult = await iaStep(session, allowedButtons);
-  // Asegurar botones canonicos en salida
-  const normalizedButtons = canonicalButtons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token }));
-  return { reply: stepResult.reply, buttons: normalizedButtons, stage: 'DIAGNOSTIC_STEP' };
+  return {
+    reply: stepResult.reply,
+    buttons: stepResult.buttons.map(b => ({
+      label: b.label,
+      value: b.value || b.token,
+      token: b.token
+    })),
+    stage: 'DIAGNOSTIC_STEP'
+  };
 }
 
 // ========================================================
@@ -8920,5 +9194,3 @@ app.listen(PORT, async () => {
   await log('INFO', `Server iniciado en puerto ${PORT}`);
 });
 // Deploy marker 2025-12-19
-
-
