@@ -200,6 +200,10 @@ async function log(level, message, data = null, file = null, lineStart = null, l
  * @param {number} lineEnd - Línea final
  */
 async function logDebug(level, message, context = {}, file = 'server.js', lineStart = null, lineEnd = null) {
+  // Filtrar ruido: solo registrar eventos de importancia media/alta (INFO, WARN, ERROR)
+  if (String(level).toUpperCase() === 'DEBUG') {
+    return;
+  }
   const fullContext = {
     ...context,
     timestamp: new Date().toISOString(),
@@ -5433,24 +5437,20 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
   
   // F28.1: Detectar preguntas fuera de alcance
   if (isOutOfScope(userInput) && session.stage !== 'ASK_CONSENT' && session.stage !== 'ASK_LANGUAGE') {
-    return {
-      reply: session.language === 'es-AR'
-        ? 'Soy Tecnos, tu asistente técnico. Estoy acá para ayudarte con problemas de tu equipo. ¿Tenés algún problema técnico que pueda ayudarte a resolver?'
-        : 'I\'m Tecnos, your technical assistant. I\'m here to help you with problems with your device. Do you have any technical problem I can help you solve?',
-      buttons: [],
-      stage: session.stage
-    };
+    await log('WARN', 'Input fuera de alcance, se envía igual a IA', {
+      stage: session.stage,
+      user_input_preview: userInput.substring(0, 80)
+    });
+    // Continuar con el flujo normal para que IA procese el texto
   }
   
   // F28.2: Detectar inputs sin sentido
   if (isNonsensicalInput(userInput) && session.stage !== 'ASK_CONSENT' && session.stage !== 'ASK_LANGUAGE') {
-    return {
-      reply: session.language === 'es-AR'
-        ? 'No entendí tu mensaje. ¿Podés contarme qué problema técnico tenés?'
-        : 'I didn\'t understand your message. Can you tell me what technical problem you have?',
-      buttons: [],
-      stage: session.stage
-    };
+    await log('WARN', 'Input poco claro, se envía igual a IA', {
+      stage: session.stage,
+      user_input_preview: userInput.substring(0, 80)
+    });
+    // Continuar con el flujo normal para que IA procese el texto
   }
   
   // Detectar y actualizar emoción
