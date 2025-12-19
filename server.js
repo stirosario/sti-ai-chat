@@ -1470,6 +1470,45 @@ function isNonsensicalInput(userInput) {
 }
 
 /**
+ * Heurística liviana para decidir si pedir imagen al usuario
+ * Retorna null si no hace falta, o un objeto con motivo/instrucción si conviene pedirla
+ */
+function detectImageUsefulness(userInput, classification, session) {
+  try {
+    const text = (userInput || '').toLowerCase();
+    const langEs = (session?.language || 'es').startsWith('es');
+
+    const needImageKeywords = [
+      'pantalla', 'captura', 'screenshot', 'foto', 'imagen',
+      'mensaje de error', 'error', 'código', 'codigo',
+      'luz', 'led', 'rojo', 'verde', 'parpadea',
+      'cable', 'conexión', 'conector'
+    ];
+
+    const powerSymptoms = ['no prende', 'no enciende', 'no arranca'];
+    const deviceVisuals = ['impresora', 'router', 'modem', 'monitor', 'pantalla', 'placa'];
+
+    const hitsKeyword = needImageKeywords.some(k => text.includes(k));
+    const hitsPower = powerSymptoms.some(k => text.includes(k));
+    const hitsDevice = deviceVisuals.some(k => text.includes(k));
+    const intent = classification?.intent || '';
+
+    if (hitsKeyword || hitsPower || hitsDevice || intent === 'peripheral') {
+      return {
+        useful: true,
+        reason: 'image_keywords_match',
+        instruction: langEs
+          ? 'Mostrame una foto clara del mensaje en pantalla, luces o cables que veas.'
+          : 'Please share a clear photo of the screen message, lights, or cables you see.'
+      };
+    }
+  } catch {
+    // Silencio: si algo falla, no interrumpir el flujo
+  }
+  return null;
+}
+
+/**
  * F30.1-F30.4: Métricas operativas
  */
 const resolutionMetrics = new Map(); // conversationId -> { resolved: boolean, escalated: boolean, steps_taken: number, started_at: string, resolved_at: string }
@@ -6140,9 +6179,9 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
 
 const app = express();
 
-// Configurar trust proxy para que express-rate-limit funcione correctamente detrás de un proxy
-// Esto es necesario cuando la app está detrás de un proxy reverso (como Render, nginx, etc.)
-app.set('trust proxy', true);
+// Configurar trust proxy solo para el primer proxy (Render) para evitar ERR_ERL_PERMISSIVE_TRUST_PROXY
+// y mantener rate limiting confiable con la IP real del cliente.
+app.set('trust proxy', 1);
 
 // Rate Limiting
 const chatLimiter = rateLimit({
