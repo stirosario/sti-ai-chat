@@ -15,14 +15,26 @@
   // ========== CONFIGURACIÓN ==========
   const API_URL = 'https://sti-rosario-ai.onrender.com/api';
   const WIDGET_VERSION = '2.0.0'; // Para cache busting - Actualizar en cada release
+  const LOG_PREFIX = '[STI-CHAT]';
   let sessionId = null;
   let isProcessing = false;
   let selectedImageBase64 = null;
+
+  function logInfo(message, data) {
+    console.info(`${LOG_PREFIX} ${message}`, data || '');
+  }
+  function logWarn(message, data) {
+    console.warn(`${LOG_PREFIX} ${message}`, data || '');
+  }
+  function logError(message, data) {
+    console.error(`${LOG_PREFIX} ${message}`, data || '');
+  }
 
   // ========== INICIALIZACIÓN ==========
   function initChat() {
     // Generar sessionId única
     sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    logInfo('Init chat widget', { sessionId, version: WIDGET_VERSION });
     
     // Eventos
     const sendBtn = document.getElementById('sti-send');
@@ -103,6 +115,8 @@
     msgDiv.className = `sti-msg ${type}`;
     
     const avatar = type === 'bot' ? '🤖' : '👤';
+    const roleLabel = type === 'bot' ? 'Bot' : 'User';
+    const prefixedText = `${roleLabel}: ${text}`;
     let buttonsHTML = '';
     
     if (buttons && buttons.length > 0) {
@@ -122,7 +136,7 @@
     msgDiv.innerHTML = `
       <div class="sti-avatar">${avatar}</div>
       <div class="sti-bubble">
-        ${text.replace(/\n/g, '<br>')}
+        ${prefixedText.replace(/\n/g, '<br>')}
         ${buttonsHTML}
       </div>
     `;
@@ -135,6 +149,7 @@
   function handleAttachClick() {
     const fileInput = document.getElementById('sti-file-input');
     if (fileInput) {
+      logInfo('Attach button clicked');
       fileInput.click();
     }
   }
@@ -163,6 +178,7 @@
     const reader = new FileReader();
     reader.onload = (e) => {
       selectedImageBase64 = e.target.result;
+      logInfo('Imagen seleccionada', { size: file.size, type: file.type });
       
       // Mostrar preview y habilitar botón
       const attachBtn = document.getElementById('sti-attach-btn');
@@ -182,6 +198,7 @@
     };
     reader.onerror = () => {
       alert('Error al leer el archivo. Por favor, intenta de nuevo.');
+      logError('Error leyendo archivo seleccionado');
       event.target.value = '';
     };
     reader.readAsDataURL(file);
@@ -217,6 +234,7 @@
 
     // Mostrar "PENSANDO"
     showTypingIndicator();
+    logInfo('Enviando mensaje', { sessionId, hasImage: !!selectedImageBase64, textLength: text.length });
 
     try {
       const requestBody = {
@@ -241,6 +259,7 @@
       });
 
       const data = await response.json();
+      logInfo('Respuesta recibida', { status: response.status, ok: data.ok, stage: data.stage, buttons: data.buttons?.length || 0 });
       
       // Ocultar "PENSANDO"
       hideTypingIndicator();
@@ -254,13 +273,14 @@
       if (data.ok === false) {
         // Error del servidor
         addMessage('bot', data.error || 'Lo siento, hubo un error. ¿Podrías intentar de nuevo?');
+        logWarn('Respuesta con error del servidor', { status: response.status, error: data.error });
       } else if (data.reply) {
         addMessage('bot', data.reply, data.buttons || null);
       } else {
         addMessage('bot', 'Lo siento, hubo un error. ¿Podrías intentar de nuevo?');
       }
     } catch (error) {
-      console.error('Error:', error);
+      logError('Error en envío', { message: error?.message });
       hideTypingIndicator();
       addMessage('bot', 'No pude conectarme al servidor. Por favor, verifica tu conexión.');
       // Restaurar imagen si hubo error
@@ -274,6 +294,7 @@
   window.stiChatSelectOption = function(value) {
     const textInput = document.getElementById('sti-text');
     if (textInput) {
+      logInfo('Botón seleccionado', { value });
       textInput.value = value;
       sendMessage();
     }
