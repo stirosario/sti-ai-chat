@@ -4908,11 +4908,8 @@ Respondé con una explicación clara y útil para el usuario.`
             'BTN_PERIFERICOS',
             'BTN_VIRUS'
           ], locale);
-          // Agregar mensaje adicional después de los botones
-          options.push({
-            type: 'text',
-            text: 'O si lo preferís, describime el problema con tus palabras… 💬🔧'
-          });
+          // Agregar mensaje adicional al final del reply (NO como botón)
+          reply += '\n\nY si no está en la lista, escribila con tus palabras… 💬🔧 o subí una imagen 📎🖼️';
         } else if (needType === 'consulta_general') {
           reply = isEn
             ? `Great ${whoName}! What do you need help with?`
