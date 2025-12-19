@@ -4401,6 +4401,7 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   }, 'server.js', 3925, 3925);
   
   const inputLower = userInput.toLowerCase().trim();
+  const canonicalButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
   const allowedButtons = ALLOWED_BUTTONS_BY_ASK.ASK_RESOLUTION_STATUS || [];
   let buttonToken = null;
   for (const btn of allowedButtons) {
@@ -4411,7 +4412,12 @@ async function handleDiagnosticStep(session, userInput, conversation) {
       break;
     }
   }
-  
+
+  // Normalizar nombre para evitar repeticiones/duplicados
+  if (session?.user?.name_norm) {
+    session.user.name_norm = session.user.name_norm.charAt(0).toUpperCase() + session.user.name_norm.slice(1).toLowerCase();
+  }
+
   if (conversation && session.context.problem_description_raw) {
     const stepDescription = session.context.diagnostic_attempts
       ? `Paso ${session.context.diagnostic_attempts + 1} de diagnostico para: ${session.context.problem_description_raw}`
@@ -4442,7 +4448,7 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   if (buttonToken === 'BTN_NEED_HELP' || inputLower.includes('necesito ayuda') || inputLower.includes('tecnico') || inputLower.includes('technician')) {
     return await escalateToTechnician(session, conversation, 'user_requested');
   }
-  
+
   if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || inputLower.includes('not resolved')) {
     if (!session.context.diagnostic_attempts) {
       session.context.diagnostic_attempts = 0;
@@ -4464,13 +4470,29 @@ async function handleDiagnosticStep(session, userInput, conversation) {
     const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved', null, 'diagnostic');
     return { reply: nextStepResult.reply, buttons: nextStepResult.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
   }
-  
+
+  // Si el usuario ya dio un resultado/observacion (ej. luces encendidas), avanzar sin repreguntar
+  const gaveObservation = /luz|luces|power|prende|enciende|beep|pitido|ventilador|fan|imagen|pantalla|monitor/.test(inputLower);
+  if (gaveObservation) {
+    if (!session.context.diagnostic_attempts) {
+      session.context.diagnostic_attempts = 0;
+    }
+    session.context.diagnostic_attempts++;
+    // Branch segura para nivel basico: seguir con video/POST/ventiladores antes de escalar
+    const observationStep = await iaStep(session, canonicalButtons, 'not_resolved', null, 'diagnostic');
+    // Forzar botones canonicos
+    const buttons = canonicalButtons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token }));
+    return { reply: observationStep.reply, buttons, stage: 'DIAGNOSTIC_STEP' };
+  }
+
   const freeQA = await handleFreeQA(session, userInput, conversation);
   if (freeQA) {
     return freeQA;
   }
   const stepResult = await iaStep(session, allowedButtons);
-  return { reply: stepResult.reply, buttons: stepResult.buttons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token })), stage: 'DIAGNOSTIC_STEP' };
+  // Asegurar botones canonicos en salida
+  const normalizedButtons = canonicalButtons.map(b => ({ label: b.label, value: b.value || b.token, token: b.token }));
+  return { reply: stepResult.reply, buttons: normalizedButtons, stage: 'DIAGNOSTIC_STEP' };
 }
 
 // ========================================================
