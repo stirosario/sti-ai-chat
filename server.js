@@ -2801,7 +2801,14 @@ async function iaStep(session, allowedButtons, previousButtonResult = null, requ
   
   // Contexto del botón anterior (si existe)
   const previousButtonContext = previousButtonResult
-    ? `\n\nRESULTADO DEL PASO ANTERIOR: El usuario indicó "${previousButtonResult}" (el paso anterior no resolvió el problema).`
+    ? (previousButtonResult === 'not_resolved' || previousButtonResult === 'not_resolved_force_info_request'
+        ? `\n\n⚠️ CRÍTICO: El usuario indicó que el paso anterior NO resolvió el problema ("${previousButtonResult}"). DEBÉS generar un paso DIFERENTE. NO repitas el mismo paso. Si ya sugeriste verificar cables, ahora sugerí otra cosa (ej: verificar luces, probar otro dispositivo, revisar configuración, etc.). Si no hay más pasos de diagnóstico, cambiá a una pregunta de observación (info_request) o escalá.`
+        : `\n\nRESULTADO DEL PASO ANTERIOR: El usuario indicó "${previousButtonResult}" (el paso anterior no resolvió el problema).`)
+    : '';
+  
+  // Agregar step_index al contexto si existe
+  const stepIndexContext = session.context.diagnostic?.step_index
+    ? `\n\nPASO ACTUAL: Este es el paso número ${session.context.diagnostic.step_index} del diagnóstico.`
     : '';
   
   const allowedButtonsList = allowedButtons.map(b => `- ${b.label} (token: ${b.token})`).join('\n');
@@ -2814,7 +2821,7 @@ CONTEXTO:
 - Nivel: ${session.user_level || 'desconocido'}
 - Dispositivo: ${session.context.device_type || 'desconocido'}
 - Problema: ${session.context.problem_description_raw || 'ninguno'}
-- Intent: ${session.context.problem_category || 'unknown'}${previousButtonContext}${historyText}
+- Intent: ${session.context.problem_category || 'unknown'}${stepIndexContext}${previousButtonContext}${historyText}
 
 INSTRUCCIONES:
 1. Generá UN SOLO paso claro y conciso
@@ -4678,41 +4685,152 @@ async function handleDiagnosticStep(session, userInput, conversation) {
   // BTN_NOT_RESOLVED: Ya lo verifiqué, sigue igual
   if (buttonToken === 'BTN_NOT_RESOLVED' || inputLower.includes('sigue igual') || 
       inputLower.includes('not resolved') || inputLower.includes('ya lo verifiqué')) {
-    // Incrementar contador de intentos
+    // OBTENER conversation_id DE FORMA SEGURA
+    const conversationId = await getConversationIdSafe(session, conversation);
+    
+    // Inicializar tracking de pasos si no existe
+    if (!session.context.diagnostic) {
+      session.context.diagnostic = {};
+    }
+    if (!session.context.diagnostic.step_index) {
+      session.context.diagnostic.step_index = 0;
+    }
+    if (!session.context.diagnostic.attempts_by_step) {
+      session.context.diagnostic.attempts_by_step = {};
+    }
+    if (!session.context.diagnostic.last_step_id) {
+      session.context.diagnostic.last_step_id = null;
+    }
+    
+    // Incrementar contador de intentos totales
     if (!session.context.diagnostic_attempts) {
       session.context.diagnostic_attempts = 0;
     }
     session.context.diagnostic_attempts++;
     
-    // OBTENER conversation_id DE FORMA SEGURA
-    const conversationId = await getConversationIdSafe(session, conversation);
+    // Generar step_id del paso actual basado en el último mensaje del bot
+    const lastBotMessage = conversation?.transcript?.slice().reverse().find(e => e.role === 'bot' && e.text);
+    const currentStepId = lastBotMessage ? crypto.createHash('sha256').update(lastBotMessage.text.substring(0, 200)).digest('hex').substring(0, 16) : `step_${Date.now()}`;
+    
+    // Incrementar step_index para forzar avance
+    session.context.diagnostic.step_index++;
+    
+    // Trackear intentos por step_id para anti-loop
+    if (!session.context.diagnostic.attempts_by_step[currentStepId]) {
+      session.context.diagnostic.attempts_by_step[currentStepId] = 0;
+    }
+    session.context.diagnostic.attempts_by_step[currentStepId]++;
+    
+    // ANTI-LOOP GUARD: Si el mismo paso se repite 2 veces, forzar cambio
+    const sameStepRepeated = session.context.diagnostic.last_step_id === currentStepId && 
+                             session.context.diagnostic.attempts_by_step[currentStepId] >= 2;
+    
+    // Log detallado de la acción detectada
+    await logDebug('INFO', '[DIAGNOSTIC_STEP] action=NOT_RESOLVED_AFTER_TRY', {
+      conversation_id: conversationId,
+      step_index: session.context.diagnostic.step_index,
+      step_id: currentStepId,
+      last_step_id: session.context.diagnostic.last_step_id,
+      attempts_by_step: session.context.diagnostic.attempts_by_step[currentStepId],
+      same_step_repeated: sameStepRepeated,
+      diagnostic_attempts: session.context.diagnostic_attempts
+    }, 'server.js', 4678, 4678);
     
     await appendToTranscript(conversationId, {
       role: 'user',
       type: 'button',
       label: getLabelForAction(BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY, session.language),
       value: 'not_resolved',
-      action: BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY
+      action: BUTTON_ACTIONS.NOT_RESOLVED_AFTER_TRY,
+      step_index: session.context.diagnostic.step_index,
+      step_id: currentStepId
     });
     
     // Escalar solo si se alcanzó max_steps (3-5) o hay bloqueo real
-    const maxSteps = 3; // Configurable
+    const maxSteps = 5; // Aumentado a 5 para dar más oportunidades
     const cantDoStepCount = session.context.cant_do_step_count || 0;
     
     if (session.context.diagnostic_attempts >= maxSteps || cantDoStepCount >= 2) {
       // Criterio de escalado cumplido
+      await logDebug('INFO', '[DIAGNOSTIC_STEP] Escalando por max_steps o cant_do_step', {
+        conversation_id: conversationId,
+        diagnostic_attempts: session.context.diagnostic_attempts,
+        max_steps: maxSteps,
+        cant_do_step_count: cantDoStepCount
+      }, 'server.js', 4702, 4702);
       return await escalateToTechnician(session, conversation, 
         session.context.diagnostic_attempts >= maxSteps ? 'max_steps_reached' : 'cant_do_step_repeated');
     }
     
+    // ANTI-LOOP: Si el mismo paso se repite 2 veces, forzar cambio a info_request o escalar
+    if (sameStepRepeated) {
+      await logDebug('WARN', '[DIAGNOSTIC_STEP] Anti-loop: mismo paso repetido 2 veces, forzando cambio', {
+        conversation_id: conversationId,
+        step_id: currentStepId,
+        step_index: session.context.diagnostic.step_index
+      }, 'server.js', 4720, 4720);
+      
+      // Si se repite 3 veces el mismo paso, escalar
+      if (session.context.diagnostic.attempts_by_step[currentStepId] >= 3) {
+        await logDebug('WARN', '[DIAGNOSTIC_STEP] Anti-loop: mismo paso repetido 3 veces, escalando', {
+          conversation_id: conversationId,
+          step_id: currentStepId
+        }, 'server.js', 4725, 4725);
+        return await escalateToTechnician(session, conversation, 'same_step_repeated_3_times');
+      }
+      
+      // Forzar cambio a pregunta de observación (info_request) en lugar de repetir
+      const forcedInfoRequest = await iaStep(session, allowedButtons, 'not_resolved_force_info_request');
+      // Asegurar que sea info_request
+      forcedInfoRequest.response_kind = 'info_request';
+      forcedInfoRequest.input_mode = 'text';
+      
+      // Actualizar last_step_id para el nuevo paso
+      const newStepId = crypto.createHash('sha256').update(forcedInfoRequest.reply.substring(0, 200)).digest('hex').substring(0, 16);
+      session.context.diagnostic.last_step_id = newStepId;
+      
+      return {
+        reply: forcedInfoRequest.reply,
+        buttons: normalizeButtons(forcedInfoRequest.buttons || allowedButtons.slice(0, 3), session.stage, 'info_request', session.language),
+        stage: 'DIAGNOSTIC_STEP',
+        response_kind: 'info_request',
+        input_mode: 'text',
+        step_index: session.context.diagnostic.step_index,
+        step_id: newStepId
+      };
+    }
+    
     // Continuar con siguiente paso (enviar resultado del botón anterior)
+    // El prompt mejorado asegurará que avance cuando previousButtonResult es 'not_resolved'
     const nextStepResult = await iaStep(session, allowedButtons, 'not_resolved');
+    
+    // Generar step_id del nuevo paso
+    const newStepId = crypto.createHash('sha256').update(nextStepResult.reply.substring(0, 200)).digest('hex').substring(0, 16);
+    session.context.diagnostic.last_step_id = newStepId;
+    
+    // Verificar que el nuevo paso sea diferente (anti-loop adicional)
+    if (newStepId === currentStepId) {
+      await logDebug('WARN', '[DIAGNOSTIC_STEP] Anti-loop: IA generó el mismo paso, forzando cambio', {
+        conversation_id: conversationId,
+        step_id: newStepId
+      }, 'server.js', 4750, 4750);
+      
+      // Forzar cambio a info_request
+      nextStepResult.response_kind = 'info_request';
+      nextStepResult.input_mode = 'text';
+      nextStepResult.reply = session.language === 'es-AR'
+        ? 'Contame qué observaste cuando intentaste seguir el paso anterior. ¿Qué viste o qué pasó?'
+        : 'Tell me what you observed when you tried to follow the previous step. What did you see or what happened?';
+    }
+    
     return {
       reply: nextStepResult.reply,
       buttons: normalizeButtons(nextStepResult.buttons || allowedButtons.slice(0, 3), session.stage, nextStepResult.response_kind, session.language),
       stage: 'DIAGNOSTIC_STEP',
       response_kind: nextStepResult.response_kind || 'action_step',
-      input_mode: nextStepResult.input_mode || 'buttons'
+      input_mode: nextStepResult.input_mode || 'buttons',
+      step_index: session.context.diagnostic.step_index,
+      step_id: newStepId
     };
   }
   
@@ -5647,17 +5765,18 @@ async function handleChatMessage(sessionId, userInput, imageBase64 = null, reque
       
       const recentSet = recentInputs.get(session.conversation_id);
       if (recentSet.has(inputHash)) {
-        // Input duplicado en los últimos 5 segundos
+        // Input duplicado en los últimos 15 segundos
         await log('WARN', 'Input duplicado detectado, ignorando', { 
           conversation_id: session.conversation_id, 
           input_preview: userInput.substring(0, 50) 
         });
+        // Retornar respuesta vacía - el frontend debe mantener el typing indicator
+        // NO mostrar mensaje "Ya recibí tu mensaje..." al usuario
         return {
-          reply: session.language === 'es-AR'
-            ? 'Ya recibí tu mensaje. Por favor, esperá un momento...'
-            : 'I already received your message. Please wait a moment...',
+          reply: '', // Respuesta vacía - frontend debe mantener typing
           buttons: [],
-          stage: session.stage
+          stage: session.stage,
+          isDuplicate: true // Flag para que el frontend sepa que es duplicado
         };
       }
       
