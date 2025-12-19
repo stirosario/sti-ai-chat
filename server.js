@@ -44,6 +44,9 @@ const IDS_DIR = path.join(DATA_BASE, 'ids');
 const LOGS_DIR = path.join(DATA_BASE, 'logs');
 const TICKETS_DIR = path.join(DATA_BASE, 'tickets');
 const UPLOADS_DIR = path.join(DATA_BASE, 'uploads');
+const LOG_MAX_SIZE_BYTES = parseInt(process.env.LOG_MAX_SIZE_BYTES || '10485760'); // 10 MB por defecto
+const MAX_IMAGE_SIZE_BYTES = parseInt(process.env.MAX_IMAGE_SIZE_BYTES || '10485760'); // 10 MB por defecto
+const LOG_TOKEN = process.env.LOG_TOKEN || null;
 
 const USED_IDS_FILE = path.join(IDS_DIR, 'used_ids.json');
 const USED_IDS_LOCK = path.join(IDS_DIR, 'used_ids.lock');
@@ -174,6 +177,7 @@ async function log(level, message, data = null, file = null, lineStart = null, l
   const logLine = `[${timestamp}] [${level}] ${locationInfo}${message}${data ? ' ' + JSON.stringify(data, null, 2) : ''}\n`;
   
   try {
+    await rotateLogIfNeeded();
     await fs.appendFile(SERVER_LOG_FILE, logLine);
   } catch (err) {
     console.error('Error escribiendo log:', err);
@@ -202,6 +206,21 @@ async function logDebug(level, message, context = {}, file = 'server.js', lineSt
     lines: lineStart ? (lineEnd && lineEnd !== lineStart ? `${lineStart}-${lineEnd}` : `${lineStart}`) : 'unknown'
   };
   await log(level, message, fullContext, file, lineStart, lineEnd);
+}
+
+// Rotación sencilla del archivo de log para evitar crecimiento infinito
+async function rotateLogIfNeeded() {
+  try {
+    const stats = await fs.stat(SERVER_LOG_FILE);
+    if (stats.size > LOG_MAX_SIZE_BYTES) {
+      const rotatedPath = SERVER_LOG_FILE + '.1';
+      await fs.rename(SERVER_LOG_FILE, rotatedPath).catch(() => {});
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Error en rotación de log:', err);
+    }
+  }
 }
 
 // ========================================================
@@ -242,11 +261,16 @@ async function reserveUniqueConversationId() {
         let usedIds = new Set();
         try {
           const content = await fs.readFile(USED_IDS_FILE, 'utf-8');
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed)) {
-            usedIds = new Set(parsed);
-          } else if (parsed.ids && Array.isArray(parsed.ids)) {
-            usedIds = new Set(parsed.ids);
+          try {
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+              usedIds = new Set(parsed);
+            } else if (parsed.ids && Array.isArray(parsed.ids)) {
+              usedIds = new Set(parsed.ids);
+            }
+          } catch (parseErr) {
+            await log('WARN', 'used_ids.json corrupto, reiniciando', { error: parseErr.message });
+            usedIds = new Set();
           }
         } catch (err) {
           if (err.code !== 'ENOENT') throw err;
@@ -283,6 +307,7 @@ async function reserveUniqueConversationId() {
         
       } catch (err) {
         await lockHandle.close().catch(() => {});
+        await fs.unlink(USED_IDS_LOCK).catch(() => {});
         throw err;
       }
       
@@ -6123,11 +6148,25 @@ app.use(helmet());
 app.use(compression());
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.includes('*') || ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    const allowWildcard = ALLOWED_ORIGINS.includes('*');
+    const effectiveOrigins = (NODE_ENV === 'development' && allowWildcard)
+      ? ALLOWED_ORIGINS
+      : ALLOWED_ORIGINS.filter(o => o !== '*');
+    
+    if (!origin) {
+      return callback(null, true); // Requests sin origen (curl, same-origin) permitidos
     }
+    
+    if (effectiveOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    if (allowWildcard && NODE_ENV === 'development') {
+      callback(null, true);
+      return;
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
@@ -6168,6 +6207,32 @@ app.use((req, res, next) => {
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'STI Chat API is running', version: '2.0.0' });
+});
+
+// Health check extendido con validaciones de fs y configuración
+app.get('/healthz', async (req, res) => {
+  const checks = {
+    fs_write: false,
+    log_token_configured: !!LOG_TOKEN,
+    openai_configured: !!OPENAI_API_KEY
+  };
+  
+  try {
+    await fs.access(DATA_BASE, fsSync.constants.W_OK);
+    const tmpFile = path.join(DATA_BASE, `healthcheck-${Date.now()}.tmp`);
+    await fs.writeFile(tmpFile, 'ok', 'utf-8');
+    await fs.unlink(tmpFile).catch(() => {});
+    checks.fs_write = true;
+  } catch (err) {
+    checks.fs_error = err.message;
+  }
+  
+  const healthy = checks.fs_write && checks.log_token_configured;
+  res.status(healthy ? 200 : 503).json({
+    ok: healthy,
+    status: healthy ? 'healthy' : 'degraded',
+    checks
+  });
 });
 
 // ========================================================
@@ -6229,6 +6294,12 @@ app.get('/api/images/:conversationId/:filename', async (req, res) => {
       throw err;
     }
     
+    // Verificar tamaño del archivo antes de leer
+    const imageStats = await fs.stat(imagePath);
+    if (imageStats.size > MAX_IMAGE_SIZE_BYTES) {
+      return res.status(413).json({ ok: false, error: 'Imagen demasiado grande' });
+    }
+    
     // Leer archivo y determinar MIME type
     const mimeTypes = {
       'jpg': 'image/jpeg',
@@ -6248,6 +6319,7 @@ app.get('/api/images/:conversationId/:filename', async (req, res) => {
     res.setHeader('Content-Length', fileBuffer.length);
     res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache 24 horas
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     
     res.send(fileBuffer);
   } catch (err) {
@@ -6970,7 +7042,7 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
 app.get('/api/debug-logs', async (req, res) => {
   try {
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
-    if (token !== CONFIG.logToken) {
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -7050,9 +7122,8 @@ app.get('/api/live-events', async (req, res) => {
   try {
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
     
-    // Validar token (usar LOG_TOKEN si está configurado)
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    // Validar token obligatorio para evitar acceso no autorizado
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       const bootId = req.bootId || trace.generateBootId();
       const traceContext = req.traceContext || trace.createTraceContext(
         null,
@@ -7120,8 +7191,7 @@ app.get('/api/live-events/last-error', async (req, res) => {
   try {
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
     
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -7162,9 +7232,8 @@ app.get('/api/transcript-json/:conversationId', async (req, res) => {
     const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
     
-    // Validar token (usar LOG_TOKEN si está configurado)
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    // Validar token obligatorio
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       const bootId = req.bootId || trace.generateBootId();
       const traceContext = req.traceContext || trace.createTraceContext(
         null,
@@ -7245,9 +7314,8 @@ app.get('/api/trace/:conversationId', async (req, res) => {
     const conversationId = String(req.params.conversationId || '').replace(/[^a-zA-Z0-9._-]/g, '');
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
     
-    // Validar token (usar LOG_TOKEN si está configurado)
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    // Validar token obligatorio
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -7294,9 +7362,8 @@ app.get('/api/historial/:conversationId', async (req, res) => {
     const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
     const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
     
-    // Validar token (usar LOG_TOKEN si está configurado)
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    // Validar token obligatorio
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       const bootId = req.bootId || trace.generateBootId();
       const traceContext = req.traceContext || trace.createTraceContext(
         null,
@@ -7689,8 +7756,7 @@ app.post('/api/autofix/analyze', async (req, res) => {
     const { trace, objective, mode, token } = req.body;
     
     // Validar token
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -7946,8 +8012,7 @@ app.post('/api/autofix/repair', async (req, res) => {
     const { result, token } = req.body;
     
     // Validar token
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
@@ -8065,8 +8130,7 @@ app.post('/api/autofix/apply', async (req, res) => {
     const { result, token } = req.body;
     
     // Validar token
-    const LOG_TOKEN = process.env.LOG_TOKEN;
-    if (LOG_TOKEN && token !== LOG_TOKEN) {
+    if (!LOG_TOKEN || token !== LOG_TOKEN) {
       return res.status(403).json({ ok: false, error: 'Token inválido' });
     }
     
