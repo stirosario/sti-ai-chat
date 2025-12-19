@@ -7055,12 +7055,38 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
     );
     
     const httpError = await logHttpError(traceContext, err, '/api/greeting', req, res);
-    
-    res.status(httpError.status).json({
-      ok: false,
-      error: httpError.status >= 500 ? 'Error interno del servidor' : err.message || httpError.description,
-      message: NODE_ENV === 'development' ? err.message : undefined
-    });
+    // Fallback amigable: aun con error devolver GDPR para no romper el flujo
+    try {
+      const fallbackSessionId = req.query.sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const fallbackReply = TEXTS.ASK_CONSENT.es;
+      const buttons = ALLOWED_BUTTONS_BY_ASK.ASK_CONSENT.map(b => ({
+        label: b.label,
+        value: b.value,
+        token: b.token
+      }));
+      
+      await log('WARN', 'Fallback GDPR en /api/greeting por error', {
+        error: err.message,
+        boot_id: bootId,
+        http_status: httpError.status
+      });
+      
+      return res.status(200).json({
+        ok: true,
+        reply: fallbackReply,
+        sid: fallbackSessionId,
+        stage: 'ASK_CONSENT',
+        options: buttons.map(b => b.label),
+        buttons
+      });
+    } catch (fallbackErr) {
+      // Si el fallback falla, enviar el error original
+      return res.status(httpError.status).json({
+        ok: false,
+        error: httpError.status >= 500 ? 'Error interno del servidor' : err.message || httpError.description,
+        message: NODE_ENV === 'development' ? err.message : undefined
+      });
+    }
   }
 });
 
