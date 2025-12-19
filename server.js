@@ -6471,7 +6471,16 @@ app.post('/api/reset', async (req, res) => {
 app.post('/api/chat', chatLimiter, async (req, res) => {
   // boot_id ya está asignado por el middleware
   const bootId = req.bootId;
-  const traceContext = req.traceContext;
+  let traceContext = req.traceContext || trace.createTraceContext(
+    null,
+    `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    null,
+    null,
+    NODE_ENV,
+    null,
+    bootId || trace.generateBootId()
+  );
+  let requestId = null;
   
   // LOG DETALLADO: Inicio del endpoint
   await logDebug('DEBUG', 'POST /api/chat - Inicio de request', {
@@ -6750,10 +6759,12 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     }
     
     // P1.1: Generar request_id si no viene
-    const requestId = request_id || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    requestId = request_id || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     // Actualizar traceContext con request_id
-    traceContext.request_id = requestId;
+    if (traceContext) {
+      traceContext.request_id = requestId;
+    }
     
     await log('INFO', `Chat request`, { 
       sessionId, 
