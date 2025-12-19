@@ -1469,6 +1469,19 @@ function isNonsensicalInput(userInput) {
   return false;
 }
 
+// Token público por conversación (enlace compartible)
+function generateShareToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+async function ensureShareToken(conversation) {
+  if (!conversation.share_token) {
+    conversation.share_token = generateShareToken();
+    await saveConversation(conversation);
+  }
+  return conversation.share_token;
+}
+
 /**
  * Heurística liviana para decidir si pedir imagen al usuario
  * Retorna null si no hace falta, o un objeto con motivo/instrucción si conviene pedirla
@@ -1478,22 +1491,19 @@ function detectImageUsefulness(userInput, classification, session) {
     const text = (userInput || '').toLowerCase();
     const langEs = (session?.language || 'es').startsWith('es');
 
-    const needImageKeywords = [
+    // Solo pedir imagen si hay señales explícitas visuales
+    const visualKeywords = [
       'pantalla', 'captura', 'screenshot', 'foto', 'imagen',
-      'mensaje de error', 'error', 'código', 'codigo',
+      'foto del', 'foto de', 'foto del problema', 'imagen del problema',
       'luz', 'led', 'rojo', 'verde', 'parpadea',
       'cable', 'conexión', 'conector'
     ];
 
-    const powerSymptoms = ['no prende', 'no enciende', 'no arranca'];
-    const deviceVisuals = ['impresora', 'router', 'modem', 'monitor', 'pantalla', 'placa'];
-
-    const hitsKeyword = needImageKeywords.some(k => text.includes(k));
-    const hitsPower = powerSymptoms.some(k => text.includes(k));
-    const hitsDevice = deviceVisuals.some(k => text.includes(k));
+    const hitsVisual = visualKeywords.some(k => text.includes(k));
     const intent = classification?.intent || '';
 
-    if (hitsKeyword || hitsPower || hitsDevice || intent === 'peripheral') {
+    // Para periféricos solo pedir si también menciona foto/imagen/led/etc.
+    if (hitsVisual || (intent === 'peripheral' && hitsVisual)) {
       return {
         useful: true,
         reason: 'image_keywords_match',
@@ -4164,6 +4174,8 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
       }
       
       conversation.status = 'escalated';
+      // Asegurar share_token para link público
+      await ensureShareToken(conversation);
       await saveConversation(conversation);
       
       // OBTENER conversation_id DE FORMA SEGURA
@@ -4199,7 +4211,7 @@ async function escalateToTechnician(session, conversation, reason, retryCount = 
           const userName = String(userNameRaw).replace(/Conversaci.+/i, '').trim() || 'Usuario';
           const problemRaw = session.context.problem_description_raw || session.context.problem_description || session.context.last_user_message || 'No especificado';
           const problemClean = String(problemRaw).replace(/Problema[:]?/i, '').trim() || 'No especificado';
-          const renderLink = `${PUBLIC_BASE_URL}/api/historial/${conversationId}`;
+          const renderLink = `${PUBLIC_BASE_URL}/api/historial-public/${conversationId}/${conversation.share_token}`;
           const whatsappText = `Hola, soy ${userName}. Conversación ${conversationId}. Problema: ${problemClean}. Link: ${renderLink}`;
           return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappText)}`;
         })()
@@ -7012,6 +7024,7 @@ app.get('/api/greeting', greetingLimiter, async (req, res) => {
           language: 'es', // Por defecto, se actualizará cuando seleccione idioma
           user: { name_norm: null },
           status: 'open',
+          share_token: generateShareToken(),
           feedback: 'none',
           transcript: [],
           started_at: new Date().toISOString()
@@ -7489,6 +7502,10 @@ app.get('/api/historial/:conversationId', async (req, res) => {
     
     // Cargar conversación
     let conversation = await loadConversation(conversationId);
+    // Asegurar share_token para esta conversación
+    if (conversation) {
+      await ensureShareToken(conversation);
+    }
 
     // Intentar cargar trace detallado para reconstruir si falta transcript
     let traceEvents = [];
@@ -7598,6 +7615,42 @@ app.get('/api/historial/:conversationId', async (req, res) => {
       ok: false,
       error: 'Error interno del servidor'
     });
+  }
+});
+
+// Endpoint público con token específico por conversación
+app.get('/api/historial-public/:conversationId/:shareToken', async (req, res) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').trim().toUpperCase();
+    const shareToken = req.params.shareToken;
+    
+    if (!conversationId || !/^[A-Z]{2}\d{4}$/.test(conversationId)) {
+      return res.status(400).json({ ok: false, error: 'Formato de ID inválido. Debe ser AA0000' });
+    }
+    
+    const conversation = await loadConversation(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ ok: false, error: 'Conversación no encontrada' });
+    }
+    
+    if (!conversation.share_token) {
+      await ensureShareToken(conversation);
+    }
+    
+    if (conversation.share_token !== shareToken) {
+      return res.status(403).json({ ok: false, error: 'Token inválido' });
+    }
+    
+    // No exponer share_token en la respuesta
+    const { share_token, ...safeConversation } = conversation;
+    return res.json({ ok: true, historial: safeConversation });
+  } catch (err) {
+    await log('ERROR', 'Error en /api/historial-public', { 
+      error: err.message, 
+      stack: err.stack,
+      conversation_id: req.params.conversationId
+    });
+    return res.status(500).json({ ok: false, error: 'Error interno del servidor' });
   }
 });
 
