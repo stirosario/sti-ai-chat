@@ -6803,3 +6803,15 @@
 2025-12-09T14:47:03.251Z [INFO] [AUTO-LEARNING] ✅ Ciclo inicial: 3 mejoras aplicadas
 2025-12-09T15:04:37.885Z [INFO] 
 [SIGINT] Iniciando apagado graceful...
+[2025-12-19T02:02:23.491Z] [DEBUG] [server.js:60] cleanupOrphanedLock - Inicio {
+  "lock_file_exists": false,
+  "timestamp": "2025-12-19T02:02:23.490Z",
+  "file": "server.js",
+  "lines": "60"
+}
+[2025-12-19T02:02:23.502Z] [DEBUG] [server.js:70] cleanupOrphanedLock - No hay lock file {
+  "timestamp": "2025-12-19T02:02:23.502Z",
+  "file": "server.js",
+  "lines": "70"
+}
+[2025-12-19T02:02:23.504Z] [INFO] [server.js:8772] Server iniciado en puerto 3001
