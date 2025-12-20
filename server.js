@@ -863,7 +863,7 @@ if (isProd && !process.env.LOG_TOKEN) {
 
 if (!process.env.LOG_TOKEN) {
   const maskedToken = LOG_TOKEN.length > 12 
-    ? LOG_TOKEN.substring(0, 6) + '...' + LOG_TOKEN.substring(LOG_TOKEN.length - 6)
+    ? `[masked:${LOG_TOKEN.length}chars]`
     : '***masked***';
   console.error('\n'.repeat(3) + '='.repeat(80));
   console.error('[SECURITY CRITICAL] ⚠️  LOG_TOKEN NOT CONFIGURED!');
@@ -1740,7 +1740,11 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
     // Extraer análisis de imagen si está presente
     const imageAnalysis = typeof parsed.imageAnalysis === 'string' ? parsed.imageAnalysis : null;
     if (imageAnalysis) {
-      console.log('[analyzeProblemWithOA] 🖼️ Análisis de imagen recibido:', imageAnalysis.substring(0, 200) + '...');
+      console.log('[analyzeProblemWithOA] 🖼️ Análisis de imagen recibido:', {
+        hasAnalysis: true,
+        length: imageAnalysis.length,
+        preview: imageAnalysis.length > 0 ? 'present' : 'empty'
+      });
     }
 
     return { isIT, isProblem, isHowTo, device, issueKey, confidence, imageAnalysis };
@@ -1981,15 +1985,31 @@ const app = express();
 // ========================================================
 function validateCSRF(req, res, next) {
   // Skip validación para métodos seguros (GET, HEAD, OPTIONS)
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+  const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
+  if (safeMethods.includes(req.method)) {
     return next();
   }
+
+  // Detectar path del request (soporta diferentes formas de Express)
+  const path = req.path || req.route?.path || (req.originalUrl ? new URL(req.originalUrl, 'http://localhost').pathname : '');
+  const isHandshake = (path === '/api/greeting');
 
   const sessionId = req.sessionId;
   const csrfToken = req.headers['x-csrf-token'] || req.body?.csrfToken;
 
-  // Si no hay sesión aún, permitir (será creada en /api/greeting)
+  // Si no hay sesión, bloquear EXCEPTO en handshake (/api/greeting)
   if (!sessionId) {
+    if (!isHandshake) {
+      console.warn(`[CSRF] REJECTED - Missing sessionId:`);
+      console.warn(`  IP: ${req.ip}`);
+      console.warn(`  Method: ${req.method}`);
+      console.warn(`  Path: ${req.path}`);
+      return res.status(403).json({
+        ok: false,
+        error: 'CSRF_SESSION_REQUIRED'
+      });
+    }
+    // Permitir handshake sin sessionId
     return next();
   }
 
@@ -2002,7 +2022,7 @@ function validateCSRF(req, res, next) {
     console.warn(`  IP: ${req.ip}`);
     console.warn(`  Method: ${req.method}`);
     console.warn(`  Path: ${req.path}`);
-    console.warn(`  Provided Token: ${csrfToken ? csrfToken.substring(0, 10) + '...' : 'NONE'}`);
+    console.warn(`  Token provided: ${csrfToken ? 'YES' : 'NO'}, token length: ${csrfToken ? csrfToken.length : 0}`);
     return res.status(403).json({
       ok: false,
       error: 'CSRF token inválido o expirado. Por favor recargá la página.'
@@ -4421,11 +4441,13 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         name: bodyWithoutImages.images[0]?.name,
         hasData: !!bodyWithoutImages.images[0]?.data,
         dataLength: bodyWithoutImages.images[0]?.data?.length,
-        dataPreview: bodyWithoutImages.images[0]?.data?.substring(0, 100)
+        isBase64: bodyWithoutImages.images[0]?.data?.startsWith('data:image/') || false
       });
       bodyWithoutImages.images = bodyWithoutImages.images.map(img => ({
         name: img.name,
-        hasData: img.data ? `${img.data.substring(0, 50)}... (${img.data.length} chars)` : 'no data'
+        hasData: !!img.data,
+        dataLength: img.data ? img.data.length : 0,
+        isBase64: img.data?.startsWith('data:image/') || false
       }));
     } else {
       console.log('[DEBUG /api/chat] ⚠️ NO hay imágenes en el body');
@@ -4462,7 +4484,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     if (body.action === 'button' && body.value) {
       buttonToken = String(body.value);
-      console.log('[DEBUG BUTTON] Received button - action:', body.action, 'value:', body.value, 'token:', buttonToken);
+      console.log('[DEBUG BUTTON] Received button - action:', body.action, 'hasValue:', !!body.value, 'tokenLength:', buttonToken.length);
       const def = getButtonDefinition(buttonToken);
       if (tokenMap[buttonToken] !== undefined) {
         incomingText = tokenMap[buttonToken];
@@ -4478,7 +4500,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
 
-    console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'buttonToken:', buttonToken, 'text:', t?.substring(0, 50));
+    console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
 
     // Inicializar datos de log
     flowLogData.sessionId = sid;
@@ -4621,7 +4643,11 @@ Respondé con una explicación clara y útil para el usuario.`
             const analysisText = visionResponse.choices[0]?.message?.content || '';
             
             if (analysisText) {
-              console.log('[VISION] ✅ Analysis completed:', analysisText.substring(0, 100) + '...');
+              console.log('[VISION] ✅ Analysis completed:', {
+                hasAnalysis: true,
+                length: analysisText.length,
+                preview: 'present'
+              });
               imageContext = `\n\n🔍 **Análisis de la imagen:**\n${analysisText}`;
               
               // Guardar análisis en la sesión
@@ -4958,7 +4984,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
     if (session.stage === STATES.ASK_LANGUAGE) {
       const lowerMsg = t.toLowerCase().trim();
-      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'buttonToken:', buttonToken, 'GDPR consent:', session.gdprConsent);
+      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'hasButtonToken:', !!buttonToken, 'GDPR consent:', session.gdprConsent);
 
       // Detectar aceptación de GDPR
       if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
@@ -5207,7 +5233,7 @@ Respondé con una explicación clara y útil para el usuario.`
     // ASK_NAME consolidated: validate locally and with OpenAI if available
 
     if (session.stage === STATES.ASK_NAME) {
-      console.log('[ASK_NAME] DEBUG - buttonToken:', buttonToken, 'text:', t);
+      console.log('[ASK_NAME] DEBUG - hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
 
@@ -6050,7 +6076,7 @@ La guía debe ser:
       session.transcript.push({ who: 'bot', text: fallbackMsg, ts: nowIso() });
       await saveSession(sid, session);
 
-      console.log('[CHOOSE_DEVICE] ⚠️ No se reconoció el dispositivo. buttonToken:', buttonToken);
+      console.log('[CHOOSE_DEVICE] ⚠️ No se reconoció el dispositivo. hasButtonToken:', !!buttonToken);
 
       return res.json({ ok: true, reply: fallbackMsg, stage: session.stage });
 

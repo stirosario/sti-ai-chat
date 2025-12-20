@@ -1,0 +1,5 @@
+{"ts":"2025-12-05T10:30:00.000Z","role":"user","text":"Hola, necesito ayuda","sessionId":"test-001"}
+{"ts":"2025-12-05T10:30:02.000Z","role":"assistant","text":"¡Hola! Soy Tecnos. ¿En qué puedo ayudarte?","stage":"greeting","buttons":[{"label":"Continuar","value":"continue"}]}
+{"ts":"2025-12-05T10:30:15.000Z","role":"user","text":"Mi computadora no enciende"}
+{"ts":"2025-12-05T10:30:17.000Z","role":"assistant","text":"Entiendo. ¿Es una PC de escritorio o notebook?","stage":"device_detection","buttons":[{"label":"PC","value":"pc"},{"label":"Notebook","value":"notebook"}]}
+
