@@ -2823,7 +2823,7 @@ app.get('/api/transcript/:sid', async (req, res) => {
   if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'not_found' });
   res.set('Content-Type', 'text/plain; charset=utf-8');
   try {
-    const raw = fs.readFileSync(file, 'utf8');
+    const raw = await fs.promises.readFile(file, 'utf8');
     const masked = maskPII(raw);
     res.send(masked);
   } catch (e) {
