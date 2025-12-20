@@ -315,6 +315,7 @@ if (!process.env.LOG_TOKEN && process.env.NODE_ENV !== 'production') {
 }
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const ENABLE_IMAGE_REFS = process.env.ENABLE_IMAGE_REFS !== 'false'; // Default: true
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
 
@@ -2343,12 +2344,7 @@ const uploadLimiter = rateLimit({
   message: { ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento antes de intentar de nuevo.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Rate limit por IP + Session (más estricto)
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    const sid = req.sessionId || 'no-session';
-    return `${ip}:${sid}`;
-  },
+  keyGenerator: (req) => req.sessionId || req.ip || req.connection.remoteAddress || 'unknown',
   handler: (req, res) => {
     console.warn(`[RATE_LIMIT] Upload blocked: IP=${req.ip}, Session=${req.sessionId}`);
     res.status(429).json({ ok: false, error: 'Demasiadas imágenes subidas. Esperá un momento.' });
@@ -2400,20 +2396,17 @@ const chatLimiter = rateLimit({
   max: 50, // AUMENTADO: 50 mensajes por IP/minuto (el session limit es más restrictivo)
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    return ip;
-  },
+  keyGenerator: (req) => req.sessionId || req.ip || req.connection.remoteAddress || 'unknown',
   handler: (req, res) => {
-    console.warn(`[RATE_LIMIT] IP BLOCKED - Too many messages:`);
+    console.warn(`[RATE_LIMIT] BLOCKED - Too many messages:`);
     console.warn(`  IP: ${req.ip}`);
     console.warn(`  Session: ${req.sessionId}`);
     console.warn(`  Path: ${req.path}`);
     updateMetric('errors', 'count', 1);
     res.status(429).json({
       ok: false,
-      reply: '😅 Estás escribiendo muy rápido desde esta conexión. Esperá un momento.',
-      error: 'Demasiados mensajes desde esta IP. Esperá un momento.',
+      reply: '😅 Estás escribiendo muy rápido. Esperá un momento.',
+      error: 'Demasiados mensajes. Esperá un momento.',
       retryAfter: 60
     });
   }
@@ -4303,16 +4296,22 @@ Respondé en formato JSON:
       }
     }
 
-    // Store image data in session
+    // Generate unique imageId
+    const imageId = `img_${sid.substring(0, 8)}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Store image data in session with full metadata
     const imageData = {
-      url: imageUrl,
+      imageUrl: imageUrl,
+      imageId: imageId,
       filename: req.file.filename,
       originalName: req.file.originalname,
-      size: finalSize,
+      mime: req.file.mimetype,
+      bytes: finalSize,
       uploadedAt: new Date().toISOString(),
       analysis: imageAnalysis
     };
 
+    if (!session.images) session.images = [];
     session.images.push(imageData);
 
     // Add to transcript
@@ -4325,7 +4324,7 @@ Respondé en formato JSON:
 
     await saveSession(sid, session);
 
-    // Build response
+    // Build response with imageRefs support
     let replyText = '✅ Imagen recibida correctamente.';
 
     if (imageAnalysis && imageAnalysis.problemDetected) {
@@ -4352,6 +4351,19 @@ Respondé en formato JSON:
     updateMetric('uploads', 'total', 1);
     updateMetric('uploads', 'success', 1);
     updateMetric('uploads', 'totalBytes', finalSize);
+
+    const totalUploadTime = Date.now() - uploadStartTime;
+    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize / 1024).toFixed(1)}KB)`);
+
+    // Responder con imageRefs support
+    res.json({
+      ok: true,
+      imageUrl: imageUrl,
+      imageId: imageId,
+      analysis: imageAnalysis,
+      reply: replyText,
+      sessionId: sid
+    });
 
     const totalUploadTime = Date.now() - uploadStartTime;
     logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize / 1024).toFixed(1)}KB)`);
@@ -4546,11 +4558,56 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
+    // Soporte para imageRefs (nuevo) y images con base64 (legacy)
+    const imageRefs = ENABLE_IMAGE_REFS ? (body.imageRefs || []) : [];
     const images = body.images || [];
     let imageContext = '';
     let savedImageUrls = [];
     
-    if (images.length > 0) {
+    // Procesar imageRefs primero (si está habilitado)
+    if (ENABLE_IMAGE_REFS && imageRefs.length > 0) {
+      console.log(`[IMAGE_REFS] Received ${imageRefs.length} image reference(s) from session ${sid}`);
+      
+      for (const ref of imageRefs) {
+        try {
+          // Resolver referencia: puede ser imageUrl o imageId
+          let imageEntry = null;
+          
+          if (typeof ref === 'string') {
+            // Es una URL o imageId
+            if (ref.startsWith('http')) {
+              // Es una URL
+              imageEntry = session.images?.find(img => img.imageUrl === ref);
+            } else {
+              // Es un imageId
+              imageEntry = session.images?.find(img => img.imageId === ref);
+            }
+          } else if (ref.imageUrl) {
+            imageEntry = session.images?.find(img => img.imageUrl === ref.imageUrl);
+          } else if (ref.imageId) {
+            imageEntry = session.images?.find(img => img.imageId === ref.imageId);
+          }
+          
+          if (imageEntry) {
+            savedImageUrls.push(imageEntry.imageUrl);
+            console.log(`[IMAGE_REFS] ✅ Resolved: ${imageEntry.imageId || 'unknown'} -> ${imageEntry.imageUrl}`);
+          } else {
+            console.warn(`[IMAGE_REFS] ⚠️ Reference not found in session:`, typeof ref === 'string' ? ref : (ref.imageUrl || ref.imageId));
+          }
+        } catch (err) {
+          console.error(`[IMAGE_REFS] ❌ Error resolving reference:`, err.message);
+        }
+      }
+      
+      // Log solo metadata (nunca base64)
+      console.log(`[IMAGE_REFS] Processed ${savedImageUrls.length}/${imageRefs.length} references`, {
+        count: savedImageUrls.length,
+        imageIds: imageRefs.map(ref => typeof ref === 'string' ? ref.substring(0, 20) : (ref.imageId || ref.imageUrl || 'unknown')).slice(0, 3)
+      });
+    }
+    
+    // Procesar imágenes legacy con base64 (solo si no hay imageRefs o si está deshabilitado)
+    if (images.length > 0 && (!ENABLE_IMAGE_REFS || savedImageUrls.length === 0)) {
       console.log(`[IMAGE_UPLOAD] Received ${images.length} image(s) from session ${sid}`);
       
       // Guardar las imágenes en disco
