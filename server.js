@@ -4365,17 +4365,6 @@ Respondé en formato JSON:
       sessionId: sid
     });
 
-    const totalUploadTime = Date.now() - uploadStartTime;
-    logMsg(`[UPLOAD] Completed in ${totalUploadTime}ms (${(finalSize / 1024).toFixed(1)}KB)`);
-
-    res.json({
-      ok: true,
-      imageUrl,
-      analysis: imageAnalysis,
-      reply: replyText,
-      sessionId: sid
-    });
-
   } catch (err) {
     console.error('[UPLOAD] Error:', err);
     updateMetric('uploads', 'failed', 1);
