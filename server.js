@@ -52,15 +52,15 @@ import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, 
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
 import { normalizarTextoCompleto } from './normalizarTexto.js';
 import { detectAmbiguousDevice, DEVICE_DISAMBIGUATION } from './deviceDetection.js';
+import * as csrfStore from './src/stores/csrfStore.js';
 
 // FORCE REBUILD 2025-11-25 16:45 - Debugging deviceDetection import
 console.log('[INIT] deviceDetection imported successfully:', typeof detectAmbiguousDevice);
 console.log('[INIT] DEVICE_DISAMBIGUATION keys:', Object.keys(DEVICE_DISAMBIGUATION).length);
 
 // ========================================================
-// Security: CSRF Token Store (in-memory, production should use Redis)
+// Security: CSRF Token Store (desacoplado, ver src/stores/csrfStore.js)
 // ========================================================
-const csrfTokenStore = new Map(); // Map<sessionId, {token, createdAt}>
 const REQUEST_ID_HEADER = 'x-request-id';
 
 // PERFORMANCE: Session cache (LRU-style, max 1000 sessions)
@@ -104,12 +104,7 @@ setInterval(() => {
 
 // Cleanup expired CSRF tokens every 30 minutes
 setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [sid, data] of csrfTokenStore.entries()) {
-    if (data.createdAt < oneHourAgo) {
-      csrfTokenStore.delete(sid);
-    }
-  }
+  csrfStore.cleanup();
 }, 30 * 60 * 1000);
 
 function generateCSRFToken() {
@@ -2014,7 +2009,7 @@ function validateCSRF(req, res, next) {
     return next();
   }
 
-  const stored = csrfTokenStore.get(sessionId);
+  const stored = csrfStore.get(sessionId);
 
   // Token inválido o no existe
   if (!stored || stored.token !== csrfToken) {
@@ -2032,7 +2027,7 @@ function validateCSRF(req, res, next) {
 
   // Token expirado (1 hora de vida)
   if (Date.now() - stored.createdAt > 60 * 60 * 1000) {
-    csrfTokenStore.delete(sessionId);
+    csrfStore.del(sessionId);
     console.warn(`[CSRF] REJECTED - Expired token: session=${sessionId}, age=${Math.floor((Date.now() - stored.createdAt) / 1000)}s`);
     return res.status(403).json({
       ok: false,
@@ -2839,8 +2834,15 @@ app.get('/api/logs/stream', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    
+    // Endurecer CORS: solo permitir orígenes en allowlist
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    // Si el origin no está permitido, no establecer headers CORS (bloqueado)
+    
     res.flushHeaders && res.flushHeaders();
     res.write(': connected\n\n');
 
@@ -3525,7 +3527,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
 
     // Generar CSRF token para esta sesión
     const csrfToken = generateCSRFToken();
-    csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
+    csrfStore.set(sid, { token: csrfToken, createdAt: Date.now() });
 
     // 🆔 CONVERSATION ID: Obtener o crear conversationId único
     let session = await getSession(sid);
