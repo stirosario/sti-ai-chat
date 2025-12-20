@@ -117,6 +117,356 @@ function generateCSRFToken() {
 }
 
 // ========================================================
+// 🆔 CONVERSATION ID SYSTEM (AA-0000 to ZZ-9999)
+// ========================================================
+// Sistema de IDs únicos para conversaciones con persistencia append-only
+// Formato: 2 letras (A-Z, sin Ñ) + guión + 4 dígitos (0000-9999)
+// Ejemplo: "QF-0382"
+
+// Set en memoria con todos los IDs usados (cargado al iniciar)
+let usedConversationIds = new Set();
+
+/**
+ * Genera un Conversation ID único con formato AA-0000
+ * @returns {string} Conversation ID (ej: "QF-0382")
+ */
+function generateConversationId() {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; // Sin Ñ
+  const letter1 = letters[Math.floor(Math.random() * letters.length)];
+  const letter2 = letters[Math.floor(Math.random() * letters.length)];
+  const digits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  return `${letter1}${letter2}-${digits}`;
+}
+
+/**
+ * Carga todos los Conversation IDs usados desde el archivo JSONL
+ * Se ejecuta al iniciar el servidor
+ */
+function loadUsedConversationIds() {
+  try {
+    if (!fs.existsSync(CONVERSATION_IDS_FILE)) {
+      console.log('[CONVERSATION_ID] Archivo de IDs no existe, se creará al generar el primero');
+      return;
+    }
+    
+    const content = fs.readFileSync(CONVERSATION_IDS_FILE, 'utf8');
+    const lines = content.trim().split('\n').filter(line => line.trim());
+    
+    for (const line of lines) {
+      try {
+        const data = JSON.parse(line);
+        if (data.conversationId) {
+          usedConversationIds.add(data.conversationId);
+        }
+      } catch (e) {
+        console.warn('[CONVERSATION_ID] Línea inválida en JSONL:', line.substring(0, 50));
+      }
+    }
+    
+    console.log(`[CONVERSATION_ID] Cargados ${usedConversationIds.size} IDs únicos desde archivo`);
+  } catch (error) {
+    console.error('[CONVERSATION_ID] Error cargando IDs:', error.message);
+  }
+}
+
+/**
+ * Obtiene un lockfile para operaciones atómicas
+ * @param {number} maxRetries - Número máximo de reintentos
+ * @param {number} retryDelay - Delay entre reintentos en ms
+ * @returns {Promise<boolean>} true si obtuvo el lock, false si falló
+ */
+async function acquireLock(maxRetries = 10, retryDelay = 50) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Intentar crear lockfile con flag 'wx' (exclusive write)
+      fs.writeFileSync(CONVERSATION_IDS_LOCK, process.pid.toString(), { flag: 'wx' });
+      return true;
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        // Lock existe, esperar y reintentar
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  return false;
+}
+
+/**
+ * Libera el lockfile
+ */
+function releaseLock() {
+  try {
+    if (fs.existsSync(CONVERSATION_IDS_LOCK)) {
+      fs.unlinkSync(CONVERSATION_IDS_LOCK);
+    }
+  } catch (error) {
+    console.warn('[CONVERSATION_ID] Error liberando lock:', error.message);
+  }
+}
+
+/**
+ * Genera y persiste un Conversation ID único (anti-colisión)
+ * @param {string} sessionId - Session ID asociado
+ * @returns {Promise<string>} Conversation ID único
+ */
+async function generateAndPersistConversationId(sessionId) {
+  let attempts = 0;
+  const maxAttempts = 1000; // Máximo de intentos antes de fallar
+  
+  while (attempts < maxAttempts) {
+    const candidateId = generateConversationId();
+    
+    // Verificar en memoria primero (rápido)
+    if (usedConversationIds.has(candidateId)) {
+      attempts++;
+      continue;
+    }
+    
+    // Obtener lock para operación atómica
+    const hasLock = await acquireLock();
+    if (!hasLock) {
+      throw new Error('No se pudo obtener lock para generar Conversation ID');
+    }
+    
+    try {
+      // Re-verificar después de obtener lock (puede haber cambiado)
+      if (usedConversationIds.has(candidateId)) {
+        releaseLock();
+        attempts++;
+        continue;
+      }
+      
+      // Persistir en archivo JSONL (append-only)
+      const record = {
+        conversationId: candidateId,
+        createdAt: new Date().toISOString(),
+        sessionId: sessionId,
+        source: 'web'
+      };
+      
+      fs.appendFileSync(CONVERSATION_IDS_FILE, JSON.stringify(record) + '\n', 'utf8');
+      
+      // Agregar a Set en memoria
+      usedConversationIds.add(candidateId);
+      
+      console.log(`[CONVERSATION_ID] ✅ Generado y persistido: ${candidateId} para sesión ${sessionId?.substring(0, 20)}...`);
+      
+      return candidateId;
+    } finally {
+      releaseLock();
+    }
+  }
+  
+  throw new Error(`No se pudo generar Conversation ID único después de ${maxAttempts} intentos`);
+}
+
+/**
+ * Guarda un evento de conversación en el archivo append-only
+ * @param {string} conversationId - Conversation ID
+ * @param {Object} event - Evento a guardar {t, role, type, text, stage, ...}
+ */
+function logConversationEvent(conversationId, event) {
+  try {
+    if (!conversationId) return;
+    
+    const conversationFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+    const eventLine = JSON.stringify({
+      t: event.t || new Date().toISOString(),
+      role: event.role || 'unknown',
+      type: event.type || 'text',
+      text: event.text || '',
+      stage: event.stage || null,
+      buttons: event.buttons || null,
+      ...event
+    }) + '\n';
+    
+    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+  } catch (error) {
+    console.error(`[CONVERSATION_LOG] Error guardando evento para ${conversationId}:`, error.message);
+  }
+}
+
+// Cargar IDs usados al iniciar el servidor
+loadUsedConversationIds();
+
+// ========================================================
+// 🆔 CONVERSATION ID SYSTEM (AA-0000 to ZZ-9999)
+// ========================================================
+// Sistema de IDs únicos para conversaciones con persistencia append-only
+// Formato: 2 letras (A-Z, sin Ñ) + guión + 4 dígitos (0000-9999)
+// Ejemplo: "QF-0382"
+
+// Set en memoria con todos los IDs usados (cargado al iniciar)
+let usedConversationIds = new Set();
+
+/**
+ * Genera un Conversation ID único con formato AA-0000
+ * @returns {string} Conversation ID (ej: "QF-0382")
+ */
+function generateConversationId() {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; // Sin Ñ
+  const letter1 = letters[Math.floor(Math.random() * letters.length)];
+  const letter2 = letters[Math.floor(Math.random() * letters.length)];
+  const digits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  return `${letter1}${letter2}-${digits}`;
+}
+
+/**
+ * Carga todos los Conversation IDs usados desde el archivo JSONL
+ * Se ejecuta al iniciar el servidor
+ */
+function loadUsedConversationIds() {
+  try {
+    if (!fs.existsSync(CONVERSATION_IDS_FILE)) {
+      console.log('[CONVERSATION_ID] Archivo de IDs no existe, se creará al generar el primero');
+      return;
+    }
+    
+    const content = fs.readFileSync(CONVERSATION_IDS_FILE, 'utf8');
+    const lines = content.trim().split('\n').filter(line => line.trim());
+    
+    for (const line of lines) {
+      try {
+        const data = JSON.parse(line);
+        if (data.conversationId) {
+          usedConversationIds.add(data.conversationId);
+        }
+      } catch (e) {
+        console.warn('[CONVERSATION_ID] Línea inválida en JSONL:', line.substring(0, 50));
+      }
+    }
+    
+    console.log(`[CONVERSATION_ID] Cargados ${usedConversationIds.size} IDs únicos desde archivo`);
+  } catch (error) {
+    console.error('[CONVERSATION_ID] Error cargando IDs:', error.message);
+  }
+}
+
+/**
+ * Obtiene un lockfile para operaciones atómicas
+ * @param {number} maxRetries - Número máximo de reintentos
+ * @param {number} retryDelay - Delay entre reintentos en ms
+ * @returns {Promise<boolean>} true si obtuvo el lock, false si falló
+ */
+async function acquireLock(maxRetries = 10, retryDelay = 50) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Intentar crear lockfile con flag 'wx' (exclusive write)
+      fs.writeFileSync(CONVERSATION_IDS_LOCK, process.pid.toString(), { flag: 'wx' });
+      return true;
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        // Lock existe, esperar y reintentar
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  return false;
+}
+
+/**
+ * Libera el lockfile
+ */
+function releaseLock() {
+  try {
+    if (fs.existsSync(CONVERSATION_IDS_LOCK)) {
+      fs.unlinkSync(CONVERSATION_IDS_LOCK);
+    }
+  } catch (error) {
+    console.warn('[CONVERSATION_ID] Error liberando lock:', error.message);
+  }
+}
+
+/**
+ * Genera y persiste un Conversation ID único (anti-colisión)
+ * @param {string} sessionId - Session ID asociado
+ * @returns {Promise<string>} Conversation ID único
+ */
+async function generateAndPersistConversationId(sessionId) {
+  let attempts = 0;
+  const maxAttempts = 1000; // Máximo de intentos antes de fallar
+  
+  while (attempts < maxAttempts) {
+    const candidateId = generateConversationId();
+    
+    // Verificar en memoria primero (rápido)
+    if (usedConversationIds.has(candidateId)) {
+      attempts++;
+      continue;
+    }
+    
+    // Obtener lock para operación atómica
+    const hasLock = await acquireLock();
+    if (!hasLock) {
+      throw new Error('No se pudo obtener lock para generar Conversation ID');
+    }
+    
+    try {
+      // Re-verificar después de obtener lock (puede haber cambiado)
+      if (usedConversationIds.has(candidateId)) {
+        releaseLock();
+        attempts++;
+        continue;
+      }
+      
+      // Persistir en archivo JSONL (append-only)
+      const record = {
+        conversationId: candidateId,
+        createdAt: new Date().toISOString(),
+        sessionId: sessionId,
+        source: 'web'
+      };
+      
+      fs.appendFileSync(CONVERSATION_IDS_FILE, JSON.stringify(record) + '\n', 'utf8');
+      
+      // Agregar a Set en memoria
+      usedConversationIds.add(candidateId);
+      
+      console.log(`[CONVERSATION_ID] ✅ Generado y persistido: ${candidateId} para sesión ${sessionId?.substring(0, 20)}...`);
+      
+      return candidateId;
+    } finally {
+      releaseLock();
+    }
+  }
+  
+  throw new Error(`No se pudo generar Conversation ID único después de ${maxAttempts} intentos`);
+}
+
+/**
+ * Guarda un evento de conversación en el archivo append-only
+ * @param {string} conversationId - Conversation ID
+ * @param {Object} event - Evento a guardar {t, role, type, text, stage, ...}
+ */
+function logConversationEvent(conversationId, event) {
+  try {
+    if (!conversationId) return;
+    
+    const conversationFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+    const eventLine = JSON.stringify({
+      t: event.t || new Date().toISOString(),
+      role: event.role || 'unknown',
+      type: event.type || 'text',
+      text: event.text || '',
+      stage: event.stage || null,
+      buttons: event.buttons || null,
+      ...event
+    }) + '\n';
+    
+    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+  } catch (error) {
+    console.error(`[CONVERSATION_LOG] Error guardando evento para ${conversationId}:`, error.message);
+  }
+}
+
+// Cargar IDs usados al iniciar el servidor
+loadUsedConversationIds();
+
+// ========================================================
 // 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
 // ========================================================
 // validateCSRF está declarado más abajo (línea ~1054) con implementación completa
@@ -668,6 +1018,9 @@ const TRANSCRIPTS_DIR = process.env.TRANSCRIPTS_DIR || path.join(DATA_BASE, 'tra
 const TICKETS_DIR = process.env.TICKETS_DIR || path.join(DATA_BASE, 'tickets');
 const LOGS_DIR = process.env.LOGS_DIR || path.join(DATA_BASE, 'logs');
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(DATA_BASE, 'uploads');
+const CONVERSATIONS_DIR = process.env.CONVERSATIONS_DIR || path.join(DATA_BASE, 'conversations');
+const CONVERSATION_IDS_FILE = path.join(DATA_BASE, 'conversation_ids.jsonl');
+const CONVERSATION_IDS_LOCK = path.join(DATA_BASE, 'conversation_ids.lock');
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sti-rosario-ai.onrender.com').replace(/\/$/, '');
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || '5493417422422';
@@ -709,7 +1062,7 @@ function isAdmin(req) {
   return !!(process.env.LOG_TOKEN && tok && tok === String(LOG_TOKEN));
 }
 
-for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR]) {
+for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, CONVERSATIONS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
 
@@ -3336,8 +3689,18 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     const csrfToken = generateCSRFToken();
     csrfTokenStore.set(sid, { token: csrfToken, createdAt: Date.now() });
 
+    // 🆔 CONVERSATION ID: Obtener o crear conversationId único
+    let session = await getSession(sid);
+    let conversationId = session?.conversationId;
+    
+    if (!conversationId) {
+      // Generar nuevo Conversation ID único
+      conversationId = await generateAndPersistConversationId(sid);
+    }
+
     const fresh = {
       id: sid,
+      conversationId: conversationId, // 🆔 Asignar Conversation ID
       userName: null,
       stage: STATES.ASK_LANGUAGE,  // Comenzar con GDPR y selección de idioma
       conversationState: 'greeting',  // greeting, has_name, understanding_problem, solving, resolved
@@ -3371,8 +3734,18 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     fresh.transcript.push({ who: 'bot', text: fullGreeting.text, ts: nowIso() });
     await saveSession(sid, fresh);
 
+    // 🆔 Loggear evento de greeting en archivo de conversación
+    logConversationEvent(conversationId, {
+      t: nowIso(),
+      role: 'bot',
+      type: 'greeting',
+      text: fullGreeting.text,
+      stage: fresh.stage,
+      buttons: fullGreeting.buttons || []
+    });
+
     // CON botones para GDPR
-    // Incluir CSRF token en respuesta
+    // Incluir CSRF token y Conversation ID en respuesta
     return res.json({
       ok: true,
       greeting: fullGreeting.text,
@@ -3380,6 +3753,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       stage: fresh.stage,
       sessionId: sid,
       csrfToken: csrfToken,
+      conversationId: conversationId, // 🆔 Incluir Conversation ID
       buttons: fullGreeting.buttons || []
     });
   } catch (e) {
@@ -3563,6 +3937,7 @@ async function createTicketAndRespond(session, sid, res) {
     lines.push(`Generado: ${generatedLabel}`);
     if (session.userName) lines.push(`Cliente: ${session.userName}`);
     if (session.device) lines.push(`Equipo: ${session.device}`);
+    if (session.conversationId) lines.push(`🆔 ID de Conversación: ${session.conversationId}`); // 🆔 Conversation ID
     if (sid) lines.push(`Sesión: ${sid}`);
     if (session.userLocale) lines.push(`Idioma: ${session.userLocale}`);
     lines.push('');
@@ -3617,6 +3992,7 @@ async function createTicketAndRespond(session, sid, res) {
       problem: session.problem || null,
       locale: session.userLocale || null,
       sid: sid || null,
+      conversationId: session.conversationId || null, // 🆔 Conversation ID
       accessToken: accessToken, // Token para acceso público
       stepsDone: session.stepsDone || [],
       transcript: transcriptData,
@@ -3637,6 +4013,7 @@ async function createTicketAndRespond(session, sid, res) {
     let waText = `${titleLine}\n${waIntro}\n\nGenerado: ${generatedLabel}\n`;
     if (ticketJson.name) waText += `Cliente: ${ticketJson.name}\n`;
     if (ticketJson.device) waText += `Equipo: ${ticketJson.device}\n`;
+    if (ticketJson.conversationId) waText += `🆔 ID de Conversación: ${ticketJson.conversationId}\n`; // 🆔 Conversation ID
     waText += `\nTicket: ${ticketId}\nDetalle (API): ${apiPublicUrl}`;
     waText += `\n\nAviso: al enviar esto, parte de esta conversación se comparte con un técnico de STI vía WhatsApp. No incluyas contraseñas ni datos bancarios.`;
 
@@ -4191,6 +4568,18 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.warn(loopDetection.message);
     }
 
+    // 🆔 Loggear evento de bot en archivo de conversación
+    if (session && session.conversationId) {
+      logConversationEvent(session.conversationId, {
+        t: new Date().toISOString(),
+        role: 'bot',
+        type: 'reply',
+        text: response.reply || '',
+        stage: response.stage || stage,
+        buttons: response.options || response.buttons || null
+      });
+    }
+
     return res.json(response);
   };
 
@@ -4271,7 +4660,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
 
     let session = await getSession(sid);
-    console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName);
+    console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName, 'conversationId:', session?.conversationId);
+    
+    // 🆔 Si la sesión no tiene conversationId, generar uno (puede pasar si se crea sesión fuera de greeting)
+    if (session && !session.conversationId) {
+      session.conversationId = await generateAndPersistConversationId(sid);
+      await saveSession(sid, session);
+      console.log(`[CONVERSATION_ID] ✅ Asignado a sesión existente: ${session.conversationId}`);
+    }
+    
     if (!session) {
       session = {
         id: sid,
@@ -4496,6 +4893,20 @@ Respondé con una explicación clara y útil para el usuario.`
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
     session.transcript.push({ who: 'user', text: userMsg, ts: userTs });
+    
+    // 🆔 Loggear evento de usuario en archivo de conversación
+    const conversationId = session.conversationId;
+    if (conversationId) {
+      logConversationEvent(conversationId, {
+        t: userTs,
+        role: 'user',
+        type: buttonToken ? 'button' : 'text',
+        text: userMsg,
+        stage: session.stage,
+        buttonToken: buttonToken || null,
+        hasImages: images.length > 0
+      });
+    }
 
     // ========================================================
     // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
