@@ -283,9 +283,6 @@ function logConversationEvent(conversationId, event) {
   }
 }
 
-// Cargar IDs usados al iniciar el servidor
-loadUsedConversationIds();
-
 // ========================================================
 // 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
 // ========================================================
@@ -886,6 +883,9 @@ function isAdmin(req) {
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, CONVERSATIONS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
 }
+
+// Cargar IDs usados al iniciar el servidor (después de inicializar paths y asegurar directorios)
+loadUsedConversationIds();
 
 // A4: Escribir token de logs a archivo solo si está habilitado (opt-in)
 if (process.env.WRITE_LOG_TOKEN_FILE === 'true') {
@@ -6781,7 +6781,12 @@ app.get('/api/metrics', async (req, res) => {
 
 // Serve index.html for root path
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+  const indexPath = path.join(process.cwd(), 'public', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  // Render: el backend puede no incluir carpeta /public
+  return res.status(200).type('text/plain').send('STI Chat API is running. Try /api/health');
 });
 
 function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
