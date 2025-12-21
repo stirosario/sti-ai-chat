@@ -4880,6 +4880,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     let buttonToken = null;
     let buttonLabel = null;
     
+    // Computar effectiveButtonToken: considera buttonToken explícito o body.value cuando action=button
+    const effectiveButtonToken = buttonTokenRaw || (body.action === 'button' ? asString(body.value || '') : '');
+    
     if (body.action === 'button' && body.value) {
       buttonToken = asString(body.value);
       if (buttonToken.length > MAX_BUTTON_TOKEN_LEN) {
@@ -4904,9 +4907,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       buttonToken = buttonTokenRaw;
     }
     
-    // Computar effectiveText: texto efectivo para procesamiento (text || buttonToken)
+    // Computar effectiveText: texto efectivo para procesamiento (text || effectiveButtonToken)
     // Esto asegura que los botones funcionen incluso cuando text está vacío
-    const effectiveText = t || buttonTokenRaw || '';
+    const effectiveText = (typeof t === 'string' ? t.trim() : '') || effectiveButtonToken || '';
     
     // Logging seguro (solo si DEBUG_CHAT)
     if (DEBUG_CHAT) {
@@ -4972,8 +4975,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
     
-    // Validación: input no vacío (usar effectiveText)
-    if (!effectiveText && images.length === 0 && imageRefs.length === 0) {
+    // Validación: input no vacío (usar effectiveText o effectiveButtonToken)
+    // Acepta si hay texto, buttonToken, o imágenes
+    if (!effectiveText && !effectiveButtonToken && images.length === 0 && imageRefs.length === 0) {
       return badRequest(res, 'EMPTY_INPUT', 'Mensaje vacío');
     }
     
