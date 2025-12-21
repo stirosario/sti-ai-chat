@@ -314,6 +314,16 @@ const DEBUG_CHAT = process.env.DEBUG_CHAT === '1';
 const DEBUG_IMAGES = process.env.DEBUG_IMAGES === '1';
 
 // ========================================================
+// 🔒 VALIDATION LIMITS (configurable por env)
+// ========================================================
+const MAX_TEXT_LEN = parseInt(process.env.MAX_TEXT_LEN || '4000', 10);
+const MAX_SESSION_ID_LEN = parseInt(process.env.MAX_SESSION_ID_LEN || '32', 10);
+const MAX_BUTTON_TOKEN_LEN = parseInt(process.env.MAX_BUTTON_TOKEN_LEN || '80', 10);
+const MAX_IMAGE_REFS = parseInt(process.env.MAX_IMAGE_REFS || '3', 10);
+const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || String(8*1024*1024), 10); // 8MB
+const MAX_IMAGE_URL_LEN = parseInt(process.env.MAX_IMAGE_URL_LEN || '2048', 10);
+
+// ========================================================
 // 🧠 MODO SUPER INTELIGENTE - AI-Powered Analysis
 // ========================================================
 const SMART_MODE_ENABLED = process.env.SMART_MODE !== 'false'; // Activado por defecto
@@ -1146,6 +1156,49 @@ async function probePublicUrl(url, timeoutMs = 4000) {
       method: 'HEAD',
       error: err.name === 'AbortError' ? 'timeout' : (err.message || 'unknown_error')
     };
+  }
+}
+
+/**
+ * Validation helpers (reutilizables, sin deps nuevas)
+ */
+function asString(v) {
+  return (typeof v === 'string') ? v : '';
+}
+
+function clampLen(s, max) {
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function isSafeId(s) {
+  // compatible: IDs tipo KU8006, D1986, etc + guion/underscore si ya existen
+  return typeof s === 'string'
+    && s.length >= 3
+    && s.length <= MAX_SESSION_ID_LEN
+    && /^[A-Za-z0-9_-]+$/.test(s);
+}
+
+function safeSessionId(inputSid, fallbackSid) {
+  const sid = asString(inputSid).trim();
+  if (!sid) return fallbackSid;
+  if (!isSafeId(sid)) return fallbackSid;  // SOFT: fallback, no 400
+  return sid;
+}
+
+function badRequest(res, code, message, extra = {}) {
+  return res.status(400).json({ ok: false, code, message, ...extra });
+}
+
+function tooLarge(res, code, message, extra = {}) {
+  return res.status(413).json({ ok: false, code, message, ...extra });
+}
+
+function isHttpUrl(u) {
+  try {
+    const x = new URL(u);
+    return x.protocol === 'http:' || x.protocol === 'https:';
+  } catch {
+    return false;
   }
 }
 
@@ -2866,6 +2919,10 @@ app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (r
 
 // Transcript retrieval (REQUIERE AUTENTICACIÓN)
 app.get('/api/transcript/:sid', async (req, res) => {
+  // Validación: sid seguro
+  if (!isSafeId(req.params.sid)) {
+    return badRequest(res, 'BAD_SESSION_ID', 'Session ID inválido');
+  }
   const sid = String(req.params.sid || '').replace(/[^a-zA-Z0-9._-]/g, '');
 
   // SECURITY: Validar que el usuario tenga permiso para ver este transcript
@@ -4233,22 +4290,38 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
   let uploadedFilePath = null;
 
   try {
-    // Validación básica
+    // Validación: sid (soft fallback si inválido)
+    const sidRaw = req.query?.sessionId || req.body?.sessionId || req.sessionId;
+    const sid = safeSessionId(sidRaw, generateSessionId());
+    if (sid !== sidRaw && sidRaw) {
+      req.sessionId = sid;
+    }
+    
+    // Validación básica: file existe
     if (!req.file) {
       updateMetric('uploads', 'failed', 1);
-      return res.status(400).json({ ok: false, error: 'No se recibió ninguna imagen' });
+      return badRequest(res, 'NO_FILE', 'No se recibió archivo de imagen');
     }
 
     uploadedFilePath = req.file.path;
-
-    // Validar session ID
-    const sid = req.sessionId;
-    if (!validateSessionId(sid)) {
+    
+    // Validación: tamaño
+    if (req.file.size > MAX_UPLOAD_BYTES) {
       updateMetric('uploads', 'failed', 1);
       if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
         fs.unlinkSync(uploadedFilePath);
       }
-      return res.status(400).json({ ok: false, error: 'Session ID inválido' });
+      return tooLarge(res, 'FILE_TOO_LARGE', `Imagen supera el máximo (${MAX_UPLOAD_BYTES} bytes)`);
+    }
+    
+    // Validación: mimetype
+    const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      updateMetric('uploads', 'failed', 1);
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+      return badRequest(res, 'BAD_MIMETYPE', 'Formato de imagen no permitido', { mimetype: req.file.mimetype });
     }
 
     const session = await getSession(sid);
@@ -4500,7 +4573,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   };
 
   // Helper para retornar y loggear automáticamente
-  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent') => {
+  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
+    // Usar sessionParam si se pasa, sino usar session del scope (con fallback seguro)
+    const currentSession = sessionParam || session;
+    
     flowLogData.currentStage = stage;
     flowLogData.nextStage = nextStage;
     flowLogData.trigger = trigger;
@@ -4517,14 +4593,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.warn(loopDetection.message);
     }
 
-    // 🆔 Loggear evento de bot en archivo de conversación
-    if (session && session.conversationId) {
-      logConversationEvent(session.conversationId, {
+    // 🆔 Loggear evento de bot en archivo de conversación (con optional chaining)
+    if (currentSession?.conversationId) {
+      logConversationEvent(currentSession.conversationId, {
         t: new Date().toISOString(),
         role: 'bot',
         type: 'reply',
         text: response.reply || '',
-        stage: response.stage || stage,
+        stage: response.stage || stage || 'unknown',
         buttons: response.options || response.buttons || null
       });
     }
@@ -4574,6 +4650,85 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     updateMetric('chat', 'totalMessages', 1);
 
     const body = req.body || {};
+    
+    // Validación: sid (soft fallback si inválido)
+    const sidRaw = body?.sessionId || req.query?.sessionId || req.sessionId;
+    const sid = safeSessionId(sidRaw, generateSessionId());
+    if (sid !== sidRaw && sidRaw) {
+      // Si se reemplazó, actualizar req.sessionId para compatibilidad
+      req.sessionId = sid;
+    }
+    
+    // Validación: texto (limitar largo)
+    const tRaw = asString(body?.text || body?.message || body?.userText || '');
+    if (tRaw.length > MAX_TEXT_LEN) {
+      return tooLarge(res, 'TEXT_TOO_LONG', `El mensaje excede el máximo de ${MAX_TEXT_LEN} caracteres`);
+    }
+    const t = clampLen(tRaw, MAX_TEXT_LEN);
+    
+    // Validación: buttonToken
+    const buttonTokenRaw = asString(body?.buttonToken || '');
+    let buttonToken = null;
+    let buttonLabel = null;
+    
+    if (body.action === 'button' && body.value) {
+      buttonToken = asString(body.value);
+      if (buttonToken.length > MAX_BUTTON_TOKEN_LEN) {
+        return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
+      }
+    } else if (buttonTokenRaw) {
+      if (buttonTokenRaw.length > MAX_BUTTON_TOKEN_LEN) {
+        return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
+      }
+      buttonToken = buttonTokenRaw;
+    }
+    
+    // Validación: arrays de imágenes
+    const images = Array.isArray(body.images) ? body.images : [];
+    const imageRefs = Array.isArray(body.imageRefs) ? body.imageRefs : [];
+    
+    if (images.length > MAX_IMAGE_REFS) {
+      return tooLarge(res, 'TOO_MANY_IMAGES', `Demasiadas imágenes (máx ${MAX_IMAGE_REFS})`);
+    }
+    if (imageRefs.length > MAX_IMAGE_REFS) {
+      return tooLarge(res, 'TOO_MANY_IMAGE_REFS', `Demasiadas referencias de imágenes (máx ${MAX_IMAGE_REFS})`);
+    }
+    
+    // Validación: imageRefs entries
+    for (let i = 0; i < imageRefs.length; i++) {
+      const ref = imageRefs[i];
+      if (ref && typeof ref === 'object') {
+        if (ref.imageUrl) {
+          const url = asString(ref.imageUrl);
+          if (url.length > MAX_IMAGE_URL_LEN) {
+            return badRequest(res, 'BAD_IMAGE_REF', `imageUrl demasiado largo en imageRefs[${i}]`, { index: i });
+          }
+          if (!isHttpUrl(url)) {
+            return badRequest(res, 'BAD_IMAGE_REF', `imageUrl inválido en imageRefs[${i}]`, { index: i });
+          }
+        }
+        if (ref.imageId) {
+          const id = asString(ref.imageId);
+          if (!isSafeId(id)) {
+            return badRequest(res, 'BAD_IMAGE_REF', `imageId inválido en imageRefs[${i}]`, { index: i });
+          }
+        }
+      } else if (typeof ref === 'string') {
+        // Puede ser URL o imageId
+        if (ref.length > MAX_IMAGE_URL_LEN) {
+          return badRequest(res, 'BAD_IMAGE_REF', `Referencia demasiado larga en imageRefs[${i}]`, { index: i });
+        }
+        if (!isHttpUrl(ref) && !isSafeId(ref)) {
+          return badRequest(res, 'BAD_IMAGE_REF', `Referencia inválida en imageRefs[${i}]`, { index: i });
+        }
+      }
+    }
+    
+    // Validación: input no vacío
+    if (!t && !buttonToken && images.length === 0 && imageRefs.length === 0) {
+      return badRequest(res, 'EMPTY_INPUT', 'Mensaje vacío');
+    }
+    
     const tokenMap = {};
     if (Array.isArray(CHAT?.ui?.buttons)) {
       for (const b of CHAT.ui.buttons) {
@@ -4581,12 +4736,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    let incomingText = String(body.text || '').trim();
-    let buttonToken = null;
-    let buttonLabel = null;
-
-    if (body.action === 'button' && body.value) {
-      buttonToken = String(body.value);
+    let incomingText = t;
+    if (body.action === 'button' && body.value && buttonToken) {
       console.log('[DEBUG BUTTON] Received button - action:', body.action, 'hasValue:', !!body.value, 'tokenLength:', buttonToken.length);
       const def = getButtonDefinition(buttonToken);
       if (tokenMap[buttonToken] !== undefined) {
@@ -4600,12 +4751,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       buttonLabel = body.label || (def && def.label) || buttonToken;
     }
 
-    const t = String(incomingText || '').trim();
-    const sid = req.sessionId;
-
     // Log seguro al inicio (sin base64, sin PII sensible)
-    const imagesCount = Array.isArray(body.images) ? body.images.length : 0;
-    const imageRefsCount = Array.isArray(body.imageRefs) ? body.imageRefs.length : 0;
+    const imagesCount = images.length;
+    const imageRefsCount = imageRefs.length;
     logMsg('info', '[CHAT:IN]', { sid, msgLen: t.length, imagesCount, imageRefsCount, hasButton: !!buttonToken });
 
     if (DEBUG_CHAT || DEBUG_IMAGES) {
@@ -4657,8 +4805,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
 
     // 🖼️ Procesar imágenes si vienen en el body (DESPUÉS de obtener sesión)
     // Soporte para imageRefs (nuevo) y images con base64 (legacy)
-    const imageRefs = ENABLE_IMAGE_REFS ? (body.imageRefs || []) : [];
-    const images = body.images || [];
+    // Nota: images e imageRefs ya están declarados y validados arriba
     let imageContext = '';
     let savedImageUrls = [];
     
@@ -4957,11 +5104,11 @@ Respondé con una explicación clara y útil para el usuario.`
           return logAndReturn({
             ok: true,
             reply: smartReply,
-            stage: session.stage,
+            stage: session?.stage || 'unknown',
             options: smartOptions,
             buttons: smartOptions,
             aiPowered: true
-          }, session.stage, session.stage, 'smart_ai_response', 'ai_replied');
+          }, session?.stage || 'unknown', session?.stage || 'unknown', 'smart_ai_response', 'ai_replied', session);
         }
       }
       
@@ -5672,10 +5819,10 @@ Respondé con una explicación clara y útil para el usuario.`
         return logAndReturn({
           ok: true,
           reply: responseText,
-          stage: session.stage,
+          stage: session?.stage || 'unknown',
           options: nextOptions,
           buttons: nextOptions
-        }, session.stage, session.stage, 'image_analysis', 'image_analyzed');
+        }, session?.stage || 'unknown', session?.stage || 'unknown', 'image_analysis', 'image_analyzed', session);
       }
 
       // ========================================================
@@ -6677,6 +6824,11 @@ app.get('/api/gdpr/my-data/:sessionId', async (req, res) => {
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'Session ID required' });
     }
+    
+    // Validación: sessionId seguro
+    if (!isSafeId(sessionId)) {
+      return badRequest(res, 'BAD_SESSION_ID', 'Session ID inválido');
+    }
 
     const session = await getSession(sessionId);
 
@@ -6716,6 +6868,11 @@ app.delete('/api/gdpr/delete-me/:sessionId', async (req, res) => {
 
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'Session ID required' });
+    }
+    
+    // Validación: sessionId seguro
+    if (!isSafeId(sessionId)) {
+      return badRequest(res, 'BAD_SESSION_ID', 'Session ID inválido');
     }
 
     console.log(`[GDPR] 🗑️  DELETE request for session: ${sessionId}`);
@@ -6782,6 +6939,12 @@ app.get('/api/sessions', async (_req, res) => {
 app.get('/api/flow-audit/:sessionId', (req, res) => {
   try {
     const sessionId = req.params.sessionId;
+    
+    // Validación: sessionId seguro
+    if (!isSafeId(sessionId)) {
+      return badRequest(res, 'BAD_SESSION_ID', 'Session ID inválido');
+    }
+    
     const audit = getSessionAudit(sessionId);
     res.json({ ok: true, audit });
   } catch (error) {
