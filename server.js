@@ -3606,16 +3606,27 @@ app.post('/api/ticket/create', validateCSRF, async (req, res) => {
 
 // GET /api/admin/conversation/:id — Obtener conversación completa por ID
 app.get('/api/admin/conversation/:id', async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  console.log(`[CONVERSATION_API] GET /api/admin/conversation/:id - ID: ${conversationIdParam}, hasToken: ${!!(req.headers.authorization || req.query.token)}`);
+  
   try {
     // Verificar token de administrador
-    const adminToken = req.headers.authorization || req.query.token;
+    const adminToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
     const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
 
     if (!isValidAdmin) {
-      return res.status(401).json({ ok: false, error: 'unauthorized' });
+      console.log(`[CONVERSATION_API] ❌ Unauthorized - ID: ${conversationIdParam}, token provided: ${!!adminToken}`);
+      return res.status(200).json({ 
+        ok: false, 
+        error: 'UNAUTHORIZED',
+        message: 'Token de autenticación requerido',
+        conversationId: conversationIdParam
+      });
     }
 
-    let conversationId = req.params.id.trim().toUpperCase();
+    let conversationId = conversationIdParam;
     const tail = parseInt(req.query.tail) || null;
 
     // Intentar búsqueda exacta primero
@@ -3707,19 +3718,28 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
 
     if (!meta) {
       // Devolver HTTP 200 con ok:false (no 404) según requerimiento
+      console.log(`[CONVERSATION_API] ❌ NOT_FOUND - ID: ${conversationId}, metaFile exists: ${fs.existsSync(metaFile)}, eventsFile exists: ${fs.existsSync(eventsFile)}`);
       return res.status(200).json({
         ok: false,
         error: 'NOT_FOUND',
         message: `Conversación ${conversationId} no encontrada`,
-        conversationId: req.params.id.trim().toUpperCase()
+        conversationId: conversationIdParam
       });
     }
 
     // Determinar fuente de datos
     let source = 'disk';
-    if (session?.conversationId === conversationId) {
-      source = 'both'; // Tiene en Redis y disco
+    try {
+      const session = await getSession(meta.sid);
+      if (session?.conversationId === conversationId) {
+        source = 'both'; // Tiene en Redis y disco
+      }
+    } catch (e) {
+      // Ignorar error de sesión, usar solo disco
     }
+    
+    const duration = Date.now() - startTime;
+    console.log(`[CONVERSATION_API] ✅ OK - ID: ${conversationId}, events: ${events.length}, transcript: ${transcript.length}, source: ${source}, duration: ${duration}ms`);
     
     res.json({
       ok: true,
@@ -3733,8 +3753,14 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
       source
     });
   } catch (error) {
-    console.error('[CONVERSATION] Error en endpoint:', error);
-    res.status(500).json({ ok: false, error: 'internal_error', message: error.message });
+    const duration = Date.now() - startTime;
+    console.error(`[CONVERSATION_API] ❌ ERROR - ID: ${conversationIdParam}, error: ${error.message}, duration: ${duration}ms`);
+    res.status(200).json({ 
+      ok: false, 
+      error: 'INTERNAL_ERROR', 
+      message: error.message,
+      conversationId: conversationIdParam
+    });
   }
 });
 
