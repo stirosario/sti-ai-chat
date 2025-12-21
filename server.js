@@ -283,117 +283,6 @@ function logConversationEvent(conversationId, event) {
   }
 }
 
-// Índice de conversaciones para búsqueda rápida
-const CONVERSATION_INDEX_FILE = path.join(CONVERSATIONS_DIR, 'index.json');
-
-// Cargar índice al iniciar
-let conversationIndex = { byId: {}, bySuffix: {} };
-try {
-  if (fs.existsSync(CONVERSATION_INDEX_FILE)) {
-    const loaded = JSON.parse(fs.readFileSync(CONVERSATION_INDEX_FILE, 'utf8'));
-    conversationIndex = {
-      byId: loaded.byId || {},
-      bySuffix: loaded.bySuffix || {}
-    };
-  }
-} catch (e) {
-  console.warn('[CONVERSATION_INDEX] Error cargando índice:', e.message);
-  conversationIndex = { byId: {}, bySuffix: {} };
-}
-
-// Guardar índice
-function saveConversationIndex() {
-  try {
-    fs.writeFileSync(CONVERSATION_INDEX_FILE, JSON.stringify(conversationIndex, null, 2), 'utf8');
-  } catch (e) {
-    console.error('[CONVERSATION_INDEX] Error guardando índice:', e.message);
-  }
-}
-
-// Actualizar índice con nueva conversación
-function updateConversationIndex(conversationId, sid, createdAt) {
-  if (!conversationId) return;
-  
-  const normalizedId = conversationId.trim().toUpperCase();
-  conversationIndex.byId = conversationIndex.byId || {};
-  conversationIndex.bySuffix = conversationIndex.bySuffix || {};
-  
-  // Actualizar por ID completo
-  conversationIndex.byId[normalizedId] = {
-    sid,
-    createdAt,
-    updatedAt: new Date().toISOString()
-  };
-  
-  // Extraer sufijo numérico (ej: OT-4913 -> 4913)
-  const suffixMatch = normalizedId.match(/-(\d+)$/);
-  if (suffixMatch) {
-    const suffix = suffixMatch[1];
-    if (!conversationIndex.bySuffix[suffix]) {
-      conversationIndex.bySuffix[suffix] = [];
-    }
-    if (!conversationIndex.bySuffix[suffix].includes(normalizedId)) {
-      conversationIndex.bySuffix[suffix].push(normalizedId);
-    }
-  }
-  
-  saveConversationIndex();
-}
-
-// Guardar/actualizar meta de conversación
-function saveConversationMeta(conversationId, session) {
-  try {
-    if (!conversationId) return;
-    
-    const normalizedId = conversationId.trim().toUpperCase();
-    const metaFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.meta.json`);
-    
-    const meta = {
-      conversationId: normalizedId,
-      sid: session.id || session.sid || null,
-      createdAt: session.startedAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      userName: session.userName || null,
-      device: session.device || null,
-      language: session.userLocale || 'es-AR',
-      stage: session.stage || null,
-      needType: session.needType || null,
-      isProblem: session.isProblem || false,
-      isHowTo: session.isHowTo || false,
-      problem: session.problem || null,
-      issueKey: session.issueKey || null
-    };
-    
-    fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), 'utf8');
-    
-    // Actualizar índice
-    updateConversationIndex(normalizedId, meta.sid, meta.createdAt);
-  } catch (error) {
-    console.error(`[CONVERSATION_META] Error guardando meta para ${conversationId}:`, error.message);
-  }
-}
-
-// Persistir evento de Consola FULL por conversationId
-function persistConsoleEvent(conversationId, level, event, payload = {}) {
-  try {
-    if (!conversationId) return;
-    
-    const normalizedId = conversationId.trim().toUpperCase();
-    const conversationFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.jsonl`);
-    
-    const eventRecord = {
-      ts: new Date().toISOString(),
-      level,
-      event,
-      data: payload
-    };
-    
-    const eventLine = JSON.stringify(eventRecord) + '\n';
-    fs.appendFileSync(conversationFile, eventLine, 'utf8');
-  } catch (error) {
-    console.error(`[CONSOLE_EVENT] Error guardando evento para ${conversationId}:`, error.message);
-  }
-}
 
 // ========================================================
 // 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
@@ -1006,6 +895,118 @@ function isAdmin(req) {
 
 for (const d of [TRANSCRIPTS_DIR, TICKETS_DIR, LOGS_DIR, UPLOADS_DIR, CONVERSATIONS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* noop */ }
+}
+
+// Índice de conversaciones para búsqueda rápida
+const CONVERSATION_INDEX_FILE = path.join(CONVERSATIONS_DIR, 'index.json');
+
+// Cargar índice al iniciar
+let conversationIndex = { byId: {}, bySuffix: {} };
+try {
+  if (fs.existsSync(CONVERSATION_INDEX_FILE)) {
+    const loaded = JSON.parse(fs.readFileSync(CONVERSATION_INDEX_FILE, 'utf8'));
+    conversationIndex = {
+      byId: loaded.byId || {},
+      bySuffix: loaded.bySuffix || {}
+    };
+  }
+} catch (e) {
+  console.warn('[CONVERSATION_INDEX] Error cargando índice:', e.message);
+  conversationIndex = { byId: {}, bySuffix: {} };
+}
+
+// Guardar índice
+function saveConversationIndex() {
+  try {
+    fs.writeFileSync(CONVERSATION_INDEX_FILE, JSON.stringify(conversationIndex, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[CONVERSATION_INDEX] Error guardando índice:', e.message);
+  }
+}
+
+// Actualizar índice con nueva conversación
+function updateConversationIndex(conversationId, sid, createdAt) {
+  if (!conversationId) return;
+  
+  const normalizedId = conversationId.trim().toUpperCase();
+  conversationIndex.byId = conversationIndex.byId || {};
+  conversationIndex.bySuffix = conversationIndex.bySuffix || {};
+  
+  // Actualizar por ID completo
+  conversationIndex.byId[normalizedId] = {
+    sid,
+    createdAt,
+    updatedAt: new Date().toISOString()
+  };
+  
+  // Extraer sufijo numérico (ej: OT-4913 -> 4913)
+  const suffixMatch = normalizedId.match(/-(\d+)$/);
+  if (suffixMatch) {
+    const suffix = suffixMatch[1];
+    if (!conversationIndex.bySuffix[suffix]) {
+      conversationIndex.bySuffix[suffix] = [];
+    }
+    if (!conversationIndex.bySuffix[suffix].includes(normalizedId)) {
+      conversationIndex.bySuffix[suffix].push(normalizedId);
+    }
+  }
+  
+  saveConversationIndex();
+}
+
+// Guardar/actualizar meta de conversación
+function saveConversationMeta(conversationId, session) {
+  try {
+    if (!conversationId) return;
+    
+    const normalizedId = conversationId.trim().toUpperCase();
+    const metaFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.meta.json`);
+    
+    const meta = {
+      conversationId: normalizedId,
+      sid: session.id || session.sid || null,
+      createdAt: session.startedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userName: session.userName || null,
+      device: session.device || null,
+      language: session.userLocale || 'es-AR',
+      stage: session.stage || null,
+      needType: session.needType || null,
+      isProblem: session.isProblem || false,
+      isHowTo: session.isHowTo || false,
+      problem: session.problem || null,
+      issueKey: session.issueKey || null
+    };
+    
+    fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), 'utf8');
+    
+    // Actualizar índice
+    updateConversationIndex(normalizedId, meta.sid, meta.createdAt);
+  } catch (error) {
+    console.error(`[CONVERSATION_META] Error guardando meta para ${conversationId}:`, error.message);
+  }
+}
+
+// Persistir evento de Consola FULL por conversationId
+function persistConsoleEvent(conversationId, level, event, payload = {}) {
+  try {
+    if (!conversationId) return;
+    
+    const normalizedId = conversationId.trim().toUpperCase();
+    const conversationFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.jsonl`);
+    
+    const eventRecord = {
+      ts: new Date().toISOString(),
+      level,
+      event,
+      data: payload
+    };
+    
+    const eventLine = JSON.stringify(eventRecord) + '\n';
+    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+  } catch (error) {
+    console.error(`[CONSOLE_EVENT] Error guardando evento para ${conversationId}:`, error.message);
+  }
 }
 
 // Cargar IDs usados al iniciar el servidor (después de inicializar paths y asegurar directorios)
