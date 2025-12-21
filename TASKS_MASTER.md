@@ -13,19 +13,16 @@
 - [x] Responder 200 con mensaje texto plano en lugar de error
 - [x] Verificado: Render ya no loguea ENOENT por `/public/index.html`
 - [x] Verificado: root "/" responde 200 sin romper
+## 🔄 NEXT (prioridad)
 
-## 🔄 NEXT
+### PR #5 — Cierre (pendiente pruebas manuales)
+- [ ] Subir imagen (upload-image): confirmar respuesta incluye `usedVision` y `probe`
+- [ ] Probar chat reutilizando imagen (imageRefs): confirmar logs `[CHAT:VISION_PLAN]`
+- [ ] Verificar en Render logs que NO aparece `data:image/...base64`
 
-### PR #5 - Hardening IMÁGENES (auditabilidad + logs seguros + fallback)
-- [x] Agregar flags `DEBUG_CHAT` y `DEBUG_IMAGES`
-- [x] Crear helper `probePublicUrl(url)` con timeout
-- [x] Mejorar `/api/upload-image`: logs seguros + usedVision + probe
-- [x] Mejorar `/api/chat`: logs concluyentes sin base64 + gatear logs ruidosos
-- [ ] Pruebas manuales: Upload-image OK
-- [ ] Pruebas manuales: Chat con imageRefs
-- [ ] Verificar que NO aparezca base64 en logs
-- [ ] Commit y push branch `hardening/images-logs-safe`
-
-### PR #6 - Validaciones (pendiente)
-- [ ] TBD
-
+### PR #6 — Validaciones backend (Etapa 1)
+- [ ] Definir puntos de entrada a validar (chat/upload/headers/query)
+- [ ] Limitar tamaño de payload (texto + imágenes)
+- [ ] Validar mimetype/size en `/api/upload-image`
+- [ ] Validar `sessionId` y formatos esperados (`imageRefs`, `buttonToken`)
+- [ ] Tests mínimos (válidos/invalidos) + criterios de aceptación
