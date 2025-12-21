@@ -4573,7 +4573,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   };
 
   // Helper para retornar y loggear automáticamente
-  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent') => {
+  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
+    // Usar sessionParam si se pasa, sino usar session del scope (con fallback seguro)
+    const currentSession = sessionParam || session;
+    
     flowLogData.currentStage = stage;
     flowLogData.nextStage = nextStage;
     flowLogData.trigger = trigger;
@@ -4590,14 +4593,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.warn(loopDetection.message);
     }
 
-    // 🆔 Loggear evento de bot en archivo de conversación
-    if (session && session.conversationId) {
-      logConversationEvent(session.conversationId, {
+    // 🆔 Loggear evento de bot en archivo de conversación (con optional chaining)
+    if (currentSession?.conversationId) {
+      logConversationEvent(currentSession.conversationId, {
         t: new Date().toISOString(),
         role: 'bot',
         type: 'reply',
         text: response.reply || '',
-        stage: response.stage || stage,
+        stage: response.stage || stage || 'unknown',
         buttons: response.options || response.buttons || null
       });
     }
@@ -5101,11 +5104,11 @@ Respondé con una explicación clara y útil para el usuario.`
           return logAndReturn({
             ok: true,
             reply: smartReply,
-            stage: session.stage,
+            stage: session?.stage || 'unknown',
             options: smartOptions,
             buttons: smartOptions,
             aiPowered: true
-          }, session.stage, session.stage, 'smart_ai_response', 'ai_replied');
+          }, session?.stage || 'unknown', session?.stage || 'unknown', 'smart_ai_response', 'ai_replied', session);
         }
       }
       
@@ -5816,10 +5819,10 @@ Respondé con una explicación clara y útil para el usuario.`
         return logAndReturn({
           ok: true,
           reply: responseText,
-          stage: session.stage,
+          stage: session?.stage || 'unknown',
           options: nextOptions,
           buttons: nextOptions
-        }, session.stage, session.stage, 'image_analysis', 'image_analyzed');
+        }, session?.stage || 'unknown', session?.stage || 'unknown', 'image_analysis', 'image_analyzed', session);
       }
 
       // ========================================================
