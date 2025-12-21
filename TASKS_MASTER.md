@@ -20,9 +20,14 @@
 - [ ] Probar chat reutilizando imagen (imageRefs): confirmar logs `[CHAT:VISION_PLAN]`
 - [ ] Verificar en Render logs que NO aparece `data:image/...base64`
 
-### PR #6 — Validaciones backend (Etapa 1)
-- [ ] Definir puntos de entrada a validar (chat/upload/headers/query)
-- [ ] Limitar tamaño de payload (texto + imágenes)
-- [ ] Validar mimetype/size en `/api/upload-image`
-- [ ] Validar `sessionId` y formatos esperados (`imageRefs`, `buttonToken`)
-- [ ] Tests mínimos (válidos/invalidos) + criterios de aceptación
+### PR #6 — Validaciones backend (Etapa 1) — En progreso
+- [x] Definir límites configurables por env (MAX_TEXT_LEN, MAX_UPLOAD_BYTES, etc.)
+- [x] Crear helpers reutilizables (asString, clampLen, isSafeId, safeSessionId, badRequest, tooLarge, isHttpUrl)
+- [x] Validar en `/api/chat`: texto, buttonToken, sid (soft), imageRefs, arrays
+- [x] Validar en `/api/upload-image`: sid (soft), file, tamaño, mimetype
+- [x] Validar en endpoints sensibles: `/api/gdpr/my-data/:sessionId`, `/api/gdpr/delete-me/:sessionId`, `/api/transcript/:sid`, `/api/flow-audit/:sessionId`
+- [ ] Pruebas manuales: Chat texto demasiado largo (413)
+- [ ] Pruebas manuales: Chat imageRefs inválido (400 BAD_IMAGE_REF)
+- [ ] Pruebas manuales: Upload-image mimetype inválido (400 BAD_MIMETYPE)
+- [ ] Pruebas manuales: Upload-image grande (413 FILE_TOO_LARGE)
+- [ ] Pruebas manuales: GDPR endpoint con ID inválido (400 BAD_SESSION_ID)
