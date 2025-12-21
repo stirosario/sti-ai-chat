@@ -3706,21 +3706,31 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
     }
 
     if (!meta) {
-      return res.status(404).json({
+      // Devolver HTTP 200 con ok:false (no 404) según requerimiento
+      return res.status(200).json({
         ok: false,
-        error: 'not_found',
-        message: `Conversación ${conversationId} no encontrada`
+        error: 'NOT_FOUND',
+        message: `Conversación ${conversationId} no encontrada`,
+        conversationId: req.params.id.trim().toUpperCase()
       });
     }
 
+    // Determinar fuente de datos
+    let source = 'disk';
+    if (session?.conversationId === conversationId) {
+      source = 'both'; // Tiene en Redis y disco
+    }
+    
     res.json({
       ok: true,
+      id: meta.conversationId,
       conversationId: meta.conversationId,
       meta,
       transcript,
       events,
       totalEvents: events.length,
-      totalTranscriptEntries: transcript.length
+      totalTranscriptEntries: transcript.length,
+      source
     });
   } catch (error) {
     console.error('[CONVERSATION] Error en endpoint:', error);
