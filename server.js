@@ -283,6 +283,118 @@ function logConversationEvent(conversationId, event) {
   }
 }
 
+// Índice de conversaciones para búsqueda rápida
+const CONVERSATION_INDEX_FILE = path.join(CONVERSATIONS_DIR, 'index.json');
+
+// Cargar índice al iniciar
+let conversationIndex = { byId: {}, bySuffix: {} };
+try {
+  if (fs.existsSync(CONVERSATION_INDEX_FILE)) {
+    const loaded = JSON.parse(fs.readFileSync(CONVERSATION_INDEX_FILE, 'utf8'));
+    conversationIndex = {
+      byId: loaded.byId || {},
+      bySuffix: loaded.bySuffix || {}
+    };
+  }
+} catch (e) {
+  console.warn('[CONVERSATION_INDEX] Error cargando índice:', e.message);
+  conversationIndex = { byId: {}, bySuffix: {} };
+}
+
+// Guardar índice
+function saveConversationIndex() {
+  try {
+    fs.writeFileSync(CONVERSATION_INDEX_FILE, JSON.stringify(conversationIndex, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[CONVERSATION_INDEX] Error guardando índice:', e.message);
+  }
+}
+
+// Actualizar índice con nueva conversación
+function updateConversationIndex(conversationId, sid, createdAt) {
+  if (!conversationId) return;
+  
+  const normalizedId = conversationId.trim().toUpperCase();
+  conversationIndex.byId = conversationIndex.byId || {};
+  conversationIndex.bySuffix = conversationIndex.bySuffix || {};
+  
+  // Actualizar por ID completo
+  conversationIndex.byId[normalizedId] = {
+    sid,
+    createdAt,
+    updatedAt: new Date().toISOString()
+  };
+  
+  // Extraer sufijo numérico (ej: OT-4913 -> 4913)
+  const suffixMatch = normalizedId.match(/-(\d+)$/);
+  if (suffixMatch) {
+    const suffix = suffixMatch[1];
+    if (!conversationIndex.bySuffix[suffix]) {
+      conversationIndex.bySuffix[suffix] = [];
+    }
+    if (!conversationIndex.bySuffix[suffix].includes(normalizedId)) {
+      conversationIndex.bySuffix[suffix].push(normalizedId);
+    }
+  }
+  
+  saveConversationIndex();
+}
+
+// Guardar/actualizar meta de conversación
+function saveConversationMeta(conversationId, session) {
+  try {
+    if (!conversationId) return;
+    
+    const normalizedId = conversationId.trim().toUpperCase();
+    const metaFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.meta.json`);
+    
+    const meta = {
+      conversationId: normalizedId,
+      sid: session.id || session.sid || null,
+      createdAt: session.startedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userName: session.userName || null,
+      device: session.device || null,
+      language: session.userLocale || 'es-AR',
+      stage: session.stage || null,
+      needType: session.needType || null,
+      isProblem: session.isProblem || false,
+      isHowTo: session.isHowTo || false,
+      problem: session.problem || null,
+      issueKey: session.issueKey || null
+    };
+    
+    fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), 'utf8');
+    
+    // Actualizar índice
+    updateConversationIndex(normalizedId, meta.sid, meta.createdAt);
+  } catch (error) {
+    console.error(`[CONVERSATION_META] Error guardando meta para ${conversationId}:`, error.message);
+  }
+}
+
+// Persistir evento de Consola FULL por conversationId
+function persistConsoleEvent(conversationId, level, event, payload = {}) {
+  try {
+    if (!conversationId) return;
+    
+    const normalizedId = conversationId.trim().toUpperCase();
+    const conversationFile = path.join(CONVERSATIONS_DIR, `${normalizedId}.jsonl`);
+    
+    const eventRecord = {
+      ts: new Date().toISOString(),
+      level,
+      event,
+      data: payload
+    };
+    
+    const eventLine = JSON.stringify(eventRecord) + '\n';
+    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+  } catch (error) {
+    console.error(`[CONSOLE_EVENT] Error guardando evento para ${conversationId}:`, error.message);
+  }
+}
+
 // ========================================================
 // 🔐 CSRF VALIDATION MIDDLEWARE (Production-Ready)
 // ========================================================
@@ -1077,6 +1189,22 @@ function emitLogEvent(level, event, payload = {}) {
     } catch (e) {
       try { client.end(); } catch (_) { }
       sseClients.delete(client);
+    }
+  }
+  
+  // Persistir evento por conversationId si está disponible
+  if (payload.conversationId || payload.sid) {
+    // Intentar obtener conversationId desde payload o desde sesión
+    let conversationId = payload.conversationId;
+    if (!conversationId && payload.sid) {
+      // Si no está en payload, intentar obtenerlo de la sesión (async, no bloqueante)
+      getSession(payload.sid).then(session => {
+        if (session?.conversationId) {
+          persistConsoleEvent(session.conversationId, level, event, sanitized);
+        }
+      }).catch(() => {});
+    } else if (conversationId) {
+      persistConsoleEvent(conversationId, level, event, sanitized);
     }
   }
 }
@@ -3475,6 +3603,130 @@ app.post('/api/ticket/create', validateCSRF, async (req, res) => {
   }
 });
 
+// GET /api/admin/conversation/:id — Obtener conversación completa por ID
+app.get('/api/admin/conversation/:id', async (req, res) => {
+  try {
+    // Verificar token de administrador
+    const adminToken = req.headers.authorization || req.query.token;
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    let conversationId = req.params.id.trim().toUpperCase();
+    const tail = parseInt(req.query.tail) || null;
+
+    // Intentar búsqueda exacta primero
+    let metaFile = path.join(CONVERSATIONS_DIR, `${conversationId}.meta.json`);
+    let eventsFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+
+    // Si no existe exacto, intentar búsqueda por sufijo
+    if (!fs.existsSync(metaFile)) {
+      const suffixMatch = conversationId.match(/-(\d+)$/);
+      if (suffixMatch) {
+        const suffix = suffixMatch[1];
+        const candidates = conversationIndex.bySuffix?.[suffix] || [];
+        
+        if (candidates.length === 1) {
+          conversationId = candidates[0];
+          metaFile = path.join(CONVERSATIONS_DIR, `${conversationId}.meta.json`);
+          eventsFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+        } else if (candidates.length > 1) {
+          return res.status(400).json({
+            ok: false,
+            error: 'ambiguous_suffix',
+            message: `Sufijo ${suffix} corresponde a múltiples conversaciones`,
+            candidates: candidates
+          });
+        }
+      }
+    }
+
+    // Leer meta
+    let meta = null;
+    if (fs.existsSync(metaFile)) {
+      try {
+        meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+      } catch (e) {
+        console.error(`[CONVERSATION] Error leyendo meta para ${conversationId}:`, e.message);
+      }
+    }
+
+    // Leer eventos (transcript + console events)
+    let events = [];
+    let transcript = [];
+
+    if (fs.existsSync(eventsFile)) {
+      try {
+        const lines = fs.readFileSync(eventsFile, 'utf8').split('\n').filter(l => l.trim());
+        
+        // Aplicar tail si está especificado
+        const linesToRead = tail ? lines.slice(-tail) : lines;
+        
+        for (const line of linesToRead) {
+          try {
+            const event = JSON.parse(line);
+            
+            // Separar transcript (role: user/bot) de eventos de consola (level)
+            if (event.role === 'user' || event.role === 'bot') {
+              transcript.push({
+                who: event.role,
+                text: event.text || '',
+                timestamp: event.t || event.ts,
+                stage: event.stage || null,
+                buttons: event.buttons || null
+              });
+            } else {
+              // Evento de consola FULL
+              events.push({
+                timestamp: event.ts || event.t,
+                level: event.level || 'info',
+                event: event.event || event.type || 'unknown',
+                data: event.data || event
+              });
+            }
+          } catch (parseErr) {
+            console.warn(`[CONVERSATION] Error parseando línea en ${conversationId}:`, parseErr.message);
+          }
+        }
+      } catch (e) {
+        console.error(`[CONVERSATION] Error leyendo eventos para ${conversationId}:`, e.message);
+      }
+    }
+
+    // Si no hay meta pero hay eventos, crear meta básica
+    if (!meta && events.length > 0) {
+      meta = {
+        conversationId,
+        createdAt: events[0]?.timestamp || new Date().toISOString(),
+        updatedAt: events[events.length - 1]?.timestamp || new Date().toISOString()
+      };
+    }
+
+    if (!meta) {
+      return res.status(404).json({
+        ok: false,
+        error: 'not_found',
+        message: `Conversación ${conversationId} no encontrada`
+      });
+    }
+
+    res.json({
+      ok: true,
+      conversationId: meta.conversationId,
+      meta,
+      transcript,
+      events,
+      totalEvents: events.length,
+      totalTranscriptEntries: transcript.length
+    });
+  } catch (error) {
+    console.error('[CONVERSATION] Error en endpoint:', error);
+    res.status(500).json({ ok: false, error: 'internal_error', message: error.message });
+  }
+});
+
 // ticket public routes (CON AUTENTICACIÓN)
 // GET /api/tickets — Listar todos los tickets (Solo admin)
 app.get('/api/tickets', async (req, res) => {
@@ -3865,6 +4117,11 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     const fullGreeting = buildLanguageSelectionGreeting();
     fresh.transcript.push({ who: 'bot', text: fullGreeting.text, ts: nowIso() });
     await saveSession(sid, fresh);
+    
+    // Guardar meta de conversación al crear sesión
+    if (conversationId) {
+      saveConversationMeta(conversationId, fresh);
+    }
 
     // 🆔 Loggear evento de greeting en archivo de conversación
     logConversationEvent(conversationId, {
@@ -4800,7 +5057,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   };
 
   // Helper para retornar y loggear automáticamente
-  const logAndReturn = (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
+  const logAndReturn = async (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
     // Usar sessionParam si se pasa, sino usar session del scope (con fallback seguro)
     const currentSession = sessionParam || session;
     
@@ -4830,6 +5087,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         stage: response.stage || stage || 'unknown',
         buttons: response.options || response.buttons || null
       });
+      
+      // Actualizar meta de conversación
+      saveConversationMeta(currentSession.conversationId, currentSession);
     }
 
     return res.json(response);
