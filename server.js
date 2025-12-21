@@ -310,8 +310,8 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const ENABLE_IMAGE_REFS = process.env.ENABLE_IMAGE_REFS !== 'false'; // Default: true
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
-const DEBUG_CHAT = process.env.DEBUG_CHAT === '1';
-const DEBUG_IMAGES = process.env.DEBUG_IMAGES === '1';
+let DEBUG_CHAT = process.env.DEBUG_CHAT === '1';
+let DEBUG_IMAGES = process.env.DEBUG_IMAGES === '1';
 
 // ========================================================
 // 🔒 VALIDATION LIMITS (configurable por env)
@@ -986,6 +986,100 @@ function getMetrics() {
 // ========================================================
 const sseClients = new Set();
 const MAX_SSE_CLIENTS = 100;
+
+// ========================================================
+// EventBus + Ring Buffer para logs estructurados
+// ========================================================
+const LOG_RING_MAX = parseInt(process.env.LOG_RING_MAX || '2000', 10);
+let LOG_RING = [];
+
+/**
+ * Sanitiza payload removiendo datos sensibles
+ */
+function sanitizePayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  
+  const sanitized = { ...payload };
+  
+  // Redactar csrfToken (solo primeros 6 caracteres)
+  if (sanitized.csrfToken) {
+    sanitized.csrfToken = sanitized.csrfToken.substring(0, 6) + '...';
+  }
+  
+  // Remover cookies/headers de auth
+  if (sanitized.cookies) delete sanitized.cookies;
+  if (sanitized.headers) {
+    const safeHeaders = { ...sanitized.headers };
+    ['authorization', 'cookie', 'x-csrf-token'].forEach(key => {
+      if (safeHeaders[key]) delete safeHeaders[key];
+    });
+    sanitized.headers = safeHeaders;
+  }
+  
+  // Remover base64/images
+  for (const [key, value] of Object.entries(sanitized)) {
+    if (typeof value === 'string') {
+      if (value.includes('data:image') || value.length > 1000 && /^[A-Za-z0-9+/=]+$/.test(value)) {
+        sanitized[key] = '[REDACTED: base64/image]';
+      }
+      // Redactar texto de usuario completo (guardar solo longitud)
+      if (key === 'text' || key === 'message' || key === 'userText') {
+        sanitized[key + 'Len'] = value.length;
+        delete sanitized[key];
+      }
+    }
+  }
+  
+  // Best-effort: remover PII común
+  const piiPatterns = [
+    /\b\d{10,}\b/g, // teléfonos largos
+    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, // emails
+  ];
+  
+  for (const [key, value] of Object.entries(sanitized)) {
+    if (typeof value === 'string') {
+      let cleaned = value;
+      piiPatterns.forEach(pattern => {
+        cleaned = cleaned.replace(pattern, '[REDACTED]');
+      });
+      if (cleaned !== value) {
+        sanitized[key] = cleaned;
+      }
+    }
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Emite evento de log estructurado
+ */
+function emitLogEvent(level, event, payload = {}) {
+  const sanitized = sanitizePayload(payload);
+  const record = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...sanitized
+  };
+  
+  // Push a ring buffer y truncar
+  LOG_RING.push(record);
+  if (LOG_RING.length > LOG_RING_MAX) {
+    LOG_RING = LOG_RING.slice(-LOG_RING_MAX);
+  }
+  
+  // Emitir a clientes SSE conectados
+  const eventData = `event: ${event}\ndata: ${JSON.stringify(record)}\n\n`;
+  for (const client of Array.from(sseClients)) {
+    try {
+      client.write(eventData);
+    } catch (e) {
+      try { client.end(); } catch (_) { }
+      sseClients.delete(client);
+    }
+  }
+}
 let logStream = null;
 try {
   logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
@@ -2917,6 +3011,43 @@ app.post('/api/csp-report', express.json({ type: 'application/csp-report' }), (r
   res.status(204).end();
 });
 
+// ========================================================
+// Runtime debug toggles (PR-C)
+// ========================================================
+app.post('/api/logs/level', async (req, res) => {
+  try {
+    // Requerir LOG_TOKEN si existe
+    if (LOG_TOKEN && !isAdmin(req)) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Token requerido' });
+    }
+    
+    const body = req.body || {};
+    
+    // Actualizar flags en memoria
+    if (body.DEBUG_CHAT !== undefined) {
+      DEBUG_CHAT = body.DEBUG_CHAT === 1 || body.DEBUG_CHAT === '1';
+    }
+    if (body.DEBUG_IMAGES !== undefined) {
+      DEBUG_IMAGES = body.DEBUG_IMAGES === 1 || body.DEBUG_IMAGES === '1';
+    }
+    
+    // Emitir evento de cambio
+    emitLogEvent('info', 'LOG_LEVEL_CHANGED', {
+      debugChat: DEBUG_CHAT,
+      debugImages: DEBUG_IMAGES
+    });
+    
+    res.json({
+      ok: true,
+      DEBUG_CHAT,
+      DEBUG_IMAGES
+    });
+  } catch (e) {
+    console.error('[logs/level] Error', e && e.message);
+    res.status(500).json({ ok: false, error: e?.message || 'Unknown error' });
+  }
+});
+
 // Transcript retrieval (REQUIERE AUTENTICACIÓN)
 app.get('/api/transcript/:sid', async (req, res) => {
   // Validación: sid seguro
@@ -2952,14 +3083,20 @@ app.get('/api/transcript/:sid', async (req, res) => {
 // Logs SSE and plain endpoints
 app.get('/api/logs/stream', async (req, res) => {
   try {
-    if (!isAdmin(req)) {
-      return res.status(401).send('unauthorized');
+    // Autenticación: requerir token si LOG_TOKEN existe
+    if (LOG_TOKEN && !isAdmin(req)) {
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Token requerido' });
     }
+    
+    // Modo 'once' para obtener logs completos una vez
     if (String(req.query.mode || '') === 'once') {
       const txt = fs.existsSync(LOG_FILE) ? await fs.promises.readFile(LOG_FILE, 'utf8') : '';
       res.set('Content-Type', 'text/plain; charset=utf-8');
       return res.status(200).send(txt);
     }
+    
+    // Configurar SSE headers
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -2970,39 +3107,65 @@ app.get('/api/logs/stream', async (req, res) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
-    // Si el origin no está permitido, no establecer headers CORS (bloqueado)
     
     res.flushHeaders && res.flushHeaders();
-    res.write(': connected\n\n');
-
+    
     // Límite de clientes SSE para prevenir memory leak
     if (sseClients.size >= MAX_SSE_CLIENTS) {
-      res.write('data: ERROR: Maximum SSE clients reached\n\n');
+      res.write('event: error\ndata: {"ok":false,"error":"Maximum SSE clients reached"}\n\n');
       try { res.end(); } catch (_) { }
       return;
     }
-
-    (async function sendLast() {
-      try {
-        if (!fs.existsSync(LOG_FILE)) return;
-        const stat = await fs.promises.stat(LOG_FILE);
-        const start = Math.max(0, stat.size - (32 * 1024));
-        const stream = createReadStream(LOG_FILE, { start, end: stat.size - 1, encoding: 'utf8' });
-        for await (const chunk of stream) {
-          sseSend(res, chunk);
-        }
-      } catch (e) { /* ignore */ }
-    })();
-
+    
+    // Enviar hello event
+    const helloEvent = {
+      ok: true,
+      serverTime: new Date().toISOString(),
+      version: '1.0'
+    };
+    res.write(`event: hello\ndata: ${JSON.stringify(helloEvent)}\n\n`);
+    
+    // Obtener filtros de query
+    const filterLevel = req.query.level;
+    const filterEvent = req.query.event;
+    const filterSid = req.query.sid;
+    const filterConversationId = req.query.conversationId;
+    
+    // Función para aplicar filtros
+    const matchesFilter = (record) => {
+      if (filterLevel && record.level !== filterLevel) return false;
+      if (filterEvent && record.event !== filterEvent) return false;
+      if (filterSid && record.sid !== filterSid) return false;
+      if (filterConversationId && record.conversationId !== filterConversationId) return false;
+      return true;
+    };
+    
+    // Enviar historial (tail) si se solicita
+    const tailCount = parseInt(req.query.tail || '0', 10);
+    if (tailCount > 0) {
+      const tailRecords = LOG_RING.slice(-tailCount).filter(matchesFilter);
+      for (const record of tailRecords) {
+        res.write(`event: log\ndata: ${JSON.stringify(record)}\n\n`);
+      }
+    }
+    
+    // Agregar cliente a la lista
     sseClients.add(res);
     console.log('[logs] SSE cliente conectado. total=', sseClients.size);
-
-    const hbInterval = setInterval(() => {
-      try { res.write(': ping\n\n'); } catch (e) { /* ignore */ }
-    }, 20_000);
-
+    
+    // Keepalive cada 15s
+    const keepaliveInterval = setInterval(() => {
+      try {
+        res.write(': keepalive\n\n');
+      } catch (e) {
+        clearInterval(keepaliveInterval);
+        sseClients.delete(res);
+      }
+    }, 15000);
+    
+    // Limpiar al desconectar
     req.on('close', () => {
-      clearInterval(hbInterval);
+      clearInterval(keepaliveInterval);
       sseClients.delete(res);
       try { res.end(); } catch (_) { }
       console.log('[logs] SSE cliente desconectado. total=', sseClients.size);
@@ -4341,6 +4504,13 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
       mime: req.file?.mimetype,
       hasSession: !!session
     });
+    
+    // Instrumentación: UPLOAD_IN
+    emitLogEvent('info', 'UPLOAD_IN', {
+      sid,
+      mime: req.file?.mimetype || 'unknown',
+      size: req.file?.size || 0
+    });
 
     // Limitar uploads por sesión
     if (!session.images) session.images = [];
@@ -4376,6 +4546,14 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
       fs.renameSync(compressedPath, originalPath);
       finalSize = compressionResult.compressedSize;
       logMsg(`[UPLOAD] Compression saved ${(compressionResult.savedBytes / 1024).toFixed(1)}KB`);
+      
+      // Instrumentación: UPLOAD_COMPRESS
+      emitLogEvent('info', 'UPLOAD_COMPRESS', {
+        sid,
+        beforeKB: Math.round(req.file.size / 1024),
+        afterKB: Math.round(compressionResult.compressedSize / 1024),
+        savedPct: Math.round((compressionResult.savedBytes / req.file.size) * 100)
+      });
     } else if (compressionResult.success) {
       // Original was smaller, delete compressed
       fs.unlinkSync(compressedPath);
@@ -4388,6 +4566,13 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
     // Probe public URL accessibility
     const probe = await probePublicUrl(imageUrl);
     logMsg(probe.ok ? 'info' : 'warn', '[UPLOAD_IMAGE:PROBE]', { sid, ok: probe.ok, status: probe.status, method: probe.method });
+    
+    // Instrumentación: UPLOAD_PROBE
+    emitLogEvent(probe.ok ? 'info' : 'warn', 'UPLOAD_PROBE', {
+      sid,
+      ok: probe.ok,
+      status: probe.status
+    });
 
     // Analyze image with OpenAI Vision if available
     let imageAnalysis = null;
@@ -4449,10 +4634,25 @@ Respondé en formato JSON:
         }
 
         usedVision = true;
-        logMsg('info', '[UPLOAD_IMAGE:VISION]', { sid, usedVision: true, ms: (Date.now() - analysisStartTime) });
+        const visionMs = Date.now() - analysisStartTime;
+        logMsg('info', '[UPLOAD_IMAGE:VISION]', { sid, usedVision: true, ms: visionMs });
         if (DEBUG_IMAGES) {
           logMsg('info', '[UPLOAD_IMAGE:VISION]', { sid, problemDetected: imageAnalysis.problemDetected || 'No problem detected' });
         }
+        
+        // Instrumentación: UPLOAD_VISION
+        emitLogEvent('info', 'UPLOAD_VISION', {
+          sid,
+          usedVision: true,
+          ms: visionMs
+        });
+        
+        // Instrumentación: UPLOAD_VISION
+        emitLogEvent('info', 'UPLOAD_VISION', {
+          sid,
+          usedVision: true,
+          ms: visionMs
+        });
       } catch (visionErr) {
         if (DEBUG_IMAGES) {
           console.error('[VISION] Error analyzing image:', visionErr);
@@ -4546,6 +4746,15 @@ Respondé en formato JSON:
     updateMetric('uploads', 'failed', 1);
     updateMetric('errors', 'count', 1);
     updateMetric('errors', 'lastError', { type: 'upload', message: err.message, timestamp: new Date().toISOString() });
+    
+    // Instrumentación: UPLOAD_ERR
+    const sid = req.sessionId || 'unknown';
+    emitLogEvent('error', 'UPLOAD_ERR', {
+      sid,
+      errorName: err?.name || 'Error',
+      message: err?.message || 'Unknown error'
+    });
+    
     res.status(500).json({
       ok: false,
       error: err.message || 'Error al subir la imagen'
@@ -4674,10 +4883,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (body.action === 'button' && body.value) {
       buttonToken = asString(body.value);
       if (buttonToken.length > MAX_BUTTON_TOKEN_LEN) {
+        emitLogEvent('warn', 'CHAT_400', {
+          sid: sid || 'unknown',
+          conversationId: null,
+          code: 'BAD_BUTTON_TOKEN',
+          message: `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`
+        });
         return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
       }
     } else if (buttonTokenRaw) {
       if (buttonTokenRaw.length > MAX_BUTTON_TOKEN_LEN) {
+        emitLogEvent('warn', 'CHAT_400', {
+          sid: sid || 'unknown',
+          conversationId: null,
+          code: 'BAD_BUTTON_TOKEN',
+          message: `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`
+        });
         return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
       }
       buttonToken = buttonTokenRaw;
@@ -4703,9 +4924,21 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const imageRefs = Array.isArray(body.imageRefs) ? body.imageRefs : [];
     
     if (images.length > MAX_IMAGE_REFS) {
+      emitLogEvent('warn', 'CHAT_400', {
+        sid: sid || 'unknown',
+        conversationId: null,
+        code: 'TOO_MANY_IMAGES',
+        message: `Demasiadas imágenes (máx ${MAX_IMAGE_REFS})`
+      });
       return tooLarge(res, 'TOO_MANY_IMAGES', `Demasiadas imágenes (máx ${MAX_IMAGE_REFS})`);
     }
     if (imageRefs.length > MAX_IMAGE_REFS) {
+      emitLogEvent('warn', 'CHAT_400', {
+        sid: sid || 'unknown',
+        conversationId: null,
+        code: 'TOO_MANY_IMAGE_REFS',
+        message: `Demasiadas referencias de imágenes (máx ${MAX_IMAGE_REFS})`
+      });
       return tooLarge(res, 'TOO_MANY_IMAGE_REFS', `Demasiadas referencias de imágenes (máx ${MAX_IMAGE_REFS})`);
     }
     
@@ -4788,6 +5021,18 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       await saveSession(sid, session);
       console.log(`[CONVERSATION_ID] ✅ Asignado a sesión existente: ${session.conversationId}`);
     }
+    
+    // Instrumentación: CHAT_IN
+    emitLogEvent('info', 'CHAT_IN', {
+      sid,
+      conversationId: session?.conversationId || null,
+      stage: session?.stage || null,
+      msgLen: effectiveText.length,
+      hasButton: !!buttonToken,
+      buttonLen: buttonToken ? buttonToken.length : 0,
+      imagesCount,
+      imageRefsCount
+    });
     
     if (!session) {
       session = {
@@ -6717,15 +6962,28 @@ La guía debe ser:
 
     // Intentar obtener locale de la request o usar default
     let locale = 'es-AR';
+    let sid = req.sessionId;
+    let conversationId = null;
     try {
-      const sid = req.sessionId;
       const existingSession = await getSession(sid);
       if (existingSession && existingSession.userLocale) {
         locale = existingSession.userLocale;
       }
+      if (existingSession?.conversationId) {
+        conversationId = existingSession.conversationId;
+      }
     } catch (errLocale) {
       // Si falla, usar el default
     }
+
+    // Instrumentación: CHAT_ERR
+    emitLogEvent('error', 'CHAT_ERR', {
+      sid: sid || 'unknown',
+      conversationId,
+      errorName: e?.name || 'Error',
+      message: e?.message || 'Unknown error',
+      where: 'main_handler'
+    });
 
     const isEn = String(locale).toLowerCase().startsWith('en');
     const errorMsg = isEn
