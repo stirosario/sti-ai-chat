@@ -310,6 +310,8 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const ENABLE_IMAGE_REFS = process.env.ENABLE_IMAGE_REFS !== 'false'; // Default: true
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const OA_NAME_REJECT_CONF = Number(process.env.OA_NAME_REJECT_CONF || 0.75);
+const DEBUG_CHAT = process.env.DEBUG_CHAT === '1';
+const DEBUG_IMAGES = process.env.DEBUG_IMAGES === '1';
 
 // ========================================================
 // 🧠 MODO SUPER INTELIGENTE - AI-Powered Analysis
@@ -1074,6 +1076,76 @@ function logMsg(...args) {
   } catch (e) {
     try { console.log('[logMsg:fallback]', ...args); } catch (_) {}
     return null;
+  }
+}
+
+/**
+ * Probe public URL accessibility with timeout
+ * @param {string} url - URL to probe
+ * @param {number} timeoutMs - Timeout in milliseconds (default: 4000)
+ * @returns {Promise<{ok: boolean, status: number|null, method: string, error?: string}>}
+ */
+async function probePublicUrl(url, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    // Try HEAD first (more efficient)
+    try {
+      const headResponse = await fetch(url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'STI-Chat-Bot/1.0'
+        }
+      });
+      clearTimeout(timeoutId);
+      const ok = headResponse.status >= 200 && headResponse.status < 400;
+      return {
+        ok,
+        status: headResponse.status,
+        method: 'HEAD'
+      };
+    } catch (headErr) {
+      // If HEAD fails (405 Method Not Allowed), try GET with Range
+      if (headErr.name === 'AbortError') {
+        clearTimeout(timeoutId);
+        return { ok: false, status: null, method: 'HEAD', error: 'timeout' };
+      }
+      
+      // Try GET with Range header (bytes=0-0) to avoid downloading full file
+      try {
+        const getResponse = await fetch(url, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: {
+            'Range': 'bytes=0-0',
+            'User-Agent': 'STI-Chat-Bot/1.0'
+          }
+        });
+        clearTimeout(timeoutId);
+        const ok = getResponse.status >= 200 && getResponse.status < 400;
+        return {
+          ok,
+          status: getResponse.status,
+          method: 'GET'
+        };
+      } catch (getErr) {
+        clearTimeout(timeoutId);
+        if (getErr.name === 'AbortError') {
+          return { ok: false, status: null, method: 'GET', error: 'timeout' };
+        }
+        return { ok: false, status: null, method: 'GET', error: getErr.message || 'fetch_error' };
+      }
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return {
+      ok: false,
+      status: null,
+      method: 'HEAD',
+      error: err.name === 'AbortError' ? 'timeout' : (err.message || 'unknown_error')
+    };
   }
 }
 
@@ -4189,6 +4261,14 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
       return res.status(400).json({ ok: false, error: 'Sesión no encontrada' });
     }
 
+    // Log seguro al inicio (sin base64, sin PII sensible)
+    logMsg('info', '[UPLOAD_IMAGE]', {
+      sid,
+      size: req.file?.size,
+      mime: req.file?.mimetype,
+      hasSession: !!session
+    });
+
     // Limitar uploads por sesión
     if (!session.images) session.images = [];
     if (session.images.length >= 10) {
@@ -4232,11 +4312,17 @@ app.post('/api/upload-image', uploadLimiter, validateCSRF, upload.single('image'
     const safeFilename = path.basename(req.file.filename);
     const imageUrl = `${PUBLIC_BASE_URL}/uploads/${safeFilename}`;
 
+    // Probe public URL accessibility
+    const probe = await probePublicUrl(imageUrl);
+    logMsg(probe.ok ? 'info' : 'warn', '[UPLOAD_IMAGE:PROBE]', { sid, ok: probe.ok, status: probe.status, method: probe.method });
+
     // Analyze image with OpenAI Vision if available
     let imageAnalysis = null;
+    let usedVision = false;
     const analysisStartTime = Date.now();
 
-    if (openai) {
+    // Solo intentar OpenAI Vision si openai está disponible Y probe.ok
+    if (openai && probe.ok) {
       try {
         const analysisPrompt = sanitizeInput(`Analizá esta imagen que subió un usuario de soporte técnico. 
 Identificá:
@@ -4289,13 +4375,23 @@ Respondé en formato JSON:
           imageAnalysis = { rawAnalysis: analysisText };
         }
 
-        logMsg(`[VISION] Analyzed image for session ${sid} in ${analysisTime}ms: ${imageAnalysis.problemDetected || 'No problem detected'}`);
+        usedVision = true;
+        logMsg('info', '[UPLOAD_IMAGE:VISION]', { sid, usedVision: true, ms: (Date.now() - analysisStartTime) });
+        if (DEBUG_IMAGES) {
+          logMsg('info', '[UPLOAD_IMAGE:VISION]', { sid, problemDetected: imageAnalysis.problemDetected || 'No problem detected' });
+        }
       } catch (visionErr) {
-        console.error('[VISION] Error analyzing image:', visionErr);
+        if (DEBUG_IMAGES) {
+          console.error('[VISION] Error analyzing image:', visionErr);
+        }
         imageAnalysis = { error: 'No se pudo analizar la imagen' };
         updateMetric('errors', 'count', 1);
         updateMetric('errors', 'lastError', { type: 'vision', message: visionErr.message, timestamp: new Date().toISOString() });
       }
+    } else if (!probe.ok) {
+      // Si probe NO ok, no intentar Vision pero responder claro
+      imageAnalysis = { error: 'Imagen recibida pero no pude acceder al enlace público para analizarla (403/404). Reintentá o describime el error.' };
+      usedVision = false;
     }
 
     // Generate unique imageId
@@ -4310,7 +4406,10 @@ Respondé en formato JSON:
       mime: req.file.mimetype,
       bytes: finalSize,
       uploadedAt: new Date().toISOString(),
-      analysis: imageAnalysis
+      timestamp: nowIso(),
+      analysis: imageAnalysis,
+      usedVision,
+      probe: { ok: probe.ok, status: probe.status, method: probe.method }
     };
 
     if (!session.images) session.images = [];
@@ -4363,6 +4462,8 @@ Respondé en formato JSON:
       imageUrl: imageUrl,
       imageId: imageId,
       analysis: imageAnalysis,
+      usedVision,
+      probe: { ok: probe.ok, status: probe.status },
       reply: replyText,
       sessionId: sid
     });
@@ -4434,29 +4535,28 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   try {
     // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     const sessionId = req.body.sessionId || req.sessionId;
-    console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
     
-    // Log body sin imágenes para no saturar
-    const bodyWithoutImages = { ...req.body };
-    if (bodyWithoutImages.images && Array.isArray(bodyWithoutImages.images)) {
-      console.log('[DEBUG /api/chat] 🖼️ Body tiene', bodyWithoutImages.images.length, 'imagen(es)');
-      console.log('[DEBUG /api/chat] 🖼️ Primera imagen:', {
-        name: bodyWithoutImages.images[0]?.name,
-        hasData: !!bodyWithoutImages.images[0]?.data,
-        dataLength: bodyWithoutImages.images[0]?.data?.length,
-        isBase64: bodyWithoutImages.images[0]?.data?.startsWith('data:image/') || false
-      });
-      bodyWithoutImages.images = bodyWithoutImages.images.map(img => ({
-        name: img.name,
-        hasData: !!img.data,
-        dataLength: img.data ? img.data.length : 0,
-        isBase64: img.data?.startsWith('data:image/') || false
-      }));
-    } else {
-      console.log('[DEBUG /api/chat] ⚠️ NO hay imágenes en el body');
+    // Logs detallados solo si DEBUG_CHAT o DEBUG_IMAGES está habilitado
+    if (DEBUG_CHAT || DEBUG_IMAGES) {
+      console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
+      console.log('[DEBUG /api/chat] Body keys:', Object.keys(req.body));
+      console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
+      
+      // Log body sin imágenes para no saturar (nunca base64)
+      const bodyWithoutImages = { ...req.body };
+      if (bodyWithoutImages.images && Array.isArray(bodyWithoutImages.images)) {
+        console.log('[DEBUG /api/chat] 🖼️ Body tiene', bodyWithoutImages.images.length, 'imagen(es)');
+        // NUNCA loguear img.data (base64)
+        bodyWithoutImages.images = bodyWithoutImages.images.map(img => ({
+          name: img.name,
+          hasData: !!img.data,
+          dataLength: img.data ? img.data.length : 0,
+          isBase64: img.data?.startsWith('data:image/') || false
+        }));
+      } else {
+        console.log('[DEBUG /api/chat] ⚠️ NO hay imágenes en el body');
+      }
     }
-    console.log('[DEBUG /api/chat] Body keys:', Object.keys(req.body));
-    console.log('[DEBUG /api/chat] Headers x-session-id:', req.headers['x-session-id']);
 
     const sessionRateCheck = checkSessionRateLimit(sessionId);
 
@@ -4503,7 +4603,14 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const t = String(incomingText || '').trim();
     const sid = req.sessionId;
 
-    console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
+    // Log seguro al inicio (sin base64, sin PII sensible)
+    const imagesCount = Array.isArray(body.images) ? body.images.length : 0;
+    const imageRefsCount = Array.isArray(body.imageRefs) ? body.imageRefs.length : 0;
+    logMsg('info', '[CHAT:IN]', { sid, msgLen: t.length, imagesCount, imageRefsCount, hasButton: !!buttonToken });
+
+    if (DEBUG_CHAT || DEBUG_IMAGES) {
+      console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
+    }
 
     // Inicializar datos de log
     flowLogData.sessionId = sid;
@@ -4643,7 +4750,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
           console.log(`[IMAGE] ✅ Guardada: ${fileName} -> ${imageUrl}`);
         } catch (err) {
           console.error(`[IMAGE] ❌ Error guardando imagen ${i + 1}:`, err.message);
-          console.error('[IMAGE] Stack:', err.stack);
+          if (DEBUG_IMAGES) {
+            console.error('[IMAGE] Stack:', err.stack);
+          }
         }
       }
       
@@ -4812,6 +4921,8 @@ Respondé con una explicación clara y útil para el usuario.`
     // ========================================================
     let smartAnalysis = null;
     const imageUrlsForAnalysis = savedImageUrls || [];
+    const willUseVision = !!openai && Array.isArray(imageUrlsForAnalysis) && imageUrlsForAnalysis.length > 0;
+    logMsg('info', '[CHAT:VISION_PLAN]', { sid, willUseVision, imageUrlsCount: (imageUrlsForAnalysis || []).length });
     
     // Solo analizar si no es un botón (los botones ya tienen intención clara)
     if (!buttonToken && SMART_MODE_ENABLED && openai) {
