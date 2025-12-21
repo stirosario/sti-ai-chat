@@ -4664,7 +4664,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (tRaw.length > MAX_TEXT_LEN) {
       return tooLarge(res, 'TEXT_TOO_LONG', `El mensaje excede el máximo de ${MAX_TEXT_LEN} caracteres`);
     }
-    const t = clampLen(tRaw, MAX_TEXT_LEN);
+    let t = clampLen(tRaw, MAX_TEXT_LEN);
     
     // Validación: buttonToken
     const buttonTokenRaw = asString(body?.buttonToken || '');
@@ -4681,6 +4681,11 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
       }
       buttonToken = buttonTokenRaw;
+    }
+    
+    // Compat: si llega botón pero el frontend no manda "text", usar buttonToken como texto
+    if (!t && buttonTokenRaw) {
+      t = buttonTokenRaw;
     }
     
     // Validación: arrays de imágenes
