@@ -4683,9 +4683,19 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       buttonToken = buttonTokenRaw;
     }
     
-    // Compat: si llega botón pero el frontend no manda "text", usar buttonToken como texto
-    if (!t && buttonTokenRaw) {
-      t = buttonTokenRaw;
+    // Computar effectiveText: texto efectivo para procesamiento (text || buttonToken)
+    // Esto asegura que los botones funcionen incluso cuando text está vacío
+    const effectiveText = t || buttonTokenRaw || '';
+    
+    // Logging seguro (solo si DEBUG_CHAT)
+    if (DEBUG_CHAT) {
+      logMsg('info', '[CHAT:INPUT_EFFECTIVE]', {
+        sid,
+        textLen: t.length,
+        buttonTokenLen: buttonTokenRaw.length,
+        effectiveLen: effectiveText.length,
+        hasButton: !!buttonToken
+      });
     }
     
     // Validación: arrays de imágenes
@@ -4729,8 +4739,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
     
-    // Validación: input no vacío
-    if (!t && !buttonToken && images.length === 0 && imageRefs.length === 0) {
+    // Validación: input no vacío (usar effectiveText)
+    if (!effectiveText && images.length === 0 && imageRefs.length === 0) {
       return badRequest(res, 'EMPTY_INPUT', 'Mensaje vacío');
     }
     
@@ -4741,7 +4751,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    let incomingText = t;
+    let incomingText = effectiveText;
     if (body.action === 'button' && body.value && buttonToken) {
       console.log('[DEBUG BUTTON] Received button - action:', body.action, 'hasValue:', !!body.value, 'tokenLength:', buttonToken.length);
       const def = getButtonDefinition(buttonToken);
@@ -4759,15 +4769,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     // Log seguro al inicio (sin base64, sin PII sensible)
     const imagesCount = images.length;
     const imageRefsCount = imageRefs.length;
-    logMsg('info', '[CHAT:IN]', { sid, msgLen: t.length, imagesCount, imageRefsCount, hasButton: !!buttonToken });
+    logMsg('info', '[CHAT:IN]', { sid, msgLen: effectiveText.length, imagesCount, imageRefsCount, hasButton: !!buttonToken });
 
     if (DEBUG_CHAT || DEBUG_IMAGES) {
-      console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
+      console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
     }
 
     // Inicializar datos de log
     flowLogData.sessionId = sid;
-    flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : t;
+    flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : effectiveText;
 
     let session = await getSession(sid);
     console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName, 'conversationId:', session?.conversationId);
@@ -5016,8 +5026,8 @@ Respondé con una explicación clara y útil para el usuario.`
     }
 
     // Detección rápida de datos sensibles (PII) y frustración
-    const maskedPreview = maskPII(t);
-    if (maskedPreview !== t) {
+    const maskedPreview = maskPII(effectiveText);
+    if (maskedPreview !== effectiveText) {
       session.frustrationCount = session.frustrationCount || 0;
       const piiLocale = session.userLocale || 'es-AR';
       if (String(piiLocale).toLowerCase().startsWith('en')) {
@@ -5294,7 +5304,7 @@ Respondé con una explicación clara y útil para el usuario.`
     console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
 
     if (session.stage === STATES.ASK_LANGUAGE) {
-      const lowerMsg = t.toLowerCase().trim();
+      const lowerMsg = effectiveText.toLowerCase().trim();
       console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'hasButtonToken:', !!buttonToken, 'GDPR consent:', session.gdprConsent);
 
       // Detectar aceptación de GDPR
@@ -5438,7 +5448,7 @@ Respondé con una explicación clara y útil para el usuario.`
     if (session.stage === STATES.ASK_NEED) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      const tLower = t.toLowerCase();
+      const tLower = effectiveText.toLowerCase();
 
       let needType = null;
 
@@ -5544,12 +5554,12 @@ Respondé con una explicación clara y útil para el usuario.`
     // ASK_NAME consolidated: validate locally and with OpenAI if available
 
     if (session.stage === STATES.ASK_NAME) {
-      console.log('[ASK_NAME] DEBUG - hasButtonToken:', !!buttonToken, 'textLength:', t?.length || 0);
+      console.log('[ASK_NAME] DEBUG - hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
 
       // 🔘 Detectar botón "Prefiero no decirlo"
-      if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(t)) {
+      if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(effectiveText)) {
         session.userName = isEn ? 'User' : 'Usuari@';
         session.stage = STATES.ASK_NEED;
 
@@ -5751,7 +5761,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
     // Inline fallback extraction (if we are not in ASK_NAME)
     {
-      const nmInline2 = extractName(t);
+      const nmInline2 = extractName(effectiveText);
       if (nmInline2 && !session.userName && isValidHumanName(nmInline2)) {
         session.userName = nmInline2;
         if (session.stage === STATES.ASK_NAME) {
@@ -5796,7 +5806,7 @@ Respondé con una explicación clara y útil para el usuario.`
     let options = [];
 
     if (session.stage === STATES.ASK_PROBLEM) {
-      session.problem = t || session.problem;
+      session.problem = effectiveText || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
 
