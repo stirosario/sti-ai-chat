@@ -3921,8 +3921,11 @@ function buildTimeGreeting() {
 
 function buildLanguageSelectionGreeting() {
   return {
-    text: `📋 **Política de Privacidad y Consentimiento**
+    text: `📋 **Política de Privacidad y Consentimiento / Privacy Policy & Consent**
 
+---
+
+**🇦🇷 Español:**
 Antes de continuar, quiero informarte:
 
 ✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
@@ -3933,10 +3936,25 @@ Antes de continuar, quiero informarte:
 
 🔗 Política completa: https://stia.com.ar/politica-privacidad.html
 
-**¿Aceptás estos términos?**`,
+**¿Aceptás estos términos?**
+
+---
+
+**🇺🇸 English:**
+Before we continue, please note:
+
+✅ I will store your name and our conversation for **48 hours**
+✅ Data will be used **only to provide technical support**
+✅ You can request **data deletion** at any time
+✅ We **do not share** your information with third parties
+✅ We comply with **GDPR and privacy regulations**
+
+🔗 Full policy: https://stia.com.ar/politica-privacidad.html
+
+**Do you accept these terms?**`,
     buttons: [
-      { text: 'Sí Acepto ✔️', value: 'si' },
-      { text: 'No Acepto ❌', value: 'no' }
+      { text: 'Sí Acepto / I Agree ✔️', value: 'si' },
+      { text: 'No Acepto / I Don\'t Agree ❌', value: 'no' }
     ]
   };
 }
@@ -5645,8 +5663,8 @@ Respondé con una explicación clara y útil para el usuario.`
             { text: '(🇺🇸) English 🌎', value: 'english' }
           ]
           : [
-            { text: 'Sí Acepto', value: 'si' },
-            { text: 'No Acepto', value: 'no' }
+            { text: 'Sí Acepto / I Agree ✔️', value: 'si' },
+            { text: 'No Acepto / I Don\'t Agree ❌', value: 'no' }
           ]
       });
     }
@@ -5693,84 +5711,24 @@ Respondé con una explicación clara y útil para el usuario.`
     //   - Handlers de cada needType (líneas posteriores)
     // No modificar sin implementar lógica para nuevos tipos.
     // ============================================
-    // ASK_NAME consolidated: validate locally and with OpenAI if available
+    // ASK_NEED: Fallback para sesiones antiguas - redirigir automáticamente a ASK_PROBLEM
     if (session.stage === STATES.ASK_NEED) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
-      const tLower = effectiveText.toLowerCase();
-
-      let needType = null;
-
-      // Detectar por botones (2 opciones principales)
-      if (buttonToken === 'BTN_PROBLEMA' || buttonToken === '🔧 Solucionar / Diagnosticar Problema') {
-        needType = 'problema';
-      } else if (buttonToken === 'BTN_CONSULTA' || buttonToken === '💡 Consulta / Asistencia Informática') {
-        needType = 'consulta_general';
-      }
-      // Detectar por palabras clave según CSV: problema, no prende, no enciende, no funciona, no anda, no carga, error, falla, roto, dañado
-      else if (/problema|no\s+prende|no\s+enciende|no\s+carga|no\s+funciona|no\s+anda|roto|da[ñn]ado|error|falla|fallo|se\s+rompi[oó]/i.test(tLower)) {
-        needType = 'problema';
-      }
-      // Detectar consultas: instalar, configurar, cómo hago para, conectar, poner, setup, ayuda, guía
-      else if (/instalar|configurar|c[oó]mo\s+(hago|hacer|puedo)|conectar|setup|how\s+to|poner|agregar|a[ñn]adir|gu[ií]a|ayuda|consulta/i.test(tLower)) {
-        needType = 'consulta_general';
-      }
-
-      if (needType) {
-        session.needType = needType;
-        session.stage = STATES.ASK_PROBLEM;
-
-        let reply = '';
-        let options = [];
-        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
-
-        // Respuestas personalizadas según el tipo de necesidad
-        if (needType === 'problema') {
-          reply = isEn
-            ? `Perfect ${whoName}. Tell me: what problem are you having?`
-            : `Perfecto, ${whoName} 🤖✨.\nSi tu situación está en esta lista, elegí la opción que mejor la describa: 👉`;
-          session.isProblem = true;
-          session.isHowTo = false;
-          // Agregar botones de problemas frecuentes
-          options = buildUiButtonsFromTokens([
-            'BTN_NO_ENCIENDE',
-            'BTN_NO_INTERNET',
-            'BTN_LENTITUD',
-            'BTN_BLOQUEO',
-            'BTN_PERIFERICOS',
-            'BTN_VIRUS'
-          ], locale);
-          // Agregar mensaje adicional al final del reply (NO como botón)
-          reply += '\n\nY si no está en la lista, escribila con tus palabras… 💬🔧 o subí una imagen 📎🖼️';
-        } else if (needType === 'consulta_general') {
-          reply = isEn
-            ? `Great ${whoName}! What do you need help with?`
-            : `Dale ${whoName}! ¿Con qué necesitás ayuda?`;
-          session.isHowTo = true;
-          session.isProblem = false;
-        } else {
-          // Fallback para needType no reconocido
-          reply = isEn
-            ? `Tell me what you need help with.`
-            : `Contame en qué necesitás ayuda.`;
-          session.isHowTo = false;
-          session.isProblem = false;
-        }
-
-        session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-      } else {
-        // No entendió la necesidad, pedir de nuevo
-        const retry = isEn
-          ? "Please select one of the options using the buttons."
-          : (locale === 'es-419'
-            ? "Por favor, selecciona una de las opciones usando los botones."
-            : "Por favor, seleccioná una de las opciones usando los botones.");
-        session.transcript.push({ who: 'bot', text: retry, ts: nowIso() });
-        await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply: retry, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
-      }
+      const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+      
+      // Redirigir automáticamente a ASK_PROBLEM con el nuevo texto
+      session.stage = STATES.ASK_PROBLEM;
+      
+      const reply = isEn
+        ? `🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
+        : (locale === 'es-419'
+          ? `🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+          : `🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
+      
+      session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
+      await saveSession(sid, session);
+      return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
     }
 
     // ========================================================
@@ -5810,100 +5768,50 @@ Respondé con una explicación clara y útil para el usuario.`
       // 🔘 Detectar botón "Prefiero no decirlo"
       if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(effectiveText)) {
         session.userName = isEn ? 'User' : 'Usuari@';
-        session.stage = STATES.ASK_NEED;
+        session.stage = STATES.ASK_PROBLEM;
 
         const reply = isEn
-          ? `✅ No problem! Let's continue.\n\n**How can I help you, User?**`
-          : `✅ ¡Sin problema! Sigamos.\n\n**¿En qué puedo ayudarte, Usuari@?**`;
+          ? `✅ No problem! Let's continue.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
+          : `✅ ¡Sin problema! Sigamos.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`;
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
 
-        // ============================================
-        // ========================================================
-        // 🔒 CÓDIGO CRÍTICO - BLOQUE PROTEGIDO #9
-        // ========================================================
-        // ⚠️  ADVERTENCIA: Botones funcionando en producción
-        // 📅 Última validación: 25/11/2025
-        // ✅ Estado: FUNCIONAL - Sistema de 2 botones con descripciones
-        //
-        // 🚨 ANTES DE MODIFICAR:
-        //    1. Este bloque debe ser IDÉNTICO al de línea ~4020
-        //    2. Mantener sincronizado con CONFIG.ui.buttons (línea ~348)
-        //    3. Las propiedades description/example son requeridas por frontend
-        //    4. Valores BTN_* deben coincidir con detección (línea ~3730)
-        //
-        // 📋 Funcionalidad protegida:
-        //    - Renderizado de 2 botones cuando usuario omite nombre
-        //    - Soporte bilingüe (español/inglés)
-        //    - Incluye description y example para cada botón
-        //
-        // 🔗 Dependencias:
-        //    - Frontend: renderButtons() en index.php (línea ~787)
-        //    - Backend: Detección de botones en ASK_NEED (línea ~3730)
-        //    - Bloque gemelo en línea ~4020 (MANTENER SINCRONIZADO)
-        //
-        // ========================================================
-        // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
-        // ============================================
-        // BLOQUE: Renderizado de botones sin nombre de usuario
-        // Propósito: Mostrar 2 opciones cuando usuario omite su nombre
-        // Funcionalidad: Mismo set de botones que flujo normal, soporte bilingüe
-        // Autor: Sistema STI - GitHub Copilot + Lucas
-        // Última modificación: 25/11/2025
-        // 
-        // ADVERTENCIA: Este bloque debe ser idéntico al de línea ~4020.
-        // Los valores (BTN_*) deben coincidir con:
-        //   - CONFIG.ui.buttons (línea ~333)
-        //   - Detección de intent (línea ~3675)
-        // ============================================
         return res.json({
           ok: true,
           reply,
           stage: session.stage,
-          buttons: [
-            {
-              text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
-              value: 'BTN_PROBLEMA',
-              description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
-              example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
-            },
-            {
-              text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
-              value: 'BTN_CONSULTA',
-              description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
-              example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
-            }
-          ]
+          options: [],
+          buttons: []
         });
       }
 
       // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
       if ((session.nameAttempts || 0) >= 5) {
         session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_NEED;
+        session.stage = STATES.ASK_PROBLEM;
 
         const reply = isEn
-          ? "Let's continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
+          ? `Let's continue without your name.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
           : (locale === 'es-419'
-            ? "Sigamos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-            : "Sigamos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
+            ? `Sigamos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+            : `Sigamos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
       }
 
       // Prefiero no decirlo (texto o botón)
       if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
         session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_NEED;
+        session.stage = STATES.ASK_PROBLEM;
 
         const reply = isEn
-          ? "No problem, we'll continue without your name. Now, what do you need today? Technical help 🛠️ or assistance 🤝?"
+          ? `No problem, we'll continue without your name.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
           : (locale === 'es-419'
-            ? "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?"
-            : "Perfecto, seguimos sin tu nombre. Ahora, ¿qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?");
+            ? `Perfecto, seguimos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+            : `Perfecto, seguimos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
 
         session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
         await saveSession(sid, session);
@@ -5911,7 +5819,7 @@ Respondé con una explicación clara y útil para el usuario.`
           ok: true,
           reply,
           stage: session.stage,
-          options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA'])
+          options: []
         }));
       }
 
@@ -5959,52 +5867,26 @@ Respondé con una explicación clara y útil para el usuario.`
         }));
       }
 
-      // Nombre aceptado - transición a ASK_NEED según Flujo.csv
+      // Nombre aceptado - transición directa a ASK_PROBLEM (sin clasificación)
       session.userName = candidate;
-      session.stage = STATES.ASK_NEED;
+      session.stage = STATES.ASK_PROBLEM;
       session.nameAttempts = 0;
 
       const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
       const reply = isEn
-        ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\nWhat do you need today?`
+        ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
         : (locale === 'es-419'
-          ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitas hoy?`
-          : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n¿Qué necesitás hoy?`);
+          ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+          : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
 
       session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
       await saveSession(sid, session);
-      // ============================================
-      // 🔒 PROTECCIÓN ACTIVA - NO MODIFICAR SIN AUTORIZACIÓN
-      // ============================================
-      // BLOQUE: Renderizado de botones después de capturar nombre
-      // Propósito: Mostrar 5 opciones de servicio al usuario
-      // Funcionalidad: Botones bilingües (ES/EN) con valores de token
-      // Autor: Sistema STI - GitHub Copilot + Lucas
-      // Última modificación: 25/11/2025
-      // 
-      // ADVERTENCIA: Los valores (BTN_*) deben coincidir con:
-      //   - CONFIG.ui.buttons (línea ~333)
-      //   - Detección de intent (línea ~3675)
-      // Las etiquetas (text) deben mantenerse sincronizadas con traducciones.
-      // ============================================
       return res.json({
         ok: true,
         reply,
         stage: session.stage,
-        buttons: [
-          {
-            text: isEn ? '🔧 Troubleshoot / Diagnose Problem' : '🔧 Solucionar / Diagnosticar Problema',
-            value: 'BTN_PROBLEMA',
-            description: isEn ? 'If you have a technical issue with a device or system' : 'Si tenés un inconveniente técnico con un dispositivo o sistema',
-            example: isEn ? 'Example: "My laptop won\'t turn on", "Windows error", "No internet"' : 'Ejemplo: "Mi notebook no enciende", "Windows da un error", "No tengo internet"'
-          },
-          {
-            text: isEn ? '💡 IT Consultation / Assistance' : '💡 Consulta / Asistencia Informática',
-            value: 'BTN_CONSULTA',
-            description: isEn ? 'If you need to learn how to configure or get guidance on technology tools' : 'Si necesitás aprender a configurar o recibir orientación sobre el uso de herramientas tecnológicas',
-            example: isEn ? 'Example: "Install Microsoft Office", "Help downloading AnyDesk", "Install WhatsApp"' : 'Ejemplo: "Quiero instalar Microsoft Office", "Ayuda para descargar AnyDesk", "Instalar WhatsApp"'
-          }
-        ]
+        options: [],
+        buttons: []
       });
     }
 
@@ -6014,18 +5896,18 @@ Respondé con una explicación clara y útil para el usuario.`
       if (nmInline2 && !session.userName && isValidHumanName(nmInline2)) {
         session.userName = nmInline2;
         if (session.stage === STATES.ASK_NAME) {
-          session.stage = STATES.ASK_NEED;
+          session.stage = STATES.ASK_PROBLEM;
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
           const empatia = addEmpatheticResponse('ASK_NAME', locale);
           const reply = isEn
-            ? `${empatia} Great, ${session.userName}! 👍\n\nWhat do you need today? Technical help 🛠️ or assistance 🤝?`
+            ? `${empatia} Great, ${session.userName}! 👍\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
             : (locale === 'es-419'
-              ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitas hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`
-              : `${empatia} ¡Genial, ${session.userName}! 👍\n\n¿Qué necesitás hoy? ¿Ayuda técnica 🛠️ o asistencia 🤝?`);
+              ? `${empatia} ¡Genial, ${session.userName}! 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+              : `${empatia} ¡Genial, ${session.userName}! 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
           session.transcript.push({ who: 'bot', text: reply, ts: nowIso() });
           await saveSession(sid, session);
-          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: buildUiButtonsFromTokens(['BTN_PROBLEMA', 'BTN_CONSULTA']) }));
+          return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
         }
       }
     }
