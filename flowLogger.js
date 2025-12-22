@@ -19,6 +19,32 @@ export function maskPII(text) {
   if (!text) return text;
   let s = String(text);
   
+  // ========================================================
+  // 🆔 WHITELIST: Proteger IDs de conversación y sesión
+  // ========================================================
+  // Guardar IDs antes de redactar para restaurarlos después
+  const conversationIdMatches = [];
+  const sessionIdMatches = [];
+  
+  // Conversation IDs: formato XX-#### (ej: NY-0709, BU-9921)
+  const conversationIdPattern = /\b([A-Z]{2}-\d{4})\b/g;
+  let match;
+  while ((match = conversationIdPattern.exec(s)) !== null) {
+    conversationIdMatches.push({ original: match[0], placeholder: `__CONV_ID_${conversationIdMatches.length}__` });
+  }
+  conversationIdMatches.forEach(({ original, placeholder }) => {
+    s = s.replace(original, placeholder);
+  });
+  
+  // Session IDs: formato web-xxxxx (ej: web-mjhp0pajvdpdvj)
+  const sessionIdPattern = /\b(web-[a-z0-9]{10,})\b/g;
+  while ((match = sessionIdPattern.exec(s)) !== null) {
+    sessionIdMatches.push({ original: match[0], placeholder: `__SESS_ID_${sessionIdMatches.length}__` });
+  }
+  sessionIdMatches.forEach(({ original, placeholder }) => {
+    s = s.replace(original, placeholder);
+  });
+  
   // Emails
   s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, '[EMAIL_REDACTED]');
   
@@ -34,8 +60,9 @@ export function maskPII(text) {
   // DNI (7-8 dígitos aislados) - ANTES de teléfonos
   s = s.replace(/\b\d{7,8}\b/g, '[DNI_REDACTED]');
   
-  // Teléfonos internacionales
-  s = s.replace(/\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{1,9}/g, '[PHONE_REDACTED]');
+  // Teléfonos internacionales (más específico para evitar falsos positivos)
+  // Solo números que parezcan teléfonos reales (con prefijos +54, +549, etc.)
+  s = s.replace(/(?:\+54[1-9]|\+549|\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{1,4}[\s-]?\d{4,9})/g, '[PHONE_REDACTED]');
   
   // IPs
   s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]');
@@ -43,8 +70,16 @@ export function maskPII(text) {
   // Contraseñas obvias
   s = s.replace(/(?:password|pwd|pass|clave|contraseña)\s*[=:]\s*[^\s]+/gi, '[PASSWORD_REDACTED]');
   
-  // Tokens y API keys
+  // Tokens y API keys (solo si son muy largos, no IDs cortos)
   s = s.replace(/\b[A-Za-z0-9]{32,}\b/g, '[TOKEN_REDACTED]');
+  
+  // Restaurar IDs protegidos
+  conversationIdMatches.forEach(({ original, placeholder }) => {
+    s = s.replace(placeholder, original);
+  });
+  sessionIdMatches.forEach(({ original, placeholder }) => {
+    s = s.replace(placeholder, original);
+  });
   
   return s;
 }

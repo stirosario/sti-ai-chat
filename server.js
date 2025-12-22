@@ -289,12 +289,35 @@ function logConversationEvent(conversationId, event) {
  * @param {string} conversationId - Conversation ID (puede ser null)
  * @param {string} who - 'user' | 'bot'
  * @param {string} text - Texto del mensaje
- * @param {Object} options - { type, stage, buttons, buttonToken, hasImages, ts }
+ * @param {Object} options - { type, stage, buttons, buttonToken, hasImages, ts, message_id }
  * @returns {Object} - Entry creado
  */
 async function appendAndPersistConversationEvent(session, conversationId, who, text, options = {}) {
   const ts = options.ts || nowIso();
+  
+  // ========================================================
+  // 🆔 IDEMPOTENCIA: Generar message_id único si no existe
+  // ========================================================
+  const message_id = options.message_id || `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+  
+  // Verificar si ya existe este message_id (idempotencia)
+  if (session.transcript && Array.isArray(session.transcript)) {
+    const existing = session.transcript.find(m => m.message_id === message_id);
+    if (existing) {
+      console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado (message_id: ${message_id.substring(0, 20)}...), omitiendo inserción`);
+      return existing;
+    }
+  }
+  
+  // Generar seq incremental (contador por conversación)
+  if (!session.messageSeq) {
+    session.messageSeq = 0;
+  }
+  const seq = ++session.messageSeq;
+  
   const entry = {
+    message_id,
+    seq,
     who,
     text,
     ts,
@@ -304,6 +327,9 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   };
   
   // 1. Agregar al transcript en memoria
+  if (!session.transcript) {
+    session.transcript = [];
+  }
   session.transcript.push(entry);
   
   // 2. Guardar sesión
@@ -314,6 +340,8 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   // 3. Persistir en JSONL si hay conversationId
   if (conversationId) {
     logConversationEvent(conversationId, {
+      message_id,
+      seq,
       t: ts,
       role: who, // 'user' o 'bot'
       type: options.type || 'text',
@@ -1967,6 +1995,88 @@ const DEVICE_PLAYBOOKS = {
     }
   }
 };
+
+// ========================================================
+// 🔍 VALIDACIÓN DE PROBLEMA: Detectar si es solo dispositivo vs problema real
+// ========================================================
+/**
+ * Normaliza el texto del problema para validación
+ */
+function normalizeProblem(problemText) {
+  if (!problemText) return '';
+  return String(problemText).toLowerCase().trim();
+}
+
+/**
+ * Verifica si el problema es válido (no vacío, no genérico)
+ */
+function isValidProblem(problemText) {
+  const normalized = normalizeProblem(problemText);
+  if (!normalized || normalized.length < 3) return false;
+  
+  // Patrones que indican "sin problema" o "no especificado"
+  const invalidPatterns = [
+    /no se ha especificado/i,
+    /sin problema/i,
+    /n\/a/i,
+    /na/i,
+    /no hay problema/i,
+    /ningún problema/i,
+    /sin inconveniente/i,
+    /no tengo problema/i,
+    /no hay inconveniente/i
+  ];
+  
+  for (const pattern of invalidPatterns) {
+    if (pattern.test(normalized)) return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Detecta si el input parece ser solo dispositivo/modelo sin problema real
+ * @param {string} userText - Texto del usuario
+ * @param {string} detectedDevice - Dispositivo detectado por IA
+ * @param {string} detectedModel - Modelo detectado por IA
+ * @param {string} problemText - Problema detectado por IA
+ */
+function isDeviceOnly(userText, detectedDevice, detectedModel, problemText) {
+  const text = String(userText || '').toLowerCase();
+  const problem = normalizeProblem(problemText);
+  
+  // Si el problema es inválido, es probable que sea solo dispositivo
+  if (!isValidProblem(problem)) {
+    // Verificar si el texto contiene marcas/modelos comunes
+    const deviceBrands = [
+      'lenovo', 'dell', 'hp', 'hewlett', 'packard', 'asus', 'acer', 'samsung', 'lg', 'sony',
+      'toshiba', 'apple', 'macbook', 'thinkpad', 'ideapad', 'inspiron', 'xps', 'pavilion',
+      'envy', 'spectre', 'zenbook', 'vivobook', 'predator', 'nitro', 'chromebook'
+    ];
+    
+    const hasBrand = deviceBrands.some(brand => text.includes(brand));
+    
+    // Verificar si contiene números que podrían ser modelos (ej: b550, 2720, c920)
+    const hasModelNumber = /\b[a-z]?\d{3,5}\b/i.test(text);
+    
+    // Verificar si NO contiene verbos de falla
+    const failureVerbs = [
+      'no prende', 'no enciende', 'no funciona', 'no carga', 'se apaga', 'se reinicia',
+      'pantalla azul', 'pantalla negra', 'error', 'falla', 'problema', 'no hay wifi',
+      'no conecta', 'no imprime', 'no responde', 'se congela', 'se cuelga', 'lento',
+      'ruido', 'calor', 'temperatura', 'no arranca', 'no bootea', 'no inicia'
+    ];
+    
+    const hasFailureVerb = failureVerbs.some(verb => text.includes(verb));
+    
+    // Si tiene marca/modelo pero NO tiene verbo de falla, probablemente es solo dispositivo
+    if ((hasBrand || hasModelNumber || detectedDevice || detectedModel) && !hasFailureVerb) {
+      return true;
+    }
+  }
+  
+  return false;
+}
 
 async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrls = []) {
   if (!openai) {
@@ -5274,37 +5384,72 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
     let t = clampLen(tRaw, MAX_TEXT_LEN);
     
-    // Validación: buttonToken
-    const buttonTokenRaw = asString(body?.buttonToken || '');
+    // ========================================================
+    // 🎯 P0: PAYLOAD CANÓNICO DE BOTONES
+    // ========================================================
+    // Prioridad: body.button.token > body.buttonToken > body.value (action=button) > body.button.label (fallback)
     let buttonToken = null;
     let buttonLabel = null;
     
-    // Computar effectiveButtonToken: considera buttonToken explícito o body.value cuando action=button
-    const effectiveButtonToken = buttonTokenRaw || (body.action === 'button' ? asString(body.value || '') : '');
-    
-    if (body.action === 'button' && body.value) {
-      buttonToken = asString(body.value);
-      if (buttonToken.length > MAX_BUTTON_TOKEN_LEN) {
-        emitLogEvent('warn', 'CHAT_400', {
-          sid: sid || 'unknown',
-          conversationId: null,
-          code: 'BAD_BUTTON_TOKEN',
-          message: `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`
-        });
-        return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
-      }
-    } else if (buttonTokenRaw) {
-      if (buttonTokenRaw.length > MAX_BUTTON_TOKEN_LEN) {
-        emitLogEvent('warn', 'CHAT_400', {
-          sid: sid || 'unknown',
-          conversationId: null,
-          code: 'BAD_BUTTON_TOKEN',
-          message: `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`
-        });
-        return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
-      }
-      buttonToken = buttonTokenRaw;
+    // Caso 1: Payload canónico { button: { token: "...", label: "..." } }
+    if (body?.button && typeof body.button === 'object') {
+      buttonToken = asString(body.button.token || '');
+      buttonLabel = asString(body.button.label || '');
+      console.log('[BUTTON_PAYLOAD] ✅ Payload canónico detectado:', { token: buttonToken.substring(0, 30), label: buttonLabel.substring(0, 30) });
     }
+    
+    // Caso 2: buttonToken directo (legacy)
+    if (!buttonToken && body?.buttonToken) {
+      buttonToken = asString(body.buttonToken);
+      console.log('[BUTTON_PAYLOAD] ⚠️ Usando buttonToken legacy:', buttonToken.substring(0, 30));
+    }
+    
+    // Caso 3: body.value cuando action=button (legacy)
+    if (!buttonToken && body.action === 'button' && body.value) {
+      buttonToken = asString(body.value);
+      console.log('[BUTTON_PAYLOAD] ⚠️ Usando body.value legacy:', buttonToken.substring(0, 30));
+    }
+    
+    // Caso 4: Fallback - mapear label a token si no hay token pero hay label
+    if (!buttonToken && buttonLabel) {
+      // Normalizar label (quitar emojis, lowercase, trim, quitar acentos)
+      const normalizedLabel = buttonLabel
+        .replace(/[^\w\s]/g, '') // Quitar emojis y caracteres especiales
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, ''); // Quitar acentos
+      
+      // Mapeo básico de labels comunes a tokens
+      const labelToTokenMap = {
+        'hablar con tecnico': 'BTN_CONNECT_TECH',
+        'conectar con tecnico': 'BTN_CONNECT_TECH',
+        'cerrar chat': 'BTN_CLOSE',
+        'cerrar': 'BTN_CLOSE',
+        'mas pruebas': 'BTN_MORE_TESTS',
+        'pruebas avanzadas': 'BTN_ADVANCED_TESTS',
+        'lo pude solucionar': 'BTN_SOLVED',
+        'el problema persiste': 'BTN_PERSIST'
+      };
+      
+      if (labelToTokenMap[normalizedLabel]) {
+        buttonToken = labelToTokenMap[normalizedLabel];
+        console.log('[BUTTON_PAYLOAD] ✅ Label mapeado a token:', { label: buttonLabel, token: buttonToken });
+      }
+    }
+    
+    // Validar longitud del token
+    if (buttonToken && buttonToken.length > MAX_BUTTON_TOKEN_LEN) {
+      emitLogEvent('warn', 'CHAT_400', {
+        sid: sid || 'unknown',
+        conversationId: null,
+        code: 'BAD_BUTTON_TOKEN',
+        message: `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`
+      });
+      return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
+    }
+    
+    const effectiveButtonToken = buttonToken || '';
     
     // Computar effectiveText: texto efectivo para procesamiento (text || effectiveButtonToken)
     // Esto asegura que los botones funcionen incluso cuando text está vacío
@@ -6608,6 +6753,81 @@ Respondé con una explicación clara y útil para el usuario.`
       if (ai.device) session.device = session.device || ai.device;
       if (ai.issueKey) session.issueKey = session.issueKey || ai.issueKey;
 
+      // ========================================================
+      // 🚫 P0: VALIDACIÓN DURA - No avanzar sin problema real
+      // ========================================================
+      const normalizedProblem = normalizeProblem(ai.problem || session.problem || effectiveText);
+      const problemValid = isValidProblem(normalizedProblem);
+      const looksLikeDeviceOnly = isDeviceOnly(
+        effectiveText || session.problem || '',
+        ai.device,
+        null, // model no viene de analyzeProblemWithOA directamente
+        normalizedProblem
+      );
+      
+      // Si el problema no es válido O parece solo dispositivo, NO avanzar
+      if (!problemValid || looksLikeDeviceOnly) {
+        console.log('[ASK_PROBLEM] ⚠️ Problema inválido o solo dispositivo detectado:', {
+          problemValid,
+          looksLikeDeviceOnly,
+          normalizedProblem: normalizedProblem.substring(0, 100),
+          device: ai.device || session.device
+        });
+        
+        // Guardar dispositivo si se detectó, pero NO setear problem_validated
+        if (ai.device) {
+          session.device = session.device || ai.device;
+        }
+        
+        // NO avanzar a BASIC_TESTS, permanecer en ASK_PROBLEM
+        session.problem_validated = false;
+        session.problem = null; // Limpiar problema inválido
+        
+        // Responder pidiendo el problema específico
+        const whoName = session.userName ? capitalizeToken(session.userName) : null;
+        let replyAskProblem = '';
+        
+        if (session.device) {
+          const deviceLabel = session.deviceLabel || session.device || (isEn ? 'device' : 'equipo');
+          if (isEn) {
+            replyAskProblem = whoName
+              ? `Perfect, ${whoName}. I see you have a ${deviceLabel}. Now tell me: what problem are you experiencing and since when?`
+              : `Perfect. I see you have a ${deviceLabel}. Now tell me: what problem are you experiencing and since when?`;
+          } else {
+            replyAskProblem = whoName
+              ? `Perfecto, ${whoName}. Ya tengo que es ${deviceLabel}. Ahora contame: ¿qué problema estás teniendo y desde cuándo?`
+              : `Perfecto. Ya tengo que es ${deviceLabel}. Ahora contame: ¿qué problema estás teniendo y desde cuándo?`;
+          }
+        } else {
+          if (isEn) {
+            replyAskProblem = whoName
+              ? `Thanks, ${whoName}. Now tell me: what problem are you experiencing with your device?`
+              : `Thanks. Now tell me: what problem are you experiencing with your device?`;
+          } else {
+            replyAskProblem = whoName
+              ? `Gracias, ${whoName}. Ahora contame: ¿qué problema estás teniendo con tu equipo?`
+              : `Gracias. Ahora contame: ¿qué problema estás teniendo con tu equipo?`;
+          }
+        }
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyAskProblem, {
+          type: 'text',
+          stage: session.stage, // Mantener ASK_PROBLEM
+          ts: nowIso()
+        });
+        
+        return res.json(withOptions({ 
+          ok: true, 
+          reply: replyAskProblem, 
+          stage: session.stage, // NO cambiar a BASIC_TESTS
+          options: [] 
+        }));
+      }
+      
+      // Si llegó acá, el problema es válido → marcar como validado
+      session.problem_validated = true;
+      session.problem = normalizedProblem || session.problem || effectiveText;
+
       // Detectar si es solicitud de ayuda (How-To) o problema técnico
       if (ai.isHowTo && !ai.isProblem) {
         // Es una solicitud de guía/instalación/configuración
@@ -7125,7 +7345,9 @@ La guía debe ser:
           ts: nowIso()
         });
         return res.json(withOptions({ ok: true, reply, stage: session.stage, options }));
-      } else if (rxTech.test(t)) {
+      } else if (rxTech.test(t) || buttonToken === 'BTN_CONNECT_TECH') {
+        // P0: BTN_CONNECT_TECH debe ejecutar acción real, no repreguntar
+        console.log('[BASIC_TESTS] 🎯 BTN_CONNECT_TECH detectado, ejecutando createTicketAndRespond');
         return await createTicketAndRespond(session, sid, res);
       } else {
         const locale = session.userLocale || 'es-AR';
@@ -7144,7 +7366,11 @@ La guía debe ser:
       const isOpt1 = opt1.test(t) || buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS';
       const isOpt2 = opt2.test(t) || buttonToken === 'BTN_CONNECT_TECH';
 
-      if (isOpt1) {
+      if (isOpt2) {
+        // P0: BTN_CONNECT_TECH debe ejecutar acción real, no repreguntar
+        console.log('[ESCALATE] 🎯 BTN_CONNECT_TECH detectado, ejecutando createTicketAndRespond');
+        return await createTicketAndRespond(session, sid, res);
+      } else if (isOpt1) {
         try {
           const locale = session.userLocale || 'es-AR';
           const isEn = String(locale).toLowerCase().startsWith('en');
@@ -7290,7 +7516,9 @@ La guía debe ser:
           : `Entiendo. ${empatia} ¿Querés que te conecte con un técnico para que lo vean más a fondo?`;
         options = buildUiButtonsFromTokens(['BTN_CONNECT_TECH'], locale);
         session.stage = STATES.ESCALATE;
-      } else if (rxTech.test(t)) {
+      } else if (rxTech.test(t) || buttonToken === 'BTN_CONNECT_TECH') {
+        // P0: BTN_CONNECT_TECH debe ejecutar acción real, no repreguntar
+        console.log('[ESCALATE] 🎯 BTN_CONNECT_TECH detectado, ejecutando createTicketAndRespond');
         return await createTicketAndRespond(session, sid, res);
       } else {
         const locale = session.userLocale || 'es-AR';
