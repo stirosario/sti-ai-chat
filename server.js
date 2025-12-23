@@ -549,6 +549,146 @@ async function logConversationEvent(conversationId, event) {
 }
 
 /**
+ * ========================================================
+ * A3: STAGE TRANSITION OBLIGATORIO - Helper setStage
+ * ========================================================
+ * Cada vez que session.stage cambie, emite evento stage_transition
+ * y lo persiste en events.
+ */
+async function setStage(session, newStage, reason = 'unknown', ctx = {}) {
+  const oldStage = session.stage;
+  
+  // Solo procesar si el stage realmente cambió
+  if (oldStage === newStage) {
+    return; // No hay cambio, no hacer nada
+  }
+  
+  // Generar correlation_id si no existe
+  if (!session.correlationId) {
+    session.correlationId = generateRequestId();
+  }
+  
+  // Crear evento stage_transition
+  const transitionEvent = ensureEventContract({
+    role: 'system',
+    type: 'stage_transition',
+    event_type: 'stage_transition',
+    stage_before: oldStage,
+    stage_after: newStage,
+    stage: newStage,
+    text: `Stage transition: ${oldStage} -> ${newStage} (reason: ${reason})`,
+    ...ctx
+  }, session, {
+    correlation_id: session.correlationId
+  });
+  
+  // Persistir evento stage_transition en events
+  if (session.conversationId) {
+    const event = buildEvent(transitionEvent);
+    logConversationEvent(session.conversationId, event);
+  }
+  
+  // Actualizar session.stage
+  session.stage = newStage;
+  
+  // Guardar sesión
+  if (session.id) {
+    await saveSession(session.id, session);
+  }
+  
+  console.log(`[STAGE_TRANSITION] ${oldStage} -> ${newStage} (reason: ${reason})`);
+}
+
+/**
+ * ========================================================
+ * A1: CONTRATO DE EVENTO ÚNICO - Helper ensureEventContract
+ * ========================================================
+ * Garantiza que todos los eventos tengan campos obligatorios:
+ * - message_id (string único)
+ * - parent_message_id (string o null sólo si es "root init")
+ * - correlation_id (string para cruzar con console-full)
+ * - event_type/type consistente
+ * - stage (stage actual al momento de persistir)
+ * - ts ISO (t) + unix_ms (t_ms) para dedup temporal
+ */
+function ensureEventContract(evt, session, defaults = {}) {
+  const now = new Date();
+  const ts = evt.ts || evt.t || evt.timestamp_iso || defaults.ts || now.toISOString();
+  const tMs = evt.t_ms || evt.unix_ms || now.getTime();
+  
+  // Generar message_id si falta
+  let message_id = evt.message_id || defaults.message_id;
+  if (!message_id) {
+    message_id = `m_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+  }
+  
+  // Normalizar type/event_type
+  let event_type = evt.event_type || evt.type;
+  if (!event_type) {
+    // Inferir desde role y type
+    if (evt.button_token || evt.type === 'button') {
+      event_type = 'button_click';
+    } else if (evt.role === 'user' || evt.who === 'user') {
+      event_type = 'user_input';
+    } else if (evt.role === 'bot' || evt.role === 'assistant' || evt.who === 'bot') {
+      event_type = 'bot_reply';
+    } else if (evt.type === 'stage_transition' || (evt.stage_before && evt.stage_after)) {
+      event_type = 'stage_transition';
+    } else if (evt.type === 'error') {
+      event_type = 'error';
+    } else {
+      event_type = 'persist';
+    }
+  }
+  
+  // Asegurar correlation_id
+  const correlation_id = evt.correlation_id || session.correlationId || defaults.correlation_id || null;
+  
+  // Asegurar stage
+  const stage = evt.stage || session.stage || defaults.stage || null;
+  
+  // Asegurar parent_message_id (solo null si es "root init")
+  let parent_message_id = evt.parent_message_id;
+  if (!parent_message_id && evt.who !== 'system' && event_type !== 'stage_transition') {
+    // Si es botón y hay lastBotMessageId, usarlo (A4)
+    if (event_type === 'button_click' && session.lastBotMessageId) {
+      parent_message_id = session.lastBotMessageId;
+    } else if (evt.who === 'bot' || evt.role === 'bot' || evt.role === 'assistant') {
+      // Bot responde al último mensaje del usuario
+      if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+        const lastUserMessage = [...session.transcript].reverse().find(m => m.who === 'user');
+        if (lastUserMessage && lastUserMessage.message_id) {
+          parent_message_id = lastUserMessage.message_id;
+        }
+      }
+    } else if (evt.who === 'user' || evt.role === 'user') {
+      // Usuario responde al último mensaje del bot
+      if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+        const lastBotMessage = [...session.transcript].reverse().find(m => m.who === 'bot' || m.who === 'assistant');
+        if (lastBotMessage && lastBotMessage.message_id) {
+          parent_message_id = lastBotMessage.message_id;
+        }
+      }
+    }
+  }
+  
+  // Retornar evento con contrato completo
+  return {
+    ...evt,
+    message_id,
+    parent_message_id: parent_message_id || null,
+    correlation_id,
+    event_type,
+    type: evt.type || event_type,
+    stage,
+    ts,
+    t: ts,
+    t_ms: tMs,
+    timestamp_iso: ts
+  };
+}
+
+/**
  * Helper único: Agrega al transcript Y persiste en JSONL
  * @param {Object} session - Session object (se modifica in-place)
  * @param {string} conversationId - Conversation ID (puede ser null)
@@ -562,9 +702,29 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   const correlationId = options.correlation_id || session.correlationId || null;
   
   // ========================================================
-  // 🆔 IDEMPOTENCIA: Generar message_id único si no existe
+  // A1: Aplicar CONTRATO DE EVENTO ÚNICO
   // ========================================================
-  const message_id = options.message_id || `m_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+  const contractDefaults = {
+    ts,
+    correlation_id: correlationId,
+    stage: options.stage || session.stage,
+    message_id: options.message_id
+  };
+  
+  // Crear evento base para aplicar contrato
+  const baseEvent = {
+    who,
+    role: who === 'bot' ? 'assistant' : 'user',
+    text,
+    type: options.type || 'text',
+    button_token: options.buttonToken || null,
+    stage: options.stage || session.stage,
+    parent_message_id: options.parent_message_id
+  };
+  
+  const contractedEvent = ensureEventContract(baseEvent, session, contractDefaults);
+  const message_id = contractedEvent.message_id;
+  const parent_message_id = contractedEvent.parent_message_id;
   
   // Verificar si ya existe este message_id (idempotencia primaria)
   if (session.transcript && Array.isArray(session.transcript)) {
@@ -572,27 +732,6 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
     if (existing) {
       console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado (message_id: ${message_id.substring(0, 20)}...), omitiendo inserción`);
       return existing;
-    }
-  }
-  
-  // ========================================================
-  // 1.2: PARENT_MESSAGE_ID - Establecer relación padre-hijo
-  // ========================================================
-  let parent_message_id = options.parent_message_id || null;
-  
-  if (!parent_message_id && session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
-    if (who === 'bot' || who === 'assistant') {
-      // Bot responde al último mensaje del usuario
-      const lastUserMessage = [...session.transcript].reverse().find(m => m.who === 'user');
-      if (lastUserMessage && lastUserMessage.message_id) {
-        parent_message_id = lastUserMessage.message_id;
-      }
-    } else if (who === 'user') {
-      // Usuario puede responder al último mensaje del bot (opcional)
-      const lastBotMessage = [...session.transcript].reverse().find(m => m.who === 'bot' || m.who === 'assistant');
-      if (lastBotMessage && lastBotMessage.message_id) {
-        parent_message_id = lastBotMessage.message_id; // Opcional: puede ser null
-      }
     }
   }
   
@@ -699,24 +838,52 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   }
   const seq = ++session.messageSeq;
   
-  const entry = {
+  // A1: Aplicar contrato completo al entry
+  const entry = ensureEventContract({
     message_id,
     seq,
     parent_message_id,
     who,
     text,
     ts,
+    t_ms: new Date(ts).getTime(),
     ...(options.stage && { stage: options.stage }),
     ...(finalButtons && { buttons: finalButtons }),
     ...(options.imageUrl && { imageUrl: options.imageUrl }),
-    ...(correlationId && { correlation_id: correlationId })
-  };
+    correlation_id: correlationId,
+    event_type: contractedEvent.event_type,
+    type: contractedEvent.type
+  }, session, contractDefaults);
   
   // 1. Agregar al transcript en memoria
   if (!session.transcript) {
     session.transcript = [];
   }
   session.transcript.push(entry);
+  
+  // ========================================================
+  // A4: TRAZABILIDAD DE BOTONES - Actualizar lastBotMessageId/lastBotButtons
+  // ========================================================
+  // Si es un bot reply con botones, guardar referencia para validar clicks futuros
+  if ((who === 'bot' || who === 'assistant') && finalButtons && Array.isArray(finalButtons) && finalButtons.length > 0) {
+    session.lastBotMessageId = message_id;
+    session.lastBotButtons = finalButtons.map(b => {
+      if (typeof b === 'string') return b;
+      if (typeof b === 'object' && b !== null) {
+        return b.token || b.value || b.text || '';
+      }
+      return String(b);
+    }).filter(Boolean);
+    
+    // Calcular hash de botones para validación rápida
+    const buttonsHash = crypto.createHash('sha1')
+      .update(session.lastBotButtons.sort().join('|'))
+      .digest('hex')
+      .substring(0, 16);
+    session.lastBotButtonsHash = buttonsHash;
+    
+    console.log(`[A4] ✅ Bot reply con botones guardado - message_id: ${message_id.substring(0, 20)}..., buttons: ${session.lastBotButtons.join(', ')}`);
+  }
   
   // 2. Guardar sesión
   if (session.id) {
@@ -725,7 +892,8 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   
   // 3. Persistir en JSONL si hay conversationId usando Event Contract
   if (conversationId) {
-    const event = buildEvent({
+    // A1: Asegurar que el evento tiene contrato completo antes de buildEvent
+    const eventData = ensureEventContract({
       role: who,
       type: options.type || 'text',
       stage: options.stage || session.stage || null,
@@ -738,8 +906,11 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
       conversation_id: conversationId,
       button_token: options.buttonToken || null,
       button_token_legacy: options.buttonTokenLegacy || null,
-      timestamp_iso: ts
-    });
+      timestamp_iso: ts,
+      t_ms: new Date(ts).getTime()
+    }, session, contractDefaults);
+    
+    const event = buildEvent(eventData);
     
     logConversationEvent(conversationId, event);
   } else {
@@ -2068,6 +2239,26 @@ function getDeviceButtonLabel(token, locale = 'es-AR') {
   return deviceLabels[token] || null;
 }
 
+/**
+ * ========================================================
+ * A6: REGLA DE COHERENCIA token/label - deriveStepFromToken
+ * ========================================================
+ * Extrae el número de paso desde un token (ej: BTN_HELP_STEP_3 => 3)
+ */
+function deriveStepFromToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  
+  // Buscar patrones: BTN_HELP_STEP_N, BTN_STEP_N, HELP_STEP_N, etc.
+  const stepMatch = token.match(/(?:STEP|PASO)[_\-]?(\d+)/i) || 
+                    token.match(/(\d+)(?:\s|$)/);
+  
+  if (stepMatch && stepMatch[1]) {
+    return parseInt(stepMatch[1], 10);
+  }
+  
+  return null;
+}
+
 function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
   if (!Array.isArray(tokens)) return [];
   return tokens.map(t => {
@@ -2075,10 +2266,39 @@ function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
     const def = getButtonDefinition(t);
     // Si es un botón de dispositivo, usar etiqueta según idioma
     const deviceLabel = getDeviceButtonLabel(String(t), locale);
-    const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
+    let label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
     const text = def?.text || label;
     const token = String(t);
     const value = token; // value debe ser igual a token (canónico)
+    
+    // ========================================================
+    // A6: REGLA DE COHERENCIA - Corregir mismatch token/label
+    // ========================================================
+    const stepFromToken = deriveStepFromToken(token);
+    if (stepFromToken !== null) {
+      // Buscar número en label (ej: "Ayuda paso 4" => 4)
+      const stepFromLabel = label.match(/(?:paso|step)[\s\-_]?(\d+)/i);
+      const labelStep = stepFromLabel ? parseInt(stepFromLabel[1], 10) : null;
+      
+      if (labelStep !== null && labelStep !== stepFromToken) {
+        // Mismatch detectado: corregir label en server side
+        console.warn(`[A6] ⚠️ label_token_mismatch detectado - token: ${token} (step ${stepFromToken}), label: "${label}" (step ${labelStep}). Corrigiendo...`);
+        
+        // Reconstruir label con el número correcto del token
+        const labelBase = label.replace(/(?:paso|step)[\s\-_]?\d+/i, '').trim();
+        const locale = locale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        label = isEn 
+          ? `${labelBase} Step ${stepFromToken}`.trim()
+          : `${labelBase} Paso ${stepFromToken}`.trim();
+        
+        // Log issue para tracking
+        if (process.env.DEBUG_RESPONSE_CONTRACT === 'true') {
+          console.error(`[A6] label_token_mismatch: token=${token}, original_label="${def?.label || label}", corrected_label="${label}"`);
+        }
+      }
+    }
+    
     return { token, label, text, value }; // B) Response Contract: {label, value, token, text}
   }).filter(Boolean);
 }
@@ -2112,6 +2332,40 @@ function validateResponseContract(payload, correlationId = null, messageId = nul
         if (!opt.value && !opt.token) {
           errors.push(`Option[${idx}] missing value and token`);
         }
+        
+        // ========================================================
+        // A5: NORMALIZACIÓN DE BOTONES - Validar que label != token (crudo)
+        // ========================================================
+        const label = String(opt.label || opt.text || '').trim();
+        const token = String(opt.token || opt.value || '').trim();
+        
+        // Prohibir botones "crudos" con label==token (excepto casos especiales permitidos)
+        const allowedRawTokens = ['BTN_CLOSE', 'BTN_CANCEL']; // Tokens que pueden tener label igual
+        if (label === token && !allowedRawTokens.includes(token)) {
+          warnings.push(`Option[${idx}] has raw button (label==token: ${token}). Use buildUiButtonsFromTokens to normalize.`);
+          // En modo debug, convertir a error
+          if (process.env.DEBUG_RESPONSE_CONTRACT === 'true') {
+            errors.push(`Option[${idx}] raw button detected: label "${label}" equals token "${token}". Must use catalog.`);
+          }
+        }
+        
+        // ========================================================
+        // A6: REGLA DE COHERENCIA - Validar mismatch token/label
+        // ========================================================
+        const stepFromToken = deriveStepFromToken(token);
+        if (stepFromToken !== null) {
+          const stepFromLabel = label.match(/(?:paso|step)[\s\-_]?(\d+)/i);
+          const labelStep = stepFromLabel ? parseInt(stepFromLabel[1], 10) : null;
+          
+          if (labelStep !== null && labelStep !== stepFromToken) {
+            warnings.push(`Option[${idx}] label_token_mismatch: token "${token}" implies step ${stepFromToken} but label "${label}" says step ${labelStep}`);
+            // En modo debug, convertir a error
+            if (process.env.DEBUG_RESPONSE_CONTRACT === 'true') {
+              errors.push(`Option[${idx}] label_token_mismatch: token step (${stepFromToken}) != label step (${labelStep})`);
+            }
+          }
+        }
+        
         // Verificar formato canónico
         const hasLabel = typeof opt.label === 'string';
         const hasValue = typeof opt.value === 'string';
@@ -6257,23 +6511,24 @@ Respondé en formato JSON:
 app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   const startTime = Date.now(); // Para medir duración
   
-  // ========================================================
-  // D1: CORRELATION_ID por request (para observabilidad)
-  // ========================================================
-  const correlationId = req.requestId || generateRequestId();
-  req.correlationId = correlationId;
-  
-  let flowLogData = {
-    sessionId: null,
-    currentStage: null,
-    userInput: null,
-    trigger: null,
-    botResponse: null,
-    nextStage: null,
-    serverAction: null,
-    duration: 0,
-    correlationId: correlationId
-  };
+  try {
+    // ========================================================
+    // D1: CORRELATION_ID por request (para observabilidad)
+    // ========================================================
+    const correlationId = req.requestId || generateRequestId();
+    req.correlationId = correlationId;
+    
+    let flowLogData = {
+      sessionId: null,
+      currentStage: null,
+      userInput: null,
+      trigger: null,
+      botResponse: null,
+      nextStage: null,
+      serverAction: null,
+      duration: 0,
+      correlationId: correlationId
+    };
 
   // Helper para retornar y loggear automáticamente
   const logAndReturn = async (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
@@ -6327,18 +6582,16 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     const sessionId = sid;
     
     // ========================================================
-    // T2: DEDUP CROSS-REQUEST / RACE SAFE con Redis
+    // A2: IDEMPOTENCIA CROSS-REQUEST con Redis SET NX PX (parte 1: clientEventId)
     // ========================================================
     const clientEventId = body?.clientEventId || body?.message_id || null;
+    let isDuplicate = false;
+    
     if (clientEventId && sessionId) {
+      // Caso preferido: usar clientEventId
       const dedupCheck = await checkDuplicateRequest(sessionId, clientEventId, 8000);
       if (dedupCheck.isDuplicate) {
-        console.log(`[DEDUP_REDIS] ✅ Request duplicado detectado, retornando respuesta vacía - sid=${sessionId.substring(0, 20)}..., clientEventId=${clientEventId.substring(0, 20)}...`);
-        return res.json({
-          ok: true,
-          duplicate: true,
-          reply: '' // reply vacío para que frontend NO duplique mensajes
-        });
+        isDuplicate = true;
       }
     }
     
@@ -6578,6 +6831,39 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.log('[DEBUG /api/chat] SessionId:', sid?.substring(0, 30), 'hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
     }
 
+    // ========================================================
+    // A2: IDEMPOTENCIA CROSS-REQUEST - Fallback hash (si no hay clientEventId)
+    // ========================================================
+    if (!isDuplicate && !clientEventId) {
+      // Fallback si no hay clientEventId: hash determinístico
+      const normalizedText = (t || '').trim().toLowerCase().substring(0, 200);
+      const btnToken = buttonToken || '';
+      // Bucket de 500ms para agrupar requests muy cercanos
+      const timeBucket = Math.floor(Date.now() / 500);
+      const hashInput = `${sessionId}|${normalizedText}|${btnToken}|${timeBucket}`;
+      const hash = crypto.createHash('sha1').update(hashInput).digest('hex').substring(0, 16);
+      const hashKey = `hash_${hash}`;
+      
+      // Intentar dedup con hash
+      const dedupCheck = await checkDuplicateRequest(sessionId, hashKey, 8000);
+      if (dedupCheck.isDuplicate) {
+        isDuplicate = true;
+      }
+    }
+    
+    if (isDuplicate) {
+      // Cargar sesión solo para obtener stage
+      const tempSession = await getSession(sid);
+      console.log(`[DEDUP_REDIS] ✅ Request duplicado detectado, retornando respuesta vacía - sid=${sessionId.substring(0, 20)}...`);
+      return res.json({
+        ok: true,
+        duplicate: true,
+        reply: '', // reply vacío para que frontend NO duplique mensajes
+        stage: tempSession?.stage || 'unknown',
+        dedup_reason: 'idempotency'
+      });
+    }
+    
     // Inicializar datos de log
     flowLogData.sessionId = sid;
     flowLogData.userInput = buttonToken ? `[BTN] ${buttonLabel || buttonToken}` : effectiveText;
@@ -6881,10 +7167,79 @@ Respondé con una explicación clara y útil para el usuario.`
       }));
     }
 
+    // ========================================================
+    // 3.2: DEDUP REAL para acciones button (backend)
+    // ========================================================
+    if (buttonToken) {
+      const actionSignature = `${buttonToken}|${session.stage || ''}|${effectiveText.substring(0, 50)}`;
+      const lastActionSignature = session.lastActionSignature || '';
+      const lastActionAt = session.lastActionAt || 0;
+      const now = Date.now();
+      
+      // Si misma signature dentro de 800ms, devolver OK sin persistir evento duplicado
+      if (actionSignature === lastActionSignature && (now - lastActionAt) < 800) {
+        console.log(`[DEDUP_BUTTON] ⚠️ Acción duplicada detectada (signature: ${actionSignature.substring(0, 50)}..., Δt: ${now - lastActionAt}ms), retornando OK sin persistir`);
+        return res.json({
+          ok: true,
+          duplicate: true,
+          reply: '', // reply vacío para que frontend NO duplique mensajes
+          stage: session.stage || 'unknown',
+          dedup_reason: 'button_action'
+        });
+      }
+      
+      // Guardar signature y timestamp
+      session.lastActionSignature = actionSignature;
+      session.lastActionAt = now;
+    }
+    
+    // ========================================================
+    // A4: TRAZABILIDAD DE BOTONES - Validar token antes de persistir
+    // ========================================================
+    let staleButtonIssue = false;
+    if (buttonToken && session.lastBotButtons && Array.isArray(session.lastBotButtons) && session.lastBotButtons.length > 0) {
+      // Validar que el token está en lastBotButtons
+      const tokenNormalized = buttonToken.trim();
+      const isTokenValid = session.lastBotButtons.some(bt => {
+        const btNormalized = String(bt).trim();
+        return btNormalized === tokenNormalized || btNormalized.endsWith(tokenNormalized) || tokenNormalized.endsWith(btNormalized);
+      });
+      
+      if (!isTokenValid) {
+        staleButtonIssue = true;
+        console.warn(`[A4] ⚠️ STALE BUTTON detectado - token: ${buttonToken}, lastBotButtons: ${session.lastBotButtons.join(', ')}`);
+        // Marcar issue pero no bloquear (fallback graceful)
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const staleReply = isEn
+          ? "That button is no longer available. Please use one of the current options."
+          : "Ese botón ya no está disponible. Por favor usá una de las opciones actuales.";
+        
+        // Persistir issue pero continuar con flujo
+        if (session.conversationId) {
+          const issueEvent = buildEvent({
+            role: 'system',
+            type: 'error',
+            event_type: 'stale_button',
+            stage: session.stage,
+            text: `Stale button clicked: ${buttonToken}`,
+            button_token: buttonToken,
+            correlation_id: correlationId,
+            session_id: sid,
+            conversation_id: session.conversationId
+          });
+          logConversationEvent(session.conversationId, issueEvent);
+        }
+      }
+    }
+    
     // Guardar mensaje del usuario en el transcript (UNA VEZ, al inicio)
     const userTs = nowIso();
     const userMsg = buttonToken ? `[BOTÓN] ${buttonLabel || buttonToken}` : t;
     const conversationId = session.conversationId;
+    
+    // A4: Usar lastBotMessageId como parent_message_id si es botón
+    const buttonParentMessageId = (buttonToken && session.lastBotMessageId) ? session.lastBotMessageId : null;
     
     // Usar helper único para persistir
     await appendAndPersistConversationEvent(session, conversationId, 'user', userMsg, {
@@ -6894,11 +7249,13 @@ Respondé con una explicación clara y útil para el usuario.`
       buttonTokenLegacy: buttonTokenLegacy || null,
       hasImages: images.length > 0,
       correlation_id: correlationId,
+      parent_message_id: buttonParentMessageId, // A4: Usar lastBotMessageId
       ts: userTs
     });
     
     // 1.3: Log explícito button_click event si es botón
     if (buttonToken && session.conversationId) {
+      // A4: Usar parent_message_id desde lastBotMessageId
       const buttonClickEvent = buildEvent({
         role: 'user',
         type: 'button',
@@ -6908,9 +7265,11 @@ Respondé con una explicación clara y útil para el usuario.`
         button_token: buttonToken,
         button_token_legacy: buttonTokenLegacy || null,
         message_id: `btn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        parent_message_id: buttonParentMessageId, // A4: Usar lastBotMessageId
         correlation_id: correlationId,
         session_id: sid,
-        conversation_id: session.conversationId
+        conversation_id: session.conversationId,
+        ...(staleButtonIssue && { issue: 'stale_button' })
       });
       logConversationEvent(session.conversationId, buttonClickEvent);
     }
@@ -6962,12 +7321,20 @@ Respondé con una explicación clara y útil para el usuario.`
           const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
 
           // ========================================================
-          // T4: FALLBACK INTELIGENTE si session.problem vacío pero hay evidencia reciente
+          // 3.2: PERSISTENCIA DE PROBLEMA antes de "Pruebas avanzadas"
           // ========================================================
-          if (!session.problem || String(session.problem || '').trim() === '') {
+          // Si session.problem existe => avanzar a rama advanced, NO volver a preguntar problema
+          if (session.problem && String(session.problem).trim().length > 0) {
+            console.log('[BTN_ADVANCED_TESTS] ✅ session.problem ya existe, avanzando a ADVANCED_TESTS sin preguntar');
+            // Continuar con el flujo normal (no retornar aquí, dejar que caiga en el handler de ADVANCED_TESTS)
+          } else {
+            // ========================================================
+            // T4: FALLBACK INTELIGENTE si session.problem vacío pero hay evidencia reciente
+            // ========================================================
             // Intentar inferir desde los últimos N mensajes del transcript
             let inferredProblem = null;
-            if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+            if (!session.problem || String(session.problem || '').trim() === '') {
+              if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
               // Buscar último mensaje del user en ASK_PROBLEM que NO empiece con "[BOTÓN]"
               const userMessages = session.transcript
                 .filter(m => m.who === 'user' && m.stage === STATES.ASK_PROBLEM)
@@ -7015,10 +7382,9 @@ Respondé con una explicación clara y útil para el usuario.`
 
           // Si el usuario ya dijo el problema, pedir dispositivo (PC/Notebook) con botones canónicos
           const stageBefore = session.stage;
-          session.stage = STATES.ASK_DEVICE;
+          // A3: Usar setStage para garantizar stage_transition event
+          await setStage(session, STATES.ASK_DEVICE, 'BTN_ADVANCED_TESTS', { sid });
           session.pendingDeviceGroup = 'compu';
-          
-          // 1.3: Log explícito stage_transition event
           if (session.conversationId) {
             const stageTransitionEvent = buildEvent({
               role: 'system',
@@ -7066,8 +7432,8 @@ Respondé con una explicación clara y útil para el usuario.`
         const replyClose = isEn
           ? `Thanks for using Tecnos from STI — Intelligent Technical Service, ${whoLabel}. If you need help with your PC or devices later, you can come back here. 😉`
           : `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
-        session.stage = STATES.ENDED;
-        await saveSession(sid, session);
+        // A3: Usar setStage para garantizar stage_transition event
+        await setStage(session, STATES.ENDED, 'BTN_CLOSE', { sid });
         await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyClose, {
           type: 'text',
           stage: session.stage,
@@ -7156,8 +7522,8 @@ Respondé con una explicación clara y útil para el usuario.`
           } else if (smartAnalysis.problem?.detected) {
             // ✅ Si ya detectamos problema y damos pasos, NO dejar stage en ASK_PROBLEM
             if (session.stage === STATES.ASK_PROBLEM) {
-              session.stage = STATES.BASIC_TESTS;
-              await saveSession(sid, session); // B2: Asegurar persistencia cuando cambia stage
+              // A3: Usar setStage para garantizar stage_transition event
+              await setStage(session, STATES.BASIC_TESTS, 'SMART_MODE_problem_detected', { sid });
             }
             smartOptionTokens = [BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
           } else {
@@ -7192,7 +7558,8 @@ Respondé con una explicación clara y útil para el usuario.`
       const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
       const replyClose = `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
       const tsClose = nowIso();
-      session.stage = STATES.ENDED;
+      // A3: Usar setStage para garantizar stage_transition event
+      await setStage(session, STATES.ENDED, 'BTN_CLOSE_text', { sid });
       session.waEligible = false;
       await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyClose, {
         type: 'text',
@@ -7360,7 +7727,8 @@ Respondé con una explicación clara y útil para el usuario.`
         session.gdprConsent = true;
         session.gdprConsentDate = nowIso();
         const stageBefore = session.stage;
-        session.stage = STATES.ASK_LANGUAGE; // C) Transición: ASK_CONSENT -> ASK_LANGUAGE
+        // A3: Usar setStage para garantizar stage_transition event
+        await setStage(session, STATES.ASK_LANGUAGE, 'BTN_CONSENT_YES', { sid });
         await saveSession(sid, session);
         
         // C) Log stage_transition
@@ -7515,7 +7883,8 @@ Before we continue, please note:
       if (buttonToken === 'BTN_LANG_ES_AR' || /español|spanish|es-|arg|latino/i.test(lowerMsg)) {
         session.userLocale = 'es-AR';
         const stageBefore = session.stage;
-        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        // A3: Usar setStage para garantizar stage_transition event
+        await setStage(session, STATES.ASK_NAME, 'ASK_LANGUAGE_completed', { sid });
         await saveSession(sid, session);
         
         // C) Log stage_transition
@@ -7560,7 +7929,8 @@ Before we continue, please note:
       if (buttonToken === 'BTN_LANG_EN' || /english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
         session.userLocale = 'en-US';
         const stageBefore = session.stage;
-        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        // A3: Usar setStage para garantizar stage_transition event
+        await setStage(session, STATES.ASK_NAME, 'ASK_LANGUAGE_completed', { sid });
         await saveSession(sid, session);
         
         // C) Log stage_transition
@@ -9024,7 +9394,6 @@ La guía debe ser:
     } catch (e) { /* noop */ }
 
     return res.json(response);
-
   } catch (e) {
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
