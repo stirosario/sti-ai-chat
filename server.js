@@ -47,7 +47,7 @@ import sharp from 'sharp';
 import cron from 'node-cron';
 import compression from 'compression';
 
-import { getSession, saveSession, listActiveSessions } from './sessionStore.js';
+import { getSession, saveSession, listActiveSessions, checkDuplicateRequest } from './sessionStore.js';
 import { logFlowInteraction, detectLoops, getSessionAudit, generateAuditReport, exportToExcel, maskPII } from './flowLogger.js';
 import { createTicket, generateWhatsAppLink, getTicket, getTicketPublicUrl, listTickets, updateTicketStatus } from './ticketing.js';
 import { normalizarTextoCompleto } from './normalizarTexto.js';
@@ -597,22 +597,41 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   }
   
   // ========================================================
+  // T1: HARDENING - Sanitizar buttons antes de cualquier .map()
+  // ========================================================
+  // Helper para normalizar botones a strings seguros
+  const normalizeButtonToString = (b) => {
+    if (!b || b === null || b === undefined) return '';
+    if (typeof b === 'string') return b.trim();
+    if (typeof b === 'object') {
+      // Normalizar a {value, token, text, label} strings
+      const value = String(b.value || b.token || b.text || b.label || '').trim();
+      return value;
+    }
+    return String(b).trim();
+  };
+  
+  // Sanitizar options.buttons: si no es array -> [], filtrar falsy, normalizar
+  let sanitizedButtons = [];
+  if (options.buttons) {
+    if (Array.isArray(options.buttons)) {
+      sanitizedButtons = options.buttons
+        .filter(b => b !== null && b !== undefined && b !== false && b !== '')
+        .map(normalizeButtonToString)
+        .filter(s => s.length > 0);
+    } else if (typeof options.buttons === 'object' && options.buttons !== null) {
+      // Si es un objeto único, normalizarlo
+      const normalized = normalizeButtonToString(options.buttons);
+      if (normalized) sanitizedButtons = [normalized];
+    }
+  }
+  
+  // ========================================================
   // C3: DEDUP FALLBACK por hash (si no hay message_id en data vieja)
   // ========================================================
   if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
-    // Calcular hash del mensaje actual
-    // HARDENING: Filtrar falsy antes de mapear para evitar crash con undefined
-    const safeButtons = Array.isArray(options.buttons) ? options.buttons.filter(Boolean) : options.buttons;
-    const buttonsValue = safeButtons ? 
-      (Array.isArray(safeButtons)
-        ? safeButtons.map(b => {
-            if (!b) return '';
-            if (typeof b === 'string') return b;
-            if (typeof b === 'object') return (b.value || b.token || b.text || '');
-            return String(b);
-          }).join('|')
-        : String(safeButtons))
-      : '';
+    // Calcular hash del mensaje actual usando buttons sanitizados
+    const buttonsValue = sanitizedButtons.join('|');
     const hashInput = `${who}|${options.stage || session.stage || ''}|${text.substring(0, 200)}|${buttonsValue}`;
     const hash = crypto.createHash('sha1').update(hashInput).digest('hex').substring(0, 16);
     
@@ -621,36 +640,58 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
       .filter(m => m.who === who)
       .slice(-10);
     
+    // T1: Ampliar dedup a 5s para "user + botón" (no 2s)
+    const dedupWindowMs = (who === 'user' && buttonsValue.length > 0) ? 5000 : 2000;
+    
     for (const recent of recentSameRole) {
       // Si hay message_id, ya se verificó arriba
       if (recent.message_id && recent.message_id === message_id) continue;
       
-      // Calcular hash del mensaje reciente
-      // HARDENING: Filtrar falsy antes de mapear para evitar crash con undefined
-      const safeRecentButtons = Array.isArray(recent.buttons) ? recent.buttons.filter(Boolean) : recent.buttons;
-      const recentButtons = safeRecentButtons ? 
-        (Array.isArray(safeRecentButtons)
-          ? safeRecentButtons.map(b => {
-              if (!b) return '';
-              if (typeof b === 'string') return b;
-              if (typeof b === 'object') return (b.value || b.token || b.text || '');
-              return String(b);
-            }).join('|')
-          : String(safeRecentButtons))
-        : '';
-      const recentHashInput = `${recent.who}|${recent.stage || ''}|${recent.text.substring(0, 200)}|${recentButtons}`;
+      // Calcular hash del mensaje reciente usando sanitización
+      let recentButtonsValue = '';
+      if (recent.buttons) {
+        if (Array.isArray(recent.buttons)) {
+          recentButtonsValue = recent.buttons
+            .filter(b => b !== null && b !== undefined && b !== false && b !== '')
+            .map(normalizeButtonToString)
+            .filter(s => s.length > 0)
+            .join('|');
+        } else if (typeof recent.buttons === 'object' && recent.buttons !== null) {
+          const normalized = normalizeButtonToString(recent.buttons);
+          if (normalized) recentButtonsValue = normalized;
+        }
+      }
+      
+      const recentHashInput = `${recent.who || ''}|${recent.stage || ''}|${(recent.text || '').substring(0, 200)}|${recentButtonsValue}`;
       const recentHash = crypto.createHash('sha1').update(recentHashInput).digest('hex').substring(0, 16);
       
-      // Si el hash coincide y el timestamp está dentro de 2 segundos, es duplicado
+      // Si el hash coincide y el timestamp está dentro de la ventana, es duplicado
       if (hash === recentHash) {
         const timeDiff = Math.abs(new Date(ts).getTime() - new Date(recent.ts || ts).getTime());
-        if (timeDiff < 2000) {
-          console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado por hash (hash: ${hash.substring(0, 8)}...), omitiendo inserción`);
+        if (timeDiff < dedupWindowMs) {
+          console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado por hash (hash: ${hash.substring(0, 8)}..., Δt: ${timeDiff}ms), omitiendo inserción`);
           return recent;
         }
       }
     }
   }
+  
+  // Usar buttons sanitizados en el entry
+  const finalButtons = sanitizedButtons.length > 0 ? sanitizedButtons.map(s => {
+    // Reconstruir objetos de botón si es necesario (para mantener compatibilidad)
+    // Pero preferir mantener estructura original si existe
+    if (options.buttons && Array.isArray(options.buttons)) {
+      const original = options.buttons.find(b => {
+        const normalized = normalizeButtonToString(b);
+        return normalized === s;
+      });
+      if (original && typeof original === 'object') {
+        return original;
+      }
+    }
+    // Fallback: crear objeto mínimo
+    return { value: s, token: s, text: s, label: s };
+  }) : (options.buttons || null);
   
   // Generar seq incremental (contador por conversación)
   if (!session.messageSeq) {
@@ -666,7 +707,7 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
     text,
     ts,
     ...(options.stage && { stage: options.stage }),
-    ...(options.buttons && { buttons: options.buttons }),
+    ...(finalButtons && { buttons: finalButtons }),
     ...(options.imageUrl && { imageUrl: options.imageUrl }),
     ...(correlationId && { correlation_id: correlationId })
   };
@@ -689,7 +730,7 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
       type: options.type || 'text',
       stage: options.stage || session.stage || null,
       text: text,
-      buttons: options.buttons || null,
+      buttons: finalButtons || null,
       message_id,
       parent_message_id,
       correlation_id: correlationId,
@@ -6274,9 +6315,34 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   };
 
   try {
-    // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
-    const sessionId = req.body.sessionId || req.sessionId;
+    const body = req.body || {};
     
+    // Validación: sid (soft fallback si inválido)
+    const sidRaw = body?.sessionId || req.query?.sessionId || req.sessionId;
+    const sid = safeSessionId(sidRaw, generateSessionId());
+    if (sid !== sidRaw && sidRaw) {
+      // Si se reemplazó, actualizar req.sessionId para compatibilidad
+      req.sessionId = sid;
+    }
+    const sessionId = sid;
+    
+    // ========================================================
+    // T2: DEDUP CROSS-REQUEST / RACE SAFE con Redis
+    // ========================================================
+    const clientEventId = body?.clientEventId || body?.message_id || null;
+    if (clientEventId && sessionId) {
+      const dedupCheck = await checkDuplicateRequest(sessionId, clientEventId, 8000);
+      if (dedupCheck.isDuplicate) {
+        console.log(`[DEDUP_REDIS] ✅ Request duplicado detectado, retornando respuesta vacía - sid=${sessionId.substring(0, 20)}..., clientEventId=${clientEventId.substring(0, 20)}...`);
+        return res.json({
+          ok: true,
+          duplicate: true,
+          reply: '' // reply vacío para que frontend NO duplique mensajes
+        });
+      }
+    }
+    
+    // 🔐 PASO 1: Verificar rate-limit POR SESIÓN
     // Logs detallados solo si DEBUG_CHAT o DEBUG_IMAGES está habilitado
     if (DEBUG_CHAT || DEBUG_IMAGES) {
       console.log('[DEBUG /api/chat] INICIO - sessionId from body:', req.body.sessionId, 'from req:', req.sessionId, 'final:', sessionId);
@@ -6313,16 +6379,6 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     updateMetric('chat', 'totalMessages', 1);
-
-    const body = req.body || {};
-    
-    // Validación: sid (soft fallback si inválido)
-    const sidRaw = body?.sessionId || req.query?.sessionId || req.sessionId;
-    const sid = safeSessionId(sidRaw, generateSessionId());
-    if (sid !== sidRaw && sidRaw) {
-      // Si se reemplazó, actualizar req.sessionId para compatibilidad
-      req.sessionId = sid;
-    }
     
     // Validación: texto (limitar largo)
     const tRaw = asString(body?.text || body?.message || body?.userText || '');
@@ -6905,20 +6961,56 @@ Respondé con una explicación clara y útil para el usuario.`
 
           const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
 
-          // Si no tenemos problema, pedirlo primero (guardrail)
+          // ========================================================
+          // T4: FALLBACK INTELIGENTE si session.problem vacío pero hay evidencia reciente
+          // ========================================================
           if (!session.problem || String(session.problem || '').trim() === '') {
-            const replyAsk = isEn
-              ? `Got it, ${whoLabel}. Before advanced tests, tell me briefly what the problem is.`
-              : (locale === 'es-419'
-                ? `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame brevemente cuál es el problema.`
-                : `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame breve cuál es el problema.`);
-            await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyAsk, {
-              type: 'text',
-              stage: session.stage,
-              ts: nowIso()
-            });
-            await saveSession(sid, session); // B2: Asegurar persistencia
-            return res.json(withOptions({ ok: true, reply: replyAsk, stage: session.stage, options: [] }));
+            // Intentar inferir desde los últimos N mensajes del transcript
+            let inferredProblem = null;
+            if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+              // Buscar último mensaje del user en ASK_PROBLEM que NO empiece con "[BOTÓN]"
+              const userMessages = session.transcript
+                .filter(m => m.who === 'user' && m.stage === STATES.ASK_PROBLEM)
+                .filter(m => {
+                  const text = String(m.text || '').trim();
+                  return text.length > 0 && !text.startsWith('[BOTÓN]');
+                })
+                .slice(-5); // Últimos 5 mensajes del usuario en ASK_PROBLEM
+              
+              if (userMessages.length > 0) {
+                // Tomar el último mensaje del usuario que no sea botón
+                const lastUserMsg = userMessages[userMessages.length - 1];
+                const problemText = String(lastUserMsg.text || '').trim();
+                if (problemText.length > 5 && problemText.length < 200) {
+                  inferredProblem = problemText;
+                  console.log('[BTN_ADVANCED_TESTS] 🔍 Problema inferido desde transcript:', inferredProblem.substring(0, 100));
+                }
+              }
+            }
+            
+            if (inferredProblem) {
+              // Setear session.problem desde transcript y continuar
+              session.problem = inferredProblem;
+              session.problem_ts = nowIso();
+              session.problem_source = 'transcript_fallback';
+              await saveSession(sid, session);
+              console.log('[BTN_ADVANCED_TESTS] ✅ Problema inferido y persistido, continuando a ADVANCED_TESTS');
+              // Continuar con el flujo normal (no retornar aquí)
+            } else {
+              // Si no hay evidencia, pedir problema
+              const replyAsk = isEn
+                ? `Got it, ${whoLabel}. Before advanced tests, tell me briefly what the problem is.`
+                : (locale === 'es-419'
+                  ? `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame brevemente cuál es el problema.`
+                  : `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame breve cuál es el problema.`);
+              await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyAsk, {
+                type: 'text',
+                stage: session.stage,
+                ts: nowIso()
+              });
+              await saveSession(sid, session); // B2: Asegurar persistencia
+              return res.json(withOptions({ ok: true, reply: replyAsk, stage: session.stage, options: [] }));
+            }
           }
 
           // Si el usuario ya dijo el problema, pedir dispositivo (PC/Notebook) con botones canónicos
@@ -7000,6 +7092,50 @@ Respondé con una explicación clara y útil para el usuario.`
     if (!buttonToken && SMART_MODE_ENABLED && openai) {
       smartAnalysis = await analyzeUserMessage(t, session, imageUrlsForAnalysis);
       
+      // ========================================================
+      // T3: PERSISTIR session.problem cuando SMART_MODE detecta problema
+      // ========================================================
+      // IMPORTANTE: Hacerlo ANTES de generar respuesta IA y ANTES de guardar sesión
+      if (smartAnalysis.analyzed) {
+        // Persistir problema si fue detectado y no es genérico
+        if (smartAnalysis.problem?.detected && smartAnalysis.problem.summary) {
+          const problemSummary = smartAnalysis.problem.summary.trim();
+          // Verificar que no sea genérico (ej "no se detecta un problema específico")
+          const isGeneric = /no (se )?(detecta|encontr[oó]|identific[oó])|no hay|sin problema/i.test(problemSummary);
+          if (!isGeneric && problemSummary.length > 5) {
+            if (!session.problem || String(session.problem).trim() === '') {
+              console.log('[SMART_MODE] 🔍 Problema detectado por IA, persistiendo:', problemSummary.substring(0, 100));
+              session.problem = problemSummary;
+              session.problem_ts = nowIso();
+              session.problem_source = 'smart_mode';
+            }
+          }
+        }
+        
+        // Persistir dispositivo si fue detectado
+        if (smartAnalysis.device?.detected && smartAnalysis.device.confidence > 0.7) {
+          console.log('[SMART_MODE] 📱 Dispositivo detectado por IA:', smartAnalysis.device.type);
+          // Mapear tipos de IA a dispositivos del sistema
+          const deviceMap = {
+            'notebook': 'notebook',
+            'desktop': 'pc-escritorio',
+            'monitor': 'monitor',
+            'smartphone': 'celular',
+            'tablet': 'tablet',
+            'printer': 'impresora',
+            'router': 'router'
+          };
+          if (deviceMap[smartAnalysis.device.type] && !session.device) {
+            session.device = deviceMap[smartAnalysis.device.type];
+          }
+        }
+        
+        // Guardar sesión ANTES de generar respuesta para asegurar persistencia
+        if (session.problem || session.device) {
+          await saveSession(sid, session);
+        }
+      }
+      
       // Si el análisis detecta que NO debe usar flujo estructurado, generar respuesta IA
       if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
@@ -7047,31 +7183,6 @@ Respondé con una explicación clara y útil para el usuario.`
             buttons: smartButtons,
             aiPowered: true
           }, session?.stage || 'unknown', session?.stage || 'unknown', 'smart_ai_response', 'ai_replied', session);
-        }
-      }
-      
-      // Si detectó dispositivo/problema, actualizar sesión
-      if (smartAnalysis.analyzed) {
-        if (smartAnalysis.device?.detected && smartAnalysis.device.confidence > 0.7) {
-          console.log('[SMART_MODE] 📱 Dispositivo detectado por IA:', smartAnalysis.device.type);
-          // Mapear tipos de IA a dispositivos del sistema
-          const deviceMap = {
-            'notebook': 'notebook',
-            'desktop': 'pc-escritorio',
-            'monitor': 'monitor',
-            'smartphone': 'celular',
-            'tablet': 'tablet',
-            'printer': 'impresora',
-            'router': 'router'
-          };
-          if (deviceMap[smartAnalysis.device.type]) {
-            session.device = deviceMap[smartAnalysis.device.type];
-          }
-        }
-        
-        if (smartAnalysis.problem?.detected && !session.problem) {
-          console.log('[SMART_MODE] 🔍 Problema detectado por IA:', smartAnalysis.problem.summary);
-          session.problem = smartAnalysis.problem.summary;
         }
       }
     }

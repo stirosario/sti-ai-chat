@@ -187,3 +187,39 @@ export async function healthCheck() {
     return { ok: false, error: e.message };
   }
 }
+
+/**
+ * T2: Dedup cross-request con Redis (idempotencia por clientEventId)
+ * Retorna { isDuplicate: boolean } - true si el request ya fue procesado
+ */
+export async function checkDuplicateRequest(sessionId, clientEventId, ttlMs = 8000) {
+  // Si no hay Redis, no podemos hacer dedup cross-request (fallback a dedup en memoria)
+  if (!redis) {
+    return { isDuplicate: false };
+  }
+  
+  // Si no hay clientEventId, no podemos hacer dedup (fallback a hash)
+  if (!clientEventId || typeof clientEventId !== 'string' || clientEventId.trim() === '') {
+    return { isDuplicate: false };
+  }
+  
+  try {
+    const key = `dedup:chat:${sessionId}:${clientEventId}`;
+    
+    // SETNX: solo establece si no existe (retorna 1 si se estableció, 0 si ya existía)
+    const result = await redis.set(key, '1', 'EX', Math.ceil(ttlMs / 1000), 'NX');
+    
+    if (result === 'OK' || result === 1) {
+      // Se estableció la clave -> no es duplicado
+      return { isDuplicate: false };
+    } else {
+      // La clave ya existía -> es duplicado
+      console.log(`[DEDUP_REDIS] ⚠️ Request duplicado detectado: sid=${sessionId.substring(0, 20)}..., clientEventId=${clientEventId.substring(0, 20)}...`);
+      return { isDuplicate: true };
+    }
+  } catch (e) {
+    // Si Redis falla, no bloquear el request (fallback a dedup en memoria)
+    console.error('[DEDUP_REDIS] Error:', e.message);
+    return { isDuplicate: false };
+  }
+}
