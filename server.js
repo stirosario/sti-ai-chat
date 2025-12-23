@@ -6511,24 +6511,23 @@ Respondé en formato JSON:
 app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   const startTime = Date.now(); // Para medir duración
   
-  try {
-    // ========================================================
-    // D1: CORRELATION_ID por request (para observabilidad)
-    // ========================================================
-    const correlationId = req.requestId || generateRequestId();
-    req.correlationId = correlationId;
-    
-    let flowLogData = {
-      sessionId: null,
-      currentStage: null,
-      userInput: null,
-      trigger: null,
-      botResponse: null,
-      nextStage: null,
-      serverAction: null,
-      duration: 0,
-      correlationId: correlationId
-    };
+  // ========================================================
+  // D1: CORRELATION_ID por request (para observabilidad)
+  // ========================================================
+  const correlationId = req.requestId || generateRequestId();
+  req.correlationId = correlationId;
+  
+  let flowLogData = {
+    sessionId: null,
+    currentStage: null,
+    userInput: null,
+    trigger: null,
+    botResponse: null,
+    nextStage: null,
+    serverAction: null,
+    duration: 0,
+    correlationId: correlationId
+  };
 
   // Helper para retornar y loggear automáticamente
   const logAndReturn = async (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
