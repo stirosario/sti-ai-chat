@@ -1,0 +1,4 @@
+{"role":"user","text":"mi compu no enciende","t":"2024-01-15T10:00:00.000Z","stage":"ASK_PROBLEM"}
+{"role":"bot","text":"Perfecto. Vamos a probar algunos pasos básicos...","t":"2024-01-15T10:00:01.500Z","stage":"BASIC_TESTS","buttons":[{"token":"BTN_ADVANCED_TESTS","label":"Pruebas avanzadas"}]}
+{"role":"user","type":"button","buttonToken":"BTN_ADVANCED_TESTS","text":"[BOTÓN] Pruebas avanzadas","t":"2024-01-15T10:01:00.000Z"}
+

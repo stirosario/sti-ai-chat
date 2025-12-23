@@ -1,0 +1,843 @@
+================================================================================
+CAMBIOS: NORMALIZACIÓN DE STAGES + CONTRATO ÚNICO DE RESPUESTA
+================================================================================
+Fecha: 2025-01-XX
+Tarea: Separar ASK_CONSENT de ASK_LANGUAGE y garantizar Response Contract único
+
+================================================================================
+ARCHIVO 1: server.js
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Definición de STATES (línea ~3513)
+--------------------------------------------------------------------------------
+
+ANTES:
+const STATES = {
+  ASK_LANGUAGE: 'ASK_LANGUAGE',
+  ASK_NAME: 'ASK_NAME',
+  ASK_NEED: 'ASK_NEED',
+  CLASSIFY_NEED: 'CLASSIFY_NEED',
+  ASK_DEVICE: 'ASK_DEVICE',
+  ASK_PROBLEM: 'ASK_PROBLEM',
+  DETECT_DEVICE: 'DETECT_DEVICE',
+  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
+  GENERATE_HOWTO: 'GENERATE_HOWTO',
+  BASIC_TESTS: 'BASIC_TESTS',
+  ADVANCED_TESTS: 'ADVANCED_TESTS',
+  ESCALATE: 'ESCALATE',
+  CREATE_TICKET: 'CREATE_TICKET',
+  TICKET_SENT: 'TICKET_SENT',
+  ENDED: 'ENDED'
+};
+
+DESPUÉS:
+const STATES = {
+  INIT: 'INIT',
+  ASK_CONSENT: 'ASK_CONSENT', // A) Nuevo stage: Separado de ASK_LANGUAGE
+  ASK_LANGUAGE: 'ASK_LANGUAGE',
+  ASK_NAME: 'ASK_NAME',
+  ASK_NEED: 'ASK_NEED',
+  CLASSIFY_NEED: 'CLASSIFY_NEED',
+  ASK_DEVICE: 'ASK_DEVICE',
+  ASK_PROBLEM: 'ASK_PROBLEM',
+  DETECT_DEVICE: 'DETECT_DEVICE',
+  ASK_HOWTO_DETAILS: 'ASK_HOWTO_DETAILS',
+  GENERATE_HOWTO: 'GENERATE_HOWTO',
+  BASIC_TESTS: 'BASIC_TESTS',
+  ADVANCED_TESTS: 'ADVANCED_TESTS',
+  ESCALATE: 'ESCALATE',
+  CREATE_TICKET: 'CREATE_TICKET',
+  TICKET_SENT: 'TICKET_SENT',
+  ENDED: 'ENDED',
+  CLOSED: 'CLOSED', // Para cuando se rechaza consentimiento
+  DENIED: 'DENIED' // Alias para CLOSED
+};
+
+NOTA: Se agregaron INIT, ASK_CONSENT, CLOSED y DENIED para completar el flujo.
+
+--------------------------------------------------------------------------------
+CAMBIO 2: Botones de Consentimiento en CONFIG.ui.buttons (línea ~1913)
+--------------------------------------------------------------------------------
+
+ANTES:
+    buttons: [
+      // Botones del flujo según Flujo.csv
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
+      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
+      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+      ...
+
+DESPUÉS:
+    buttons: [
+      // A) Botones de Consentimiento GDPR
+      { token: 'BTN_CONSENT_YES', label: 'Sí Acepto / I Agree ✔️', text: 'Sí Acepto' },
+      { token: 'BTN_CONSENT_NO', label: 'No Acepto / I Don\'t Agree ❌', text: 'No Acepto' },
+      // Botones del flujo según Flujo.csv
+      { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
+      { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
+      { token: 'BTN_LANG_EN', label: '🇬🇧 English', text: 'English' },
+      { token: 'BTN_NO_NAME', label: 'Prefiero no decirlo 🙅', text: 'Prefiero no decirlo' },
+      ...
+
+NOTA: Se agregaron BTN_CONSENT_YES y BTN_CONSENT_NO como tokens canónicos.
+
+--------------------------------------------------------------------------------
+CAMBIO 3: buildUiButtonsFromTokens() mejorado (línea ~2009)
+--------------------------------------------------------------------------------
+
+ANTES:
+function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
+  if (!Array.isArray(tokens)) return [];
+  return tokens.map(t => {
+    if (!t) return null;
+    const def = getButtonDefinition(t);
+    // Si es un botón de dispositivo, usar etiqueta según idioma
+    const deviceLabel = getDeviceButtonLabel(String(t), locale);
+    const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
+    const text = def?.text || label;
+    return { token: String(t), label, text };
+  }).filter(Boolean);
+}
+
+DESPUÉS:
+function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
+  if (!Array.isArray(tokens)) return [];
+  return tokens.map(t => {
+    if (!t) return null;
+    const def = getButtonDefinition(t);
+    // Si es un botón de dispositivo, usar etiqueta según idioma
+    const deviceLabel = getDeviceButtonLabel(String(t), locale);
+    const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
+    const text = def?.text || label;
+    const token = String(t);
+    const value = token; // value debe ser igual a token (canónico)
+    return { token, label, text, value }; // B) Response Contract: {label, value, token, text}
+  }).filter(Boolean);
+}
+
+// B) Helper para construir opciones UI con formato canónico garantizado
+function buildUiOptions(tokens = [], locale = 'es-AR') {
+  return buildUiButtonsFromTokens(tokens, locale);
+}
+
+NOTA: Ahora siempre devuelve {token, label, text, value} para cumplir con el Response Contract.
+
+--------------------------------------------------------------------------------
+CAMBIO 4: validateResponseContract() - NUEVA FUNCIÓN (línea ~2028)
+--------------------------------------------------------------------------------
+
+ANTES:
+(No existía)
+
+DESPUÉS:
+// B) Validator de Response Contract
+function validateResponseContract(payload, correlationId = null, messageId = null) {
+  const errors = [];
+  const warnings = [];
+  
+  // Validar stage
+  if (payload.stage && !Object.values(STATES).includes(payload.stage)) {
+    errors.push(`Invalid stage: ${payload.stage}`);
+  }
+  
+  // Validar options/buttons
+  const options = payload.options || payload.buttons || [];
+  if (Array.isArray(options) && options.length > 0) {
+    options.forEach((opt, idx) => {
+      if (typeof opt === 'string') {
+        errors.push(`Option[${idx}] is a string, must be object with {label, value, token, text}`);
+      } else if (typeof opt === 'object' && opt !== null) {
+        // Verificar campos requeridos
+        if (!opt.label && !opt.text) {
+          errors.push(`Option[${idx}] missing label and text`);
+        }
+        if (!opt.value && !opt.token) {
+          errors.push(`Option[${idx}] missing value and token`);
+        }
+        // Verificar formato canónico
+        const hasLabel = typeof opt.label === 'string';
+        const hasValue = typeof opt.value === 'string';
+        const hasToken = typeof opt.token === 'string';
+        const hasText = typeof opt.text === 'string';
+        
+        if (!hasLabel || !hasValue || !hasToken || !hasText) {
+          warnings.push(`Option[${idx}] missing canonical fields: label=${hasLabel}, value=${hasValue}, token=${hasToken}, text=${hasText}`);
+        }
+        
+        // Verificar que value sea token canónico
+        if (opt.value && !opt.value.match(/^(BTN_|DEVICE_|LANG_|CONSENT_)/)) {
+          warnings.push(`Option[${idx}] value "${opt.value}" may not be canonical token`);
+        }
+      } else {
+        errors.push(`Option[${idx}] is not a valid object`);
+      }
+    });
+  }
+  
+  // Log según nivel
+  if (errors.length > 0) {
+    const errorMsg = `RESPONSE_CONTRACT_VIOLATION: ${errors.join('; ')}`;
+    console.error(`[VALIDATOR] ❌ ${errorMsg}`, {
+      correlation_id: correlationId,
+      message_id: messageId,
+      stage: payload.stage,
+      errors
+    });
+    
+    // En desarrollo, lanzar exception para que tests lo detecten
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_CHAT === 'true') {
+      throw new Error(errorMsg);
+    }
+  }
+  
+  if (warnings.length > 0) {
+    console.warn(`[VALIDATOR] ⚠️ Response Contract warnings: ${warnings.join('; ')}`, {
+      correlation_id: correlationId,
+      message_id: messageId,
+      stage: payload.stage,
+      warnings
+    });
+  }
+  
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+NOTA: Valida que todas las respuestas cumplan con el Response Contract canónico.
+
+--------------------------------------------------------------------------------
+CAMBIO 5: Flujo inicial - stage ASK_CONSENT (línea ~5077)
+--------------------------------------------------------------------------------
+
+ANTES:
+    const fresh = {
+      id: sid,
+      conversationId: conversationId,
+      userName: null,
+      stage: STATES.ASK_LANGUAGE,  // Comenzar con GDPR y selección de idioma
+      ...
+
+DESPUÉS:
+    const fresh = {
+      id: sid,
+      conversationId: conversationId,
+      userName: null,
+      stage: STATES.ASK_CONSENT,  // A) Comenzar con GDPR (separado de ASK_LANGUAGE)
+      ...
+
+NOTA: El flujo ahora comienza con ASK_CONSENT, no con ASK_LANGUAGE.
+
+--------------------------------------------------------------------------------
+CAMBIO 6: Greeting inicial - Mensaje GDPR (línea ~5121)
+--------------------------------------------------------------------------------
+
+ANTES:
+    const fullGreeting = buildLanguageSelectionGreeting();
+    
+    // Guardar meta de conversación al crear sesión
+    if (conversationId) {
+      saveConversationMeta(conversationId, fresh);
+    }
+
+    // Usar helper único para persistir greeting
+    await appendAndPersistConversationEvent(fresh, conversationId, 'bot', fullGreeting.text, {
+      type: 'greeting',
+      stage: fresh.stage,
+      buttons: fullGreeting.buttons || [],
+      ts: nowIso()
+    });
+
+DESPUÉS:
+    // A) Si stage es ASK_CONSENT, mostrar mensaje GDPR
+    let fullGreeting;
+    if (fresh.stage === STATES.ASK_CONSENT) {
+      const gdprText = `📋 **Política de Privacidad y Consentimiento / Privacy Policy & Consent**
+
+---
+
+**🇦🇷 Español:**
+Antes de continuar, quiero informarte:
+
+✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Los datos se usarán **solo para brindarte soporte técnico**
+✅ Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **No compartimos** tu información con terceros
+✅ Cumplimos con **GDPR y normativas de privacidad**
+
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+
+**¿Aceptás estos términos?**
+
+---
+
+**🇺🇸 English:**
+Before we continue, please note:
+
+✅ I will store your name and our conversation for **48 hours**
+✅ Data will be used **only to provide technical support**
+✅ You can request **data deletion** at any time
+✅ We **do not share** your information with third parties
+✅ We comply with **GDPR and privacy regulations**
+
+🔗 Full policy: https://stia.com.ar/politica-privacidad.html
+
+**Do you accept these terms?`;
+      const consentButtons = buildUiOptions(['BTN_CONSENT_YES', 'BTN_CONSENT_NO'], 'es-AR');
+      fullGreeting = { text: gdprText, buttons: consentButtons };
+    } else {
+      fullGreeting = buildLanguageSelectionGreeting();
+    }
+    
+    // Guardar meta de conversación al crear sesión
+    if (conversationId) {
+      saveConversationMeta(conversationId, fresh);
+    }
+
+    // C) Log stage_transition INIT -> ASK_CONSENT
+    const correlationId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    if (fresh.stage === STATES.ASK_CONSENT && conversationId) {
+      const transitionEvent = buildEvent({
+        role: 'system',
+        type: 'stage_transition',
+        event_type: 'stage_transition',
+        stage: fresh.stage,
+        stage_before: 'INIT',
+        stage_after: fresh.stage,
+        text: `Stage transition: INIT -> ${fresh.stage}`,
+        correlation_id: correlationId,
+        session_id: sid,
+        conversation_id: conversationId
+      });
+      logConversationEvent(conversationId, transitionEvent);
+    }
+
+    // Usar helper único para persistir greeting
+    await appendAndPersistConversationEvent(fresh, conversationId, 'bot', fullGreeting.text, {
+      type: 'greeting',
+      stage: fresh.stage,
+      buttons: fullGreeting.buttons || [],
+      correlation_id: correlationId,
+      ts: nowIso()
+    });
+
+NOTA: Ahora muestra mensaje GDPR con botones canónicos cuando stage es ASK_CONSENT.
+
+--------------------------------------------------------------------------------
+CAMBIO 7: Respuesta del greeting - Validación Response Contract (línea ~5193)
+--------------------------------------------------------------------------------
+
+ANTES:
+    // CON botones para GDPR
+    // Incluir CSRF token y Conversation ID en respuesta
+    return res.json({
+      ok: true,
+      greeting: fullGreeting.text,
+      reply: fullGreeting.text,
+      stage: fresh.stage,
+      sessionId: sid,
+      csrfToken: csrfToken,
+      conversationId: conversationId,
+      buttons: fullGreeting.buttons || []
+    });
+
+DESPUÉS:
+    // CON botones para GDPR (formato canónico)
+    // Incluir CSRF token y Conversation ID en respuesta
+    const response = {
+      ok: true,
+      greeting: fullGreeting.text,
+      reply: fullGreeting.text,
+      stage: fresh.stage,
+      sessionId: sid,
+      csrfToken: csrfToken,
+      conversationId: conversationId, // 🆔 Incluir Conversation ID
+      options: fullGreeting.buttons || [],
+      buttons: fullGreeting.buttons || [] // Compatibilidad
+    };
+    
+    // B) Validar Response Contract
+    validateResponseContract(response, correlationId);
+    
+    return res.json(response);
+
+NOTA: Ahora incluye 'options' y valida el Response Contract antes de responder.
+
+--------------------------------------------------------------------------------
+CAMBIO 8: Bloque ASK_LANGUAGE - SEPARADO EN DOS BLOQUES (línea ~7087)
+--------------------------------------------------------------------------------
+
+ANTES:
+    // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      const lowerMsg = effectiveText.toLowerCase().trim();
+      
+      // Detectar aceptación de GDPR
+      if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
+        session.gdprConsent = true;
+        session.gdprConsentDate = nowIso();
+        
+        // Mostrar selección de idioma
+        const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+
+        return res.json({
+          ok: true,
+          reply,
+          stage: session.stage,
+          buttons: [
+            { text: '(🇦🇷) Español 🌎', value: 'español' },
+            { text: '(🇺🇸) English 🌎', value: 'english' }
+          ]
+        });
+      }
+      
+      // Detectar rechazo de GDPR
+      if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.`;
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+
+        return res.json({
+          ok: true,
+          reply,
+          stage: session.stage
+        });
+      }
+
+      // Detectar selección de idioma (después de aceptar GDPR)
+      if (session.gdprConsent) {
+        if (/español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+          session.userLocale = 'es-AR';
+          session.stage = STATES.ASK_NAME;
+          // ...
+        }
+        if (/english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+          session.userLocale = 'en-US';
+          session.stage = STATES.ASK_NAME;
+          // ...
+        }
+      }
+      
+      // Si no se reconoce, re-mostrar opciones
+      return res.json({
+        ok: true,
+        reply: retry,
+        stage: session.stage,
+        buttons: session.gdprConsent
+          ? [
+            { text: '(🇦🇷) Español 🌎', value: 'español' },
+            { text: '(🇺🇸) English 🌎', value: 'english' }
+          ]
+          : [
+            { text: 'Sí Acepto / I Agree ✔️', value: 'si' },
+            { text: 'No Acepto / I Don\'t Agree ❌', value: 'no' }
+          ]
+      });
+    }
+
+DESPUÉS:
+    // ========================================================
+    // A) ASK_CONSENT: Procesar consentimiento GDPR (separado de ASK_LANGUAGE)
+    // ========================================================
+    if (session.stage === STATES.ASK_CONSENT) {
+      const lowerMsg = effectiveText.toLowerCase().trim();
+      const correlationId = req.correlation_id || `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Detectar aceptación de GDPR (botón o texto)
+      if (buttonToken === 'BTN_CONSENT_YES' || /\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
+        session.gdprConsent = true;
+        session.gdprConsentDate = nowIso();
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_LANGUAGE; // C) Transición: ASK_CONSENT -> ASK_LANGUAGE
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        // Mostrar selección de idioma con botones canónicos
+        const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
+        const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          buttons: langButtons,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: langButtons,
+          buttons: langButtons
+        };
+        
+        // B) Validar Response Contract
+        validateResponseContract(response, correlationId);
+        
+        return res.json(response);
+      }
+      
+      // Detectar rechazo de GDPR
+      if (buttonToken === 'BTN_CONSENT_NO' || /\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+        const stageBefore = session.stage;
+        session.stage = STATES.CLOSED; // A) Transición: ASK_CONSENT -> CLOSED
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage} (consent denied)`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.`;
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [],
+          buttons: []
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
+      }
+      
+      // Si no se reconoce, re-mostrar opciones de consentimiento
+      const consentButtons = buildUiOptions(['BTN_CONSENT_YES', 'BTN_CONSENT_NO'], 'es-AR');
+      const retry = `Por favor, seleccioná una de las opciones usando los botones.`;
+      
+      await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retry, {
+        type: 'text',
+        stage: session.stage,
+        buttons: consentButtons,
+        correlation_id: correlationId
+      });
+      
+      const response = {
+        ok: true,
+        reply: retry,
+        stage: session.stage,
+        options: consentButtons,
+        buttons: consentButtons
+      };
+      
+      validateResponseContract(response, correlationId);
+      return res.json(response);
+    }
+    
+    // ========================================================
+    // ASK_LANGUAGE: Selección de idioma (después de consentimiento)
+    // ========================================================
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      const lowerMsg = effectiveText.toLowerCase().trim();
+      const correlationId = req.correlation_id || `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Detectar selección de idioma
+      if (buttonToken === 'BTN_LANG_ES_AR' || /español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+        session.userLocale = 'es-AR';
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
+        const nameButtons = buildUiOptions(['BTN_NO_NAME'], 'es-AR');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          buttons: nameButtons,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: nameButtons,
+          buttons: nameButtons
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
+      }
+      
+      if (buttonToken === 'BTN_LANG_EN' || /english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+        session.userLocale = 'en-US';
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
+        const nameButtons = buildUiOptions(['BTN_NO_NAME'], 'en-US');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          buttons: nameButtons,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: nameButtons,
+          buttons: nameButtons
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
+      }
+      
+      // Si no se reconoce, re-mostrar opciones de idioma
+      const retry = `Por favor, seleccioná una de las opciones usando los botones.`;
+      const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+      
+      await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retry, {
+        type: 'text',
+        stage: session.stage,
+        buttons: langButtons,
+        correlation_id: correlationId
+      });
+      
+      const response = {
+        ok: true,
+        reply: retry,
+        stage: session.stage,
+        options: langButtons,
+        buttons: langButtons
+      };
+      
+      validateResponseContract(response, correlationId);
+      return res.json(response);
+    }
+
+NOTA: El bloque se separó en dos:
+- ASK_CONSENT: Maneja solo consentimiento GDPR
+- ASK_LANGUAGE: Maneja solo selección de idioma
+Ambos usan botones canónicos y validan Response Contract.
+
+--------------------------------------------------------------------------------
+CAMBIO 9: backfillEvent() mejorado - Inferir ASK_CONSENT (línea ~4175)
+--------------------------------------------------------------------------------
+
+ANTES:
+  // Normalizar campos legacy
+  if (event.who && !event.role) {
+    event.role = event.who;
+  }
+  if (event.t && !event.timestamp_iso) {
+    event.timestamp_iso = typeof event.t === 'string' ? event.t : new Date(event.t).toISOString();
+  }
+  
+  // Agregar meta de backfill
+  if (backfilled) {
+    event.meta = event.meta || {};
+    event.meta.backfilled = true;
+    event.meta.backfill_reason = backfillReasons;
+  }
+  
+  return event;
+}
+
+DESPUÉS:
+  // Normalizar campos legacy
+  if (event.who && !event.role) {
+    event.role = event.who;
+  }
+  if (event.t && !event.timestamp_iso) {
+    event.timestamp_iso = typeof event.t === 'string' ? event.t : new Date(event.t).toISOString();
+  }
+  
+  // D) Backfill mejorado: Inferir ASK_CONSENT si el texto contiene términos de consentimiento
+  const textLower = (event.text || '').toLowerCase();
+  const hasConsentTerms = /política de privacidad|consentimiento|privacy policy|consent|do you accept these terms|aceptás estos términos/i.test(textLower);
+  const hasConsentButtons = event.buttons && Array.isArray(event.buttons) && 
+    event.buttons.some(b => {
+      const btnText = (b.text || b.label || b.value || '').toLowerCase();
+      return /sí acepto|no acepto|i agree|i don't agree|consent/i.test(btnText);
+    });
+  
+  // Si el stage es ASK_LANGUAGE (o falta) y hay indicios de consentimiento, inferir ASK_CONSENT
+  if ((!event.stage || event.stage === 'ASK_LANGUAGE') && (hasConsentTerms || hasConsentButtons)) {
+    event.stage = 'ASK_CONSENT';
+    backfillReasons.push('infer_stage_consent');
+    backfilled = true;
+  }
+  
+  // Agregar meta de backfill
+  if (backfilled) {
+    event.meta = event.meta || {};
+    event.meta.backfilled = true;
+    event.meta.backfill_reason = backfillReasons;
+  }
+  
+  return event;
+}
+
+NOTA: Ahora infiere ASK_CONSENT para conversaciones viejas que tenían consentimiento etiquetado como ASK_LANGUAGE.
+
+================================================================================
+ARCHIVO 2: tests/flow-consent-language.test.js (NUEVO)
+================================================================================
+
+ANTES:
+(Archivo no existía)
+
+DESPUÉS:
+Archivo completo creado con 4 tests:
+
+1. Test: Arranque de sesión (INIT -> ASK_CONSENT)
+   - Verifica que stage=ASK_CONSENT
+   - Verifica botones canónicos BTN_CONSENT_YES/NO
+   - Valida Response Contract
+
+2. Test: Click aceptar (ASK_CONSENT -> ASK_LANGUAGE)
+   - Verifica transición de stage
+   - Verifica logs de stage_transition
+   - Valida botones de idioma canónicos
+
+3. Test: Selección idioma (ASK_LANGUAGE -> ASK_NAME)
+   - Verifica transición de stage
+   - Verifica userLocale configurado
+   - Valida Response Contract
+
+4. Test: No regression
+   - Detecta botones no canónicos
+   - Verifica que buildUiOptions siempre devuelve formato canónico
+
+NOTA: Tests automatizados para prevenir regresiones en el flujo consent->language->name.
+
+================================================================================
+RESUMEN DE CAMBIOS
+================================================================================
+
+1. STATES actualizado:
+   - Agregado: INIT, ASK_CONSENT, CLOSED, DENIED
+   - Flujo inicial ahora comienza con ASK_CONSENT
+
+2. Response Contract:
+   - buildUiButtonsFromTokens() ahora devuelve {token, label, text, value}
+   - buildUiOptions() creado como wrapper
+   - validateResponseContract() valida todas las respuestas
+
+3. Flujo separado:
+   - ASK_CONSENT: Solo maneja consentimiento GDPR
+   - ASK_LANGUAGE: Solo maneja selección de idioma
+   - Transiciones explícitas con logs de stage_transition
+
+4. Botones canónicos:
+   - BTN_CONSENT_YES, BTN_CONSENT_NO agregados
+   - Todos los botones ahora usan buildUiOptions()
+   - Validación automática en todas las respuestas
+
+5. Backfill mejorado:
+   - Infiere ASK_CONSENT para conversaciones viejas
+   - Detecta términos de consentimiento en texto y botones
+
+6. Tests:
+   - flow-consent-language.test.js creado
+   - 4 tests cubren el flujo completo
+
+================================================================================
+BENEFICIOS
+================================================================================
+
+1. Separación clara de responsabilidades:
+   - Consentimiento y selección de idioma son stages distintos
+   - Más fácil de mantener y debuggear
+
+2. Response Contract único:
+   - Todas las respuestas tienen el mismo formato
+   - Validación automática previene errores
+   - Frontend puede confiar en el formato
+
+3. Mejor observabilidad:
+   - Stage transitions explícitas en logs
+   - Correlation IDs en todos los eventos
+   - Backfill mejora conversaciones viejas
+
+4. Prevención de regresiones:
+   - Tests automatizados
+   - Validator detecta botones no canónicos
+   - Guardrail automático
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
+

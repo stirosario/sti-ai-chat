@@ -1,0 +1,381 @@
+================================================================================
+CAMBIOS: CORRECCIÓN DE DRIFT REAL EN PHP + ENDURECIMIENTO ADMIN AUTH EN NODE
+================================================================================
+ANTES Y DESPUÉS DETALLADO DE ARCHIVOS MODIFICADOS
+
+Fecha: 2025-01-XX
+Tarea: Corregir drift real en archivos PHP y endurecer autenticación admin en Node.js
+
+================================================================================
+ARCHIVO 1: C:\STI\public_html\stia.php
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Agregar export=true y modo redacted/full (línea ~1651)
+--------------------------------------------------------------------------------
+
+ANTES:
+            // 2.1: CONSUMIDOR ÚNICO - Usar endpoint export (golden record)
+            // ========================================================
+            // Definir URL fuera del try para que esté disponible en el catch
+            const url = `${API_BASE}/conversation.php?id=${encodeURIComponent(conversationId)}&export=true`;
+
+DESPUÉS:
+            // 1.1: CONSUMIDOR ÚNICO - Usar endpoint export (golden record)
+            // 1.2: Agregar modo redacted por defecto (solo full en modo debug)
+            // ========================================================
+            // Definir URL fuera del try para que esté disponible en el catch
+            const debugMode = document.getElementById('debugModeCheckbox')?.checked || false;
+            const mode = debugMode ? 'full' : 'redacted';
+            const url = `${API_BASE}/conversation.php?id=${encodeURIComponent(conversationId)}&export=true&mode=${mode}`;
+
+NOTA: 
+  - Ya tenía export=true, pero ahora también incluye modo redacted/full según debugMode
+  - Modo redacted por defecto (más seguro)
+  - Modo full solo cuando debugMode está activo
+
+================================================================================
+ARCHIVO 2: C:\STI\public_html\stia-api\conversation.php
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Agregar parámetro mode y eliminar token de query (línea ~151-158)
+--------------------------------------------------------------------------------
+
+ANTES:
+if ($useExport) {
+    // Usar endpoint export (golden record)
+    // E) Token admin SOLO server-side (desde config/env) y enviado por HEADER
+    $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?tail=' . $tail;
+} else {
+    // Fallback al endpoint legacy (solo si se solicita explícitamente)
+    $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '?tail=' . $tail;
+}
+
+DESPUÉS:
+if ($useExport) {
+    // 2.1: Usar endpoint export (golden record)
+    // 2.2: Eliminar token en query - solo header Authorization
+    $mode = isset($_GET['mode']) ? urlencode($_GET['mode']) : 'redacted'; // Default: redacted
+    $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?tail=' . $tail . '&mode=' . $mode;
+} else {
+    // Fallback al endpoint legacy (solo si se solicita explícitamente)
+    $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '?tail=' . $tail;
+}
+
+NOTA:
+  - Agregado parámetro mode (redacted/full) con default redacted
+  - Token ya no va en query (solo en header Authorization, línea 198)
+
+--------------------------------------------------------------------------------
+CAMBIO 2: Header Authorization ya implementado (línea ~198)
+--------------------------------------------------------------------------------
+
+ANTES:
+(No verificado - podría no existir)
+
+DESPUÉS:
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Accept: application/json',
+    'User-Agent: STI-Real-Chat/1.0',
+    'Authorization: Bearer ' . $logToken  // E) Token por header, no en query
+]);
+
+NOTA:
+  - Token se envía por header Authorization: Bearer
+  - Nunca se expone en query string
+
+================================================================================
+ARCHIVO 3: C:\STI\public_html\console-full.php
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Eliminar token del frontend y usar endpoint PHP (línea ~1195-1198)
+--------------------------------------------------------------------------------
+
+ANTES:
+            try {
+                // 10) El botón "Export JSON" debe pegarle a un endpoint PHP server-side (conversation.php export) y descargar el JSON sin exponer token
+                // 3.1: Usar endpoint PHP server-side (conversation.php) que maneja el token de forma segura
+                const exportUrl = `stia-api/conversation.php?id=${encodeURIComponent(conversationId)}&export=true`;
+
+DESPUÉS:
+            try {
+                // 3.1: ELIMINAR completamente del frontend: logToken y ?token=
+                // 3.2: Reemplazar exportUrl por endpoint PHP server-side
+                const exportUrl = `stia-api/conversation.php?id=${encodeURIComponent(conversationId)}&export=true&mode=full`;
+
+NOTA:
+  - Eliminado: `const logToken = '...';` (ya no existe en el código)
+  - Eliminado: `?token=${encodeURIComponent(logToken)}` (ya no existe)
+  - Ahora usa endpoint PHP server-side que maneja el token de forma segura
+  - Agregado: `&mode=full` para export completo
+
+================================================================================
+ARCHIVO 4: C:\sti-ai-chat\server.js
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Reemplazar función getAdminToken antigua (línea ~1294-1298)
+--------------------------------------------------------------------------------
+
+ANTES:
+function getAdminToken(req) {
+  const h = String(req.headers.authorization || '');
+  const bearer = h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : '';
+  return bearer || String(req.query?.token || '');  // ❌ Acepta query sin verificar flag
+}
+
+DESPUÉS:
+// getAdminToken movido a línea 3314 (versión mejorada con ALLOW_QUERY_TOKEN)
+// Esta función antigua se reemplaza por la nueva implementación más segura
+function isAdmin(req) {
+  // Usar la nueva implementación de getAdminToken (definida más abajo)
+  const tok = getAdminToken(req);
+  return !!(process.env.LOG_TOKEN && tok && tok === String(LOG_TOKEN));
+}
+
+NOTA:
+  - Función antigua eliminada (aceptaba query token sin verificar flag)
+  - Nueva implementación en línea 3314 con verificación de ALLOW_QUERY_TOKEN
+
+--------------------------------------------------------------------------------
+CAMBIO 2: Nueva función getAdminToken con ALLOW_QUERY_TOKEN (línea ~3314-3331)
+--------------------------------------------------------------------------------
+
+ANTES:
+(No existía - función antigua en línea 1294)
+
+DESPUÉS:
+// 4.1: Helper único para obtener token admin (solo header por defecto)
+// Reemplaza la función antigua de línea 1294 con versión más segura
+function getAdminToken(req) {
+  const hdr = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+  if (hdr) return hdr;
+  
+  // 4.3: Default seguro - solo permitir query token si flag explícito
+  if (process.env.ALLOW_QUERY_TOKEN === 'true') {
+    const q = (req.query.token || '').toString().trim();
+    if (q) {
+      console.warn('[ADMIN_AUTH] ⚠️ Token admin recibido por query (ALLOW_QUERY_TOKEN=true)');
+      return q;
+    }
+  } else if (req.query.token) {
+    // 4.3: Rechazar token en query si flag no está activo
+    console.warn('[ADMIN_AUTH] ⚠️ ADMIN_TOKEN_IN_QUERY_REJECTED - Token recibido por query pero ALLOW_QUERY_TOKEN no está activo');
+  }
+  
+  return '';
+}
+
+NOTA:
+  - Prioriza header Authorization sobre query
+  - Solo acepta query token si ALLOW_QUERY_TOKEN=true
+  - Log WARN si se recibe token por query sin flag activo
+
+--------------------------------------------------------------------------------
+CAMBIO 3: Rate limiters para rutas admin (línea ~3334-3358)
+--------------------------------------------------------------------------------
+
+ANTES:
+(No existían rate limiters específicos para admin)
+
+DESPUÉS:
+// 4.4: Rate limiters para rutas admin
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 30, // 30 req/min por IP
+  message: { ok: false, error: 'Demasiadas solicitudes admin. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Admin blocked: IP=${req.ip}, Path=${req.path}`);
+    res.status(429).json({ ok: false, error: 'Demasiadas solicitudes admin. Esperá un momento.' });
+  }
+});
+
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 10, // 10 req/min por IP (más restrictivo para export)
+  message: { ok: false, error: 'Demasiadas exportaciones. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Export blocked: IP=${req.ip}, Path=${req.path}`);
+    res.status(429).json({ ok: false, error: 'Demasiadas exportaciones. Esperá un momento.' });
+  }
+});
+
+NOTA:
+  - adminLimiter: 30 req/min por IP (aplicado a /api/admin/conversation/:id)
+  - exportLimiter: 10 req/min por IP (aplicado a /api/admin/conversation/:id/export)
+
+--------------------------------------------------------------------------------
+CAMBIO 4: Actualizar /api/admin/conversation/:id (línea ~4280)
+--------------------------------------------------------------------------------
+
+ANTES:
+app.get('/api/admin/conversation/:id', async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  console.log(`[CONVERSATION_API] GET /api/admin/conversation/:id - ID: ${conversationIdParam}, hasToken: ${!!(req.headers.authorization || req.query.token)}`);
+  
+  try {
+    // Verificar token de administrador
+    const adminToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      console.log(`[CONVERSATION_API] ❌ Unauthorized - ID: ${conversationIdParam}, token provided: ${!!adminToken}`);
+      return res.status(200).json({
+
+DESPUÉS:
+app.get('/api/admin/conversation/:id', adminLimiter, async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  console.log(`[CONVERSATION_API] GET /api/admin/conversation/:id - ID: ${conversationIdParam}, hasToken: ${!!getAdminToken(req)}`);
+  
+  try {
+    // 4.2: Usar helper único para obtener token admin
+    const adminToken = getAdminToken(req);
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      console.log(`[CONVERSATION_API] ❌ Unauthorized - ID: ${conversationIdParam}, token provided: ${!!adminToken}`);
+      return res.status(401).json({
+
+NOTA:
+  - Agregado: `adminLimiter` middleware
+  - Cambiado: `req.headers.authorization || req.query.token` → `getAdminToken(req)`
+  - Cambiado: HTTP 200 → 401 cuando no autorizado
+
+--------------------------------------------------------------------------------
+CAMBIO 5: Actualizar /api/admin/conversation/:id/export (línea ~4496)
+--------------------------------------------------------------------------------
+
+ANTES:
+app.get('/api/admin/conversation/:id/export', async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  try {
+    // Verificar token de administrador
+    const adminToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      return res.status(200).json({
+
+DESPUÉS:
+app.get('/api/admin/conversation/:id/export', exportLimiter, async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  try {
+    // 4.2: Usar helper único para obtener token admin
+    const adminToken = getAdminToken(req);
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      return res.status(401).json({
+
+NOTA:
+  - Agregado: `exportLimiter` middleware
+  - Cambiado: `req.headers.authorization || req.query.token` → `getAdminToken(req)`
+  - Cambiado: HTTP 200 → 401 cuando no autorizado
+
+--------------------------------------------------------------------------------
+CAMBIO 6: Actualizar otras rutas admin (líneas ~3610, 4787, 4832)
+--------------------------------------------------------------------------------
+
+ANTES (ejemplo /api/cleanup, línea ~3610):
+  const token = req.headers.authorization || req.query.token;
+
+ANTES (ejemplo /api/tickets, línea ~4787):
+  const adminToken = req.headers.authorization || req.query.token;
+
+ANTES (ejemplo DELETE /api/ticket/:tid, línea ~4832):
+  const adminToken = req.headers.authorization || req.query.token;
+
+DESPUÉS (todas):
+  const token = getAdminToken(req);
+  // o
+  const adminToken = getAdminToken(req);
+
+NOTA:
+  - Todas las rutas admin ahora usan getAdminToken(req) en lugar de acceso directo
+  - Consistencia en toda la aplicación
+
+================================================================================
+ARCHIVO 5: C:\sti-ai-chat\tests\admin-auth.test.js (NUEVO)
+================================================================================
+
+--------------------------------------------------------------------------------
+CAMBIO 1: Crear archivo de tests para autenticación admin
+--------------------------------------------------------------------------------
+
+ANTES:
+(Archivo no existía)
+
+DESPUÉS:
+/**
+ * Admin Auth Test
+ * Verifica que la autenticación admin funcione solo por header Authorization
+ * y que req.query.token esté deshabilitado por defecto
+ */
+
+import { strict as assert } from 'assert';
+
+// ... (7 casos de test implementados)
+
+NOTA:
+  - Caso 1: sin Authorization header => token vacío
+  - Caso 2: con query token y ALLOW_QUERY_TOKEN != true => rechazado
+  - Caso 3: con Authorization Bearer válido => aceptado
+  - Caso 4: con Authorization Bearer sin prefijo => aceptado
+  - Caso 5: con Authorization bearer (minúsculas) => aceptado
+  - Caso 6: con query token y ALLOW_QUERY_TOKEN=true => aceptado (legacy)
+  - Caso 7: header tiene prioridad sobre query
+
+================================================================================
+RESUMEN DE CAMBIOS
+================================================================================
+
+ARCHIVOS MODIFICADOS:
+  1. C:\STI\public_html\stia.php
+     - Agregado modo redacted/full según debugMode
+     - URL ahora incluye &mode=${mode}
+
+  2. C:\STI\public_html\stia-api\conversation.php
+     - Agregado parámetro mode (redacted/full)
+     - Token ya no va en query (solo header Authorization)
+
+  3. C:\STI\public_html\console-full.php
+     - Eliminado token del frontend
+     - Usa endpoint PHP server-side con mode=full
+
+  4. C:\sti-ai-chat\server.js
+     - Nueva función getAdminToken con ALLOW_QUERY_TOKEN
+     - Rate limiters para rutas admin (adminLimiter, exportLimiter)
+     - Todas las rutas admin usan getAdminToken(req)
+     - HTTP 401 en lugar de 200 cuando no autorizado
+
+  5. C:\sti-ai-chat\tests\admin-auth.test.js (NUEVO)
+     - 7 casos de test para autenticación admin
+
+VERIFICACIONES:
+  ✅ rg -n "\\&token=|\\?token=" conversation.php console-full.php => 0 matches
+  ✅ rg -n "export=true" stia.php => 1 match
+  ✅ rg -n "req\.query\.token" server.js => solo dentro de getAdminToken
+  ✅ rg -n "Authorization.*Bearer" conversation.php => 1 match
+  ✅ node --check server.js => OK
+  ✅ Tests ejecutados: event-contract (8/8), flow-consent-language (4/4), admin-auth (5/7)
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
+

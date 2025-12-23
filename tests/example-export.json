@@ -1,0 +1,146 @@
+{
+  "meta": {
+    "exported_at": "2024-01-15T10:30:00.000Z",
+    "env": "production",
+    "service": "sti-chat",
+    "schema_version": "1.0"
+  },
+  "conversation": {
+    "conversation_id": "AA-0001",
+    "session_id": "web-abc123def456",
+    "created_at": "2024-01-15T10:00:00.000Z",
+    "updated_at": "2024-01-15T10:25:00.000Z",
+    "flow_version": "1.0"
+  },
+  "transcript": [
+    {
+      "timestamp_iso": "2024-01-15T10:00:00.000Z",
+      "level": "INFO",
+      "service": "sti-chat",
+      "env": "production",
+      "session_id": "web-abc123def456",
+      "conversation_id": "AA-0001",
+      "message_id": "m_1705312800000_a1b2c3",
+      "parent_message_id": null,
+      "correlation_id": "req-1705312800000-xyz789",
+      "event_type": "user_input",
+      "role": "user",
+      "type": "text",
+      "stage": "ASK_PROBLEM",
+      "text": "mi compu no enciende",
+      "buttons": null,
+      "payload_summary": {
+        "text_preview": "mi compu no enciende"
+      }
+    },
+    {
+      "timestamp_iso": "2024-01-15T10:00:01.500Z",
+      "level": "INFO",
+      "service": "sti-chat",
+      "env": "production",
+      "session_id": "web-abc123def456",
+      "conversation_id": "AA-0001",
+      "message_id": "m_1705312801500_d4e5f6",
+      "parent_message_id": "m_1705312800000_a1b2c3",
+      "correlation_id": "req-1705312800000-xyz789",
+      "event_type": "assistant_reply",
+      "role": "bot",
+      "type": "text",
+      "stage": "BASIC_TESTS",
+      "text": "Perfecto. Vamos a probar algunos pasos básicos...",
+      "buttons": [
+        {
+          "token": "BTN_ADVANCED_TESTS",
+          "value": "BTN_ADVANCED_TESTS",
+          "label": "🔧 Pruebas avanzadas",
+          "text": "Pruebas avanzadas"
+        },
+        {
+          "token": "BTN_CONNECT_TECH",
+          "value": "BTN_CONNECT_TECH",
+          "label": "👨‍🏭 Conectar con Técnico",
+          "text": "Conectar con técnico"
+        }
+      ],
+      "payload_summary": {
+        "text_preview": "Perfecto. Vamos a probar algunos pasos básicos...",
+        "buttons_values": "BTN_ADVANCED_TESTS,BTN_CONNECT_TECH"
+      }
+    },
+    {
+      "timestamp_iso": "2024-01-15T10:01:00.000Z",
+      "level": "INFO",
+      "service": "sti-chat",
+      "env": "production",
+      "session_id": "web-abc123def456",
+      "conversation_id": "AA-0001",
+      "message_id": "btn_1705312860000_g7h8i9",
+      "parent_message_id": "m_1705312801500_d4e5f6",
+      "correlation_id": "req-1705312860000-abc123",
+      "event_type": "button_click",
+      "role": "user",
+      "type": "button",
+      "stage": "BASIC_TESTS",
+      "text": "[BOTÓN] Pruebas avanzadas",
+      "buttons": null,
+      "payload_summary": {
+        "text_preview": "[BOTÓN] Pruebas avanzadas",
+        "button_token_canonical": "BTN_ADVANCED_TESTS",
+        "button_token_legacy": "BTN_MORE_TESTS"
+      }
+    }
+  ],
+  "events": [
+    {
+      "timestamp_iso": "2024-01-15T10:00:01.200Z",
+      "level": "INFO",
+      "service": "sti-chat",
+      "env": "production",
+      "session_id": "web-abc123def456",
+      "conversation_id": "AA-0001",
+      "message_id": "m_1705312801200_j0k1l2",
+      "parent_message_id": null,
+      "correlation_id": "req-1705312800000-xyz789",
+      "event_type": "stage_transition",
+      "role": "system",
+      "type": "stage_transition",
+      "stage": "BASIC_TESTS",
+      "stage_before": "ASK_PROBLEM",
+      "stage_after": "BASIC_TESTS",
+      "text": "Stage transition: ASK_PROBLEM -> BASIC_TESTS",
+      "buttons": null,
+      "payload_summary": {
+        "text_preview": "Stage transition: ASK_PROBLEM -> BASIC_TESTS"
+      }
+    },
+    {
+      "timestamp_iso": "2024-01-15T10:01:00.500Z",
+      "level": "INFO",
+      "service": "sti-chat",
+      "env": "production",
+      "session_id": "web-abc123def456",
+      "conversation_id": "AA-0001",
+      "message_id": "m_1705312860500_m3n4o5",
+      "parent_message_id": null,
+      "correlation_id": "req-1705312860000-abc123",
+      "event_type": "stage_transition",
+      "role": "system",
+      "type": "stage_transition",
+      "stage": "ASK_DEVICE",
+      "stage_before": "BASIC_TESTS",
+      "stage_after": "ASK_DEVICE",
+      "text": "Stage transition: BASIC_TESTS -> ASK_DEVICE",
+      "buttons": null,
+      "payload_summary": {
+        "text_preview": "Stage transition: BASIC_TESTS -> ASK_DEVICE"
+      }
+    }
+  ],
+  "stats": {
+    "transcript_count": 3,
+    "events_count": 2,
+    "dedup_dropped": 0,
+    "total_events_before_dedup": 5
+  }
+}
+

@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "exported_at": "2024-01-15T10:30:00.000Z",
+    "env": "production",
+    "service": "sti-chat",
+    "schema_version": "1.1",
+    "source": ["transcript", "events"],
+    "backfilled_count": 0,
+    "build_version": "1.0.0",
+    "flow_version": "1.0",
+    "persist_degraded": false,
+    "export_hash": "abc123def456789..."
+  },
+  "conversation": {
+    "conversation_id": "AA-0001",
+    "session_id": "web-abc123def456",
+    "created_at": "2024-01-15T10:00:00.000Z",
+    "updated_at": "2024-01-15T10:25:00.000Z",
+    "flow_version": "1.0"
+  },
+  "transcript": [
+    {
+      "message_id": "m_1705312800000_a1b2c3",
+      "parent_message_id": null,
+      "correlation_id": "req-1705312800000-xyz789",
+      "event_type": "user_input",
+      "who": "user",
+      "text": "mi compu no enciende",
+      "timestamp": "2024-01-15T10:00:00.000Z",
+      "stage": "ASK_PROBLEM",
+      "buttons": null
+    },
+    {
+      "message_id": "m_1705312801500_d4e5f6",
+      "parent_message_id": "m_1705312800000_a1b2c3",
+      "correlation_id": "req-1705312800000-xyz789",
+      "event_type": "assistant_reply",
+      "who": "bot",
+      "text": "Perfecto. Vamos a probar algunos pasos básicos...",
+      "timestamp": "2024-01-15T10:00:01.500Z",
+      "stage": "BASIC_TESTS",
+      "buttons": [
+        {
+          "token": "BTN_ADVANCED_TESTS",
+          "value": "BTN_ADVANCED_TESTS",
+          "label": "🔧 Pruebas avanzadas",
+          "text": "Pruebas avanzadas"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "message_id": "m_1705312801200_j0k1l2",
+      "timestamp": "2024-01-15T10:00:01.200Z",
+      "level": "INFO",
+      "event": "stage_transition",
+      "data": {
+        "stage_before": "ASK_PROBLEM",
+        "stage_after": "BASIC_TESTS"
+      }
+    }
+  ],
+  "stats": {
+    "transcript_count": 2,
+    "events_count": 1,
+    "backfilled_count": 0,
+    "gaps_detected_count": 0,
+    "dedup_dropped": 0,
+    "persist_degraded": false
+  }
+}
+

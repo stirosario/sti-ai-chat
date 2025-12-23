@@ -301,28 +301,250 @@ async function generateAndPersistConversationId(sessionId) {
 }
 
 /**
+ * ========================================================
+ * 1.1: EVENT CONTRACT ÚNICO - buildEvent()
+ * ========================================================
+ * Genera eventos con contrato estándar para transcript/events
+ * @param {Object} params - { role, type, stage, text, buttons, message_id, parent_message_id, correlation_id, ... }
+ * @returns {Object} Evento con contrato estándar
+ */
+function buildEvent(params = {}) {
+  const {
+    role, // 'user' | 'bot' | 'system'
+    type, // 'text' | 'button' | 'reply' | 'stage_transition' | 'error'
+    stage,
+    text = '',
+    buttons = null,
+    message_id = null,
+    parent_message_id = null,
+    correlation_id = null,
+    session_id = null,
+    conversation_id = null,
+    event_type = null, // 'user_input' | 'button_click' | 'assistant_reply' | 'stage_transition' | 'persist' | 'error'
+    stage_before = null,
+    stage_after = null,
+    button_token = null,
+    button_token_legacy = null,
+    latency_ms = null,
+    ...extra
+  } = params;
+  
+  const timestamp_iso = params.timestamp_iso || params.t || new Date().toISOString();
+  
+  // Determinar event_type si no viene explícito
+  let finalEventType = event_type;
+  if (!finalEventType) {
+    if (type === 'button' || button_token) {
+      finalEventType = 'button_click';
+    } else if (role === 'user') {
+      finalEventType = 'user_input';
+    } else if (role === 'bot' || role === 'assistant') {
+      finalEventType = 'assistant_reply';
+    } else if (type === 'stage_transition' || (stage_before && stage_after)) {
+      finalEventType = 'stage_transition';
+    } else {
+      finalEventType = 'persist';
+    }
+  }
+  
+  // Determinar level según event_type
+  let level = 'INFO';
+  if (type === 'error' || event_type === 'error') {
+    level = 'ERROR';
+  } else if (event_type === 'stage_transition' || button_token) {
+    level = 'INFO';
+  }
+  
+  // Payload summary (preview de texto y botones)
+  const text_preview = text ? text.substring(0, 120) + (text.length > 120 ? '...' : '') : '';
+  const buttons_values = buttons ? 
+    (Array.isArray(buttons) ? buttons.map(b => b.value || b.token || b.text || '').filter(Boolean).join(',') : String(buttons)) : 
+    null;
+  
+  const payload_summary = {
+    text_preview,
+    buttons_values,
+    ...(button_token && { button_token_canonical: button_token }),
+    ...(button_token_legacy && button_token_legacy !== button_token && { button_token_legacy })
+  };
+  
+  // Construir evento con contrato estándar
+  const event = {
+    timestamp_iso,
+    level,
+    service: 'sti-chat',
+    env: process.env.NODE_ENV || 'development',
+    session_id: session_id || null,
+    conversation_id: conversation_id || null,
+    message_id: message_id || null,
+    parent_message_id: parent_message_id || null,
+    correlation_id: correlation_id || null,
+    event_type: finalEventType,
+    role: role || 'unknown',
+    type: type || 'text',
+    stage: stage || null,
+    ...(stage_before && { stage_before }),
+    ...(stage_after && { stage_after }),
+    text: text || '',
+    buttons: buttons || null,
+    payload_summary,
+    ...(latency_ms !== null && { latency_ms }),
+    ...extra // Campos adicionales específicos del evento
+  };
+  
+  return event;
+}
+
+// ========================================================
+// 2.1: PERSIST QUEUE (bounded queue para reintentos)
+// ========================================================
+const PERSIST_QUEUE = [];
+const MAX_PERSIST_QUEUE = 100;
+const PERSIST_RETRY_DELAYS = [100, 500, 2000]; // ms
+
+// ========================================================
+// 2.2: RATE LIMIT LOGS (throttling por error_code + sid)
+// ========================================================
+const RATE_LIMIT_LOGS = new Map(); // key: "error_code|sid", value: { lastLog: timestamp, count: number }
+const RATE_LIMIT_WINDOW = 60000; // 1 minuto
+
+function shouldLogError(errorCode, sid) {
+  const key = `${errorCode}|${sid || 'unknown'}`;
+  const now = Date.now();
+  const entry = RATE_LIMIT_LOGS.get(key);
+  
+  if (!entry || (now - entry.lastLog) > RATE_LIMIT_WINDOW) {
+    RATE_LIMIT_LOGS.set(key, { lastLog: now, count: 1 });
+    return true;
+  }
+  
+  entry.count++;
+  return false; // Ya logueamos este error recientemente
+}
+
+// ========================================================
+// 2.1: PERSIST DURABILITY - Atomic append con retry
+// ========================================================
+async function persistEventWithRetry(conversationId, eventLine, retryCount = 0) {
+  const conversationFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+  
+  try {
+    // Intentar escribir
+    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+    // Opcional: fsync para garantizar escritura a disco (puede ser lento)
+    // fs.fsyncSync(fs.openSync(conversationFile, 'r+'));
+    return { success: true };
+  } catch (error) {
+    // Si falla y hay reintentos disponibles
+    if (retryCount < PERSIST_RETRY_DELAYS.length) {
+      const delay = PERSIST_RETRY_DELAYS[retryCount];
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return await persistEventWithRetry(conversationId, eventLine, retryCount + 1);
+    }
+    
+    // Si todos los reintentos fallaron, encolar
+    if (PERSIST_QUEUE.length < MAX_PERSIST_QUEUE) {
+      PERSIST_QUEUE.push({ conversationId, eventLine, timestamp: Date.now() });
+      return { success: false, queued: true };
+    }
+    
+    // Queue llena, marcar como degradado
+    return { success: false, queued: false, degraded: true };
+  }
+}
+
+// Procesar queue periódicamente
+setInterval(async () => {
+  if (PERSIST_QUEUE.length === 0) return;
+  
+  const item = PERSIST_QUEUE.shift();
+  const result = await persistEventWithRetry(item.conversationId, item.eventLine, 0);
+  
+  if (!result.success && !result.queued) {
+    // Re-encolar si no está degradado
+    if (!result.degraded && PERSIST_QUEUE.length < MAX_PERSIST_QUEUE) {
+      PERSIST_QUEUE.push(item);
+    }
+  }
+}, 5000); // Procesar cada 5 segundos
+
+/**
  * Guarda un evento de conversación en el archivo append-only
  * @param {string} conversationId - Conversation ID
- * @param {Object} event - Evento a guardar {t, role, type, text, stage, ...}
+ * @param {Object} event - Evento a guardar (puede ser raw o ya con buildEvent)
  */
-function logConversationEvent(conversationId, event) {
+async function logConversationEvent(conversationId, event) {
   try {
     if (!conversationId) return;
     
-    const conversationFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
-    const eventLine = JSON.stringify({
-      t: event.t || new Date().toISOString(),
-      role: event.role || 'unknown',
-      type: event.type || 'text',
-      text: event.text || '',
-      stage: event.stage || null,
-      buttons: event.buttons || null,
-      ...event
-    }) + '\n';
+    // Si el evento ya viene con contrato estándar, usarlo; sino normalizar
+    const normalizedEvent = event.timestamp_iso ? event : {
+      ...buildEvent({
+        role: event.role || 'unknown',
+        type: event.type || 'text',
+        stage: event.stage || null,
+        text: event.text || '',
+        buttons: event.buttons || null,
+        message_id: event.message_id || null,
+        parent_message_id: event.parent_message_id || null,
+        correlation_id: event.correlation_id || null,
+        session_id: event.session_id || null,
+        conversation_id: conversationId,
+        ...event
+      })
+    };
     
-    fs.appendFileSync(conversationFile, eventLine, 'utf8');
+    const eventLine = JSON.stringify(normalizedEvent) + '\n';
+    const result = await persistEventWithRetry(conversationId, eventLine, 0);
+    
+    if (!result.success) {
+      const errorCode = 'PERSIST_ERROR';
+      const sid = normalizedEvent.session_id || 'unknown';
+      
+      if (shouldLogError(errorCode, sid)) {
+        // 4.2: Métricas mínimas (log-based)
+        const persistErrorCount = (metrics.persist_error = metrics.persist_error || { count: 0 });
+        persistErrorCount.count++;
+        
+        emitLogEvent('error', 'PERSIST_ERROR', {
+          correlation_id: normalizedEvent.correlation_id || null,
+          sid,
+          conversationId,
+          errorName: 'FileSystemError',
+          message: result.degraded ? 'Persist queue full, degraded mode' : 'Failed to persist after retries, queued',
+          queueLength: PERSIST_QUEUE.length,
+          persist_error_count: persistErrorCount.count
+        });
+      }
+      
+      // Marcar sesión como degradada si es crítico
+      if (result.degraded && normalizedEvent.session_id) {
+        try {
+          const session = await getSession(normalizedEvent.session_id);
+          if (session) {
+            session.flags = session.flags || {};
+            session.flags.persistDegraded = true;
+            await saveSession(normalizedEvent.session_id, session);
+          }
+        } catch (e) {
+          // Ignorar error de sesión
+        }
+      }
+    }
   } catch (error) {
-    console.error(`[CONVERSATION_LOG] Error guardando evento para ${conversationId}:`, error.message);
+    const errorCode = 'PERSIST_ERROR';
+    const sid = event?.session_id || 'unknown';
+    
+    if (shouldLogError(errorCode, sid)) {
+      console.error(`[CONVERSATION_LOG] Error guardando evento para ${conversationId}:`, error.message);
+      emitLogEvent('error', 'PERSIST_ERROR', {
+        correlation_id: event?.correlation_id || null,
+        sid,
+        conversationId,
+        errorName: error.name || 'Error',
+        message: error.message
+      });
+    }
   }
 }
 
@@ -337,18 +559,76 @@ function logConversationEvent(conversationId, event) {
  */
 async function appendAndPersistConversationEvent(session, conversationId, who, text, options = {}) {
   const ts = options.ts || nowIso();
+  const correlationId = options.correlation_id || session.correlationId || null;
   
   // ========================================================
   // 🆔 IDEMPOTENCIA: Generar message_id único si no existe
   // ========================================================
-  const message_id = options.message_id || `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+  const message_id = options.message_id || `m_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
   
-  // Verificar si ya existe este message_id (idempotencia)
+  // Verificar si ya existe este message_id (idempotencia primaria)
   if (session.transcript && Array.isArray(session.transcript)) {
     const existing = session.transcript.find(m => m.message_id === message_id);
     if (existing) {
       console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado (message_id: ${message_id.substring(0, 20)}...), omitiendo inserción`);
       return existing;
+    }
+  }
+  
+  // ========================================================
+  // 1.2: PARENT_MESSAGE_ID - Establecer relación padre-hijo
+  // ========================================================
+  let parent_message_id = options.parent_message_id || null;
+  
+  if (!parent_message_id && session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+    if (who === 'bot' || who === 'assistant') {
+      // Bot responde al último mensaje del usuario
+      const lastUserMessage = [...session.transcript].reverse().find(m => m.who === 'user');
+      if (lastUserMessage && lastUserMessage.message_id) {
+        parent_message_id = lastUserMessage.message_id;
+      }
+    } else if (who === 'user') {
+      // Usuario puede responder al último mensaje del bot (opcional)
+      const lastBotMessage = [...session.transcript].reverse().find(m => m.who === 'bot' || m.who === 'assistant');
+      if (lastBotMessage && lastBotMessage.message_id) {
+        parent_message_id = lastBotMessage.message_id; // Opcional: puede ser null
+      }
+    }
+  }
+  
+  // ========================================================
+  // C3: DEDUP FALLBACK por hash (si no hay message_id en data vieja)
+  // ========================================================
+  if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+    // Calcular hash del mensaje actual
+    const buttonsValue = options.buttons ? 
+      (Array.isArray(options.buttons) ? options.buttons.map(b => b.value || b.token || b.text || '').join('|') : String(options.buttons)) : '';
+    const hashInput = `${who}|${options.stage || session.stage || ''}|${text.substring(0, 200)}|${buttonsValue}`;
+    const hash = crypto.createHash('sha1').update(hashInput).digest('hex').substring(0, 16);
+    
+    // Comparar con últimos 10 mensajes (mismo role)
+    const recentSameRole = session.transcript
+      .filter(m => m.who === who)
+      .slice(-10);
+    
+    for (const recent of recentSameRole) {
+      // Si hay message_id, ya se verificó arriba
+      if (recent.message_id && recent.message_id === message_id) continue;
+      
+      // Calcular hash del mensaje reciente
+      const recentButtons = recent.buttons ? 
+        (Array.isArray(recent.buttons) ? recent.buttons.map(b => b.value || b.token || b.text || '').join('|') : String(recent.buttons)) : '';
+      const recentHashInput = `${recent.who}|${recent.stage || ''}|${recent.text.substring(0, 200)}|${recentButtons}`;
+      const recentHash = crypto.createHash('sha1').update(recentHashInput).digest('hex').substring(0, 16);
+      
+      // Si el hash coincide y el timestamp está dentro de 2 segundos, es duplicado
+      if (hash === recentHash) {
+        const timeDiff = Math.abs(new Date(ts).getTime() - new Date(recent.ts || ts).getTime());
+        if (timeDiff < 2000) {
+          console.log(`[IDEMPOTENCY] ⚠️ Mensaje duplicado detectado por hash (hash: ${hash.substring(0, 8)}...), omitiendo inserción`);
+          return recent;
+        }
+      }
     }
   }
   
@@ -361,12 +641,14 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   const entry = {
     message_id,
     seq,
+    parent_message_id,
     who,
     text,
     ts,
     ...(options.stage && { stage: options.stage }),
     ...(options.buttons && { buttons: options.buttons }),
-    ...(options.imageUrl && { imageUrl: options.imageUrl })
+    ...(options.imageUrl && { imageUrl: options.imageUrl }),
+    ...(correlationId && { correlation_id: correlationId })
   };
   
   // 1. Agregar al transcript en memoria
@@ -380,21 +662,25 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
     await saveSession(session.id, session);
   }
   
-  // 3. Persistir en JSONL si hay conversationId
+  // 3. Persistir en JSONL si hay conversationId usando Event Contract
   if (conversationId) {
-    logConversationEvent(conversationId, {
-      message_id,
-      seq,
-      t: ts,
-      role: who, // 'user' o 'bot'
+    const event = buildEvent({
+      role: who,
       type: options.type || 'text',
-      text: text,
       stage: options.stage || session.stage || null,
+      text: text,
       buttons: options.buttons || null,
-      buttonToken: options.buttonToken || null,
-      hasImages: options.hasImages || false,
-      imageUrl: options.imageUrl || null
+      message_id,
+      parent_message_id,
+      correlation_id: correlationId,
+      session_id: session.id || null,
+      conversation_id: conversationId,
+      button_token: options.buttonToken || null,
+      button_token_legacy: options.buttonTokenLegacy || null,
+      timestamp_iso: ts
     });
+    
+    logConversationEvent(conversationId, event);
   } else {
     // Verificación automática: log warning si hay reply del bot sin conversationId
     if (who === 'bot' && session.id) {
@@ -1005,12 +1291,10 @@ if (!process.env.LOG_TOKEN) {
   console.error('='.repeat(80) + '\n'.repeat(2));
 }
 
-function getAdminToken(req) {
-  const h = String(req.headers.authorization || '');
-  const bearer = h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : '';
-  return bearer || String(req.query?.token || '');
-}
+// getAdminToken movido a línea 3314 (versión mejorada con ALLOW_QUERY_TOKEN)
+// Esta función antigua se reemplaza por la nueva implementación más segura
 function isAdmin(req) {
+  // Usar la nueva implementación de getAdminToken (definida más abajo)
   const tok = getAdminToken(req);
   return !!(process.env.LOG_TOKEN && tok && tok === String(LOG_TOKEN));
 }
@@ -1625,6 +1909,9 @@ const EMBEDDED_CHAT = {
   // ========================================================
   ui: {
     buttons: [
+      // A) Botones de Consentimiento GDPR
+      { token: 'BTN_CONSENT_YES', label: 'Sí Acepto / I Agree ✔️', text: 'Sí Acepto' },
+      { token: 'BTN_CONSENT_NO', label: 'No Acepto / I Don\'t Agree ❌', text: 'No Acepto' },
       // Botones del flujo según Flujo.csv
       { token: 'BTN_LANG_ES_AR', label: '🇦🇷 Español (Argentina)', text: 'Español (Argentina)' },
       { token: 'BTN_LANG_ES_ES', label: '🌎 Español', text: 'Español (Latinoamérica)' },
@@ -1729,8 +2016,87 @@ function buildUiButtonsFromTokens(tokens = [], locale = 'es-AR') {
     const deviceLabel = getDeviceButtonLabel(String(t), locale);
     const label = deviceLabel || def?.label || def?.text || (typeof t === 'string' ? t : String(t));
     const text = def?.text || label;
-    return { token: String(t), label, text };
+    const token = String(t);
+    const value = token; // value debe ser igual a token (canónico)
+    return { token, label, text, value }; // B) Response Contract: {label, value, token, text}
   }).filter(Boolean);
+}
+
+// B) Helper para construir opciones UI con formato canónico garantizado
+function buildUiOptions(tokens = [], locale = 'es-AR') {
+  return buildUiButtonsFromTokens(tokens, locale);
+}
+
+// B) Validator de Response Contract
+function validateResponseContract(payload, correlationId = null, messageId = null) {
+  const errors = [];
+  const warnings = [];
+  
+  // Validar stage
+  if (payload.stage && !Object.values(STATES).includes(payload.stage)) {
+    errors.push(`Invalid stage: ${payload.stage}`);
+  }
+  
+  // Validar options/buttons
+  const options = payload.options || payload.buttons || [];
+  if (Array.isArray(options) && options.length > 0) {
+    options.forEach((opt, idx) => {
+      if (typeof opt === 'string') {
+        errors.push(`Option[${idx}] is a string, must be object with {label, value, token, text}`);
+      } else if (typeof opt === 'object' && opt !== null) {
+        // Verificar campos requeridos
+        if (!opt.label && !opt.text) {
+          errors.push(`Option[${idx}] missing label and text`);
+        }
+        if (!opt.value && !opt.token) {
+          errors.push(`Option[${idx}] missing value and token`);
+        }
+        // Verificar formato canónico
+        const hasLabel = typeof opt.label === 'string';
+        const hasValue = typeof opt.value === 'string';
+        const hasToken = typeof opt.token === 'string';
+        const hasText = typeof opt.text === 'string';
+        
+        if (!hasLabel || !hasValue || !hasToken || !hasText) {
+          warnings.push(`Option[${idx}] missing canonical fields: label=${hasLabel}, value=${hasValue}, token=${hasToken}, text=${hasText}`);
+        }
+        
+        // Verificar que value sea token canónico
+        if (opt.value && !opt.value.match(/^(BTN_|DEVICE_|LANG_|CONSENT_)/)) {
+          warnings.push(`Option[${idx}] value "${opt.value}" may not be canonical token`);
+        }
+      } else {
+        errors.push(`Option[${idx}] is not a valid object`);
+      }
+    });
+  }
+  
+  // Log según nivel
+  if (errors.length > 0) {
+    const errorMsg = `RESPONSE_CONTRACT_VIOLATION: ${errors.join('; ')}`;
+    console.error(`[VALIDATOR] ❌ ${errorMsg}`, {
+      correlation_id: correlationId,
+      message_id: messageId,
+      stage: payload.stage,
+      errors
+    });
+    
+    // En desarrollo, lanzar exception para que tests lo detecten
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_CHAT === 'true') {
+      throw new Error(errorMsg);
+    }
+  }
+  
+  if (warnings.length > 0) {
+    console.warn(`[VALIDATOR] ⚠️ Response Contract warnings: ${warnings.join('; ')}`, {
+      correlation_id: correlationId,
+      message_id: messageId,
+      stage: payload.stage,
+      warnings
+    });
+  }
+  
+  return { valid: errors.length === 0, errors, warnings };
 }
 function buildExternalButtonsFromTokens(tokens = [], urlMap = {}) {
   if (!Array.isArray(tokens)) return [];
@@ -2938,6 +3304,57 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// ========================================================
+// 4) ADMIN AUTH HELPER + RATE LIMITERS
+// ========================================================
+
+// 4.1: Helper único para obtener token admin (solo header por defecto)
+function getAdminToken(req) {
+  const hdr = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+  if (hdr) return hdr;
+  
+  // 4.3: Default seguro - solo permitir query token si flag explícito
+  if (process.env.ALLOW_QUERY_TOKEN === 'true') {
+    const q = (req.query.token || '').toString().trim();
+    if (q) {
+      console.warn('[ADMIN_AUTH] ⚠️ Token admin recibido por query (ALLOW_QUERY_TOKEN=true)');
+      return q;
+    }
+  } else if (req.query.token) {
+    // 4.3: Rechazar token en query si flag no está activo
+    console.warn('[ADMIN_AUTH] ⚠️ ADMIN_TOKEN_IN_QUERY_REJECTED - Token recibido por query pero ALLOW_QUERY_TOKEN no está activo');
+  }
+  
+  return '';
+}
+
+// 4.4: Rate limiters para rutas admin
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 30, // 30 req/min por IP
+  message: { ok: false, error: 'Demasiadas solicitudes admin. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Admin blocked: IP=${req.ip}, Path=${req.path}`);
+    res.status(429).json({ ok: false, error: 'Demasiadas solicitudes admin. Esperá un momento.' });
+  }
+});
+
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 10, // 10 req/min por IP (más restrictivo para export)
+  message: { ok: false, error: 'Demasiadas exportaciones. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown',
+  handler: (req, res) => {
+    console.warn(`[RATE_LIMIT] Export blocked: IP=${req.ip}, Path=${req.path}`);
+    res.status(429).json({ ok: false, error: 'Demasiadas exportaciones. Esperá un momento.' });
+  }
+});
+
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
   max: 50, // AUMENTADO: 50 mensajes por IP/minuto (el session limit es más restrictivo)
@@ -3189,7 +3606,7 @@ cron.schedule('0 3 * * *', async () => {
 
 // Manual cleanup endpoint (protected)
 app.post('/api/cleanup', async (req, res) => {
-  const token = req.headers.authorization || req.query.token;
+  const token = getAdminToken(req);
   if (token !== LOG_TOKEN) {
     return res.status(403).json({ ok: false, error: 'No autorizado' });
   }
@@ -3225,6 +3642,8 @@ app.post('/api/cleanup', async (req, res) => {
 
 // Estados del flujo según Flujo.csv
 const STATES = {
+  INIT: 'INIT',
+  ASK_CONSENT: 'ASK_CONSENT', // A) Nuevo stage: Separado de ASK_LANGUAGE
   ASK_LANGUAGE: 'ASK_LANGUAGE',
   ASK_NAME: 'ASK_NAME',
   ASK_NEED: 'ASK_NEED',
@@ -3239,7 +3658,9 @@ const STATES = {
   ESCALATE: 'ESCALATE',
   CREATE_TICKET: 'CREATE_TICKET',
   TICKET_SENT: 'TICKET_SENT',
-  ENDED: 'ENDED'
+  ENDED: 'ENDED',
+  CLOSED: 'CLOSED', // Para cuando se rechaza consentimiento
+  DENIED: 'DENIED' // Alias para CLOSED
 };
 
 // Función para generar sessionId único
@@ -3808,21 +4229,117 @@ app.post('/api/ticket/create', validateCSRF, async (req, res) => {
   }
 });
 
+// ========================================================
+// 1.1: BACKFILL ON-READ - Función compartida para normalizar eventos viejos
+// ========================================================
+function backfillEvent(event, idx, allEvents, meta = null) {
+  const backfillReasons = [];
+  let backfilled = false;
+  
+  // Generar message_id determinístico si falta
+  if (!event.message_id && !event.messageId) {
+    const role = event.role || event.who || 'unknown';
+    const stage = event.stage || '';
+    const timestamp = event.timestamp_iso || event.t || event.ts || event.timestamp || '';
+    const textPreview = (event.text || '').substring(0, 100);
+    const hashInput = `${role}|${stage}|${timestamp}|${textPreview}|${idx}`;
+    event.message_id = `backfill_${crypto.createHash('sha1').update(hashInput).digest('hex').substring(0, 16)}`;
+    backfillReasons.push('missing_message_id');
+    backfilled = true;
+  } else if (event.messageId && !event.message_id) {
+    event.message_id = event.messageId;
+    delete event.messageId;
+  }
+  
+  // Normalizar timestamp_iso
+  if (!event.timestamp_iso) {
+    if (event.t || event.ts || event.timestamp) {
+      const ts = event.t || event.ts || event.timestamp;
+      event.timestamp_iso = typeof ts === 'string' ? ts : new Date(ts).toISOString();
+    } else if (meta && meta.createdAt) {
+      // Derivar desde created_at + idx ms
+      const baseTime = new Date(meta.createdAt).getTime();
+      event.timestamp_iso = new Date(baseTime + (idx * 100)).toISOString();
+    } else {
+      event.timestamp_iso = new Date().toISOString();
+    }
+    if (!event.t && !event.ts && !event.timestamp) {
+      backfillReasons.push('missing_timestamp');
+    }
+    backfilled = true;
+  }
+  
+  // Inferir event_type si falta
+  if (!event.event_type && !event.eventType) {
+    if (event.role === 'user' || event.who === 'user') {
+      if (event.type === 'button' || event.button_token || event.buttonToken) {
+        event.event_type = 'button_click';
+      } else {
+        event.event_type = 'user_input';
+      }
+    } else if (event.role === 'bot' || event.role === 'assistant' || event.who === 'bot') {
+      event.event_type = 'assistant_reply';
+    } else if (event.type === 'stage_transition' || (event.stage_before && event.stage_after)) {
+      event.event_type = 'stage_transition';
+    } else {
+      event.event_type = 'persist';
+    }
+    backfillReasons.push('missing_event_type');
+    backfilled = true;
+  } else if (event.eventType && !event.event_type) {
+    event.event_type = event.eventType;
+    delete event.eventType;
+  }
+  
+  // Normalizar campos legacy
+  if (event.who && !event.role) {
+    event.role = event.who;
+  }
+  if (event.t && !event.timestamp_iso) {
+    event.timestamp_iso = typeof event.t === 'string' ? event.t : new Date(event.t).toISOString();
+  }
+  
+  // D) Backfill mejorado: Inferir ASK_CONSENT si el texto contiene términos de consentimiento
+  const textLower = (event.text || '').toLowerCase();
+  const hasConsentTerms = /política de privacidad|consentimiento|privacy policy|consent|do you accept these terms|aceptás estos términos/i.test(textLower);
+  const hasConsentButtons = event.buttons && Array.isArray(event.buttons) && 
+    event.buttons.some(b => {
+      const btnText = (b.text || b.label || b.value || '').toLowerCase();
+      return /sí acepto|no acepto|i agree|i don't agree|consent/i.test(btnText);
+    });
+  
+  // Si el stage es ASK_LANGUAGE (o falta) y hay indicios de consentimiento, inferir ASK_CONSENT
+  if ((!event.stage || event.stage === 'ASK_LANGUAGE') && (hasConsentTerms || hasConsentButtons)) {
+    event.stage = 'ASK_CONSENT';
+    backfillReasons.push('infer_stage_consent');
+    backfilled = true;
+  }
+  
+  // Agregar meta de backfill
+  if (backfilled) {
+    event.meta = event.meta || {};
+    event.meta.backfilled = true;
+    event.meta.backfill_reason = backfillReasons;
+  }
+  
+  return event;
+}
+
 // GET /api/admin/conversation/:id — Obtener conversación completa por ID
-app.get('/api/admin/conversation/:id', async (req, res) => {
+app.get('/api/admin/conversation/:id', adminLimiter, async (req, res) => {
   const startTime = Date.now();
   const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
   
-  console.log(`[CONVERSATION_API] GET /api/admin/conversation/:id - ID: ${conversationIdParam}, hasToken: ${!!(req.headers.authorization || req.query.token)}`);
+  console.log(`[CONVERSATION_API] GET /api/admin/conversation/:id - ID: ${conversationIdParam}, hasToken: ${!!getAdminToken(req)}`);
   
   try {
-    // Verificar token de administrador
-    const adminToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
+    // 4.2: Usar helper único para obtener token admin
+    const adminToken = getAdminToken(req);
     const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
 
     if (!isValidAdmin) {
       console.log(`[CONVERSATION_API] ❌ Unauthorized - ID: ${conversationIdParam}, token provided: ${!!adminToken}`);
-      return res.status(200).json({ 
+      return res.status(401).json({ 
         ok: false, 
         error: 'UNAUTHORIZED',
         message: 'Token de autenticación requerido',
@@ -3868,10 +4385,12 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
         console.error(`[CONVERSATION] Error leyendo meta para ${conversationId}:`, e.message);
       }
     }
-
+    
     // Leer eventos (transcript + console events)
     let events = [];
     let transcript = [];
+    let gapsDetected = [];
+    let backfilledCount = 0;
 
     if (fs.existsSync(eventsFile)) {
       try {
@@ -3880,30 +4399,63 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
         // Aplicar tail si está especificado
         const linesToRead = tail ? lines.slice(-tail) : lines;
         
-        for (const line of linesToRead) {
+        for (let idx = 0; idx < linesToRead.length; idx++) {
           try {
-            const event = JSON.parse(line);
+            let event = JSON.parse(linesToRead[idx]);
+            
+            // Backfill on-read
+            event = backfillEvent(event, idx, linesToRead);
+            if (event.meta?.backfilled) {
+              backfilledCount++;
+            }
             
             // Separar transcript (role: user/bot) de eventos de consola (level)
-            if (event.role === 'user' || event.role === 'bot') {
+            if (event.role === 'user' || event.role === 'bot' || event.who === 'user' || event.who === 'bot') {
               transcript.push({
-                who: event.role,
+                message_id: event.message_id,
+                parent_message_id: event.parent_message_id || event.parentMessageId || null,
+                who: event.role || event.who,
                 text: event.text || '',
-                timestamp: event.t || event.ts,
+                timestamp: event.timestamp_iso || event.t || event.ts || event.timestamp,
                 stage: event.stage || null,
-                buttons: event.buttons || null
+                buttons: event.buttons || null,
+                ...(event.meta?.backfilled && { meta: event.meta })
               });
             } else {
               // Evento de consola FULL
               events.push({
-                timestamp: event.ts || event.t,
+                message_id: event.message_id,
+                timestamp: event.timestamp_iso || event.ts || event.t || event.timestamp,
                 level: event.level || 'info',
-                event: event.event || event.type || 'unknown',
-                data: event.data || event
+                event: event.event || event.event_type || event.type || 'unknown',
+                data: event.data || event,
+                ...(event.meta?.backfilled && { meta: event.meta })
               });
             }
           } catch (parseErr) {
             console.warn(`[CONVERSATION] Error parseando línea en ${conversationId}:`, parseErr.message);
+          }
+        }
+        
+        // Detectar gaps (ej: falta stage_transition entre mensajes)
+        for (let i = 1; i < transcript.length; i++) {
+          const prev = transcript[i - 1];
+          const curr = transcript[i];
+          if (prev.stage && curr.stage && prev.stage !== curr.stage) {
+            // Buscar si hay evento de stage_transition
+            const hasTransition = events.some(e => 
+              e.event === 'stage_transition' && 
+              e.data?.stage_before === prev.stage && 
+              e.data?.stage_after === curr.stage
+            );
+            if (!hasTransition) {
+              gapsDetected.push({
+                type: 'missing_stage_transition',
+                at_message_id: curr.message_id,
+                stage_before: prev.stage,
+                stage_after: curr.stage
+              });
+            }
           }
         }
       } catch (e) {
@@ -3945,20 +4497,280 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
     const duration = Date.now() - startTime;
     console.log(`[CONVERSATION_API] ✅ OK - ID: ${conversationId}, events: ${events.length}, transcript: ${transcript.length}, source: ${source}, duration: ${duration}ms`);
     
-    res.json({
+    // 3.1-3.2: Agregar meta con source, gaps_detected, versiones
+    const response = {
       ok: true,
       id: meta.conversationId,
       conversationId: meta.conversationId,
-      meta,
+      meta: {
+        ...meta,
+        source: ['transcript', 'events'],
+        ...(gapsDetected.length > 0 && { gaps_detected: gapsDetected }),
+        ...(backfilledCount > 0 && { backfilled_count: backfilledCount }),
+        build_version: process.env.BUILD_VERSION || '1.0.0',
+        flow_version: meta.flow_version || '1.0',
+        schema_version: SCHEMA_VERSION
+      },
       transcript,
       events,
       totalEvents: events.length,
       totalTranscriptEntries: transcript.length,
-      source
-    });
+      source,
+      stats: {
+        transcript_count: transcript.length,
+        events_count: events.length,
+        backfilled_count: backfilledCount,
+        gaps_detected_count: gapsDetected.length
+      }
+    };
+    
+    res.json(response);
   } catch (error) {
     const duration = Date.now() - startTime;
     console.error(`[CONVERSATION_API] ❌ ERROR - ID: ${conversationIdParam}, error: ${error.message}, duration: ${duration}ms`);
+    res.status(200).json({ 
+      ok: false, 
+      error: 'INTERNAL_ERROR', 
+      message: error.message,
+      conversationId: conversationIdParam
+    });
+  }
+});
+
+// ========================================================
+// 1.1: ENDPOINT ÚNICO "GOLDEN RECORD" - /api/admin/conversation/:id/export
+// ========================================================
+const SCHEMA_VERSION = '1.1'; // 1.1: Event Contract + backfill + gaps_detected
+
+app.get('/api/admin/conversation/:id/export', exportLimiter, async (req, res) => {
+  const startTime = Date.now();
+  const conversationIdParam = req.params.id?.trim().toUpperCase() || '';
+  
+  try {
+    // 4.2: Usar helper único para obtener token admin
+    const adminToken = getAdminToken(req);
+    const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
+
+    if (!isValidAdmin) {
+      return res.status(401).json({ 
+        ok: false, 
+        error: 'UNAUTHORIZED',
+        message: 'Token de autenticación requerido',
+        conversationId: conversationIdParam
+      });
+    }
+
+    let conversationId = conversationIdParam;
+    const tail = parseInt(req.query.tail) || null;
+
+    // Buscar archivos
+    let metaFile = path.join(CONVERSATIONS_DIR, `${conversationId}.meta.json`);
+    let eventsFile = path.join(CONVERSATIONS_DIR, `${conversationId}.jsonl`);
+
+    // Leer meta
+    let meta = null;
+    if (fs.existsSync(metaFile)) {
+      try {
+        meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+      } catch (e) {
+        console.error(`[EXPORT] Error leyendo meta para ${conversationId}:`, e.message);
+      }
+    }
+
+    // Leer y procesar eventos con backfill
+    let events = [];
+    let transcript = [];
+    let gapsDetected = [];
+    let backfilledCount = 0;
+    const seenMessageIds = new Set();
+    let dedupDropped = 0;
+
+    if (fs.existsSync(eventsFile)) {
+      try {
+        const lines = fs.readFileSync(eventsFile, 'utf8').split('\n').filter(l => l.trim());
+        const linesToRead = tail ? lines.slice(-tail) : lines;
+        
+        for (let idx = 0; idx < linesToRead.length; idx++) {
+          try {
+            let event = JSON.parse(linesToRead[idx]);
+            
+            // Backfill on-read
+            event = backfillEvent(event, idx, linesToRead, meta);
+            if (event.meta?.backfilled) {
+              backfilledCount++;
+            }
+            
+            // Dedup por message_id
+            const messageId = event.message_id || event.messageId || null;
+            if (messageId && seenMessageIds.has(messageId)) {
+              dedupDropped++;
+              continue;
+            }
+            if (messageId) {
+              seenMessageIds.add(messageId);
+            }
+            
+            // Separar transcript vs events
+            if (event.role === 'user' || event.role === 'bot' || event.who === 'user' || event.who === 'bot') {
+              transcript.push({
+                message_id: event.message_id,
+                parent_message_id: event.parent_message_id || event.parentMessageId || null,
+                correlation_id: event.correlation_id || null,
+                event_type: event.event_type || null,
+                who: event.role || event.who,
+                text: event.text || '',
+                timestamp: event.timestamp_iso || event.t || event.ts || event.timestamp,
+                stage: event.stage || null,
+                buttons: event.buttons || null,
+                ...(event.meta?.backfilled && { meta: event.meta })
+              });
+            } else {
+              events.push({
+                message_id: event.message_id,
+                timestamp: event.timestamp_iso || event.ts || event.t || event.timestamp,
+                level: event.level || 'info',
+                event: event.event || event.event_type || event.type || 'unknown',
+                data: event.data || event,
+                ...(event.meta?.backfilled && { meta: event.meta })
+              });
+            }
+          } catch (parseErr) {
+            console.warn(`[EXPORT] Error parseando línea en ${conversationId}:`, parseErr.message);
+          }
+        }
+        
+        // Ordenar por timestamp_iso ascendente
+        transcript.sort((a, b) => {
+          const tsA = a.timestamp || '';
+          const tsB = b.timestamp || '';
+          return tsA.localeCompare(tsB);
+        });
+        events.sort((a, b) => {
+          const tsA = a.timestamp || '';
+          const tsB = b.timestamp || '';
+          return tsA.localeCompare(tsB);
+        });
+        
+        // Detectar gaps
+        for (let i = 1; i < transcript.length; i++) {
+          const prev = transcript[i - 1];
+          const curr = transcript[i];
+          if (prev.stage && curr.stage && prev.stage !== curr.stage) {
+            const hasTransition = events.some(e => 
+              e.event === 'stage_transition' && 
+              e.data?.stage_before === prev.stage && 
+              e.data?.stage_after === curr.stage
+            );
+            if (!hasTransition) {
+              gapsDetected.push({
+                type: 'missing_stage_transition',
+                at_message_id: curr.message_id,
+                stage_before: prev.stage,
+                stage_after: curr.stage
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[EXPORT] Error leyendo eventos para ${conversationId}:`, e.message);
+      }
+    }
+
+    // Si no hay meta pero hay eventos, crear meta básica
+    if (!meta && transcript.length > 0) {
+      meta = {
+        conversationId,
+        createdAt: transcript[0]?.timestamp || new Date().toISOString(),
+        updatedAt: transcript[transcript.length - 1]?.timestamp || new Date().toISOString()
+      };
+    }
+
+    if (!meta) {
+      return res.status(200).json({
+        ok: false,
+        error: 'NOT_FOUND',
+        message: `Conversación ${conversationId} no encontrada`,
+        conversationId: conversationIdParam
+      });
+    }
+
+    // Verificar persist_degraded
+    let persistDegraded = false;
+    try {
+      const session = await getSession(meta.sid);
+      if (session?.flags?.persistDegraded) {
+        persistDegraded = true;
+      }
+    } catch (e) {
+      // Ignorar
+    }
+
+    // Detectar gaps (ej: falta stage_transition entre mensajes)
+    for (let i = 1; i < transcript.length; i++) {
+      const prev = transcript[i - 1];
+      const curr = transcript[i];
+      if (prev.stage && curr.stage && prev.stage !== curr.stage) {
+        // Buscar si hay evento de stage_transition
+        const hasTransition = events.some(e => 
+          e.event === 'stage_transition' && 
+          e.data?.stage_before === prev.stage && 
+          e.data?.stage_after === curr.stage
+        );
+        if (!hasTransition) {
+          gapsDetected.push({
+            type: 'missing_stage_transition',
+            at_message_id: curr.message_id,
+            stage_before: prev.stage,
+            stage_after: curr.stage
+          });
+        }
+      }
+    }
+
+    // Construir export golden record
+    const exportData = {
+      meta: {
+        exported_at: new Date().toISOString(),
+        env: process.env.NODE_ENV || 'production',
+        service: 'sti-chat',
+        schema_version: SCHEMA_VERSION,
+        source: ['transcript', 'events'],
+        ...(gapsDetected.length > 0 && { gaps_detected: gapsDetected }),
+        backfilled_count: backfilledCount,
+        build_version: process.env.BUILD_VERSION || '1.0.0',
+        flow_version: meta.flow_version || '1.0',
+        persist_degraded: persistDegraded
+      },
+      conversation: {
+        conversation_id: meta.conversationId,
+        session_id: meta.sid || null,
+        created_at: transcript.length > 0 ? transcript[0].timestamp : meta.createdAt || null,
+        updated_at: transcript.length > 0 ? transcript[transcript.length - 1].timestamp : meta.updatedAt || null,
+        flow_version: meta.flow_version || '1.0'
+      },
+      transcript: transcript,
+      events: events,
+      stats: {
+        transcript_count: transcript.length,
+        events_count: events.length,
+        backfilled_count: backfilledCount,
+        gaps_detected_count: gapsDetected.length,
+        dedup_dropped: dedupDropped,
+        persist_degraded: persistDegraded
+      }
+    };
+
+    // Calcular hash del export para verificación
+    const exportHash = crypto.createHash('sha1').update(JSON.stringify(exportData)).digest('hex');
+    exportData.meta.export_hash = exportHash;
+
+    const duration = Date.now() - startTime;
+    console.log(`[EXPORT] ✅ OK - ID: ${conversationId}, transcript: ${transcript.length}, events: ${events.length}, backfilled: ${backfilledCount}, dedup: ${dedupDropped}, duration: ${duration}ms`);
+    
+    res.json(exportData);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(`[EXPORT] ❌ ERROR - ID: ${conversationIdParam}, error: ${error.message}, duration: ${duration}ms`);
     res.status(200).json({ 
       ok: false, 
       error: 'INTERNAL_ERROR', 
@@ -3973,7 +4785,7 @@ app.get('/api/admin/conversation/:id', async (req, res) => {
 app.get('/api/tickets', async (req, res) => {
   try {
     // Verificar token de administrador
-    const adminToken = req.headers.authorization || req.query.token;
+    const adminToken = getAdminToken(req);
     const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
 
     if (!isValidAdmin) {
@@ -4020,7 +4832,7 @@ app.delete('/api/ticket/:tid', async (req, res) => {
     const tid = String(req.params.tid || '').replace(/[^A-Za-z0-9._-]/g, '');
     
     // Verificar token de administrador
-    const adminToken = req.headers.authorization || req.query.token;
+    const adminToken = getAdminToken(req);
     const isValidAdmin = adminToken && adminToken === LOG_TOKEN && LOG_TOKEN && process.env.LOG_TOKEN;
 
     if (!isValidAdmin) {
@@ -4327,7 +5139,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       id: sid,
       conversationId: conversationId, // 🆔 Asignar Conversation ID
       userName: null,
-      stage: STATES.ASK_LANGUAGE,  // Comenzar con GDPR y selección de idioma
+      stage: STATES.ASK_CONSENT,  // A) Comenzar con GDPR (separado de ASK_LANGUAGE)
       conversationState: 'greeting',  // greeting, has_name, understanding_problem, solving, resolved
       device: null,
       problem: null,
@@ -4355,11 +5167,67 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
         urgency: 'normal'
       }
     };
-    const fullGreeting = buildLanguageSelectionGreeting();
+    // A) Si stage es ASK_CONSENT, mostrar mensaje GDPR
+    let fullGreeting;
+    if (fresh.stage === STATES.ASK_CONSENT) {
+      const gdprText = `📋 **Política de Privacidad y Consentimiento / Privacy Policy & Consent**
+
+---
+
+**🇦🇷 Español:**
+Antes de continuar, quiero informarte:
+
+✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Los datos se usarán **solo para brindarte soporte técnico**
+✅ Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **No compartimos** tu información con terceros
+✅ Cumplimos con **GDPR y normativas de privacidad**
+
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
+
+**¿Aceptás estos términos?**
+
+---
+
+**🇺🇸 English:**
+Before we continue, please note:
+
+✅ I will store your name and our conversation for **48 hours**
+✅ Data will be used **only to provide technical support**
+✅ You can request **data deletion** at any time
+✅ We **do not share** your information with third parties
+✅ We comply with **GDPR and privacy regulations**
+
+🔗 Full policy: https://stia.com.ar/politica-privacidad.html
+
+**Do you accept these terms?`;
+      const consentButtons = buildUiOptions(['BTN_CONSENT_YES', 'BTN_CONSENT_NO'], 'es-AR');
+      fullGreeting = { text: gdprText, buttons: consentButtons };
+    } else {
+      fullGreeting = buildLanguageSelectionGreeting();
+    }
     
     // Guardar meta de conversación al crear sesión
     if (conversationId) {
       saveConversationMeta(conversationId, fresh);
+    }
+
+    // C) Log stage_transition INIT -> ASK_CONSENT
+    const correlationId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    if (fresh.stage === STATES.ASK_CONSENT && conversationId) {
+      const transitionEvent = buildEvent({
+        role: 'system',
+        type: 'stage_transition',
+        event_type: 'stage_transition',
+        stage: fresh.stage,
+        stage_before: 'INIT',
+        stage_after: fresh.stage,
+        text: `Stage transition: INIT -> ${fresh.stage}`,
+        correlation_id: correlationId,
+        session_id: sid,
+        conversation_id: conversationId
+      });
+      logConversationEvent(conversationId, transitionEvent);
     }
 
     // Usar helper único para persistir greeting
@@ -4367,12 +5235,13 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       type: 'greeting',
       stage: fresh.stage,
       buttons: fullGreeting.buttons || [],
+      correlation_id: correlationId,
       ts: nowIso()
     });
 
-    // CON botones para GDPR
+    // CON botones para GDPR (formato canónico)
     // Incluir CSRF token y Conversation ID en respuesta
-    return res.json({
+    const response = {
       ok: true,
       greeting: fullGreeting.text,
       reply: fullGreeting.text,
@@ -4380,8 +5249,14 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       sessionId: sid,
       csrfToken: csrfToken,
       conversationId: conversationId, // 🆔 Incluir Conversation ID
-      buttons: fullGreeting.buttons || []
-    });
+      options: fullGreeting.buttons || [],
+      buttons: fullGreeting.buttons || [] // Compatibilidad
+    };
+    
+    // B) Validar Response Contract
+    validateResponseContract(response, correlationId);
+    
+    return res.json(response);
   } catch (e) {
     console.error(e);
     return res.status(500).json({ ok: false, error: 'greeting_failed' });
@@ -5319,6 +6194,13 @@ Respondé en formato JSON:
 // ========================================================
 app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   const startTime = Date.now(); // Para medir duración
+  
+  // ========================================================
+  // D1: CORRELATION_ID por request (para observabilidad)
+  // ========================================================
+  const correlationId = req.requestId || generateRequestId();
+  req.correlationId = correlationId;
+  
   let flowLogData = {
     sessionId: null,
     currentStage: null,
@@ -5327,7 +6209,8 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     botResponse: null,
     nextStage: null,
     serverAction: null,
-    duration: 0
+    duration: 0,
+    correlationId: correlationId
   };
 
   // Helper para retornar y loggear automáticamente
@@ -5492,6 +6375,25 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       return badRequest(res, 'BAD_BUTTON_TOKEN', `buttonToken demasiado largo (máx ${MAX_BUTTON_TOKEN_LEN})`);
     }
     
+    // ========================================================
+    // 🎯 P0.1: CANONIZACIÓN DEFENSIVA (legacy -> canonical)
+    // ========================================================
+    const LEGACY_BUTTON_TOKEN_MAP = {
+      'BTN_MORE_TESTS': 'BTN_ADVANCED_TESTS',
+      'BTN_MORE': 'BTN_ADVANCED_TESTS'
+    };
+    const buttonTokenLegacy = buttonToken;
+    if (buttonToken && LEGACY_BUTTON_TOKEN_MAP[buttonToken]) {
+      buttonToken = LEGACY_BUTTON_TOKEN_MAP[buttonToken];
+      if (DEBUG_CHAT) {
+        logMsg('debug', '[BUTTON:CANON]', {
+          sid,
+          legacy: String(buttonTokenLegacy || ''),
+          canonical: String(buttonToken || '')
+        });
+      }
+    }
+
     const effectiveButtonToken = buttonToken || '';
     
     // Computar effectiveText: texto efectivo para procesamiento (text || effectiveButtonToken)
@@ -5613,13 +6515,17 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       console.log(`[CONVERSATION_ID] ✅ Asignado a sesión existente: ${session.conversationId}`);
     }
     
-    // Instrumentación: CHAT_IN
+    // D1: Instrumentación: CHAT_IN con correlation_id y preview
+    const userInputPreview = effectiveText.substring(0, 120);
     emitLogEvent('info', 'CHAT_IN', {
+      correlationId,
       sid,
       conversationId: session?.conversationId || null,
       stage: session?.stage || null,
       msgLen: effectiveText.length,
+      userInputPreview: userInputPreview + (effectiveText.length > 120 ? '...' : ''),
       hasButton: !!buttonToken,
+      buttonToken: buttonToken || null,
       buttonLen: buttonToken ? buttonToken.length : 0,
       imagesCount,
       imageRefsCount
@@ -5629,7 +6535,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       session = {
         id: sid,
         userName: null,
-        stage: STATES.ASK_LANGUAGE,
+        stage: STATES.ASK_CONSENT,
         device: null,
         problem: null,
         issueKey: null,
@@ -5908,9 +6814,29 @@ Respondé con una explicación clara y útil para el usuario.`
       type: buttonToken ? 'button' : 'text',
       stage: session.stage,
       buttonToken: buttonToken || null,
+      buttonTokenLegacy: buttonTokenLegacy || null,
       hasImages: images.length > 0,
+      correlation_id: correlationId,
       ts: userTs
     });
+    
+    // 1.3: Log explícito button_click event si es botón
+    if (buttonToken && session.conversationId) {
+      const buttonClickEvent = buildEvent({
+        role: 'user',
+        type: 'button',
+        event_type: 'button_click',
+        stage: session.stage,
+        text: `[BOTÓN] ${buttonLabel || buttonToken}`,
+        button_token: buttonToken,
+        button_token_legacy: buttonTokenLegacy || null,
+        message_id: `btn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        correlation_id: correlationId,
+        session_id: sid,
+        conversation_id: session.conversationId
+      });
+      logConversationEvent(session.conversationId, buttonClickEvent);
+    }
 
     // ========================================================
     // 🎯 P0: ROUTER GLOBAL DE BOTONES (ANTES de lógica de stage)
@@ -5924,14 +6850,100 @@ Respondé con una explicación clara y útil para el usuario.`
       // BTN_CONNECT_TECH: Conectar con técnico (NO pedir dirección/teléfono)
       if (buttonToken === 'BTN_CONNECT_TECH') {
         console.log('[BUTTON_ROUTER] 🎯 BTN_CONNECT_TECH detectado, ejecutando createTicketAndRespond');
+        
+        // 1.3: Log explícito button_click event
+        if (session.conversationId) {
+          const buttonClickEvent = buildEvent({
+            role: 'user',
+            type: 'button',
+            event_type: 'button_click',
+            stage: session.stage,
+            text: `[BOTÓN] ${buttonLabel || buttonToken}`,
+            button_token: buttonToken,
+            button_token_legacy: buttonTokenLegacy || null,
+            message_id: `btn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+            correlation_id: correlationId,
+            session_id: sid,
+            conversation_id: session.conversationId
+          });
+          logConversationEvent(session.conversationId, buttonClickEvent);
+        }
+        
         return await createTicketAndRespond(session, sid, res);
       }
       
-      // BTN_MORE_TESTS / BTN_ADVANCED_TESTS: Más pruebas
-      if (buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS') {
-        console.log('[BUTTON_ROUTER] 🎯 BTN_MORE_TESTS/ADVANCED_TESTS detectado');
-        // Continuar con lógica de stage normal (puede estar en BASIC_TESTS o ESCALATE)
-        // No hacer return aquí, dejar que continúe
+      // BTN_ADVANCED_TESTS: Pruebas avanzadas (NO debe caer en análisis "no es informática")
+      if (buttonToken === 'BTN_ADVANCED_TESTS' || buttonToken === 'BTN_MORE_TESTS') {
+        console.log('[BUTTON_ROUTER] 🎯 BTN_ADVANCED_TESTS detectado');
+
+        // Caso crítico: si aún estamos en ASK_PROBLEM, guiar sin romper flujo
+        if (session.stage === STATES.ASK_PROBLEM) {
+          // Marcar intención para más adelante (opcional)
+          session.flags = session.flags || {};
+          session.flags.wantAdvanced = true;
+
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+
+          // Si no tenemos problema, pedirlo primero (guardrail)
+          if (!session.problem || String(session.problem || '').trim() === '') {
+            const replyAsk = isEn
+              ? `Got it, ${whoLabel}. Before advanced tests, tell me briefly what the problem is.`
+              : (locale === 'es-419'
+                ? `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame brevemente cuál es el problema.`
+                : `Dale, ${whoLabel}. Antes de pruebas avanzadas, contame breve cuál es el problema.`);
+            await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyAsk, {
+              type: 'text',
+              stage: session.stage,
+              ts: nowIso()
+            });
+            await saveSession(sid, session); // B2: Asegurar persistencia
+            return res.json(withOptions({ ok: true, reply: replyAsk, stage: session.stage, options: [] }));
+          }
+
+          // Si el usuario ya dijo el problema, pedir dispositivo (PC/Notebook) con botones canónicos
+          const stageBefore = session.stage;
+          session.stage = STATES.ASK_DEVICE;
+          session.pendingDeviceGroup = 'compu';
+          
+          // 1.3: Log explícito stage_transition event
+          if (session.conversationId) {
+            const stageTransitionEvent = buildEvent({
+              role: 'system',
+              type: 'stage_transition',
+              event_type: 'stage_transition',
+              stage: session.stage,
+              stage_before: stageBefore,
+              stage_after: session.stage,
+              text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+              correlation_id: correlationId,
+              session_id: sid,
+              conversation_id: session.conversationId
+            });
+            logConversationEvent(session.conversationId, stageTransitionEvent);
+          }
+          
+          const replyDev = isEn
+            ? `Alright, ${whoLabel}. To run advanced tests, which device is it?`
+            : (locale === 'es-419'
+              ? `Dale, ${whoLabel}. Para hacer pruebas avanzadas, ¿qué dispositivo es?`
+              : `Dale, ${whoLabel}. Para hacer pruebas avanzadas, ¿qué dispositivo es?`);
+
+          const optionTokens = ['BTN_DEV_PC_DESKTOP', 'BTN_DEV_PC_ALLINONE', 'BTN_DEV_NOTEBOOK', 'BTN_CONNECT_TECH', 'BTN_CLOSE'];
+          const uiButtons = buildUiButtonsFromTokens(optionTokens, locale);
+
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyDev, {
+            type: 'text',
+            stage: session.stage,
+            buttons: uiButtons,
+            correlation_id: correlationId,
+            ts: nowIso()
+          });
+          await saveSession(sid, session); // B2: Asegurar persistencia después de cambiar stage
+
+          return res.json(withOptions({ ok: true, reply: replyDev, stage: session.stage, options: uiButtons, buttons: uiButtons }));
+        }
+
+        // En otros stages (BASIC_TESTS/ESCALATE), continuar con la lógica normal
       }
       
       // BTN_CLOSE: Cerrar chat
@@ -5983,9 +6995,14 @@ Respondé con una explicación clara y útil para el usuario.`
           let smartOptions = [];
           
           if (smartAnalysis.needsHumanHelp || smartAnalysis.sentiment === 'frustrated') {
-            smartOptions = [BUTTONS.CONNECT_TECH, BUTTONS.MORE_TESTS, BUTTONS.CLOSE];
+            smartOptions = [BUTTONS.CONNECT_TECH, BUTTONS.ADVANCED_TESTS, BUTTONS.CLOSE];
           } else if (smartAnalysis.problem?.detected) {
-            smartOptions = [BUTTONS.MORE_TESTS, BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+            // ✅ Si ya detectamos problema y damos pasos, NO dejar stage en ASK_PROBLEM
+            if (session.stage === STATES.ASK_PROBLEM) {
+              session.stage = STATES.BASIC_TESTS;
+              await saveSession(sid, session); // B2: Asegurar persistencia cuando cambia stage
+            }
+            smartOptions = [BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
           } else {
             smartOptions = [BUTTONS.CLOSE];
           }
@@ -6166,7 +7183,7 @@ Respondé con una explicación clara y útil para el usuario.`
 
     // Limitar transcript a últimos 100 mensajes para prevenir crecimiento indefinido
     if (session.transcript.length > 100) {
-      session.transcript = session.slice(-100);
+      session.transcript = session.transcript.slice(-100);
     }
 
     // ========================================================
@@ -6196,121 +7213,280 @@ Respondé con una explicación clara y útil para el usuario.`
     //    - Legal: GDPR compliance depende de este consentimiento
     //
     // ========================================================
-    // 🔐 ASK_LANGUAGE: Procesar consentimiento GDPR y selección de idioma
-    console.log('[DEBUG] Checking ASK_LANGUAGE - Current stage:', session.stage, 'STATES.ASK_LANGUAGE:', STATES.ASK_LANGUAGE, 'Match:', session.stage === STATES.ASK_LANGUAGE);
-
-    if (session.stage === STATES.ASK_LANGUAGE) {
+    // A) ASK_CONSENT: Procesar consentimiento GDPR (separado de ASK_LANGUAGE)
+    // ========================================================
+    if (session.stage === STATES.ASK_CONSENT) {
       const lowerMsg = effectiveText.toLowerCase().trim();
-      console.log('[ASK_LANGUAGE] DEBUG - Processing:', lowerMsg, 'hasButtonToken:', !!buttonToken, 'GDPR consent:', session.gdprConsent);
-
-      // Detectar aceptación de GDPR
-      if (/\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
+      const correlationId = req.correlation_id || `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Detectar aceptación de GDPR (botón o texto)
+      if (buttonToken === 'BTN_CONSENT_YES' || /\b(si|sí|acepto|aceptar|ok|dale|de acuerdo|agree|accept|yes)\b/i.test(lowerMsg)) {
         session.gdprConsent = true;
         session.gdprConsentDate = nowIso();
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_LANGUAGE; // C) Transición: ASK_CONSENT -> ASK_LANGUAGE
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
         console.log('[GDPR] ✅ Consentimiento otorgado:', session.gdprConsentDate);
-
-        // Mostrar selección de idioma
+        
+        // Mostrar selección de idioma con botones canónicos
         const reply = `✅ **Gracias por aceptar**\n\n🌍 **Seleccioná tu idioma / Select your language:**`;
+        const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+        
         await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
           type: 'text',
           stage: session.stage,
-          ts: nowIso()
+          buttons: langButtons,
+          correlation_id: correlationId
         });
-
-        return res.json({
+        
+        const response = {
           ok: true,
           reply,
           stage: session.stage,
-          buttons: [
-            { text: '(🇦🇷) Español 🌎', value: 'español' },
-            { text: '(🇺🇸) English 🌎', value: 'english' }
-          ]
-        });
+          options: langButtons,
+          buttons: langButtons // Compatibilidad
+        };
+        
+        // B) Validar Response Contract
+        validateResponseContract(response, correlationId);
+        
+        return res.json(response);
       }
-
+      
       // Detectar rechazo de GDPR
-      if (/\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+      if (buttonToken === 'BTN_CONSENT_NO' || /\b(no|no acepto|no quiero|rechazo|cancel|decline)\b/i.test(lowerMsg)) {
+        const stageBefore = session.stage;
+        session.stage = STATES.CLOSED; // A) Transición: ASK_CONSENT -> CLOSED
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage} (consent denied)`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
         const reply = `😔 Entiendo. Sin tu consentimiento no puedo continuar.\n\nSi cambiás de opinión, podés volver a iniciar el chat.\n\n📧 Para consultas sin registro, escribinos a: web@stia.com.ar`;
         await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
           type: 'text',
           stage: session.stage,
-          ts: nowIso()
+          correlation_id: correlationId
         });
-
-        return res.json({
+        
+        const response = {
           ok: true,
           reply,
-          stage: session.stage
-        });
+          stage: session.stage,
+          options: [],
+          buttons: []
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
       }
+      
+      // Si no se reconoce, re-mostrar opciones de consentimiento
+      // Re-mostrar mensaje GDPR con botones canónicos
+      const gdprText = `📋 **Política de Privacidad y Consentimiento / Privacy Policy & Consent**
 
-      // Detectar selección de idioma (después de aceptar GDPR)
-      if (session.gdprConsent) {
-        if (/español|spanish|es-|arg|latino/i.test(lowerMsg)) {
-          session.userLocale = 'es-AR';
-          session.stage = STATES.ASK_NAME;
+---
 
-          const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
-          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
-            type: 'text',
-            stage: session.stage,
-            ts: nowIso()
-          });
+**🇦🇷 Español:**
+Antes de continuar, quiero informarte:
 
-          return res.json({
-            ok: true,
-            reply,
-            stage: session.stage,
-            buttons: [
-              { text: '🙈 Prefiero no decirlo', value: 'prefiero_no_decirlo' }
-            ]
-          });
-        }
+✅ Guardaré tu nombre y nuestra conversación durante **48 horas**
+✅ Los datos se usarán **solo para brindarte soporte técnico**
+✅ Podés solicitar **eliminación de tus datos** en cualquier momento
+✅ **No compartimos** tu información con terceros
+✅ Cumplimos con **GDPR y normativas de privacidad**
 
-        if (/english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
-          session.userLocale = 'en-US';
-          session.stage = STATES.ASK_NAME;
+🔗 Política completa: https://stia.com.ar/politica-privacidad.html
 
-          const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
-          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
-            type: 'text',
-            stage: session.stage,
-            ts: nowIso()
-          });
+**¿Aceptás estos términos?**
 
-          return res.json({
-            ok: true,
-            reply,
-            stage: session.stage,
-            buttons: [
-              { text: '🙈 I prefer not to say', value: 'prefer_not_to_say' }
-            ]
-          });
-        }
-      }
+---
 
-      // Si no se reconoce la respuesta, re-mostrar opciones
+**🇺🇸 English:**
+Before we continue, please note:
+
+✅ I will store your name and our conversation for **48 hours**
+✅ Data will be used **only to provide technical support**
+✅ You can request **data deletion** at any time
+✅ We **do not share** your information with third parties
+✅ We comply with **GDPR and privacy regulations**
+
+🔗 Full policy: https://stia.com.ar/politica-privacidad.html
+
+**Do you accept these terms?`;
+      const consentButtons = buildUiOptions(['BTN_CONSENT_YES', 'BTN_CONSENT_NO'], 'es-AR');
+      
       const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
       await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retry, {
         type: 'text',
         stage: session.stage,
-        ts: nowIso()
+        buttons: consentButtons,
+        correlation_id: correlationId
       });
-
-      return res.json({
+      
+      const response = {
         ok: true,
         reply: retry,
         stage: session.stage,
-        buttons: session.gdprConsent
-          ? [
-            { text: '(🇦🇷) Español 🌎', value: 'español' },
-            { text: '(🇺🇸) English 🌎', value: 'english' }
-          ]
-          : [
-            { text: 'Sí Acepto / I Agree ✔️', value: 'si' },
-            { text: 'No Acepto / I Don\'t Agree ❌', value: 'no' }
-          ]
+        options: consentButtons,
+        buttons: consentButtons
+      };
+      
+      validateResponseContract(response, correlationId);
+      return res.json(response);
+    }
+    
+    // ========================================================
+    // ASK_LANGUAGE: Selección de idioma (después de consentimiento)
+    // ========================================================
+    if (session.stage === STATES.ASK_LANGUAGE) {
+      const lowerMsg = effectiveText.toLowerCase().trim();
+      const correlationId = req.correlation_id || `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Detectar selección de idioma
+      if (buttonToken === 'BTN_LANG_ES_AR' || /español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+        session.userLocale = 'es-AR';
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        const reply = `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
+        const nameButtons = buildUiOptions(['BTN_NO_NAME'], 'es-AR');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          buttons: nameButtons,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: nameButtons,
+          buttons: nameButtons
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
+      }
+      
+      if (buttonToken === 'BTN_LANG_EN' || /english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+        session.userLocale = 'en-US';
+        const stageBefore = session.stage;
+        session.stage = STATES.ASK_NAME; // C) Transición: ASK_LANGUAGE -> ASK_NAME
+        await saveSession(sid, session);
+        
+        // C) Log stage_transition
+        const transitionEvent = buildEvent({
+          role: 'system',
+          type: 'stage_transition',
+          event_type: 'stage_transition',
+          stage: session.stage,
+          stage_before: stageBefore,
+          stage_after: session.stage,
+          text: `Stage transition: ${stageBefore} -> ${session.stage}`,
+          correlation_id: correlationId,
+          session_id: sid,
+          conversation_id: session.conversationId
+        });
+        if (session.conversationId) {
+          logConversationEvent(session.conversationId, transitionEvent);
+        }
+        
+        const reply = `✅ Great! Let's continue in **English**.\n\nWhat's your name?`;
+        const nameButtons = buildUiOptions(['BTN_NO_NAME'], 'en-US');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          buttons: nameButtons,
+          correlation_id: correlationId
+        });
+        
+        const response = {
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: nameButtons,
+          buttons: nameButtons
+        };
+        
+        validateResponseContract(response, correlationId);
+        return res.json(response);
+      }
+      
+      // Si no se reconoce, re-mostrar opciones de idioma
+      const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
+      const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+      
+      await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retry, {
+        type: 'text',
+        stage: session.stage,
+        buttons: langButtons,
+        correlation_id: correlationId
       });
+      
+      const response = {
+        ok: true,
+        reply: retry,
+        stage: session.stage,
+        options: langButtons,
+        buttons: langButtons
+      };
+      
+      validateResponseContract(response, correlationId);
+      return res.json(response);
     }
 
     // ============================================
@@ -6794,6 +7970,7 @@ Respondé con una explicación clara y útil para el usuario.`
           };
 
           console.log('[ASK_DEVICE] Response:', JSON.stringify(response, null, 2));
+          await saveSession(sid, session); // B2: Asegurar persistencia después de cambiar stage
 
           return res.json(response);
         }
@@ -6822,6 +7999,41 @@ Respondé con una explicación clara y útil para el usuario.`
       }
 
       if (!isIT) {
+        // B1: Guardrail - NO mostrar "no es informática" si viene botón válido
+        if (buttonToken && (buttonToken.startsWith('BTN_') || buttonToken.startsWith('DEVICE_'))) {
+          // Ya se maneja en el router global arriba, pero por seguridad aquí también
+          const locale = session.userLocale || 'es-AR';
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+          
+          const replyGuardrail = isEn
+            ? `I'm currently in a different stage, ${whoLabel}. Let's get back on track. What problem are you experiencing?`
+            : (locale === 'es-419'
+              ? `Estoy en otra etapa, ${whoLabel}. Volvamos: ¿qué problema estás teniendo?`
+              : `Estoy en otra etapa, ${whoLabel}. Volvamos: ¿qué problema estás teniendo?`);
+          
+          // 4.2: Métricas mínimas (log-based)
+          const invalidButtonCount = (metrics.invalid_button_for_stage = metrics.invalid_button_for_stage || { count: 0 });
+          invalidButtonCount.count++;
+          
+          emitLogEvent('warn', 'INVALID_BUTTON_FOR_STAGE', {
+            correlationId,
+            sid,
+            conversationId: session.conversationId,
+            stage: session.stage,
+            buttonToken: buttonToken,
+            invalid_button_for_stage_count: invalidButtonCount.count
+          });
+          
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyGuardrail, {
+            type: 'text',
+            stage: session.stage,
+            ts: nowIso()
+          });
+          await saveSession(sid, session);
+          return res.json(withOptions({ ok: true, reply: replyGuardrail, stage: session.stage, options: [] }));
+        }
+        
         const replyNotIT = isEn
           ? 'Sorry, I didn\'t understand your query or it\'s not IT-related. Do you want to rephrase?'
           : (locale === 'es-419'
@@ -6833,6 +8045,7 @@ Respondé con una explicación clara y útil para el usuario.`
           stage: session.stage,
           ts: nowIso()
         });
+        await saveSession(sid, session);
         return res.json(withOptions({ ok: true, reply: replyNotIT, stage: session.stage, options: [reformBtn] }));
       }
 
@@ -6901,6 +8114,7 @@ Respondé con una explicación clara y útil para el usuario.`
           stage: session.stage, // Mantener ASK_PROBLEM
           ts: nowIso()
         });
+        await saveSession(sid, session); // B2: Asegurar persistencia
         
         return res.json(withOptions({ 
           ok: true, 
@@ -7713,7 +8927,7 @@ La guía debe ser:
 });
 
 // ========================================================
-// Health check endpoint (Enhanced Production-Ready)
+// 4.1: Health check endpoint (Enhanced Production-Ready)
 // ========================================================
 app.get('/api/health', async (_req, res) => {
   try {
@@ -7730,16 +8944,22 @@ app.get('/api/health', async (_req, res) => {
       console.error('[HEALTH] Redis check failed:', err.message);
     }
 
-    // Check filesystem writable
+    // Check filesystem writable (data/conversations)
     let fsStatus = 'healthy';
+    let fsError = null;
     try {
-      const testFile = path.join(UPLOADS_DIR, '.health-check');
+      const testFile = path.join(CONVERSATIONS_DIR, '.health-check');
       fs.writeFileSync(testFile, 'ok', 'utf8');
       fs.unlinkSync(testFile);
     } catch (err) {
       fsStatus = 'error';
+      fsError = err.message;
       console.error('[HEALTH] Filesystem check failed:', err.message);
     }
+
+    // Check persist queue
+    const persistQueueLength = PERSIST_QUEUE.length;
+    const persistQueueStatus = persistQueueLength > MAX_PERSIST_QUEUE * 0.8 ? 'degraded' : 'healthy';
 
     // Check OpenAI connectivity (optional)
     let openaiStatus = openai ? 'configured' : 'not_configured';
@@ -7761,16 +8981,27 @@ app.get('/api/health', async (_req, res) => {
     const uptime = process.uptime();
     const memory = process.memoryUsage();
 
+    // Determinar status general
+    const isHealthy = redisStatus === 'healthy' && fsStatus === 'healthy' && persistQueueStatus === 'healthy';
+    const status = isHealthy ? 'healthy' : 'degraded';
+
     const health = {
-      ok: redisStatus === 'healthy' && fsStatus === 'healthy',
-      status: (redisStatus === 'healthy' && fsStatus === 'healthy') ? 'healthy' : 'degraded',
+      ok: isHealthy,
+      status,
       timestamp: new Date().toISOString(),
       uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
       uptimeSeconds: Math.floor(uptime),
+      build_version: process.env.BUILD_VERSION || '1.0.0',
 
       services: {
         redis: redisStatus,
         filesystem: fsStatus,
+        ...(fsError && { filesystem_error: fsError }),
+        persist_queue: {
+          status: persistQueueStatus,
+          length: persistQueueLength,
+          max: MAX_PERSIST_QUEUE
+        },
         openai: openaiStatus,
         deviceDetection: deviceDetectionStatus
       },
@@ -7778,7 +9009,8 @@ app.get('/api/health', async (_req, res) => {
       stats: {
         activeSessions: activeSessions,
         totalMessages: metrics.chat.totalMessages || 0,
-        totalErrors: metrics.errors.count || 0
+        totalErrors: metrics.errors.count || 0,
+        persist_queue_length: persistQueueLength
       },
 
       memory: {
@@ -7799,6 +9031,12 @@ app.get('/api/health', async (_req, res) => {
       timestamp: new Date().toISOString()
     });
   }
+});
+
+// Alias /healthz para compatibilidad (mismo handler)
+app.get('/api/healthz', async (req, res) => {
+  // Reutilizar el mismo handler de /api/health
+  return app._router.handle({ ...req, url: '/api/health', path: '/api/health' }, res);
 });
 
 // ========================================================

@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "exported_at": "2024-01-15T10:30:00.000Z",
+    "env": "production",
+    "service": "sti-chat",
+    "schema_version": "1.0",
+    "source": ["transcript", "events"],
+    "backfilled_count": 3,
+    "gaps_detected_count": 0,
+    "build_version": "1.0.0",
+    "flow_version": "1.0"
+  },
+  "conversation": {
+    "conversation_id": "AA-0001",
+    "session_id": "web-abc123def456",
+    "created_at": "2024-01-15T10:00:00.000Z",
+    "updated_at": "2024-01-15T10:01:00.000Z",
+    "flow_version": "1.0"
+  },
+  "transcript": [
+    {
+      "message_id": "backfill_a1b2c3d4e5f6g7h8",
+      "parent_message_id": null,
+      "who": "user",
+      "text": "mi compu no enciende",
+      "timestamp": "2024-01-15T10:00:00.000Z",
+      "stage": "ASK_PROBLEM",
+      "buttons": null,
+      "meta": {
+        "backfilled": true,
+        "backfill_reason": ["missing_message_id", "missing_event_type"]
+      }
+    },
+    {
+      "message_id": "backfill_b2c3d4e5f6g7h8i9",
+      "parent_message_id": "backfill_a1b2c3d4e5f6g7h8",
+      "who": "bot",
+      "text": "Perfecto. Vamos a probar algunos pasos básicos...",
+      "timestamp": "2024-01-15T10:00:01.500Z",
+      "stage": "BASIC_TESTS",
+      "buttons": [
+        {
+          "token": "BTN_ADVANCED_TESTS",
+          "value": "BTN_ADVANCED_TESTS",
+          "label": "🔧 Pruebas avanzadas"
+        }
+      ],
+      "meta": {
+        "backfilled": true,
+        "backfill_reason": ["missing_message_id", "missing_event_type"]
+      }
+    },
+    {
+      "message_id": "backfill_c3d4e5f6g7h8i9j0",
+      "parent_message_id": "backfill_b2c3d4e5f6g7h8i9",
+      "who": "user",
+      "text": "[BOTÓN] Pruebas avanzadas",
+      "timestamp": "2024-01-15T10:01:00.000Z",
+      "stage": "BASIC_TESTS",
+      "buttons": null,
+      "meta": {
+        "backfilled": true,
+        "backfill_reason": ["missing_message_id", "missing_event_type"]
+      }
+    }
+  ],
+  "events": [],
+  "stats": {
+    "transcript_count": 3,
+    "events_count": 0,
+    "backfilled_count": 3,
+    "gaps_detected_count": 0
+  }
+}
+
