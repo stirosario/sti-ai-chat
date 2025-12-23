@@ -246,6 +246,49 @@ async function generateAndPersistConversationId(sessionId) {
       // Agregar a Set en memoria
       usedConversationIds.add(candidateId);
       
+      // ========================================================
+      // P0: Crear registro persistente inmediatamente
+      // ========================================================
+      // Crear archivo .jsonl vacío (o con evento inicial) para que sea recuperable
+      const conversationFile = path.join(CONVERSATIONS_DIR, `${candidateId}.jsonl`);
+      try {
+        // Si el archivo no existe, crearlo con evento inicial
+        if (!fs.existsSync(conversationFile)) {
+          const initialEvent = {
+            t: new Date().toISOString(),
+            role: 'system',
+            type: 'conversation_created',
+            text: 'Conversación iniciada',
+            conversationId: candidateId,
+            sessionId: sessionId
+          };
+          fs.writeFileSync(conversationFile, JSON.stringify(initialEvent) + '\n', 'utf8');
+          console.log(`[CONVERSATION_ID] ✅ Archivo de conversación creado: ${candidateId}.jsonl`);
+        }
+      } catch (error) {
+        console.warn(`[CONVERSATION_ID] ⚠️ Error creando archivo de conversación: ${error.message}`);
+        // No fallar si no se puede crear el archivo, pero loguear
+      }
+      
+      // Crear meta inicial
+      const metaFile = path.join(CONVERSATIONS_DIR, `${candidateId}.meta.json`);
+      try {
+        const initialMeta = {
+          conversationId: candidateId,
+          sid: sessionId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          userName: null,
+          device: null,
+          language: null,
+          stage: null
+        };
+        fs.writeFileSync(metaFile, JSON.stringify(initialMeta, null, 2), 'utf8');
+        console.log(`[CONVERSATION_ID] ✅ Meta de conversación creada: ${candidateId}.meta.json`);
+      } catch (error) {
+        console.warn(`[CONVERSATION_ID] ⚠️ Error creando meta: ${error.message}`);
+      }
+      
       console.log(`[CONVERSATION_ID] ✅ Generado y persistido: ${candidateId} para sesión ${sessionId?.substring(0, 20)}...`);
       
       return candidateId;
@@ -5460,7 +5503,7 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       logMsg('info', '[CHAT:INPUT_EFFECTIVE]', {
         sid,
         textLen: t.length,
-        buttonTokenLen: buttonTokenRaw.length,
+        buttonTokenLen: buttonToken ? buttonToken.length : 0,
         effectiveLen: effectiveText.length,
         hasButton: !!buttonToken
       });
@@ -5868,6 +5911,49 @@ Respondé con una explicación clara y útil para el usuario.`
       hasImages: images.length > 0,
       ts: userTs
     });
+
+    // ========================================================
+    // 🎯 P0: ROUTER GLOBAL DE BOTONES (ANTES de lógica de stage)
+    // ========================================================
+    // Los botones de control deben rutearse ANTES de cualquier lógica de stage
+    // para evitar que caigan en detectAmbiguousDevice o otros handlers incorrectos
+    if (buttonToken) {
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // BTN_CONNECT_TECH: Conectar con técnico (NO pedir dirección/teléfono)
+      if (buttonToken === 'BTN_CONNECT_TECH') {
+        console.log('[BUTTON_ROUTER] 🎯 BTN_CONNECT_TECH detectado, ejecutando createTicketAndRespond');
+        return await createTicketAndRespond(session, sid, res);
+      }
+      
+      // BTN_MORE_TESTS / BTN_ADVANCED_TESTS: Más pruebas
+      if (buttonToken === 'BTN_MORE_TESTS' || buttonToken === 'BTN_ADVANCED_TESTS') {
+        console.log('[BUTTON_ROUTER] 🎯 BTN_MORE_TESTS/ADVANCED_TESTS detectado');
+        // Continuar con lógica de stage normal (puede estar en BASIC_TESTS o ESCALATE)
+        // No hacer return aquí, dejar que continúe
+      }
+      
+      // BTN_CLOSE: Cerrar chat
+      if (buttonToken === 'BTN_CLOSE') {
+        console.log('[BUTTON_ROUTER] 🎯 BTN_CLOSE detectado');
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : 'Usuari@';
+        const replyClose = isEn
+          ? `Thanks for using Tecnos from STI — Intelligent Technical Service, ${whoLabel}. If you need help with your PC or devices later, you can come back here. 😉`
+          : `Gracias por usar Tecnos de STI — Servicio Técnico Inteligente, ${whoLabel}. Si más adelante necesitás ayuda con tu PC o dispositivos, podés volver a escribir por acá. 😉`;
+        session.stage = STATES.ENDED;
+        await saveSession(sid, session);
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', replyClose, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+        return res.json(withOptions({ ok: true, reply: replyClose, stage: session.stage, options: [] }));
+      }
+      
+      // BTN_SOLVED / BTN_PERSIST: Ya tienen handlers en BASIC_TESTS, no hacer nada aquí
+      // Otros botones: continuar con lógica de stage normal
+    }
 
     // ========================================================
     // 🧠 MODO SUPER INTELIGENTE - Análisis del mensaje
