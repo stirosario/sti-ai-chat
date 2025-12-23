@@ -601,8 +601,18 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   // ========================================================
   if (session.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
     // Calcular hash del mensaje actual
-    const buttonsValue = options.buttons ? 
-      (Array.isArray(options.buttons) ? options.buttons.map(b => b.value || b.token || b.text || '').join('|') : String(options.buttons)) : '';
+    // HARDENING: Filtrar falsy antes de mapear para evitar crash con undefined
+    const safeButtons = Array.isArray(options.buttons) ? options.buttons.filter(Boolean) : options.buttons;
+    const buttonsValue = safeButtons ? 
+      (Array.isArray(safeButtons)
+        ? safeButtons.map(b => {
+            if (!b) return '';
+            if (typeof b === 'string') return b;
+            if (typeof b === 'object') return (b.value || b.token || b.text || '');
+            return String(b);
+          }).join('|')
+        : String(safeButtons))
+      : '';
     const hashInput = `${who}|${options.stage || session.stage || ''}|${text.substring(0, 200)}|${buttonsValue}`;
     const hash = crypto.createHash('sha1').update(hashInput).digest('hex').substring(0, 16);
     
@@ -616,8 +626,18 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
       if (recent.message_id && recent.message_id === message_id) continue;
       
       // Calcular hash del mensaje reciente
-      const recentButtons = recent.buttons ? 
-        (Array.isArray(recent.buttons) ? recent.buttons.map(b => b.value || b.token || b.text || '').join('|') : String(recent.buttons)) : '';
+      // HARDENING: Filtrar falsy antes de mapear para evitar crash con undefined
+      const safeRecentButtons = Array.isArray(recent.buttons) ? recent.buttons.filter(Boolean) : recent.buttons;
+      const recentButtons = safeRecentButtons ? 
+        (Array.isArray(safeRecentButtons)
+          ? safeRecentButtons.map(b => {
+              if (!b) return '';
+              if (typeof b === 'string') return b;
+              if (typeof b === 'object') return (b.value || b.token || b.text || '');
+              return String(b);
+            }).join('|')
+          : String(safeRecentButtons))
+        : '';
       const recentHashInput = `${recent.who}|${recent.stage || ''}|${recent.text.substring(0, 200)}|${recentButtons}`;
       const recentHash = crypto.createHash('sha1').update(recentHashInput).digest('hex').substring(0, 16);
       
@@ -5035,6 +5055,7 @@ const BUTTONS = {
   SOLVED: 'BTN_SOLVED',
   PERSIST: 'BTN_PERSIST',
   MORE_TESTS: 'BTN_MORE_TESTS',
+  ADVANCED_TESTS: 'BTN_ADVANCED_TESTS',
   CONNECT_TECH: 'BTN_CONNECT_TECH',
   WHATSAPP: 'BTN_WHATSAPP',
   CLOSE: 'BTN_CLOSE',
@@ -6991,26 +7012,30 @@ Respondé con una explicación clara y útil para el usuario.`
         });
         
         if (smartReply) {
-          // Determinar opciones basadas en el contexto
-          let smartOptions = [];
+          // Determinar opciones basadas en el contexto (tokens)
+          let smartOptionTokens = [];
           
           if (smartAnalysis.needsHumanHelp || smartAnalysis.sentiment === 'frustrated') {
-            smartOptions = [BUTTONS.CONNECT_TECH, BUTTONS.ADVANCED_TESTS, BUTTONS.CLOSE];
+            smartOptionTokens = [BUTTONS.CONNECT_TECH, BUTTONS.ADVANCED_TESTS, BUTTONS.CLOSE];
           } else if (smartAnalysis.problem?.detected) {
             // ✅ Si ya detectamos problema y damos pasos, NO dejar stage en ASK_PROBLEM
             if (session.stage === STATES.ASK_PROBLEM) {
               session.stage = STATES.BASIC_TESTS;
               await saveSession(sid, session); // B2: Asegurar persistencia cuando cambia stage
             }
-            smartOptions = [BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
+            smartOptionTokens = [BUTTONS.ADVANCED_TESTS, BUTTONS.CONNECT_TECH, BUTTONS.CLOSE];
           } else {
-            smartOptions = [BUTTONS.CLOSE];
+            smartOptionTokens = [BUTTONS.CLOSE];
           }
+          
+          // Normalizar tokens a objetos canónicos (Response Contract)
+          const locale = session?.locale || 'es-AR';
+          const smartButtons = buildUiButtonsFromTokens(smartOptionTokens, locale);
           
           await appendAndPersistConversationEvent(session, session.conversationId, 'bot', smartReply, {
             type: 'text',
             stage: session.stage,
-            buttons: smartOptions,
+            buttons: smartButtons,
             ts: nowIso()
           });
           
@@ -7018,8 +7043,8 @@ Respondé con una explicación clara y útil para el usuario.`
             ok: true,
             reply: smartReply,
             stage: session?.stage || 'unknown',
-            options: smartOptions,
-            buttons: smartOptions,
+            options: smartButtons,
+            buttons: smartButtons,
             aiPowered: true
           }, session?.stage || 'unknown', session?.stage || 'unknown', 'smart_ai_response', 'ai_replied', session);
         }

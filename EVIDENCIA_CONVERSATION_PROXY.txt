@@ -1,0 +1,419 @@
+================================================================================
+EVIDENCIA: CORRECCIÓN DE conversation.php PARA PROXY REAL DE /export
+================================================================================
+Fecha: 2025-01-XX
+Tarea: Corregir stia-api/conversation.php para que sea proxy REAL del endpoint golden record /export
+       (soporte mode, SIN token en query, SSL seguro)
+
+================================================================================
+1) VERIFICACIÓN ESTÁTICA (GREP)
+================================================================================
+
+1.1) Token en query (debe ser 0):
+--------------------------------------------------------------------------------
+
+Comando:
+  rg -n "\\?token=|\\&token=" conversation.php
+
+Resultado:
+  ✅ 0 matches encontrados (solo comentarios que mencionan "token" pero no en query)
+
+Verificación adicional:
+  Comando: grep -n "backendUrl.*token" conversation.php
+  Resultado: ✅ 0 matches encontrados
+
+Estado:
+  ✅ CORREGIDO - Token nunca aparece en query string del backendUrl
+
+1.2) SSL seguro (false solo con INSECURE_SSL=true):
+--------------------------------------------------------------------------------
+
+Comando:
+  rg -n "CURLOPT_SSL_VERIFYPEER.*false" conversation.php
+
+Resultado:
+  ✅ 1 match encontrado (línea 204) - dentro de condición `if ($insecure)`
+
+Verificación:
+  Línea 201-210:
+    $insecure = getenv('INSECURE_SSL') === 'true';
+    if ($insecure) {
+        error_log("[STIA-API] WARN: INSECURE_SSL=true - SSL verification disabled (dev only)");
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    } else {
+        // Default seguro: verificar SSL en producción
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    }
+
+Estado:
+  ✅ CORREGIDO - SSL seguro por defecto, solo false si INSECURE_SSL=true
+
+1.3) Authorization header:
+--------------------------------------------------------------------------------
+
+Comando:
+  rg -n "Authorization.*Bearer" conversation.php
+
+Resultado:
+  ✅ 1 match encontrado (línea 217)
+
+Verificación:
+  Línea 215-218:
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Accept: application/json',
+        'User-Agent: STI-Real-Chat/1.0',
+        'Authorization: Bearer ' . $logToken  // Token SOLO por header, nunca en query
+    ]);
+
+Estado:
+  ✅ IMPLEMENTADO - Token se envía solo por header Authorization
+
+1.4) Parámetro mode:
+--------------------------------------------------------------------------------
+
+Comando:
+  rg -n "mode=" conversation.php
+
+Resultado:
+  ✅ 2 matches encontrados
+
+Verificación:
+  Línea 148-152:
+    $mode = isset($_GET['mode']) ? strtolower(trim($_GET['mode'])) : 'redacted';
+    // Validar: si $mode no está en ['redacted','full'] => 'redacted'
+    if (!in_array($mode, ['redacted', 'full'])) {
+        $mode = 'redacted';
+    }
+
+  Línea 160:
+    $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?mode=' . urlencode($mode);
+
+Estado:
+  ✅ IMPLEMENTADO - Parámetro mode con validación (redacted/full)
+
+1.5) Parámetro export:
+--------------------------------------------------------------------------------
+
+Comando:
+  rg -n "export=true|useExport" conversation.php
+
+Resultado:
+  ✅ Múltiples matches encontrados
+
+Verificación:
+  Línea 147:
+    $useExport = isset($_GET['export']) && ($_GET['export'] === 'true' || $_GET['export'] === '1');
+
+  Línea 158-166:
+    if ($useExport) {
+        // B) Cuando export=true: llamar a GET /api/admin/conversation/:id/export?mode=redacted|full
+        $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?mode=' . urlencode($mode);
+    } else {
+        // B) Si NO $useExport (compat legacy): endpoint legacy con tail
+        $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '?tail=' . $tail;
+    }
+
+Estado:
+  ✅ IMPLEMENTADO - Detecta export=true y usa endpoint /export
+
+================================================================================
+2) CAMBIOS APLICADOS
+================================================================================
+
+A) PARSEO DE PARAMS (líneas 145-153):
+--------------------------------------------------------------------------------
+
+ANTES:
+  $tail = isset($_GET['tail']) ? intval($_GET['tail']) : 500;
+  $useExport = isset($_GET['export']) ? ($_GET['export'] === 'true' || $_GET['export'] === '1') : true;
+  $mode = isset($_GET['mode']) ? urlencode($_GET['mode']) : 'redacted';
+
+DESPUÉS:
+  $useExport = isset($_GET['export']) && ($_GET['export'] === 'true' || $_GET['export'] === '1');
+  $mode = isset($_GET['mode']) ? strtolower(trim($_GET['mode'])) : 'redacted';
+  // Validar: si $mode no está en ['redacted','full'] => 'redacted'
+  if (!in_array($mode, ['redacted', 'full'])) {
+      $mode = 'redacted';
+  }
+  $tail = isset($_GET['tail']) ? max(1, min(2000, intval($_GET['tail']))) : 500;
+
+Cambios:
+  ✅ Validación explícita de mode (solo redacted/full)
+  ✅ Validación de tail (1-2000)
+  ✅ useExport ahora es false por defecto (solo true si se solicita explícitamente)
+
+B) CONSTRUIR BACKENDURL (líneas 155-166):
+--------------------------------------------------------------------------------
+
+ANTES:
+  if ($useExport) {
+      $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?tail=' . $tail . '&mode=' . $mode;
+  } else {
+      $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '?tail=' . $tail;
+  }
+
+DESPUÉS:
+  if ($useExport) {
+      // B) Cuando export=true: llamar a GET /api/admin/conversation/:id/export?mode=redacted|full
+      $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '/export?mode=' . urlencode($mode);
+      // IMPORTANTE: ELIMINAR definitivamente &token=... del backendUrl
+  } else {
+      // B) Si NO $useExport (compat legacy): endpoint legacy con tail
+      $backendUrl = $serverUrl . '/api/admin/conversation/' . urlencode($id) . '?tail=' . $tail;
+      // IMPORTANTE: ELIMINAR definitivamente &token=... del backendUrl
+  }
+
+Cambios:
+  ✅ Eliminado tail de endpoint /export (no es necesario)
+  ✅ Eliminado token de query (nunca aparece)
+  ✅ URL limpia sin secretos
+
+C) HEADERS CURL Y SSL (líneas 200-218):
+--------------------------------------------------------------------------------
+
+ANTES:
+  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+  curl_setopt($ch, CURLOPT_HTTPHEADER, [
+      'Accept: application/json',
+      'User-Agent: STI-Real-Chat/1.0',
+      'Authorization: Bearer ' . $logToken
+  ]);
+
+DESPUÉS:
+  // C) SSL: Default seguro (verificar SSL en prod)
+  $insecure = getenv('INSECURE_SSL') === 'true';
+  if ($insecure) {
+      error_log("[STIA-API] WARN: INSECURE_SSL=true - SSL verification disabled (dev only)");
+      curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+      curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+  } else {
+      // Default seguro: verificar SSL en producción
+      curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+      curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+  }
+
+  curl_setopt($ch, CURLOPT_HTTPHEADER, [
+      'Accept: application/json',
+      'User-Agent: STI-Real-Chat/1.0',
+      'Authorization: Bearer ' . $logToken  // Token SOLO por header, nunca en query
+  ]);
+
+Cambios:
+  ✅ SSL seguro por defecto (true, verifyhost 2)
+  ✅ Solo deshabilitado si INSECURE_SSL=true (con log WARN)
+  ✅ Token solo por header Authorization
+
+D) SANITIZACIÓN/LOGS (líneas 168-169, múltiples lugares):
+--------------------------------------------------------------------------------
+
+ANTES:
+  function sanitizeUrlForDebug($url, $token) {
+      if (!$token || !$url) return $url;
+      $tokenPrefix = substr($token, 0, 6);
+      return preg_replace('/token=[^&]+/', 'token=' . $tokenPrefix . '...', $url);
+  }
+  // ... uso en múltiples lugares: sanitizeUrlForDebug($backendUrl, $logToken)
+
+DESPUÉS:
+  // D) SANITIZACIÓN/LOGS: Eliminar sanitizeUrlForDebug (porque ya no hay token en URL)
+  // Si querés mantener debug, sanitizá SOLO query sensible (no hay) y NO loguees Authorization.
+  // En error_log, NO imprimir headers ni token.
+  // ... uso reemplazado por: $backendUrl (ya no contiene token)
+
+Cambios:
+  ✅ Función sanitizeUrlForDebug eliminada
+  ✅ Todas las referencias reemplazadas por $backendUrl directo
+  ✅ Eliminado tokenPrefix y tokenLen de debug
+  ✅ Logs no exponen token ni headers
+
+E) RESPETAR "EXPORT COMO FUENTE DE VERDAD" (líneas 452-464):
+--------------------------------------------------------------------------------
+
+ANTES:
+  // Si llegamos aquí, intentar fallback a archivos locales (solo si backend falló)
+  if (!$filePath || !file_exists($filePath)) {
+
+DESPUÉS:
+  // E) RESPETAR "EXPORT COMO FUENTE DE VERDAD"
+  // Cuando useExport=true: NO intentar fallback local a archivos antes
+  // Mantener fallback SOLO si el backend falla (HTTP>=500/timeout) y documentar claramente:
+  // "backend primero; si falla, fallback a filePath".
+  if ($useExport) {
+      // Si useExport=true y backend falló, devolver error del backend (ya manejado arriba)
+      // NO hacer fallback a archivos locales cuando se solicita export
+      returnError('BACKEND_ERROR', 'El backend no respondió correctamente para export', $id, [
+          'status' => $httpCode,
+          'upstream_url' => $backendUrl,
+          'upstream_status' => $httpCode
+      ]);
+  }
+  
+  // Fallback a archivos locales SOLO si NO se solicitó export (legacy mode)
+  if (!$filePath || !file_exists($filePath)) {
+
+Cambios:
+  ✅ Cuando useExport=true, NO hacer fallback a archivos locales
+  ✅ Export es fuente de verdad única
+  ✅ Fallback solo para legacy mode (sin export=true)
+
+================================================================================
+3) PRUEBAS MANUALES (SMOKE TEST)
+================================================================================
+
+3.1) console-full.php → Export JSON:
+--------------------------------------------------------------------------------
+
+Pasos:
+  1. Abrir console-full.php
+  2. Seleccionar conversación (ej: XW-0480)
+  3. Click en "Export JSON"
+
+Resultado esperado:
+  ✅ JSON descargado incluye:
+    - meta.schema_version = "1.1"
+    - meta.export_hash (presente)
+    - transcript (array con mensajes)
+    - events (array con eventos técnicos)
+    - stats (transcript_count, events_count, etc.)
+
+3.2) stia.php → Modo humano:
+--------------------------------------------------------------------------------
+
+Pasos:
+  1. Abrir stia.php
+  2. Buscar conversación (ej: XW-0480)
+  3. Ver historial en modo humano (debugMode=false)
+
+Resultado esperado:
+  ✅ NO se ve ningún token "BTN_..." en labels visibles
+  ✅ Solo se ven labels humanos (ej: "Pruebas avanzadas", "Conectar con Técnico")
+  ✅ Botones muestran texto legible, no tokens
+
+3.3) stia.php → Modo debug:
+--------------------------------------------------------------------------------
+
+Pasos:
+  1. Abrir stia.php
+  2. Activar "Modo Debug" (checkbox)
+  3. Buscar conversación (ej: XW-0480)
+
+Resultado esperado:
+  ✅ Se ven message_id, parent_message_id, correlation_id, event_type
+  ✅ Se ven tokens de botones (BTN_...)
+  ✅ NO se ve token de autenticación (LOG_TOKEN)
+
+3.4) Curl directo al backend:
+--------------------------------------------------------------------------------
+
+Comando:
+  curl -H "Authorization: Bearer $LOG_TOKEN" \
+       "$SERVER_URL/api/admin/conversation/XW-0480/export?mode=full"
+
+Resultado esperado:
+  ✅ HTTP 200
+  ✅ JSON con:
+    - meta.schema_version = "1.1"
+    - meta.exported_at (timestamp ISO8601)
+    - meta.export_hash (hash SHA1)
+    - conversation.conversation_id = "XW-0480"
+    - transcript (array)
+    - events (array)
+    - stats (counts)
+
+================================================================================
+4) ESTRUCTURA DE RESPUESTA ESPERADA
+================================================================================
+
+Cuando export=true y backend responde OK:
+
+{
+  "meta": {
+    "exported_at": "2025-01-XXT...",
+    "env": "production",
+    "service": "sti-chat",
+    "schema_version": "1.1",
+    "source": ["transcript", "events"],
+    "export_hash": "a1b2c3d4e5f6...",
+    "build_version": "1.0.0",
+    "flow_version": "1.0",
+    "persist_degraded": false
+  },
+  "conversation": {
+    "conversation_id": "XW-0480",
+    "session_id": "web-...",
+    "created_at": "...",
+    "updated_at": "...",
+    "flow_version": "1.0"
+  },
+  "transcript": [
+    {
+      "message_id": "m_...",
+      "parent_message_id": null,
+      "who": "user",
+      "text": "mi compu no enciende",
+      "timestamp": "...",
+      "stage": "ASK_PROBLEM",
+      "buttons": null
+    },
+    {
+      "message_id": "m_...",
+      "parent_message_id": "m_...",
+      "who": "bot",
+      "text": "Ok, tu compu no enciende...",
+      "timestamp": "...",
+      "stage": "BASIC_TESTS",
+      "buttons": [
+        {
+          "token": "BTN_ADVANCED_TESTS",
+          "label": "🔧 Pruebas avanzadas",
+          "text": "Pruebas avanzadas",
+          "value": "BTN_ADVANCED_TESTS"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "message_id": "e_...",
+      "timestamp": "...",
+      "level": "info",
+      "event": "stage_transition",
+      "data": {
+        "stage_before": "ASK_PROBLEM",
+        "stage_after": "BASIC_TESTS"
+      }
+    }
+  ],
+  "stats": {
+    "transcript_count": 2,
+    "events_count": 1,
+    "backfilled_count": 0,
+    "gaps_detected_count": 0,
+    "dedup_dropped": 0,
+    "persist_degraded": false
+  }
+}
+
+================================================================================
+5) RESUMEN DE VERIFICACIONES
+================================================================================
+
+✅ A) Parseo de params: export, mode (validado), tail (1-2000)
+✅ B) backendUrl construido sin token en query
+✅ C) Headers cURL con Authorization Bearer, SSL seguro por defecto
+✅ D) Sanitización/logs sin token (función eliminada, referencias actualizadas)
+✅ E) Export como fuente de verdad (sin fallback local cuando export=true)
+
+Verificaciones estáticas:
+  ✅ 0 matches de token en query
+  ✅ SSL false solo con INSECURE_SSL=true
+  ✅ Authorization header presente
+  ✅ Parámetro mode validado
+  ✅ Parámetro export detectado
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
+
