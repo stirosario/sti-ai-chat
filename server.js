@@ -6587,7 +6587,22 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   // 🔒 LOG DE INICIO DE REQUEST (para detectar cuelgues)
   const requestStartTime = Date.now();
   const body = req.body || {};
-  const action = body.action || (body.buttonToken || body.button?.token ? 'button' : 'text');
+  
+  // 🔒 NORMALIZAR ACTION: mapear "text" a "message" para unificación de rutas
+  let action = String(body.action || '').toLowerCase();
+  
+  // Compatibilidad: algunas UIs envían "text", pero internamente usamos "message"
+  if (action === 'text') {
+    action = 'message';
+    console.log('[ACTION_NORMALIZE] action="text" normalizado a "message"');
+  }
+  
+  // Si viene vacío, determinar por presencia de botón
+  const hasButton = !!(body.buttonToken || body.button?.token || body.value);
+  if (!action) {
+    action = hasButton ? 'button' : 'message';
+  }
+  
   const msgLen = String(body.text || body.message || body.userText || '').length;
   
   try {
@@ -8147,7 +8162,7 @@ Before we continue, please note:
 
     if (session.stage === STATES.ASK_NAME) {
       console.log('[ASK_NAME] ✅ BLOQUE ASK_NAME EJECUTADO');
-      console.log('[ASK_NAME] DEBUG - hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
+      console.log('[ASK_NAME] DEBUG - action:', action, 'hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
       console.log('[ASK_NAME] DEBUG - t:', t, 'effectiveText:', effectiveText);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
@@ -9568,7 +9583,7 @@ La guía debe ser:
       broadcastLog(entry);
     } catch (e) { /* noop */ }
 
-    // 🔒 GUARD-RAIL FINAL: NUNCA salir sin responder
+    // 🔒 GUARD-RAIL FINAL: NUNCA salir sin responder (verificar antes de enviar)
     if (!response || typeof response.reply !== 'string') {
       const msg = `[NO_RESPONSE_GUARD] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} msgLen=${msgLen}`;
       console.error(msg);
@@ -9579,6 +9594,10 @@ La guía debe ser:
         ? '⚠️ There was an internal problem processing your message. Please try again.'
         : '⚠️ Hubo un problema interno procesando tu mensaje. Por favor, probá de nuevo.';
       
+      // 🔒 LOG: Fin de request (fallback error)
+      const duration = Date.now() - requestStartTime;
+      console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} replyLen=${errorReply.length} duration=${duration}ms [FALLBACK_ERROR]`);
+      
       return res.status(200).json({
         ok: false,
         reply: errorReply,
@@ -9586,6 +9605,12 @@ La guía debe ser:
         stage: session?.stage || 'UNKNOWN',
         allowWhatsapp: false
       });
+    }
+    
+    // 🔒 GUARD-RAIL ADICIONAL: Verificar que headers no se hayan enviado ya
+    if (res.headersSent) {
+      console.warn(`[RESPONSE_ALREADY_SENT] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} - response ya fue enviada, evitando doble respuesta`);
+      return; // Ya se envió respuesta, no hacer nada
     }
     
     // 🔒 LOG: Fin de request (caso normal)
@@ -9601,6 +9626,26 @@ La guía debe ser:
     console.error(`[CHAT_REQ_ERROR] sid=${sidForError}... action=${action} msgLen=${msgLen} duration=${duration}ms error:`, e.message);
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
+    
+    // 🔒 GUARD-RAIL EN CATCH: Si no se envió respuesta, enviar error
+    if (!res.headersSent) {
+      const locale = (await getSession(sidForError))?.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const errorReply = isEn
+        ? '⚠️ There was an error processing your message. Please try again.'
+        : '⚠️ Hubo un error procesando tu mensaje. Por favor, probá de nuevo.';
+      
+      console.log(`[CHAT_REQ_END] sid=${sidForError}... action=${action} replyLen=${errorReply.length} duration=${duration}ms [ERROR_CATCH]`);
+      
+      return res.status(200).json({
+        ok: false,
+        reply: errorReply,
+        sid: sidForError,
+        stage: 'UNKNOWN',
+        allowWhatsapp: false,
+        error: 'internal_error'
+      });
+    }
 
     // Intentar obtener locale de la request o usar default
     let locale = 'es-AR';
