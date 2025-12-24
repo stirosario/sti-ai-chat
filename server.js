@@ -8087,9 +8087,12 @@ Before we continue, please note:
     //
     // ========================================================
     // ASK_NAME consolidated: validate locally and with OpenAI if available
+    console.log('[STAGE_ROUTER] Checking stage:', session.stage, 'STATES.ASK_NAME:', STATES.ASK_NAME);
 
     if (session.stage === STATES.ASK_NAME) {
+      console.log('[ASK_NAME] ✅ BLOQUE ASK_NAME EJECUTADO');
       console.log('[ASK_NAME] DEBUG - hasButtonToken:', !!buttonToken, 'textLength:', effectiveText?.length || 0);
+      console.log('[ASK_NAME] DEBUG - t:', t, 'effectiveText:', effectiveText);
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
 
