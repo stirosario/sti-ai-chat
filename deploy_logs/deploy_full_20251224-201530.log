@@ -1,0 +1,40 @@
+=== STI DEPLOY FULL (20251224-201530) === 
+Repo: C:\sti-ai-chat
+Log : C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log
+
+[INFO] Kill node/nodemon/pm2 (liberar locks)
+[CMD]  "Kill node/nodemon/pm2 (liberar locks)"   cmd /c "taskkill /F /IM node.exe >nul 2>&1 & taskkill /F /IM nodemon.exe >nul 2>&1 & taskkill /F /IM pm2.exe >nul 2>&1"
+El sistema no puede encontrar la ruta especificada.
+
+[FAIL] Paso fallido: Kill node/nodemon/pm2 (liberar locks)
+[FAIL] Ocurrio un error. Revisar log: C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log
+[INFO] Git safe.directory
+[CMD]  "Git safe.directory" git config --global --add safe.directory "C:\sti-ai-chat"
+""Git safe.directory"" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+[INFO] errorlevel=9009
+
+[FAIL] Paso fallido: Git safe.directory
+[FAIL] Ocurrio un error. Revisar log: C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log
+[INFO] Git fetch origin
+[CMD]  "Git fetch origin" git fetch origin
+""Git fetch origin"" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+[INFO] errorlevel=9009
+
+[FAIL] Paso fallido: Git fetch origin
+[FAIL] Ocurrio un error. Revisar log: C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log
+[INFO] Git checkout main
+[CMD]  "Git checkout main" git checkout main
+""Git checkout main"" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+[INFO] errorlevel=9009
+
+[FAIL] Paso fallido: Git checkout main
+[FAIL] Ocurrio un error. Revisar log: C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log
+[INFO] Git reset --hard origin/main
+[CMD]  "Git reset --hard origin/main" git reset --hard origin/main
+El sistema no puede encontrar la ruta especificada.
+
+[FAIL] Paso fallido: Git reset --hard origin/main
+[FAIL] Ocurrio un error. Revisar log: C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201530.log

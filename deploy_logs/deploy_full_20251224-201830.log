@@ -1,0 +1,52 @@
+=== STI DEPLOY FULL (20251224-201830) === 
+Repo: C:\sti-ai-chat
+Log : C:\sti-ai-chat\deploy_logs\deploy_full_20251224-201830.log
+
+[INFO] Kill node/nodemon/pm2 (liberar locks)
+[INFO] errorlevel=128
+[FAIL] Paso fallido: Kill node/nodemon/pm2 (liberar locks
+[INFO] Git safe.directory
+[CMD]  git config --global --add safe.directory ""C:\sti-ai-chat""
+[INFO] Git fetch origin
+[CMD]  git fetch origin
+[INFO] Git checkout main
+[CMD]  git checkout main
+Your branch is up to date with 'origin/main'.
+Already on 'main'
+[INFO] Git reset --hard origin/main
+[CMD]  git reset --hard origin/main
+HEAD is now at a6d82ac deploy: 24122025-1555
+[INFO] Git clean (excluye deploy_logs)
+[CMD]  git clean -fd -e deploy_logs/
+[FAIL] Cmd: git clean -fd -e deploy_logs/
+[INFO] npm cache clean --force
+[CMD]  npm cache clean --force
+npm warn using --force Recommended protections disabled.
+[INFO] npm ci
+[CMD]  npm ci
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 186 packages, and audited 187 packages in 5s
+
+34 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+[OK] Deploy completo. Iniciando server...
+
+> sti-ai-chat@1.0.0 start
+> node server.js
+
+[Redis] ⚠️ REDIS_URL not set - using in-memory store (sessions will be lost on restart)
+[INIT] deviceDetection imported successfully: function
+[INIT] DEVICE_DISAMBIGUATION keys: 6
+[WARN] ALLOWED_ORIGINS no configurada. Usando valores por defecto.
+[SMART_MODE] 🧠 Modo Super Inteligente: ✅ ACTIVADO
+[CONVERSATION_ID] Archivo de IDs no existe, se creará al generar el primero
+[CORS] Development mode: localhost origins enabled
+STI Chat (v7) started on 3001
+[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)
+[Performance] Compression enabled (gzip/brotli)
+[Performance] Session cache enabled (max 1000 sessions)
+^C^C^C
