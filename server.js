@@ -8289,7 +8289,8 @@ Before we continue, please note:
     let options = [];
 
     if (session.stage === STATES.ASK_PROBLEM) {
-      session.problem = effectiveText || session.problem;
+      try {
+        session.problem = effectiveText || session.problem;
       console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
 
@@ -8676,7 +8677,39 @@ Before we continue, please note:
 
       // Generate and show steps
       return await generateAndShowSteps(session, sid, res);
-
+      } catch (askProblemErr) {
+        console.error('[ASK_PROBLEM] Error en handler:', askProblemErr && askProblemErr.message);
+        console.error('[ASK_PROBLEM] Stack:', askProblemErr && askProblemErr.stack);
+        
+        // Asegurar que session.stage se mantenga consistente
+        const currentStage = session.stage || STATES.ASK_PROBLEM;
+        const locale = session.userLocale || 'es-AR';
+        const isEn = String(locale).toLowerCase().startsWith('en');
+        const whoLabel = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+        
+        const errorReply = isEn
+          ? `I'm sorry, ${whoLabel}. I had trouble processing your message. Could you please rephrase the problem?`
+          : (locale === 'es-419'
+            ? `Lo siento, ${whoLabel}. Tuve problemas procesando tu mensaje. ¿Puedes reformular el problema?`
+            : `Disculpame, ${whoLabel}. Tuve problemas procesando tu mensaje. ¿Podés reformular el problema?`);
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', errorReply, {
+          type: 'text',
+          stage: currentStage,
+          ts: nowIso()
+        });
+        
+        // Asegurar que el stage se mantenga en ASK_PROBLEM
+        session.stage = STATES.ASK_PROBLEM;
+        await saveSession(sid, session);
+        
+        return res.json(withOptions({ 
+          ok: false, 
+          reply: errorReply, 
+          stage: currentStage, 
+          options: [] 
+        }));
+      }
     } else if (session.stage === STATES.ASK_HOWTO_DETAILS) {
       // User is responding with OS + device model for how-to guide
       const userResponse = t.toLowerCase();
@@ -9384,7 +9417,7 @@ La guía debe ser:
       console.error('[response-ui] Error construyendo botones UI', e && e.message);
     }
 
-    if (session.waEligible) response.allowWhatsapp = true;
+    response.allowWhatsapp = !!(session.waEligible);
 
     try {
       const shortLog = `${sid} => reply len=${String(reply || '').length} options=${(options || []).length}`;
@@ -9392,9 +9425,9 @@ La guía debe ser:
       appendToLogFile(entry);
       broadcastLog(entry);
     } catch (e) { /* noop */ }
-    }
 
     return res.json(response);
+    }
   } catch (e) {
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
