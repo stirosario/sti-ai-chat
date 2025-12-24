@@ -8291,7 +8291,7 @@ Before we continue, please note:
     if (session.stage === STATES.ASK_PROBLEM) {
       try {
         session.problem = effectiveText || session.problem;
-      console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
+        console.log('[ASK_PROBLEM] session.device:', session.device, 'session.problem:', session.problem);
       console.log('[ASK_PROBLEM] imageContext:', imageContext ? 'YES (' + imageContext.length + ' chars)' : 'NO');
 
       // 🖼️ SI HAY ANÁLISIS DE IMAGEN, RESPONDER CON ESE ANÁLISIS PRIMERO
@@ -9396,7 +9396,8 @@ La guía debe ser:
       fs.appendFile(tf, botLine, () => { });
     } catch (e) { /* noop */ }
 
-    const response = withOptions({ ok: true, reply, sid, stage: session.stage });
+    // A) Declarar response en el scope correcto (let en lugar de const)
+    let response = withOptions({ ok: true, reply, sid, stage: session.stage });
     if (typeof endConversation !== 'undefined' && endConversation) {
       response.endConversation = true;
     }
@@ -9427,7 +9428,6 @@ La guía debe ser:
     } catch (e) { /* noop */ }
 
     return res.json(response);
-    }
   } catch (e) {
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
@@ -9436,8 +9436,9 @@ La guía debe ser:
     let locale = 'es-AR';
     let sid = req.sessionId;
     let conversationId = null;
+    let existingSession = null;
     try {
-      const existingSession = await getSession(sid);
+      existingSession = await getSession(sid);
       if (existingSession && existingSession.userLocale) {
         locale = existingSession.userLocale;
       }
@@ -9461,7 +9462,17 @@ La guía debe ser:
     const errorMsg = isEn
       ? '😅 I had a momentary problem. Please try again.'
       : '😅 Tuve un problema momentáneo. Probá de nuevo.';
-    return res.status(200).json(withOptions({ ok: true, reply: errorMsg }));
+    
+    // D) Respuesta de error SIEMPRE JSON con estructura completa
+    const errorResponse = {
+      ok: false,
+      reply: errorMsg,
+      sid: sid || 'unknown',
+      stage: existingSession?.stage || 'UNKNOWN',
+      allowWhatsapp: false
+    };
+    
+    return res.status(200).json(errorResponse);
   }
 });
 
