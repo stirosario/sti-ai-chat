@@ -9428,7 +9428,6 @@ La guía debe ser:
     } catch (e) { /* noop */ }
 
     return res.json(response);
-  }
   } catch (e) {
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
