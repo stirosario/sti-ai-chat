@@ -5446,6 +5446,11 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
     let session = await getSession(sid);
     let conversationId = session?.conversationId;
     
+    // 🔒 FORZAR ASK_CONSENT: Si no hay sesión o no ha dado consentimiento, SIEMPRE mostrar GDPR
+    // Esto asegura que siempre se muestre GDPR al inicio, incluso si hay una sesión previa sin consentimiento
+    const hasConsent = session?.gdprConsent === true;
+    const shouldShowConsent = !session || !hasConsent;
+    
     if (!conversationId) {
       // Generar nuevo Conversation ID único
       conversationId = await generateAndPersistConversationId(sid);
@@ -5455,7 +5460,7 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       id: sid,
       conversationId: conversationId, // 🆔 Asignar Conversation ID
       userName: null,
-      stage: STATES.ASK_CONSENT,  // A) Comenzar con GDPR (separado de ASK_LANGUAGE)
+      stage: shouldShowConsent ? STATES.ASK_CONSENT : (session?.stage || STATES.ASK_CONSENT),  // A) SIEMPRE comenzar con GDPR si no hay consentimiento
       conversationState: 'greeting',  // greeting, has_name, understanding_problem, solving, resolved
       device: null,
       problem: null,
@@ -5484,7 +5489,12 @@ app.all('/api/greeting', greetingLimiter, async (req, res) => {
       }
     };
     // A) Si stage es ASK_CONSENT, mostrar mensaje GDPR
+    // 🔒 FORZAR GDPR: Asegurar que siempre se muestre si no hay consentimiento
     let fullGreeting;
+    // Forzar ASK_CONSENT si no hay consentimiento
+    if (shouldShowConsent) {
+      fresh.stage = STATES.ASK_CONSENT;
+    }
     if (fresh.stage === STATES.ASK_CONSENT) {
       const gdprText = `📋 **Política de Privacidad y Consentimiento / Privacy Policy & Consent**
 
@@ -5568,6 +5578,12 @@ Before we continue, please note:
       options: fullGreeting.buttons || [],
       buttons: fullGreeting.buttons || [] // Compatibilidad
     };
+    
+    // 🔒 Guardar sesión ANTES de responder para asegurar que el stage esté persistido
+    await saveSession(sid, fresh);
+    
+    // 🔒 Log para debug: verificar que siempre se devuelve GDPR
+    console.log('[GREETING] ✅ Devolviendo greeting - stage:', fresh.stage, 'hasButtons:', (fullGreeting.buttons || []).length, 'textLength:', fullGreeting.text?.length || 0, 'hasConsent:', hasConsent, 'shouldShowConsent:', shouldShowConsent);
     
     // B) Validar Response Contract
     validateResponseContract(response, correlationId);
