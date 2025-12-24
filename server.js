@@ -7470,8 +7470,29 @@ Respondé con una explicación clara y útil para el usuario.`
     logMsg('info', '[CHAT:VISION_PLAN]', { sid, willUseVision, imageUrlsCount: (imageUrlsForAnalysis || []).length });
     
     // Solo analizar si no es un botón (los botones ya tienen intención clara)
-    if (!buttonToken && SMART_MODE_ENABLED && openai) {
-      smartAnalysis = await analyzeUserMessage(t, session, imageUrlsForAnalysis);
+    // 🔒 NO analizar en stages iniciales porque tienen flujo estructurado específico
+    // Estos stages deben usar flujo estructurado sin análisis de IA para evitar timeouts
+    const stagesToSkipAI = [
+      STATES.ASK_CONSENT,
+      STATES.ASK_LANGUAGE,
+      STATES.ASK_NAME
+    ];
+    const shouldSkipAI = stagesToSkipAI.includes(session.stage);
+    
+    if (!buttonToken && SMART_MODE_ENABLED && openai && !shouldSkipAI) {
+      console.log('[SMART_MODE] 🔍 Ejecutando análisis de IA para stage:', session.stage);
+      try {
+        // 🔒 TIMEOUT: Limitar análisis de IA a 8 segundos para evitar timeouts del frontend
+        const analysisPromise = analyzeUserMessage(t, session, imageUrlsForAnalysis);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI analysis timeout (8s)')), 8000)
+        );
+        smartAnalysis = await Promise.race([analysisPromise, timeoutPromise]);
+      } catch (aiError) {
+        console.error('[SMART_MODE] ❌ Error en análisis de IA:', aiError.message);
+        // Continuar sin análisis si falla (fallback seguro)
+        smartAnalysis = { analyzed: false };
+      }
       
       // ========================================================
       // T3: PERSISTIR session.problem cuando SMART_MODE detecta problema
@@ -7521,14 +7542,26 @@ Respondé con una explicación clara y útil para el usuario.`
       if (smartAnalysis.analyzed && !shouldUseStructuredFlow(smartAnalysis, session)) {
         console.log('[SMART_MODE] 🎯 Usando respuesta IA en lugar de flujo estructurado');
         
-        const smartReply = await generateSmartResponse(smartAnalysis, session, {
-          includeNextSteps: true,
-          specificPrompt: smartAnalysis.problem?.detected 
-            ? `El usuario reporta: ${smartAnalysis.problem.summary}. Respondé de forma útil y empática.`
-            : 'Ayudá al usuario a clarificar su problema.'
-        });
+        let smartReply = null;
+        try {
+          // 🔒 TIMEOUT: Limitar generación de respuesta IA a 10 segundos
+          const responsePromise = generateSmartResponse(smartAnalysis, session, {
+            includeNextSteps: true,
+            specificPrompt: smartAnalysis.problem?.detected 
+              ? `El usuario reporta: ${smartAnalysis.problem.summary}. Respondé de forma útil y empática.`
+              : 'Ayudá al usuario a clarificar su problema.'
+          });
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('AI response generation timeout (10s)')), 10000)
+          );
+          smartReply = await Promise.race([responsePromise, timeoutPromise]);
+        } catch (responseError) {
+          console.error('[SMART_MODE] ❌ Error generando respuesta IA:', responseError.message);
+          // Continuar con flujo estructurado si falla la generación de IA
+          smartReply = null;
+        }
         
-        if (smartReply) {
+        if (smartReply && smartReply.trim().length > 0) {
           // Determinar opciones basadas en el contexto (tokens)
           let smartOptionTokens = [];
           
