@@ -9346,6 +9346,7 @@ La guía debe ser:
       const reformBtn = isEn ? 'Rephrase Problem' : 'Reformular Problema';
       options = [reformBtn];
     }
+    // End of stage handlers if-else chain
 
     // Save bot reply + persist transcripts to file (single ts pair)
     const pairTs = nowIso();
@@ -9391,6 +9392,7 @@ La guía debe ser:
       appendToLogFile(entry);
       broadcastLog(entry);
     } catch (e) { /* noop */ }
+    }
 
     return res.json(response);
   } catch (e) {
