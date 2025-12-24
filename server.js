@@ -6584,12 +6584,19 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     return res.json(response);
   };
 
+  // 🔒 LOG DE INICIO DE REQUEST (para detectar cuelgues)
+  const requestStartTime = Date.now();
+  const body = req.body || {};
+  const action = body.action || (body.buttonToken || body.button?.token ? 'button' : 'text');
+  const msgLen = String(body.text || body.message || body.userText || '').length;
+  
   try {
-    const body = req.body || {};
-    
     // Validación: sid (soft fallback si inválido)
     const sidRaw = body?.sessionId || req.query?.sessionId || req.sessionId;
     const sid = safeSessionId(sidRaw, generateSessionId());
+    
+    // 🔒 LOG: Inicio de request
+    console.log(`[CHAT_REQ_START] sid=${sid.substring(0, 20)}... action=${action} msgLen=${msgLen} correlationId=${correlationId}`);
     if (sid !== sidRaw && sidRaw) {
       // Si se reemplazó, actualizar req.sessionId para compatibilidad
       req.sessionId = sid;
@@ -8148,7 +8155,9 @@ Before we continue, please note:
       // 🔘 Detectar botón "Prefiero no decirlo"
       if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || /prefiero\s*no\s*(decir|say)/i.test(effectiveText)) {
         session.userName = isEn ? 'User' : 'Usuari@';
-        session.stage = STATES.ASK_PROBLEM;
+        session.id = sid; // Asegurar que session.id esté configurado para setStage
+        await setStage(session, STATES.ASK_PROBLEM, 'prefer_not_to_say_text', { session_id: sid });
+        await saveSession(sid, session);
 
         const reply = isEn
           ? `✅ No problem! Let's continue.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
@@ -8159,20 +8168,28 @@ Before we continue, please note:
           stage: session.stage,
           ts: nowIso()
         });
-
-        return res.json({
+        
+        const response = {
           ok: true,
           reply,
           stage: session.stage,
           options: [],
           buttons: []
-        });
+        };
+        
+        // 🔒 LOG: Fin de request ASK_NAME (prefer_not_to_say)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME->ASK_PROBLEM action=text replyLen=${reply.length} duration=${duration}ms`);
+
+        return res.json(response);
       }
 
       // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
       if ((session.nameAttempts || 0) >= 5) {
         session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_PROBLEM;
+        session.id = sid; // Asegurar que session.id esté configurado para setStage
+        await setStage(session, STATES.ASK_PROBLEM, 'nameAttempts_limit', { session_id: sid });
+        await saveSession(sid, session);
 
         const reply = isEn
           ? `Let's continue without your name.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
@@ -8185,13 +8202,22 @@ Before we continue, please note:
           stage: session.stage,
           ts: nowIso()
         });
-        return res.json(withOptions({ ok: true, reply, stage: session.stage, options: [] }));
+        
+        const response = withOptions({ ok: true, reply, stage: session.stage, options: [] });
+        
+        // 🔒 LOG: Fin de request ASK_NAME (max attempts)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME->ASK_PROBLEM action=text replyLen=${reply.length} duration=${duration}ms`);
+        
+        return res.json(response);
       }
 
       // Prefiero no decirlo (texto o botón)
       if (NO_NAME_RX.test(t) || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅') {
         session.userName = isEn ? 'User' : 'Usuario';
-        session.stage = STATES.ASK_PROBLEM;
+        session.id = sid; // Asegurar que session.id esté configurado para setStage
+        await setStage(session, STATES.ASK_PROBLEM, 'BTN_NO_NAME', { session_id: sid });
+        await saveSession(sid, session);
 
         const reply = isEn
           ? `No problem, we'll continue without your name.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
@@ -8204,68 +8230,124 @@ Before we continue, please note:
           stage: session.stage,
           ts: nowIso()
         });
-        return res.json(withOptions({
+        
+        const response = withOptions({
           ok: true,
           reply,
           stage: session.stage,
           options: []
-        }));
+        });
+        
+        // 🔒 LOG: Fin de request ASK_NAME (BTN_NO_NAME)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME->ASK_PROBLEM action=button replyLen=${reply.length} duration=${duration}ms`);
+        
+        return res.json(response);
+      }
+
+      // 🔒 FALLBACK: Si el texto está vacío, pedir nombre de nuevo (no colgar)
+      if (!t || String(t).trim().length === 0) {
+        const reply = isEn
+          ? "I didn't receive a name. Could you tell me your name? For example: \"Ana\" or \"John Paul\"."
+          : (locale === 'es-419'
+            ? "No recibí un nombre. ¿Podrías decirme tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\"."
+            : "No recibí un nombre. ¿Podés decirme tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".");
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+        await saveSession(sid, session);
+        
+        const response = withOptions({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [
+            { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
+          ]
+        });
+        
+        // 🔒 LOG: Fin de request ASK_NAME (empty text)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME action=empty replyLen=${reply.length} duration=${duration}ms`);
+        
+        return res.json(response);
       }
 
       // Si el texto claramente parece un problema o frase genérica, pedimos solo el nombre
       if (looksClearlyNotName(t)) {
         session.nameAttempts = (session.nameAttempts || 0) + 1;
+        await saveSession(sid, session);
 
         const reply = isEn
-          ? "I didn't detect a name. Could you tell me just your name? For example: “Ana” or “John Paul”."
+          ? "I didn't detect a name. Could you tell me just your name? For example: \"Ana\" or \"John Paul\"."
           : (locale === 'es-419'
-            ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”."
-            : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: “Ana” o “Juan Pablo”.");
+            ? "No detecté un nombre. ¿Podrías decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\"."
+            : "No detecté un nombre. ¿Podés decirme solo tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".");
 
         await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
           type: 'text',
           stage: session.stage,
           ts: nowIso()
         });
-        return res.json(withOptions({
+        
+        const response = withOptions({
           ok: true,
           reply,
           stage: session.stage,
           options: [
             { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
           ]
-        }));
+        });
+        
+        // 🔒 LOG: Fin de request ASK_NAME (not a name)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME action=text replyLen=${reply.length} duration=${duration}ms`);
+        
+        return res.json(response);
       }
 
       const candidate = extractName(t);
       if (!candidate || !isValidName(candidate)) {
         session.nameAttempts = (session.nameAttempts || 0) + 1;
+        await saveSession(sid, session);
 
         const reply = isEn
-          ? "I didn't detect a valid name. Please tell me only your name, for example: “Ana” or “John Paul”."
+          ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
           : (locale === 'es-419'
-            ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”."
-            : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: “Ana” o “Juan Pablo”.");
+            ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
+            : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
 
         await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
           type: 'text',
           stage: session.stage,
           ts: nowIso()
         });
-        return res.json(withOptions({
+        
+        const response = withOptions({
           ok: true,
           reply,
           stage: session.stage,
           options: [
             { token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }
           ]
-        }));
+        });
+        
+        // 🔒 LOG: Fin de request ASK_NAME (invalid name)
+        const duration = Date.now() - requestStartTime;
+        console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME action=text replyLen=${reply.length} duration=${duration}ms`);
+        
+        return res.json(response);
       }
 
       // Nombre aceptado - transición directa a ASK_PROBLEM (sin clasificación)
       session.userName = candidate;
-      session.stage = STATES.ASK_PROBLEM;
       session.nameAttempts = 0;
+      session.id = sid; // Asegurar que session.id esté configurado para setStage
+      await setStage(session, STATES.ASK_PROBLEM, 'ASK_NAME_completed', { session_id: sid });
+      await saveSession(sid, session);
 
       const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
       const reply = isEn
@@ -8279,13 +8361,20 @@ Before we continue, please note:
         stage: session.stage,
         ts: nowIso()
       });
-      return res.json({
+      
+      const response = {
         ok: true,
         reply,
         stage: session.stage,
         options: [],
         buttons: []
-      });
+      };
+      
+      // 🔒 LOG: Fin de request ASK_NAME (nombre aceptado)
+      const duration = Date.now() - requestStartTime;
+      console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=ASK_NAME->ASK_PROBLEM action=text replyLen=${reply.length} duration=${duration}ms`);
+      
+      return res.json(response);
     }
 
     // Inline fallback extraction (if we are not in ASK_NAME)
@@ -9479,9 +9568,37 @@ La guía debe ser:
       broadcastLog(entry);
     } catch (e) { /* noop */ }
 
+    // 🔒 GUARD-RAIL FINAL: NUNCA salir sin responder
+    if (!response || typeof response.reply !== 'string') {
+      const msg = `[NO_RESPONSE_GUARD] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} msgLen=${msgLen}`;
+      console.error(msg);
+      
+      const locale = session?.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const errorReply = isEn
+        ? '⚠️ There was an internal problem processing your message. Please try again.'
+        : '⚠️ Hubo un problema interno procesando tu mensaje. Por favor, probá de nuevo.';
+      
+      return res.status(200).json({
+        ok: false,
+        reply: errorReply,
+        sid,
+        stage: session?.stage || 'UNKNOWN',
+        allowWhatsapp: false
+      });
+    }
+    
+    // 🔒 LOG: Fin de request (caso normal)
+    const duration = Date.now() - requestStartTime;
+    console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} replyLen=${String(response?.reply || '').length} duration=${duration}ms`);
+    
     return res.json(response);
   }
   } catch (e) {
+    // 🔒 LOG: Error en request
+    const duration = Date.now() - requestStartTime;
+    const sidForError = body?.sessionId?.substring(0, 20) || 'unknown';
+    console.error(`[CHAT_REQ_ERROR] sid=${sidForError}... action=${action} msgLen=${msgLen} duration=${duration}ms error:`, e.message);
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
 
