@@ -7694,6 +7694,232 @@ Respondé con una explicación clara y útil para el usuario.`
     }
 
     // ========================================================
+    // ETAPA 1.D (P0-FIX): STAGE ROUTER EXPLÍCITO - Manejar stages con handlers específicos ANTES de cualquier otra lógica
+    // ========================================================
+    // Este router se ejecuta ANTES del router de botones y ANTES de cualquier otra lógica
+    // para garantizar que stages como ASK_NAME y ASK_PROBLEM se manejen correctamente
+    console.log(`[ROUTER] enter stage=${session.stage} action=${action} msgLen=${effectiveText?.length || 0} hasButton=${!!buttonToken}`);
+    
+    // ASK_NAME: Procesar texto o botón para recolección de nombre
+    if (session.stage === STATES.ASK_NAME) {
+      console.log(`[ROUTER] handling ASK_NAME - action=${action} hasButton=${!!buttonToken} textLen=${effectiveText?.length || 0}`);
+      
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+
+      // 🔘 Detectar botón "Prefiero no decirlo"
+      if (buttonToken === 'prefiero_no_decirlo' || buttonToken === 'prefer_not_to_say' || buttonToken === 'BTN_NO_NAME' || buttonToken === 'Prefiero no decirlo 🙅' || /prefiero\s*no\s*(decir|say)/i.test(effectiveText)) {
+        session.userName = isEn ? 'User' : 'Usuari@';
+        session.id = sid;
+        await setStage(session, STATES.ASK_PROBLEM, 'prefer_not_to_say', { session_id: sid });
+        await saveSession(sid, session);
+
+        const reply = isEn
+          ? `✅ No problem! Let's continue.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
+          : `✅ ¡Sin problema! Sigamos.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`;
+
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+        
+        const latencyMs = Date.now() - startTime;
+        const clientMessageId = body?.clientEventId || body?.message_id || null;
+        const response = normalizeChatResponse({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [],
+          buttons: []
+        }, session, correlationId, latencyMs, clientMessageId, null);
+        
+        const logTurn = {
+          event: 'CHAT_TURN',
+          timestamp_iso: new Date().toISOString(),
+          correlation_id: correlationId,
+          conversation_id: session?.conversationId || null,
+          session_id: sid || null,
+          message_id: response.message_id || null,
+          parent_message_id: response.parent_message_id || null,
+          client_message_id: clientMessageId || null,
+          stage: response.stage || 'unknown',
+          actor: 'bot',
+          text_preview: maskPII(response.text || '').substring(0, 100),
+          text_length: (response.text || '').length,
+          buttons_count: 0,
+          latency_ms: latencyMs,
+          error_code: null,
+          ok: true
+        };
+        console.log(JSON.stringify(logTurn));
+        console.log(`[ROUTER] handled ASK_NAME_BUTTON ok nextStage=ASK_PROBLEM`);
+        
+        clearHardTimeout();
+        return res.json(response);
+      }
+
+      // Procesar TEXTO para nombre (solo si no es botón)
+      if (!buttonToken && (action === 'message' || action === 'text') && effectiveText && effectiveText.trim().length > 0) {
+        const nameText = effectiveText.trim();
+        
+        // Límite de intentos: después de 5 intentos, seguimos con nombre genérico
+        if ((session.nameAttempts || 0) >= 5) {
+          session.userName = isEn ? 'User' : 'Usuario';
+          session.id = sid;
+          await setStage(session, STATES.ASK_PROBLEM, 'nameAttempts_limit', { session_id: sid });
+          await saveSession(sid, session);
+
+          const reply = isEn
+            ? `Let's continue without your name.\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
+            : (locale === 'es-419'
+              ? `Sigamos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+              : `Sigamos sin tu nombre.\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
+
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+            type: 'text',
+            stage: session.stage,
+            ts: nowIso()
+          });
+          
+          const latencyMs = Date.now() - startTime;
+          const clientMessageId = body?.clientEventId || body?.message_id || null;
+          const response = normalizeChatResponse({
+            ok: true,
+            reply,
+            stage: session.stage,
+            options: [],
+            buttons: []
+          }, session, correlationId, latencyMs, clientMessageId, null);
+          
+          console.log(`[ROUTER] handled ASK_NAME_TEXT maxAttempts nextStage=ASK_PROBLEM`);
+          clearHardTimeout();
+          return res.json(response);
+        }
+
+        // Si el texto está vacío, pedir nombre de nuevo
+        if (!nameText || nameText.length === 0) {
+          const reply = isEn
+            ? "I didn't receive a name. Could you tell me your name? For example: \"Ana\" or \"John Paul\"."
+            : (locale === 'es-419'
+              ? "No recibí un nombre. ¿Podrías decirme tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\"."
+              : "No recibí un nombre. ¿Podés decirme tu nombre? Por ejemplo: \"Ana\" o \"Juan Pablo\".");
+          
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+            type: 'text',
+            stage: session.stage,
+            ts: nowIso()
+          });
+          await saveSession(sid, session);
+          
+          const latencyMs = Date.now() - startTime;
+          const clientMessageId = body?.clientEventId || body?.message_id || null;
+          const response = normalizeChatResponse({
+            ok: true,
+            reply,
+            stage: session.stage,
+            options: [{ token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }],
+            buttons: [{ token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }]
+          }, session, correlationId, latencyMs, clientMessageId, null);
+          
+          console.log(`[ROUTER] handled ASK_NAME_TEXT empty nextStage=ASK_NAME`);
+          clearHardTimeout();
+          return res.json(response);
+        }
+
+        // Extraer y validar nombre
+        const candidate = extractName(nameText);
+        if (!candidate || !isValidName(candidate)) {
+          session.nameAttempts = (session.nameAttempts || 0) + 1;
+          await saveSession(sid, session);
+
+          const reply = isEn
+            ? "I didn't detect a valid name. Please tell me only your name, for example: \"Ana\" or \"John Paul\"."
+            : (locale === 'es-419'
+              ? "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\"."
+              : "No detecté un nombre válido. Decime solo tu nombre, por ejemplo: \"Ana\" o \"Juan Pablo\".");
+
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+            type: 'text',
+            stage: session.stage,
+            ts: nowIso()
+          });
+          
+          const latencyMs = Date.now() - startTime;
+          const clientMessageId = body?.clientEventId || body?.message_id || null;
+          const response = normalizeChatResponse({
+            ok: true,
+            reply,
+            stage: session.stage,
+            options: [{ token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }],
+            buttons: [{ token: 'BTN_NO_NAME', label: isEn ? "I'd rather not say" : "Prefiero no decirlo" }]
+          }, session, correlationId, latencyMs, clientMessageId, null);
+          
+          console.log(`[ROUTER] handled ASK_NAME_TEXT invalid nextStage=ASK_NAME`);
+          clearHardTimeout();
+          return res.json(response);
+        }
+
+        // Nombre válido - transición a ASK_PROBLEM
+        session.userName = candidate;
+        session.nameAttempts = 0;
+        session.id = sid;
+        await setStage(session, STATES.ASK_PROBLEM, 'ASK_NAME_completed', { session_id: sid });
+        await saveSession(sid, session);
+
+        const empatheticMsg = addEmpatheticResponse('ASK_NAME', locale);
+        const reply = isEn
+          ? `${empatheticMsg} Thanks, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfect. Tell me what you need and I'll guide you step by step.\n\nWrite it as it comes to you 👇 (it can be a problem, a question, or something you want to learn/configure).\n\n📌 If you can, add 1 or 2 details (optional):\n• What is it about? (PC / notebook / phone / router / printer / app / account / system)\n• What do you want to achieve or what's happening? (what it does / what it doesn't do / since when)\n• If there's an on-screen message, copy it or tell me roughly what it says\n\n📷 If you have a photo or screenshot, send it with the clip and I'll see it faster 🤖⚡\nIf you don't know the model or there's no error, no problem: describe what you see and that's it 🤖✅`
+          : (locale === 'es-419'
+            ? `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`
+            : `${empatheticMsg} Gracias, ${capitalizeToken(session.userName)}. 👍\n\n🤖 Perfecto. Contame qué necesitás y te guío paso a paso.\n\nEscribilo como te salga 👇 (puede ser un problema, una consulta o algo que querés aprender/configurar).\n\n📌 Si podés, sumá 1 o 2 datos (opcional):\n• ¿Sobre qué es? (PC / notebook / celular / router / impresora / app / cuenta / sistema)\n• ¿Qué querés lograr o qué está pasando? (qué hace / qué no hace / desde cuándo)\n• Si hay mensaje en pantalla, copialo o decime más o menos qué dice\n\n📷 Si tenés una foto o captura, mandala con el clip y lo veo más rápido 🤖⚡\nSi no sabés el modelo o no hay error, no pasa nada: describime lo que ves y listo 🤖✅`);
+
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+        
+        const latencyMs = Date.now() - startTime;
+        const clientMessageId = body?.clientEventId || body?.message_id || null;
+        const response = normalizeChatResponse({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [],
+          buttons: []
+        }, session, correlationId, latencyMs, clientMessageId, null);
+        
+        const logTurn = {
+          event: 'CHAT_TURN',
+          timestamp_iso: new Date().toISOString(),
+          correlation_id: correlationId,
+          conversation_id: session?.conversationId || null,
+          session_id: sid || null,
+          message_id: response.message_id || null,
+          parent_message_id: response.parent_message_id || null,
+          client_message_id: clientMessageId || null,
+          stage: response.stage || 'unknown',
+          actor: 'bot',
+          text_preview: maskPII(response.text || '').substring(0, 100),
+          text_length: (response.text || '').length,
+          buttons_count: 0,
+          latency_ms: latencyMs,
+          error_code: null,
+          ok: true
+        };
+        console.log(JSON.stringify(logTurn));
+        console.log(`[ROUTER] handled ASK_NAME_TEXT ok userName=${candidate} nextStage=ASK_PROBLEM`);
+        
+        clearHardTimeout();
+        return res.json(response);
+      }
+      
+      // Si llegamos aquí con ASK_NAME pero no se procesó (caso inesperado), seguir con lógica normal
+      console.warn(`[ROUTER] ASK_NAME no procesado - action=${action} hasButton=${!!buttonToken} textLen=${effectiveText?.length || 0}`);
+    }
+
+    // ========================================================
     // 🎯 P0: ROUTER GLOBAL DE BOTONES (ANTES de lógica de stage)
     // ========================================================
     // Los botones de control deben rutearse ANTES de cualquier lógica de stage
@@ -8539,7 +8765,14 @@ Before we continue, please note:
     //    - Next stage: ASK_NEED usa userName en saludos
     //
     // ========================================================
+    // ETAPA 1.D (P0-FIX): ASK_NAME handler ANTIGUO - DESHABILITADO (duplicado)
+    // El handler de ASK_NAME ahora está en el STAGE ROUTER EXPLÍCITO más arriba (línea ~7696)
+    // para que se ejecute ANTES del router de botones y ANTES de cualquier otra lógica
+    // Esto evita que caiga en fallback NO_RESPONSE_PATH
+    // ========================================================
     // ASK_NAME consolidated: validate locally and with OpenAI if available
+    // DESHABILITADO: Este handler ya no se ejecuta porque el nuevo handler más arriba lo captura primero
+    /*
     console.log('[STAGE_ROUTER] Checking stage:', session.stage, 'STATES.ASK_NAME:', STATES.ASK_NAME);
 
     if (session.stage === STATES.ASK_NAME) {
@@ -8773,6 +9006,7 @@ Before we continue, please note:
       
       return res.json(response);
     }
+    */
 
     // Inline fallback extraction (if we are not in ASK_NAME)
     {
@@ -10558,8 +10792,15 @@ function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, c
 
 // Start server
 const PORT = process.env.PORT || 3001;
+
+// ETAPA 1.D (P0-FIX): Firma de build para verificar que se ejecuta el archivo correcto
+const BUILD_TAG = process.env.BUILD_TAG || 'local-dev';
+const BUILD_COMMIT = process.env.BUILD_COMMIT || process.env.HEROKU_SLUG_COMMIT || 'unknown';
+console.log(`[BUILD_INFO] STI Chat (v7) - BUILD_TAG: ${BUILD_TAG} - COMMIT: ${BUILD_COMMIT.substring(0, 8)}`);
+
 const server = app.listen(PORT, () => {
   console.log(`STI Chat (v7) started on ${PORT}`);
+  console.log(`[BUILD_INFO] BUILD_TAG: ${BUILD_TAG} - COMMIT: ${BUILD_COMMIT.substring(0, 8)}`);
   console.log('[Logs] SSE available at /api/logs/stream (use token param if LOG_TOKEN set)');
   console.log('[Performance] Compression enabled (gzip/brotli)');
   console.log('[Performance] Session cache enabled (max 1000 sessions)');

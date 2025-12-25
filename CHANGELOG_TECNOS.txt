@@ -171,4 +171,96 @@ NOTAS:
 - Wrapper único centraliza lógica de timeout y logging.
 
 ------------------------------------------------------------
+ID CAMBIO: CHG-20251224-003
+ETAPA: 1.D (P0-FIX)
+ARCHIVO(S): C:\sti-ai-chat\server.js
+MOTIVO:
+- Bug crítico: cuando el usuario ESCRIBE texto en stage=ASK_NAME (ej: "Pablo"), el backend no enruta al handler ASK_NAME y cae en fallback NO_RESPONSE_PATH.
+- El handler de ASK_NAME estaba ubicado después de otras lógicas, causando que el request llegara al fallback antes de ejecutar el handler.
+- El handler antiguo usaba res.json() directamente sin normalizeChatResponse ni logs estructurados.
+- No había logs de diagnóstico para rastrear el flujo de enrutado por stage.
+
+ANTES (snippet):
+<<<
+// Handler ASK_NAME ubicado después de otras lógicas (línea ~8545)
+// ... código que puede hacer return antes ...
+if (session.stage === STATES.ASK_NAME) {
+  // ... handler antiguo ...
+  return res.json(response); // Sin normalización, sin logs estructurados
+}
+
+// Más abajo: fallback NO_RESPONSE_PATH
+if (!hasResponded && !res.headersSent) {
+  // Retorna fallback "Estoy tardando..."
+}
+>>>
+
+DESPUÉS (snippet):
+<<<
+// ETAPA 1.D (P0-FIX): STAGE ROUTER EXPLÍCITO - ANTES de cualquier otra lógica (línea ~7696)
+console.log(`[ROUTER] enter stage=${session.stage} action=${action} msgLen=${effectiveText?.length || 0} hasButton=${!!buttonToken}`);
+
+// ASK_NAME: Procesar texto o botón para recolección de nombre
+if (session.stage === STATES.ASK_NAME) {
+  console.log(`[ROUTER] handling ASK_NAME - action=${action} hasButton=${!!buttonToken} textLen=${effectiveText?.length || 0}`);
+  
+  // Procesar TEXTO para nombre (solo si no es botón)
+  if (!buttonToken && (action === 'message' || action === 'text') && effectiveText && effectiveText.trim().length > 0) {
+    const nameText = effectiveText.trim();
+    // ... validación y procesamiento ...
+    
+    // Nombre válido - transición a ASK_PROBLEM
+    session.userName = candidate;
+    await setStage(session, STATES.ASK_PROBLEM, 'ASK_NAME_completed', { session_id: sid });
+    
+    const response = normalizeChatResponse({
+      ok: true,
+      reply,
+      stage: session.stage,
+      options: [],
+      buttons: []
+    }, session, correlationId, latencyMs, clientMessageId, null);
+    
+    const logTurn = {
+      event: 'CHAT_TURN',
+      timestamp_iso: new Date().toISOString(),
+      correlation_id: correlationId,
+      // ... todos los campos ...
+    };
+    console.log(JSON.stringify(logTurn));
+    console.log(`[ROUTER] handled ASK_NAME_TEXT ok userName=${candidate} nextStage=ASK_PROBLEM`);
+    
+    clearHardTimeout();
+    return res.json(response); // ✅ SIEMPRE retorna aquí
+  }
+}
+
+// Firma de build al iniciar servidor
+const BUILD_TAG = process.env.BUILD_TAG || 'local-dev';
+const BUILD_COMMIT = process.env.BUILD_COMMIT || process.env.HEROKU_SLUG_COMMIT || 'unknown';
+console.log(`[BUILD_INFO] STI Chat (v7) - BUILD_TAG: ${BUILD_TAG} - COMMIT: ${BUILD_COMMIT.substring(0, 8)}`);
+>>>
+
+IMPACTO ESPERADO:
+- El handler de ASK_NAME ahora se ejecuta ANTES de cualquier otra lógica, garantizando que los requests con stage=ASK_NAME se procesen correctamente.
+- Los logs [ROUTER] permiten diagnosticar el flujo de enrutado por stage.
+- Las respuestas usan normalizeChatResponse para contrato consistente y logs estructurados.
+- La firma de build permite verificar que se está ejecutando el archivo correcto en producción.
+- El handler antiguo fue deshabilitado (comentado) para evitar duplicación.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Paso 1: Consent YES -> Language ES -> En ASK_NAME escribir "Pablo"
+- Resultado esperado: respuesta 200, stage=ASK_PROBLEM, reply pregunta problema, SIN fallback "Estoy tardando…"
+- Paso 2: ASK_NAME con botón "Prefiero no decirlo"
+- Resultado esperado: stage=ASK_PROBLEM ok
+- Paso 3: Verificar logs del servidor para ver [ROUTER] enter stage=ASK_NAME y [ROUTER] handled ASK_NAME_TEXT ok
+- Paso 4: Verificar BUILD_INFO en logs al iniciar servidor para confirmar archivo correcto
+
+NOTAS:
+- El handler antiguo de ASK_NAME (línea ~8771) fue comentado para evitar ejecución duplicada.
+- La firma de build se imprime al iniciar el servidor para verificar que se ejecuta el archivo correcto en Render/producción.
+- El nuevo handler está ubicado justo después de persistir el mensaje del usuario y antes del router de botones.
+- Los timeouts de OpenAI ya están correctamente implementados (ver CHG-20251224-002).
+
+------------------------------------------------------------
 
