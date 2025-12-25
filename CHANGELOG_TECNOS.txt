@@ -1,0 +1,83 @@
+REGISTRO ÚNICO DE CAMBIOS - CHATBOT TECNOS
+===========================================
+Fecha inicio: 2025-12-24
+Objetivo: Auditar y mejorar el ChatBot Tecnos con foco en coherencia del flujo conversacional, memoria de sesión y observabilidad.
+
+UBICACIÓN: C:\sti-ai-chat\CHANGELOG_TECNOS.txt
+
+===========================================
+ENTRADAS DE CAMBIOS
+===========================================
+
+------------------------------------------------------------
+ID CAMBIO: CHG-20251224-001
+ETAPA: 1.A
+ARCHIVO(S): C:\sti-ai-chat\server.js
+MOTIVO:
+- El endpoint /api/chat no garantizaba un contrato estable de respuesta con todos los campos requeridos (conversation_id, session_id, correlation_id, message_id, parent_message_id, stage, actor, text, buttons[], latency_ms, error_code).
+- Las respuestas podían faltar campos críticos para observabilidad y trazabilidad.
+- No había logs estructurados JSON por turno para análisis posterior.
+- El lastBotMessageId solo se actualizaba para respuestas con botones, no para todas las respuestas del bot.
+
+ANTES (snippet):
+<<<
+// Helper para retornar y loggear automáticamente
+const logAndReturn = async (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
+  // ...
+  return res.json(response); // Respuesta sin normalización
+};
+
+// A4: Solo actualizaba lastBotMessageId si había botones
+if ((who === 'bot' || who === 'assistant') && finalButtons && Array.isArray(finalButtons) && finalButtons.length > 0) {
+  session.lastBotMessageId = message_id;
+  // ...
+}
+>>>
+
+DESPUÉS (snippet):
+<<<
+// ETAPA 1.A: Helper para normalizar respuesta del endpoint /api/chat
+function normalizeChatResponse(response, session, correlationId, latencyMs, clientMessageId = null, parentMessageId = null) {
+  // Garantiza campos: conversation_id, session_id, correlation_id, message_id, parent_message_id, stage, actor, text, buttons[], latency_ms, error_code
+  // ...
+}
+
+// Helper para retornar y loggear automáticamente
+const logAndReturn = async (response, stage, nextStage, trigger = 'N/A', action = 'response_sent', sessionParam = null) => {
+  // ...
+  const normalizedResponse = normalizeChatResponse(/* ... */);
+  // Log estructurado JSON por turno
+  console.log(JSON.stringify({
+    event: 'CHAT_TURN',
+    correlation_id: correlationId,
+    conversation_id: currentSession?.conversationId || null,
+    // ... todos los campos con PII enmascarado
+  }));
+  return res.json(normalizedResponse);
+};
+
+// ETAPA 1.A: Actualizar lastBotMessageId para TODAS las respuestas del bot
+if (who === 'bot' || who === 'assistant') {
+  session.lastBotMessageId = message_id;
+  // ...
+}
+>>>
+
+IMPACTO ESPERADO:
+- Todas las respuestas de /api/chat ahora incluyen el contrato completo de campos requeridos.
+- Logs estructurados JSON por turno (una línea por evento) con PII enmascarado para análisis.
+- lastBotMessageId se actualiza para TODAS las respuestas del bot (no solo con botones).
+- Mejora la observabilidad y trazabilidad de las conversaciones.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Paso 1: Enviar un mensaje al endpoint /api/chat
+- Paso 2: Verificar en la respuesta JSON que incluye: conversation_id, session_id, correlation_id, message_id, parent_message_id, stage, actor, text, buttons, latency_ms
+- Paso 3: Verificar en los logs del servidor que se emite una línea JSON con event="CHAT_TURN"
+- Resultado esperado: Respuesta normalizada con todos los campos y log estructurado visible
+
+NOTAS:
+- La función normalizeChatResponse está disponible para ser usada en todos los lugares donde se retorna una respuesta.
+- Pendiente: Actualizar otros lugares donde se retorna res.json() directamente (se hará en siguientes cambios incrementales).
+
+------------------------------------------------------------
+

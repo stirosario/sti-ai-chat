@@ -689,6 +689,77 @@ function ensureEventContract(evt, session, defaults = {}) {
 }
 
 /**
+ * ========================================================
+ * ETAPA 1.A: Helper para normalizar respuesta del endpoint /api/chat
+ * ========================================================
+ * Garantiza que TODAS las respuestas incluyan el contrato completo:
+ * conversation_id, session_id, correlation_id, message_id, parent_message_id,
+ * stage, actor, text, buttons[], latency_ms, error_code
+ */
+function normalizeChatResponse(response, session, correlationId, latencyMs, clientMessageId = null, parentMessageId = null) {
+  const conversationId = session?.conversationId || null;
+  const sessionId = session?.id || null;
+  const stage = response.stage || session?.stage || 'unknown';
+  
+  // Obtener message_id del último evento del bot (si ya se persistió)
+  // O generar uno nuevo si no existe
+  let messageId = response.message_id || session?.lastBotMessageId || null;
+  if (!messageId) {
+    // Generar message_id temporal para esta respuesta
+    messageId = `bot_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  }
+  
+  // Determinar parent_message_id
+  let finalParentMessageId = parentMessageId || response.parent_message_id || null;
+  if (!finalParentMessageId) {
+    // Si el usuario envió un mensaje, el bot responde a ese mensaje
+    if (session?.transcript && Array.isArray(session.transcript) && session.transcript.length > 0) {
+      const lastUserMsg = [...session.transcript].reverse().find(m => m.who === 'user');
+      if (lastUserMsg?.message_id) {
+        finalParentMessageId = lastUserMsg.message_id;
+      }
+    }
+  }
+  
+  // Normalizar buttons
+  const buttons = response.buttons || response.options || [];
+  const normalizedButtons = Array.isArray(buttons) ? buttons : (buttons ? [buttons] : []);
+  
+  // Actor: siempre 'bot' para respuestas del endpoint
+  const actor = 'bot';
+  
+  // Text: respuesta del bot
+  const text = response.reply || response.text || '';
+  
+  // Error code: null si ok, o el código de error
+  const errorCode = response.ok === false ? (response.error || response.error_code || 'UNKNOWN_ERROR') : null;
+  
+  // Construir respuesta normalizada
+  const normalized = {
+    ok: response.ok !== false, // Por defecto true si no se especifica
+    conversation_id: conversationId,
+    session_id: sessionId,
+    correlation_id: correlationId,
+    message_id: messageId,
+    parent_message_id: finalParentMessageId,
+    stage: stage,
+    actor: actor,
+    text: text,
+    buttons: normalizedButtons,
+    latency_ms: latencyMs,
+    ...(errorCode && { error_code: errorCode }),
+    // Mantener campos legacy para compatibilidad
+    reply: text,
+    ...(normalizedButtons.length > 0 && { options: normalizedButtons }),
+    // Campos adicionales si existen
+    ...(response.duplicate !== undefined && { duplicate: response.duplicate }),
+    ...(response.dedup_reason && { dedup_reason: response.dedup_reason })
+  };
+  
+  return normalized;
+}
+
+/**
  * Helper único: Agrega al transcript Y persiste en JSONL
  * @param {Object} session - Session object (se modifica in-place)
  * @param {string} conversationId - Conversation ID (puede ser null)
@@ -864,25 +935,33 @@ async function appendAndPersistConversationEvent(session, conversationId, who, t
   // ========================================================
   // A4: TRAZABILIDAD DE BOTONES - Actualizar lastBotMessageId/lastBotButtons
   // ========================================================
-  // Si es un bot reply con botones, guardar referencia para validar clicks futuros
-  if ((who === 'bot' || who === 'assistant') && finalButtons && Array.isArray(finalButtons) && finalButtons.length > 0) {
+  // ETAPA 1.A: Actualizar lastBotMessageId para TODAS las respuestas del bot (no solo con botones)
+  if (who === 'bot' || who === 'assistant') {
     session.lastBotMessageId = message_id;
-    session.lastBotButtons = finalButtons.map(b => {
-      if (typeof b === 'string') return b;
-      if (typeof b === 'object' && b !== null) {
-        return b.token || b.value || b.text || '';
-      }
-      return String(b);
-    }).filter(Boolean);
     
-    // Calcular hash de botones para validación rápida
-    const buttonsHash = crypto.createHash('sha1')
-      .update(session.lastBotButtons.sort().join('|'))
-      .digest('hex')
-      .substring(0, 16);
-    session.lastBotButtonsHash = buttonsHash;
-    
-    console.log(`[A4] ✅ Bot reply con botones guardado - message_id: ${message_id.substring(0, 20)}..., buttons: ${session.lastBotButtons.join(', ')}`);
+    // Si tiene botones, guardar referencia para validar clicks futuros
+    if (finalButtons && Array.isArray(finalButtons) && finalButtons.length > 0) {
+      session.lastBotButtons = finalButtons.map(b => {
+        if (typeof b === 'string') return b;
+        if (typeof b === 'object' && b !== null) {
+          return b.token || b.value || b.text || '';
+        }
+        return String(b);
+      }).filter(Boolean);
+      
+      // Calcular hash de botones para validación rápida
+      const buttonsHash = crypto.createHash('sha1')
+        .update(session.lastBotButtons.sort().join('|'))
+        .digest('hex')
+        .substring(0, 16);
+      session.lastBotButtonsHash = buttonsHash;
+      
+      console.log(`[A4] ✅ Bot reply con botones guardado - message_id: ${message_id.substring(0, 20)}..., buttons: ${session.lastBotButtons.join(', ')}`);
+    } else {
+      // Limpiar botones si no hay
+      session.lastBotButtons = [];
+      session.lastBotButtonsHash = null;
+    }
   }
   
   // 2. Guardar sesión
@@ -6567,13 +6646,17 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     }
 
     // 🆔 Persistir respuesta del bot usando helper único (transcript + JSONL)
+    let botMessageId = null;
     if (currentSession && response.reply) {
-      await appendAndPersistConversationEvent(currentSession, currentSession.conversationId, 'bot', response.reply, {
+      const persistedEntry = await appendAndPersistConversationEvent(currentSession, currentSession.conversationId, 'bot', response.reply, {
         type: 'reply',
         stage: response.stage || stage || 'unknown',
         buttons: response.options || response.buttons || null,
+        correlation_id: correlationId,
         ts: new Date().toISOString()
       });
+      
+      botMessageId = persistedEntry?.message_id || null;
       
       // Actualizar meta de conversación
       if (currentSession.conversationId) {
@@ -6581,7 +6664,45 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       }
     }
 
-    return res.json(response);
+    // ETAPA 1.A: Normalizar respuesta con contrato completo
+    const latencyMs = Date.now() - startTime;
+    const clientMessageId = body?.clientEventId || body?.message_id || null;
+    const parentMessageId = body?.parent_message_id || null;
+    
+    const normalizedResponse = normalizeChatResponse(
+      { ...response, message_id: botMessageId },
+      currentSession,
+      correlationId,
+      latencyMs,
+      clientMessageId,
+      parentMessageId
+    );
+
+    // ETAPA 1.A: Log estructurado JSON por turno (una sola línea, PII enmascarado)
+    // Nota: sessionId se define más adelante en el código, usar currentSession?.id
+    const logTurn = {
+      event: 'CHAT_TURN',
+      timestamp_iso: new Date().toISOString(),
+      correlation_id: correlationId,
+      conversation_id: currentSession?.conversationId || null,
+      session_id: currentSession?.id || null,
+      message_id: normalizedResponse.message_id || null,
+      parent_message_id: normalizedResponse.parent_message_id || null,
+      client_message_id: clientMessageId || null,
+      stage: normalizedResponse.stage || 'unknown',
+      actor: normalizedResponse.actor || 'bot',
+      text_preview: maskPII(normalizedResponse.text || '').substring(0, 100),
+      text_length: (normalizedResponse.text || '').length,
+      buttons_count: normalizedResponse.buttons?.length || 0,
+      latency_ms: latencyMs,
+      error_code: normalizedResponse.error_code || null,
+      ok: normalizedResponse.ok !== false
+    };
+    
+    // Emitir log estructurado (una línea JSON)
+    console.log(JSON.stringify(logTurn));
+
+    return res.json(normalizedResponse);
   };
 
   // 🔒 LOG DE INICIO DE REQUEST (para detectar cuelgues)
@@ -6660,12 +6781,41 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (!sessionRateCheck.allowed) {
       console.warn(`[RATE_LIMIT] SESSION BLOCKED - Session ${sessionId} exceeded 20 msgs/min`);
       updateMetric('errors', 'count', 1);
-      return res.status(429).json({
+      
+      // ETAPA 1.A: Normalizar respuesta de error también
+      const tempSession = await getSession(sid).catch(() => null);
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const errorResponse = normalizeChatResponse({
         ok: false,
         reply: '😅 Estás escribiendo muy rápido. Esperá unos segundos antes de continuar.',
         error: 'session_rate_limit',
+        error_code: 'session_rate_limit',
         retryAfter: sessionRateCheck.retryAfter
-      });
+      }, tempSession, correlationId, latencyMs, clientMessageId, null);
+      
+      // Log estructurado JSON
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: tempSession?.conversationId || null,
+        session_id: sid || null,
+        message_id: errorResponse.message_id || null,
+        parent_message_id: errorResponse.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: errorResponse.stage || 'unknown',
+        actor: 'bot',
+        text_preview: maskPII(errorResponse.text || '').substring(0, 100),
+        text_length: (errorResponse.text || '').length,
+        buttons_count: 0,
+        latency_ms: latencyMs,
+        error_code: 'session_rate_limit',
+        ok: false
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      return res.status(429).json(errorResponse);
     }
 
     updateMetric('chat', 'totalMessages', 1);
@@ -6891,14 +7041,42 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     if (isDuplicate) {
       // Cargar sesión solo para obtener stage
       const tempSession = await getSession(sid);
-      console.log(`[DEDUP_REDIS] ✅ Request duplicado detectado, retornando respuesta vacía - sid=${sessionId.substring(0, 20)}...`);
-      return res.json({
+      console.log(`[DEDUP_REDIS] ✅ Request duplicado detectado, retornando respuesta vacía - sid=${sid.substring(0, 20)}...`);
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const parentMessageId = body?.parent_message_id || null;
+      const dupResponse = normalizeChatResponse({
         ok: true,
         duplicate: true,
         reply: '', // reply vacío para que frontend NO duplique mensajes
         stage: tempSession?.stage || 'unknown',
         dedup_reason: 'idempotency'
-      });
+      }, tempSession, correlationId, latencyMs, clientMessageId, parentMessageId);
+      
+      // Log estructurado JSON
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: tempSession?.conversationId || null,
+        session_id: sid || null,
+        message_id: dupResponse.message_id || null,
+        parent_message_id: dupResponse.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: dupResponse.stage || 'unknown',
+        actor: 'bot',
+        text_preview: '',
+        text_length: 0,
+        buttons_count: 0,
+        latency_ms: latencyMs,
+        error_code: null,
+        ok: true,
+        duplicate: true,
+        dedup_reason: 'idempotency'
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      return res.json(dupResponse);
     }
     
     // Inicializar datos de log
