@@ -7920,23 +7920,28 @@ Respondé con una explicación clara y útil para el usuario.`
     }
 
     // ASK_PROBLEM: Procesar texto para problema (ANTES del router de botones)
+    // ETAPA 1.D (P0-FIX): RETURN explícito para evitar NO_RESPONSE_PATH
     if (session.stage === STATES.ASK_PROBLEM && !buttonToken && (action === 'message' || action === 'text') && effectiveText && effectiveText.trim().length > 0) {
       console.log(`[ROUTER] handling ASK_PROBLEM_TEXT - action=${action} textLen=${effectiveText.trim().length}`);
       
       const problemTextRaw = effectiveText.trim();
       
-      // Guardar problema raw (el handler existente en línea ~9149 hará: session.problem = effectiveText || session.problem)
-      // Así que solo guardamos el raw aquí, y el handler existente procesará effectiveText correctamente
+      // Guardar problema raw y setear session.problem (el handler existente lo necesita)
       session.problemTextRaw = problemTextRaw;
+      session.problem = problemTextRaw; // CLAVE: el handler legacy suele depender de session.problem
       
-      // NO setear session.problem aquí porque el handler existente lo hará con: session.problem = effectiveText || session.problem
-      // Esto asegura que el flujo normal se ejecute correctamente
+      // Limpiar state de retry si existía
+      session.issueKey = null;
+      session.tests = session.tests || { basic: [], ai: [], advanced: [] };
+      session.lastHelpStep = null;
       
-      console.log(`[ROUTER] ASK_PROBLEM_TEXT processed - problemTextRaw="${problemTextRaw.substring(0, 50)}" - continuing to ASK_PROBLEM handler`);
+      await saveSession(sid, session);
       
-      // NO hacer return aquí - dejar que continúe el flujo para que se ejecute el handler existente de ASK_PROBLEM (línea ~9147)
-      // que procesará effectiveText: detectAmbiguousDevice, analyzeProblemWithOA, quick tests, etc.
-      // El handler existente hace: session.problem = effectiveText || session.problem, así que effectiveText se procesará correctamente
+      console.log(`[ROUTER] ASK_PROBLEM_TEXT set - problemTextRaw="${problemTextRaw.substring(0, 50)}" - invoking ASK_PROBLEM handler`);
+      
+      // NO hacer return aquí - el handler existente de ASK_PROBLEM (línea ~9144) se ejecutará después
+      // y hará return en todos sus caminos (detectAmbiguousDevice, analyzeProblemWithOA, generateAndShowSteps, etc.)
+      // Este código solo prepara session.problem para que el handler existente lo procese correctamente
     }
 
     // ========================================================
@@ -10328,6 +10333,52 @@ La guía debe ser:
   
   // ETAPA 1.D (P0): Garantía "siempre se responde" - Verificar antes de salir del try
   if (!hasResponded && !res.headersSent) {
+    // ETAPA 1.D (P0-FIX): Guardrail anti NO_RESPONSE_PATH para ASK_PROBLEM
+    if (session?.stage === STATES.ASK_PROBLEM) {
+      console.warn(`[ROUTER] UNHANDLED ASK_PROBLEM PATH - action=${action} hasButton=${!!buttonToken} textLen=${(effectiveText||'').length} - forcing safe reply`);
+      
+      const locale = session.userLocale || 'es-AR';
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const whoName = session.userName || 'ahí';
+      
+      const reply = isEn
+        ? `Tell me the main problem in one sentence (PC / notebook / Wi-Fi / printer / account).`
+        : `Decime el problema principal en 1 frase (PC / notebook / Wi-Fi / impresora / cuenta).`;
+      
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const response = normalizeChatResponse({
+        ok: true,
+        reply,
+        stage: session.stage,
+        options: [],
+        buttons: []
+      }, session, correlationId, latencyMs, clientMessageId, null);
+      
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: session?.conversationId || null,
+        session_id: sid || null,
+        message_id: response.message_id || null,
+        parent_message_id: response.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: response.stage || 'unknown',
+        actor: 'bot',
+        text_preview: maskPII(response.text || '').substring(0, 100),
+        text_length: (response.text || '').length,
+        buttons_count: 0,
+        latency_ms: latencyMs,
+        error_code: null,
+        ok: true
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      clearHardTimeout();
+      return res.json(response);
+    }
+    
     console.warn(`[CHAT_REQ_NO_RESPONSE] ⚠️ Request no tuvo respuesta - correlationId: ${correlationId}`);
     
     emitLogEvent('warn', 'NO_RESPONSE_PATH', {

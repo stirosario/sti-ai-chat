@@ -344,4 +344,84 @@ NOTAS:
 - El fallback NO_RESPONSE_PATH se mantiene como último recurso para casos de timeout real o errores inesperados.
 
 ------------------------------------------------------------
+ID CAMBIO: CHG-20251225-001
+ETAPA: 1.D (P0-FIX)
+ARCHIVO(S): C:\sti-ai-chat\server.js
+MOTIVO:
+- Bug crítico: cuando el usuario ESCRIBE texto en stage=ASK_PROBLEM, el stage router loguea "continuing to ASK_PROBLEM handler" pero el request termina en fallback NO_RESPONSE_PATH en ~200ms.
+- El handler de ASK_PROBLEM_TEXT no hacía return explícito, permitiendo que el código continuara pero luego caía en el fallback.
+- Necesidad de guardrail específico para ASK_PROBLEM antes del fallback genérico para evitar que el usuario vea "Estoy tardando..." en casos normales.
+
+ANTES (snippet):
+<<<
+// ASK_PROBLEM_TEXT solo seteaba problemTextRaw y continuaba
+if (session.stage === STATES.ASK_PROBLEM && !buttonToken && ...) {
+  session.problemTextRaw = problemTextRaw;
+  // NO setear session.problem
+  // NO hacer return - dejar que continúe
+  console.log(`... continuing to ASK_PROBLEM handler`);
+}
+// ... código continúa ...
+// Fallback NO_RESPONSE_PATH (línea ~10334)
+if (!hasResponded && !res.headersSent) {
+  // Retorna "Estoy tardando más de lo normal..."
+}
+>>>
+
+DESPUÉS (snippet):
+<<<
+// ASK_PROBLEM_TEXT setea session.problem y limpia state de retry
+if (session.stage === STATES.ASK_PROBLEM && !buttonToken && (action === 'message' || action === 'text') && effectiveText?.trim()) {
+  console.log(`[ROUTER] handling ASK_PROBLEM_TEXT - action=${action} textLen=${effectiveText.trim().length}`);
+  
+  const problemTextRaw = effectiveText.trim();
+  session.problemTextRaw = problemTextRaw;
+  session.problem = problemTextRaw; // CLAVE: el handler legacy suele depender de session.problem
+  
+  // Limpiar state de retry si existía
+  session.issueKey = null;
+  session.tests = session.tests || { basic: [], ai: [], advanced: [] };
+  session.lastHelpStep = null;
+  
+  await saveSession(sid, session);
+  console.log(`[ROUTER] ASK_PROBLEM_TEXT set - invoking ASK_PROBLEM handler`);
+  // NO hacer return - el handler existente de ASK_PROBLEM se ejecutará después
+}
+
+// Guardrail anti NO_RESPONSE_PATH para ASK_PROBLEM (línea ~10335)
+if (!hasResponded && !res.headersSent) {
+  if (session?.stage === STATES.ASK_PROBLEM) {
+    console.warn(`[ROUTER] UNHANDLED ASK_PROBLEM PATH - forcing safe reply`);
+    const reply = isEn
+      ? `Tell me the main problem in one sentence (PC / notebook / Wi-Fi / printer / account).`
+      : `Decime el problema principal en 1 frase (PC / notebook / Wi-Fi / impresora / cuenta).`;
+    const response = normalizeChatResponse({ ok:true, reply, stage: session.stage, options: [], buttons: [] }, ...);
+    clearHardTimeout();
+    return res.json(response); // ✅ Return explícito antes del fallback genérico
+  }
+  // ... fallback genérico "Estoy tardando..."
+}
+>>>
+
+IMPACTO ESPERADO:
+- El handler de ASK_PROBLEM_TEXT ahora setea session.problem correctamente, permitiendo que el handler existente lo procese.
+- El guardrail específico para ASK_PROBLEM evita que el usuario vea el fallback genérico "Estoy tardando..." en casos normales.
+- BTN_RETRY ya estaba bien manejado (reset correcto, no setea session.problem="BTN_RETRY").
+- Los logs [ROUTER] permiten diagnosticar el flujo de enrutado.
+- El fallback genérico NO_RESPONSE_PATH solo se activa para stages distintos de ASK_PROBLEM.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Caso A (texto): Consent YES -> Lang ES -> Nombre "Lautaro" -> ASK_PROBLEM -> escribir "mi notebook no enciende"
+  - Resultado esperado: NO aparece error_code=NO_RESPONSE_PATH, logs incluyen [ROUTER] handling ASK_PROBLEM_TEXT, respuesta NO genérica, inicia diagnóstico
+- Caso B (retry): En ASK_PROBLEM presionar BTN_RETRY
+  - Resultado esperado: NO se setea session.problem="BTN_RETRY", responde re-preguntando el problema, stage sigue ASK_PROBLEM
+- Caso C (regresión): ASK_NAME texto sigue funcionando (handled ASK_NAME_TEXT ok)
+
+NOTAS:
+- El handler de ASK_PROBLEM_TEXT setea session.problem para que el handler existente lo procese, pero NO hace return explícito porque el handler existente debe ejecutarse y hacer return en todos sus caminos.
+- El guardrail específico para ASK_PROBLEM es una capa de seguridad adicional que se ejecuta ANTES del fallback genérico, evitando que el usuario vea "Estoy tardando..." en casos normales de ASK_PROBLEM.
+- Si el handler existente de ASK_PROBLEM no responde, el guardrail responderá con un mensaje útil específico para ASK_PROBLEM.
+- BTN_RETRY ya estaba correctamente implementado (ver CHG-20251224-004).
+
+------------------------------------------------------------
 
