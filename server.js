@@ -7919,6 +7919,26 @@ Respondé con una explicación clara y útil para el usuario.`
       console.warn(`[ROUTER] ASK_NAME no procesado - action=${action} hasButton=${!!buttonToken} textLen=${effectiveText?.length || 0}`);
     }
 
+    // ASK_PROBLEM: Procesar texto para problema (ANTES del router de botones)
+    if (session.stage === STATES.ASK_PROBLEM && !buttonToken && (action === 'message' || action === 'text') && effectiveText && effectiveText.trim().length > 0) {
+      console.log(`[ROUTER] handling ASK_PROBLEM_TEXT - action=${action} textLen=${effectiveText.trim().length}`);
+      
+      const problemTextRaw = effectiveText.trim();
+      
+      // Guardar problema raw (el handler existente en línea ~9149 hará: session.problem = effectiveText || session.problem)
+      // Así que solo guardamos el raw aquí, y el handler existente procesará effectiveText correctamente
+      session.problemTextRaw = problemTextRaw;
+      
+      // NO setear session.problem aquí porque el handler existente lo hará con: session.problem = effectiveText || session.problem
+      // Esto asegura que el flujo normal se ejecute correctamente
+      
+      console.log(`[ROUTER] ASK_PROBLEM_TEXT processed - problemTextRaw="${problemTextRaw.substring(0, 50)}" - continuing to ASK_PROBLEM handler`);
+      
+      // NO hacer return aquí - dejar que continúe el flujo para que se ejecute el handler existente de ASK_PROBLEM (línea ~9147)
+      // que procesará effectiveText: detectAmbiguousDevice, analyzeProblemWithOA, quick tests, etc.
+      // El handler existente hace: session.problem = effectiveText || session.problem, así que effectiveText se procesará correctamente
+    }
+
     // ========================================================
     // 🎯 P0: ROUTER GLOBAL DE BOTONES (ANTES de lógica de stage)
     // ========================================================
@@ -7927,6 +7947,67 @@ Respondé con una explicación clara y útil para el usuario.`
     if (buttonToken) {
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
+      
+      // BTN_RETRY: Reintentar (NO debe setear session.problem = "BTN_RETRY")
+      if (buttonToken === 'BTN_RETRY' && session.stage === STATES.ASK_PROBLEM) {
+        console.log(`[ROUTER] handling BTN_RETRY in ASK_PROBLEM - resetting problem`);
+        
+        // Resetear solo lo necesario, NO tocar userName
+        session.problem = null;
+        session.problemTextRaw = null;
+        session.issueKey = null;
+        session.tests = { basic: [], ai: [], advanced: [] };
+        session.lastHelpStep = null;
+        
+        await saveSession(sid, session);
+        
+        const whoName = session.userName ? capitalizeToken(session.userName) : (isEn ? 'User' : 'Usuari@');
+        const reply = isEn
+          ? `Let's try again, ${whoName}! 👍\n\nTell me in a sentence: what's the main problem?`
+          : (locale === 'es-419'
+            ? `¡Intentemos nuevamente, ${whoName}! 👍\n\nContame en una frase: ¿cuál es el problema principal?`
+            : `¡Intentemos nuevamente, ${whoName}! 👍\n\nContame en una frase: ¿cuál es el problema principal?`);
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+          type: 'text',
+          stage: session.stage,
+          ts: nowIso()
+        });
+        
+        const latencyMs = Date.now() - startTime;
+        const clientMessageId = body?.clientEventId || body?.message_id || null;
+        const response = normalizeChatResponse({
+          ok: true,
+          reply,
+          stage: session.stage,
+          options: [],
+          buttons: []
+        }, session, correlationId, latencyMs, clientMessageId, null);
+        
+        const logTurn = {
+          event: 'CHAT_TURN',
+          timestamp_iso: new Date().toISOString(),
+          correlation_id: correlationId,
+          conversation_id: session?.conversationId || null,
+          session_id: sid || null,
+          message_id: response.message_id || null,
+          parent_message_id: response.parent_message_id || null,
+          client_message_id: clientMessageId || null,
+          stage: response.stage || 'unknown',
+          actor: 'bot',
+          text_preview: maskPII(response.text || '').substring(0, 100),
+          text_length: (response.text || '').length,
+          buttons_count: 0,
+          latency_ms: latencyMs,
+          error_code: null,
+          ok: true
+        };
+        console.log(JSON.stringify(logTurn));
+        console.log(`[ROUTER] handled BTN_RETRY ok nextStage=ASK_PROBLEM`);
+        
+        clearHardTimeout();
+        return res.json(response);
+      }
       
       // BTN_CONNECT_TECH: Conectar con técnico (NO pedir dirección/teléfono)
       if (buttonToken === 'BTN_CONNECT_TECH') {

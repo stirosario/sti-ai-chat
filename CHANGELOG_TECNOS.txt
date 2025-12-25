@@ -263,4 +263,85 @@ NOTAS:
 - Los timeouts de OpenAI ya están correctamente implementados (ver CHG-20251224-002).
 
 ------------------------------------------------------------
+ID CAMBIO: CHG-20251224-004
+ETAPA: 1.D (P0-FIX)
+ARCHIVO(S): C:\sti-ai-chat\server.js
+MOTIVO:
+- Bug crítico: cuando el usuario ESCRIBE texto en stage=ASK_PROBLEM (ej: "mi pc no enciende"), el backend no ejecuta el handler ASK_PROBLEM y cae en fallback NO_RESPONSE_PATH.
+- BTN_RETRY estaba siendo tratado como problema: session.problem = "BTN_RETRY" (incorrecto).
+- El handler existente de ASK_PROBLEM (línea ~9147) no se ejecutaba cuando llegaba texto porque el código llegaba al fallback antes.
+
+ANTES (snippet):
+<<<
+// No había handler específico para ASK_PROBLEM + texto en el stage router
+// El código llegaba al handler existente (línea ~9147) pero solo si session.problem ya estaba seteado
+// Si llegaba texto nuevo, no se procesaba y caía en fallback NO_RESPONSE_PATH
+
+// BTN_RETRY no tenía manejo especial, podía llegar al handler de ASK_PROBLEM como texto
+if (session.stage === STATES.ASK_PROBLEM) {
+  session.problem = effectiveText || session.problem; // ❌ BTN_RETRY se convertía en problema
+  // ...
+}
+>>>
+
+DESPUÉS (snippet):
+<<<
+// ETAPA 1.D (P0-FIX): Handler ASK_PROBLEM_TEXT en stage router (línea ~7922)
+if (session.stage === STATES.ASK_PROBLEM && !buttonToken && (action === 'message' || action === 'text') && effectiveText && effectiveText.trim().length > 0) {
+  console.log(`[ROUTER] handling ASK_PROBLEM_TEXT - action=${action} textLen=${effectiveText.trim().length}`);
+  
+  const problemTextRaw = effectiveText.trim();
+  session.problemTextRaw = problemTextRaw;
+  
+  console.log(`[ROUTER] ASK_PROBLEM_TEXT processed - problemTextRaw="${problemTextRaw.substring(0, 50)}" - continuing to ASK_PROBLEM handler`);
+  // NO hacer return - dejar que continúe al handler existente de ASK_PROBLEM
+}
+
+// BTN_RETRY: Manejo especial antes del router de botones (línea ~7954)
+if (buttonToken === 'BTN_RETRY' && session.stage === STATES.ASK_PROBLEM) {
+  console.log(`[ROUTER] handling BTN_RETRY in ASK_PROBLEM - resetting problem`);
+  
+  // Resetear solo lo necesario, NO tocar userName
+  session.problem = null;
+  session.problemTextRaw = null;
+  session.issueKey = null;
+  session.tests = { basic: [], ai: [], advanced: [] };
+  session.lastHelpStep = null;
+  
+  await saveSession(sid, session);
+  
+  const reply = isEn
+    ? `Let's try again, ${whoName}! 👍\n\nTell me in a sentence: what's the main problem?`
+    : `¡Intentemos nuevamente, ${whoName}! 👍\n\nContame en una frase: ¿cuál es el problema principal?`;
+  
+  const response = normalizeChatResponse({ ok: true, reply, stage: session.stage, options: [], buttons: [] }, ...);
+  console.log(`[ROUTER] handled BTN_RETRY ok nextStage=ASK_PROBLEM`);
+  
+  clearHardTimeout();
+  return res.json(response); // ✅ Return para evitar que continúe el flujo
+}
+>>>
+
+IMPACTO ESPERADO:
+- El handler de ASK_PROBLEM_TEXT ahora captura texto en ASK_PROBLEM ANTES del router de botones, permitiendo que el handler existente se ejecute correctamente.
+- BTN_RETRY ya no se trata como problema, resetea correctamente y mantiene stage=ASK_PROBLEM.
+- Los logs [ROUTER] permiten diagnosticar el flujo de enrutado por stage.
+- Las respuestas usan normalizeChatResponse para contrato consistente y logs estructurados.
+- El fallback NO_RESPONSE_PATH solo se activa en casos reales de timeout o errores inesperados.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Paso 1: Consent YES -> Language ES -> Nombre "Luciano" -> ASK_PROBLEM -> escribir "mi pc no enciende"
+- Resultado esperado: respuesta 200, ok:true, reply NO genérico, NO aparece CHAT_REQ_NO_RESPONSE ni error_code NO_RESPONSE_PATH, el flujo continúa (quick tests / diagnóstico / pedir detalle)
+- Paso 2: En ASK_PROBLEM presionar botón "Reintentar" (BTN_RETRY)
+- Resultado esperado: NO se ejecuta análisis con "problem=BTN_RETRY", se re-pregunta el problema, stage=ASK_PROBLEM se mantiene
+- Paso 3: Verificar logs del servidor para ver [ROUTER] handling ASK_PROBLEM_TEXT y [ROUTER] handled ASK_PROBLEM_TEXT ok (cuando corresponda)
+- Paso 4: Verificar que NO aparece CHAT_REQ_NO_RESPONSE en estos casos normales
+
+NOTAS:
+- El handler de ASK_PROBLEM_TEXT NO hace return, permitiendo que el código continúe al handler existente de ASK_PROBLEM (línea ~9147) que procesa el problema correctamente.
+- El handler existente hace: session.problem = effectiveText || session.problem, así que effectiveText se procesa correctamente.
+- BTN_RETRY tiene manejo especial que resetea el problema y hace return para evitar que continúe el flujo.
+- El fallback NO_RESPONSE_PATH se mantiene como último recurso para casos de timeout real o errores inesperados.
+
+------------------------------------------------------------
 
