@@ -8638,13 +8638,14 @@ Before we continue, please note:
     
     // ========================================================
     // ASK_LANGUAGE: Selección de idioma (después de consentimiento)
+    // ETAPA 1.D (P0-FIX): Manejo explícito de texto libre para evitar NO_RESPONSE_PATH
     // ========================================================
     if (session.stage === STATES.ASK_LANGUAGE) {
-      const lowerMsg = effectiveText.toLowerCase().trim();
+      const lowerMsg = String(effectiveText || '').toLowerCase().trim();
       const correlationId = req.correlation_id || `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       
-      // Detectar selección de idioma
-      if (buttonToken === 'BTN_LANG_ES_AR' || /español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+      // Detectar selección de idioma por botón
+      if (buttonToken === 'BTN_LANG_ES_AR') {
         session.userLocale = 'es-AR';
         const stageBefore = session.stage;
         // A3: Usar setStage para garantizar stage_transition event
@@ -8690,7 +8691,8 @@ Before we continue, please note:
         return res.json(response);
       }
       
-      if (buttonToken === 'BTN_LANG_EN' || /english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+      // Detectar selección de idioma por botón
+      if (buttonToken === 'BTN_LANG_EN') {
         session.userLocale = 'en-US';
         const stageBefore = session.stage;
         // A3: Usar setStage para garantizar stage_transition event
@@ -8736,8 +8738,136 @@ Before we continue, please note:
         return res.json(response);
       }
       
-      // Si no se reconoce, re-mostrar opciones de idioma
-      const retry = `Por favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
+      // ETAPA 1.D (P0-FIX): Manejo explícito de texto libre (action=message) cuando NO es botón
+      if (!buttonToken && (action === 'message' || action === 'text') && lowerMsg && lowerMsg.length > 0) {
+        console.log(`[ROUTER] handling ASK_LANGUAGE_TEXT - action=${action} textLen=${lowerMsg.length} preview="${lowerMsg.substring(0, 30)}"`);
+        
+        // Detectar si el texto indica idioma
+        const wantsEs = /español|spanish|castellano|es-ar|argentina|ar\b|es\b/i.test(lowerMsg);
+        const wantsEn = /english|inglés|en\b|us\b|en-us/i.test(lowerMsg);
+        
+        if (wantsEs || wantsEn) {
+          // Texto indica idioma => aceptar como selección
+          session.userLocale = wantsEn ? 'en-US' : 'es-AR';
+          const stageBefore = session.stage;
+          await setStage(session, STATES.ASK_NAME, 'ASK_LANGUAGE_completed_text', { sid });
+          await saveSession(sid, session);
+          
+          const transitionEvent = buildEvent({
+            role: 'system',
+            type: 'stage_transition',
+            event_type: 'stage_transition',
+            stage: session.stage,
+            stage_before: stageBefore,
+            stage_after: session.stage,
+            text: `Stage transition: ${stageBefore} -> ${session.stage} (text-based language selection)`,
+            correlation_id: correlationId,
+            session_id: sid,
+            conversation_id: session.conversationId
+          });
+          if (session.conversationId) {
+            logConversationEvent(session.conversationId, transitionEvent);
+          }
+          
+          const locale = session.userLocale;
+          const isEn = String(locale).toLowerCase().startsWith('en');
+          const reply = isEn
+            ? `✅ Great! Let's continue in **English**.\n\nWhat's your name?`
+            : `✅ Perfecto! Vamos a continuar en **Español**.\n\n¿Con quién tengo el gusto de hablar? 😊`;
+          const nameButtons = buildUiOptions(['BTN_NO_NAME'], locale);
+          
+          await appendAndPersistConversationEvent(session, session.conversationId, 'bot', reply, {
+            type: 'text',
+            stage: session.stage,
+            buttons: nameButtons,
+            correlation_id: correlationId
+          });
+          
+          const latencyMs = Date.now() - startTime;
+          const clientMessageId = body?.clientEventId || body?.message_id || null;
+          const response = normalizeChatResponse({
+            ok: true,
+            reply,
+            stage: session.stage,
+            options: nameButtons,
+            buttons: nameButtons
+          }, session, correlationId, latencyMs, clientMessageId, null);
+          
+          const logTurn = {
+            event: 'CHAT_TURN',
+            timestamp_iso: new Date().toISOString(),
+            correlation_id: correlationId,
+            conversation_id: session?.conversationId || null,
+            session_id: sid || null,
+            message_id: response.message_id || null,
+            parent_message_id: response.parent_message_id || null,
+            client_message_id: clientMessageId || null,
+            stage: response.stage || 'unknown',
+            actor: 'bot',
+            text_preview: maskPII(response.text || '').substring(0, 100),
+            text_length: (response.text || '').length,
+            buttons_count: response.buttons?.length || 0,
+            latency_ms: latencyMs,
+            error_code: null,
+            ok: true
+          };
+          console.log(JSON.stringify(logTurn));
+          console.log(`[ROUTER] handled ASK_LANGUAGE_TEXT ok language=${session.userLocale} nextStage=ASK_NAME`);
+          
+          clearHardTimeout();
+          return res.json(response);
+        }
+        
+        // Texto NO indica idioma (ej: "pablo") => re-preguntar idioma (NO FALLBACK)
+        console.log(`[ROUTER] ASK_LANGUAGE_TEXT_INVALID - textLen=${lowerMsg.length} preview="${lowerMsg.substring(0, 30)}" - re-asking language`);
+        
+        const retryMsg = `🌍 **Seleccioná tu idioma / Select your language:**\n\n(🇦🇷) Español 🌎\n\n(🇺🇸) English 🌎\n\nPor favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
+        const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+        
+        await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retryMsg, {
+          type: 'text',
+          stage: session.stage,
+          buttons: langButtons,
+          correlation_id: correlationId
+        });
+        
+        const latencyMs = Date.now() - startTime;
+        const clientMessageId = body?.clientEventId || body?.message_id || null;
+        const response = normalizeChatResponse({
+          ok: true,
+          reply: retryMsg,
+          stage: session.stage,
+          options: langButtons,
+          buttons: langButtons
+        }, session, correlationId, latencyMs, clientMessageId, null);
+        
+        const logTurn = {
+          event: 'CHAT_TURN',
+          timestamp_iso: new Date().toISOString(),
+          correlation_id: correlationId,
+          conversation_id: session?.conversationId || null,
+          session_id: sid || null,
+          message_id: response.message_id || null,
+          parent_message_id: response.parent_message_id || null,
+          client_message_id: clientMessageId || null,
+          stage: response.stage || 'unknown',
+          actor: 'bot',
+          text_preview: maskPII(response.text || '').substring(0, 100),
+          text_length: (response.text || '').length,
+          buttons_count: response.buttons?.length || 0,
+          latency_ms: latencyMs,
+          error_code: null,
+          ok: true
+        };
+        console.log(JSON.stringify(logTurn));
+        console.log(`[ROUTER] handled ASK_LANGUAGE_TEXT_INVALID ok nextStage=ASK_LANGUAGE`);
+        
+        clearHardTimeout();
+        return res.json(response);
+      }
+      
+      // Si no se reconoce (fallback legacy), re-mostrar opciones de idioma
+      const retry = `🌍 **Seleccioná tu idioma / Select your language:**\n\n(🇦🇷) Español 🌎\n\n(🇺🇸) English 🌎\n\nPor favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
       const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
       
       await appendAndPersistConversationEvent(session, session.conversationId, 'bot', retry, {
@@ -8747,15 +8877,37 @@ Before we continue, please note:
         correlation_id: correlationId
       });
       
-      const response = {
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const response = normalizeChatResponse({
         ok: true,
         reply: retry,
         stage: session.stage,
         options: langButtons,
         buttons: langButtons
-      };
+      }, session, correlationId, latencyMs, clientMessageId, null);
       
-      validateResponseContract(response, correlationId);
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: session?.conversationId || null,
+        session_id: sid || null,
+        message_id: response.message_id || null,
+        parent_message_id: response.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: response.stage || 'unknown',
+        actor: 'bot',
+        text_preview: maskPII(response.text || '').substring(0, 100),
+        text_length: (response.text || '').length,
+        buttons_count: response.buttons?.length || 0,
+        latency_ms: latencyMs,
+        error_code: null,
+        ok: true
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      clearHardTimeout();
       return res.json(response);
     }
 
@@ -10333,6 +10485,54 @@ La guía debe ser:
   
   // ETAPA 1.D (P0): Garantía "siempre se responde" - Verificar antes de salir del try
   if (!hasResponded && !res.headersSent) {
+    // ETAPA 1.D (P0-FIX): Guardrail anti NO_RESPONSE_PATH para ASK_LANGUAGE
+    if (session?.stage === STATES.ASK_LANGUAGE) {
+      console.warn(`[ROUTER] UNHANDLED ASK_LANGUAGE PATH - action=${action} hasButton=${!!buttonToken} textLen=${(effectiveText||'').length} - forcing safe reply`);
+      
+      const retryMsg = `🌍 **Seleccioná tu idioma / Select your language:**\n\n(🇦🇷) Español 🌎\n\n(🇺🇸) English 🌎\n\nPor favor, seleccioná una de las opciones usando los botones. / Please select one of the options using the buttons.`;
+      const langButtons = buildUiOptions(['BTN_LANG_ES_AR', 'BTN_LANG_EN'], 'es-AR');
+      
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const response = normalizeChatResponse({
+        ok: true,
+        reply: retryMsg,
+        stage: session.stage,
+        options: langButtons,
+        buttons: langButtons,
+        error_code: 'NO_RESPONSE_PATH'
+      }, session, correlationId, latencyMs, clientMessageId, null);
+      
+      emitLogEvent('warn', 'CHAT_REQ_NO_RESPONSE_STAGE_GUARD', {
+        correlation_id: correlationId,
+        stage: session.stage,
+        sid: sid || 'unknown'
+      });
+      
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: session?.conversationId || null,
+        session_id: sid || null,
+        message_id: response.message_id || null,
+        parent_message_id: response.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: response.stage || 'unknown',
+        actor: 'bot',
+        text_preview: maskPII(response.text || '').substring(0, 100),
+        text_length: (response.text || '').length,
+        buttons_count: response.buttons?.length || 0,
+        latency_ms: latencyMs,
+        error_code: 'NO_RESPONSE_PATH',
+        ok: true
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      clearHardTimeout();
+      return res.json(response);
+    }
+    
     // ETAPA 1.D (P0-FIX): Guardrail anti NO_RESPONSE_PATH para ASK_PROBLEM
     if (session?.stage === STATES.ASK_PROBLEM) {
       console.warn(`[ROUTER] UNHANDLED ASK_PROBLEM PATH - action=${action} hasButton=${!!buttonToken} textLen=${(effectiveText||'').length} - forcing safe reply`);

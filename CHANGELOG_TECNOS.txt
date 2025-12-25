@@ -424,4 +424,111 @@ NOTAS:
 - BTN_RETRY ya estaba correctamente implementado (ver CHG-20251224-004).
 
 ------------------------------------------------------------
+ID CAMBIO: CHG-20251225-002
+ETAPA: 1.D (P0-FIX)
+ARCHIVO(S): C:\sti-ai-chat\server.js, C:\STI\public_html\index.php
+MOTIVO:
+- Bug crítico: cuando el usuario ESCRIBE texto libre en stage=ASK_LANGUAGE (ej: "pablo"), el backend no maneja el texto y cae en fallback NO_RESPONSE_PATH ("Estoy tardando...").
+- El handler de ASK_LANGUAGE solo procesaba botones y texto que coincidiera con patrones de idioma, pero no tenía manejo explícito para texto libre que no indica idioma.
+- El frontend permitía escribir texto en ASK_CONSENT y ASK_LANGUAGE cuando debería estar deshabilitado (solo botones).
+
+ANTES (snippet):
+<<<
+// Handler ASK_LANGUAGE solo procesaba botones y texto con patrones de idioma
+if (session.stage === STATES.ASK_LANGUAGE) {
+  if (buttonToken === 'BTN_LANG_ES_AR' || /español|spanish|es-|arg|latino/i.test(lowerMsg)) {
+    // ... procesar español
+  }
+  if (buttonToken === 'BTN_LANG_EN' || /english|inglés|ingles|en-|usa|uk/i.test(lowerMsg)) {
+    // ... procesar inglés
+  }
+  // Si no se reconoce, re-mostrar opciones (pero puede no ejecutarse si lowerMsg no está definido)
+  const retry = `Por favor, seleccioná...`;
+  return res.json({ ... });
+}
+// Si llega texto libre que no indica idioma, cae en NO_RESPONSE_PATH
+>>>
+
+DESPUÉS (snippet):
+<<<
+// Handler ASK_LANGUAGE con manejo explícito de texto libre
+if (session.stage === STATES.ASK_LANGUAGE) {
+  const lowerMsg = String(effectiveText || '').toLowerCase().trim();
+  
+  // Detectar selección de idioma por botón
+  if (buttonToken === 'BTN_LANG_ES_AR') { ... }
+  if (buttonToken === 'BTN_LANG_EN') { ... }
+  
+  // ETAPA 1.D (P0-FIX): Manejo explícito de texto libre (action=message)
+  if (!buttonToken && (action === 'message' || action === 'text') && lowerMsg && lowerMsg.length > 0) {
+    console.log(`[ROUTER] handling ASK_LANGUAGE_TEXT - action=${action} textLen=${lowerMsg.length}`);
+    
+    // Detectar si el texto indica idioma
+    const wantsEs = /español|spanish|castellano|es-ar|argentina|ar\b|es\b/i.test(lowerMsg);
+    const wantsEn = /english|inglés|en\b|us\b|en-us/i.test(lowerMsg);
+    
+    if (wantsEs || wantsEn) {
+      // Texto indica idioma => aceptar como selección y avanzar a ASK_NAME
+      session.userLocale = wantsEn ? 'en-US' : 'es-AR';
+      await setStage(session, STATES.ASK_NAME, 'ASK_LANGUAGE_completed_text', { sid });
+      // ... responder y return
+    }
+    
+    // Texto NO indica idioma (ej: "pablo") => re-preguntar idioma (NO FALLBACK)
+    console.log(`[ROUTER] ASK_LANGUAGE_TEXT_INVALID - re-asking language`);
+    const retryMsg = `🌍 **Seleccioná tu idioma / Select your language:**...`;
+    const response = normalizeChatResponse({ ok:true, reply: retryMsg, stage: session.stage, options: langButtons, buttons: langButtons }, ...);
+    clearHardTimeout();
+    return res.json(response); // ✅ Return explícito para evitar NO_RESPONSE_PATH
+  }
+}
+
+// Guardrail específico para ASK_LANGUAGE en fallback NO_RESPONSE_PATH
+if (!hasResponded && !res.headersSent) {
+  if (session?.stage === STATES.ASK_LANGUAGE) {
+    const retryMsg = `🌍 **Seleccioná tu idioma / Select your language:**...`;
+    const response = normalizeChatResponse({ ok:true, reply: retryMsg, stage: session.stage, options: langButtons, buttons: langButtons, error_code: 'NO_RESPONSE_PATH' }, ...);
+    clearHardTimeout();
+    return res.json(response); // ✅ Return antes del fallback genérico
+  }
+  // ... fallback genérico
+}
+
+// Frontend: Deshabilitar input en ASK_CONSENT y ASK_LANGUAGE
+function setInputEnabled(stage) {
+  const input = document.getElementById('sti-text');
+  const sendBtn = document.getElementById('sti-send');
+  const disabled = (stage === 'ASK_CONSENT' || stage === 'ASK_LANGUAGE');
+  if (input) input.disabled = disabled;
+  if (sendBtn) sendBtn.disabled = disabled;
+}
+
+// Llamar cuando se actualiza LAST_STAGE
+setInputEnabled(currentStage);
+>>>
+
+IMPACTO ESPERADO:
+- El handler de ASK_LANGUAGE ahora maneja explícitamente texto libre, aceptando texto que indica idioma y re-preguntando cuando no lo indica.
+- El guardrail específico para ASK_LANGUAGE evita que el usuario vea "Estoy tardando..." en casos normales.
+- El frontend deshabilita el input en ASK_CONSENT y ASK_LANGUAGE, reduciendo la posibilidad de que el usuario escriba texto cuando solo debe usar botones.
+- El debounce mejorado de botones reduce "stale_button" y doble envío.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Caso P1 (repro): Consent YES -> En ASK_LANGUAGE escribir "pablo" y enviar
+  - Resultado esperado: NO aparece "Estoy tardando..." ni error_code NO_RESPONSE_PATH, bot re-muestra botones de idioma
+- Caso P2 (texto de idioma): En ASK_LANGUAGE escribir "español" y enviar
+  - Resultado esperado: avanza a ASK_NAME sin exigir botón
+- Caso P3 (anti-regresión): Botones funcionan igual que antes, no se rompe ASK_CONSENT ni ASK_NAME
+- Caso P4 (logs): NO debe generarse CHAT_REQ_NO_RESPONSE en ASK_LANGUAGE para estos casos
+
+NOTAS:
+- El handler de ASK_LANGUAGE ahora separa claramente el manejo de botones del manejo de texto libre.
+- Si el texto indica idioma, se acepta como selección y se avanza a ASK_NAME.
+- Si el texto NO indica idioma, se re-pregunta el idioma con botones, sin caer en NO_RESPONSE_PATH.
+- El guardrail específico para ASK_LANGUAGE se ejecuta ANTES del fallback genérico, evitando que el usuario vea "Estoy tardando..." en casos normales.
+- El frontend deshabilita el input en ASK_CONSENT y ASK_LANGUAGE para reducir la posibilidad de que el usuario escriba texto cuando solo debe usar botones.
+- El debounce mejorado de botones usa dataset.sent para evitar clicks múltiples y stale_button.
+- Referencia: conversación LX-9388 (export + consola full).
+
+------------------------------------------------------------
 
