@@ -80,4 +80,95 @@ NOTAS:
 - Pendiente: Actualizar otros lugares donde se retorna res.json() directamente (se hará en siguientes cambios incrementales).
 
 ------------------------------------------------------------
+ID CAMBIO: CHG-20251224-002
+ETAPA: 1.D (P0-FIX)
+ARCHIVO(S): C:\sti-ai-chat\server.js
+MOTIVO:
+- Fix crítico: el chat se quedaba en "TECNOS... (pensando)" porque las llamadas a OpenAI no tenían timeout REAL.
+- El AbortController se creaba pero el signal no se pasaba correctamente al SDK (se pasaba dentro de params en lugar de como segundo parámetro de opciones).
+- El timeout de 30s empataba con el timeout del frontend (30s), causando que el usuario viera "pensando" indefinidamente.
+- No había un hard timeout a nivel de request del endpoint /api/chat.
+
+ANTES (snippet):
+<<<
+// AbortController decorativo que no funciona
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 30000);
+const r = await openai.chat.completions.create({
+  model: OPENAI_MODEL,
+  messages: [...],
+  temperature: 0,
+  signal: controller.signal // ❌ INCORRECTO: signal dentro de params
+});
+clearTimeout(timeoutId);
+>>>
+
+DESPUÉS (snippet):
+<<<
+// Wrapper único con timeout REAL
+async function callOpenAIWithTimeout(params, options = {}) {
+  const { timeoutMs = 15000, correlationId, stage, label } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    // ✅ CORRECTO: signal como segundo parámetro (opciones de request)
+    const response = await openai.chat.completions.create(params, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    // Logs estructurados: AI_CALL_START, AI_CALL_END, AI_CALL_TIMEOUT
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    // Manejo de timeout y errores...
+  }
+}
+
+// Uso en funciones:
+const r = await callOpenAIWithTimeout({
+  model: OPENAI_MODEL,
+  messages: [...],
+  temperature: 0
+}, {
+  timeoutMs: 12000, // < 30s para no empatar frontend
+  correlationId: session?.correlationId,
+  stage: session?.stage,
+  label: 'aiQuickTests'
+});
+
+// Hard timeout en /api/chat (25s)
+const HARD_TIMEOUT_MS = 25000;
+const hardTimeout = setTimeout(() => {
+  if (!hasResponded && !res.headersSent) {
+    // Responder con mensaje seguro + botones
+  }
+}, HARD_TIMEOUT_MS);
+
+// Garantía "siempre se responde" al final del try
+if (!hasResponded && !res.headersSent) {
+  // Responder con mensaje seguro
+}
+>>>
+
+IMPACTO ESPERADO:
+- Todas las llamadas a OpenAI ahora tienen timeout REAL que funciona correctamente.
+- Timeouts configurados < 30s (12s para quick tests, 15-18s para análisis) para evitar empatar con frontend.
+- Hard timeout de 25s en /api/chat garantiza que el request siempre responda antes del timeout del frontend.
+- Logs estructurados (AI_CALL_START, AI_CALL_END, AI_CALL_TIMEOUT) para observabilidad.
+- Garantía de respuesta: si ninguna rama retorna, se envía respuesta segura antes de salir del handler.
+
+PRUEBA RÁPIDA DE VERIFICACIÓN:
+- Paso 1: Enviar mensaje que active análisis de OpenAI (ej: problema complejo)
+- Paso 2: Verificar que responde antes de 25s (idealmente < 5s si no usa IA)
+- Paso 3: Simular OpenAI lento (deshabilitar API key o timeout artificial) - debe responder con fallback
+- Paso 4: Verificar en logs que aparecen eventos AI_CALL_START/END/TIMEOUT con correlation_id
+- Resultado esperado: Chat nunca se queda en "pensando", siempre responde con mensaje útil
+
+NOTAS:
+- Todos los timeouts configurados: 12s (quick tests), 15s (análisis/explicaciones), 18s (análisis con imágenes).
+- Hard timeout de 25s es < 30s del frontend, dejando margen para respuesta.
+- Wrapper único centraliza lógica de timeout y logging.
+
+------------------------------------------------------------
 

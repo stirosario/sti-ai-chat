@@ -690,6 +690,92 @@ function ensureEventContract(evt, session, defaults = {}) {
 
 /**
  * ========================================================
+ * ETAPA 1.D (P0): Wrapper para llamadas OpenAI con timeout REAL
+ * ========================================================
+ * Garantiza que todas las llamadas a OpenAI tengan timeout real usando AbortController
+ * y el signal correctamente pasado al SDK.
+ * 
+ * @param {Object} params - Parámetros para openai.chat.completions.create()
+ * @param {Object} options - { timeoutMs, correlationId, stage, label }
+ * @returns {Promise} Respuesta de OpenAI o lanza error de timeout
+ */
+async function callOpenAIWithTimeout(params, options = {}) {
+  const {
+    timeoutMs = 15000,
+    correlationId = null,
+    stage = null,
+    label = 'openai_call'
+  } = options;
+  
+  const startTime = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  
+  // Log inicio de llamada
+  emitLogEvent('info', 'AI_CALL_START', {
+    correlation_id: correlationId,
+    stage: stage,
+    label: label,
+    timeout_ms: timeoutMs,
+    model: params.model || 'unknown'
+  });
+  
+  try {
+    // ETAPA 1.D: Pasar signal como segundo parámetro (opciones de request), NO dentro de params
+    const response = await openai.chat.completions.create(params, {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startTime;
+    
+    // Log éxito
+    emitLogEvent('info', 'AI_CALL_END', {
+      correlation_id: correlationId,
+      stage: stage,
+      label: label,
+      latency_ms: latencyMs,
+      model: params.model || 'unknown',
+      tokens: response.usage?.total_tokens || null
+    });
+    
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startTime;
+    
+    // Verificar si fue timeout
+    if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+      emitLogEvent('warn', 'AI_CALL_TIMEOUT', {
+        correlation_id: correlationId,
+        stage: stage,
+        label: label,
+        latency_ms: latencyMs,
+        timeout_ms: timeoutMs,
+        model: params.model || 'unknown'
+      });
+      throw new Error(`OpenAI call timeout after ${timeoutMs}ms`);
+    }
+    
+    // Log error (no timeout)
+    emitLogEvent('error', 'AI_CALL_ERROR', {
+      correlation_id: correlationId,
+      stage: stage,
+      label: label,
+      latency_ms: latencyMs,
+      error_name: error.name || 'Error',
+      error_message: error.message || 'Unknown error',
+      model: params.model || 'unknown'
+    });
+    
+    throw error;
+  }
+}
+
+/**
+ * ========================================================
  * ETAPA 1.A: Helper para normalizar respuesta del endpoint /api/chat
  * ========================================================
  * Garantiza que TODAS las respuestas incluyan el contrato completo:
@@ -1174,7 +1260,8 @@ ${conversationContext}
         console.log('[VISION_MODE] 📸 Agregada imagen al análisis:', imgUrl);
       }
 
-      const response = await openai.chat.completions.create({
+      // ETAPA 1.D: Usar wrapper con timeout real (18s para análisis con visión)
+      const response = await callOpenAIWithTimeout({
         model: 'gpt-4o', // Usar GPT-4 con visión
         messages: [{ 
           role: 'user', 
@@ -1183,6 +1270,11 @@ ${conversationContext}
         temperature: 0.3, // Baja = más preciso técnicamente
         max_tokens: 1500,
         response_format: { type: "json_object" }
+      }, {
+        timeoutMs: 18000,
+        correlationId: session?.correlationId || null,
+        stage: session?.stage || null,
+        label: 'analyzeUserMessage_vision'
       });
 
       const analysis = JSON.parse(response.choices[0].message.content);
@@ -1248,12 +1340,18 @@ Usá el texto normalizado para mejor comprensión.
   "clarificationNeeded": true/false
 }`;
 
-    const response = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (15s para análisis de texto)
+    const response = await callOpenAIWithTimeout({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: analysisPrompt }],
       temperature: 0.3,
       max_tokens: 700,
       response_format: { type: "json_object" }
+    }, {
+      timeoutMs: 15000,
+      correlationId: session?.correlationId || null,
+      stage: session?.stage || null,
+      label: 'analyzeUserMessage_text'
     });
 
     const analysis = JSON.parse(response.choices[0].message.content);
@@ -1408,7 +1506,8 @@ ${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", 
       ? 'Respond to the user in a helpful and empathetic way.' 
       : 'Respondé al usuario de forma útil y empática.');
 
-    const response = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (15s para generación de respuesta)
+    const response = await callOpenAIWithTimeout({
       model: analysis.hasVision ? 'gpt-4o' : OPENAI_MODEL, // Usar GPT-4o si hubo visión
       messages: [
         { role: 'system', content: systemPrompt },
@@ -1416,6 +1515,11 @@ ${isEnglish ? '' : '**RECORDÁ:** Usá "contame", "fijate", "podés", "tenés", 
       ],
       temperature: 0.7, // Balance creatividad/precisión
       max_tokens: 600
+    }, {
+      timeoutMs: 15000,
+      correlationId: session?.correlationId || null,
+      stage: session?.stage || null,
+      label: 'generateSmartReply'
     });
 
     const smartReply = response.choices[0].message.content;
@@ -2659,15 +2763,17 @@ async function analyzeNameWithOA(nameText = '') {
     `Texto a validar: "${String(nameText).replace(/"/g, '\\"')}"`
   ].join('\n');
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (12s para validación rápida)
+    const r = await callOpenAIWithTimeout({
       model: OPENAI_MODEL,
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      signal: controller.signal
+      temperature: 0
+    }, {
+      timeoutMs: 12000,
+      correlationId: null,
+      stage: null,
+      label: 'analyzeNameWithOA'
     });
-    clearTimeout(timeoutId);
     const raw = (r.choices?.[0]?.message?.content || '').trim().replace(/```json|```/g, '');
     try {
       const parsed = JSON.parse(raw);
@@ -2987,9 +3093,6 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
   ].join('\n');
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    
     // Construir mensaje con soporte para imágenes
     let userMessage;
     if (imageUrls.length > 0) {
@@ -3013,7 +3116,8 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
       userMessage = { role: 'user', content: prompt };
     }
     
-    const r = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (18s para análisis con imágenes)
+    const r = await callOpenAIWithTimeout({
       model: imageUrls.length > 0 ? 'gpt-4o' : OPENAI_MODEL, // Usar gpt-4o si hay imágenes
       messages: [
         { role: 'system', content: systemMsg },
@@ -3021,8 +3125,12 @@ async function analyzeProblemWithOA(problemText = '', locale = 'es-AR', imageUrl
       ],
       temperature: 0,
       max_tokens: 300
+    }, {
+      timeoutMs: 18000, // Más tiempo si hay imágenes
+      correlationId: null,
+      stage: null,
+      label: 'analyzeProblemWithOA'
     });
-    clearTimeout(timeoutId);
 
     const raw = r?.choices?.[0]?.message?.content || '';
     let parsed;
@@ -3128,9 +3236,8 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
   ].join('\n');
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (12s para quick tests)
+    const r = await callOpenAIWithTimeout({
       model: OPENAI_MODEL,
       messages: [
         { role: 'system', content: systemMsg },
@@ -3138,8 +3245,12 @@ async function aiQuickTests(problemText = '', device = '', locale = 'es-AR', avo
       ],
       temperature: 0.2,
       max_tokens: 400
+    }, {
+      timeoutMs: 12000, // Quick tests deben ser rápidos
+      correlationId: null,
+      stage: null,
+      label: 'aiQuickTests'
     });
-    clearTimeout(timeoutId);
 
     const raw = r?.choices?.[0]?.message?.content || '';
     let parsed;
@@ -3230,9 +3341,8 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
   ].join('\n');
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const r = await openai.chat.completions.create({
+    // ETAPA 1.D: Usar wrapper con timeout real (15s para explicación de pasos)
+    const r = await callOpenAIWithTimeout({
       model: OPENAI_MODEL,
       messages: [
         { role: 'system', content: systemMsg },
@@ -3240,8 +3350,12 @@ async function explainStepWithAI(stepText = '', stepIndex = 1, device = '', prob
       ],
       temperature: 0.4,
       max_tokens: 400
+    }, {
+      timeoutMs: 15000,
+      correlationId: null,
+      stage: null,
+      label: 'explainStepWithAI'
     });
-    clearTimeout(timeoutId);
 
     const raw = r?.choices?.[0]?.message?.content || '';
     return raw.trim();
@@ -6433,7 +6547,8 @@ Respondé en formato JSON:
   "recommendations": "recomendaciones"
 }`, 1500);
 
-        const visionResponse = await openai.chat.completions.create({
+        // ETAPA 1.D: Usar wrapper con timeout real (18s para análisis de imagen en upload)
+        const visionResponse = await callOpenAIWithTimeout({
           model: 'gpt-4o-mini',
           messages: [
             {
@@ -6452,6 +6567,11 @@ Respondé en formato JSON:
           ],
           max_tokens: 500,
           temperature: 0.3
+        }, {
+          timeoutMs: 18000,
+          correlationId: req.correlationId || null,
+          stage: null,
+          label: 'upload-image_vision'
         });
 
         const analysisTime = Date.now() - analysisStartTime;
@@ -6612,6 +6732,66 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
   const correlationId = req.requestId || generateRequestId();
   req.correlationId = correlationId;
   
+  // ========================================================
+  // ETAPA 1.D (P0): Hard timeout del request (25000ms = 25s)
+  // ========================================================
+  const HARD_TIMEOUT_MS = 25000;
+  let hardTimeoutId = null;
+  let hasResponded = false;
+  
+  const hardTimeout = setTimeout(() => {
+    if (!hasResponded && !res.headersSent) {
+      hasResponded = true;
+      console.warn(`[CHAT_REQ_TIMEOUT] Request timeout después de ${HARD_TIMEOUT_MS}ms - correlationId: ${correlationId}`);
+      
+      emitLogEvent('warn', 'CHAT_REQ_TIMEOUT', {
+        correlation_id: correlationId,
+        timeout_ms: HARD_TIMEOUT_MS,
+        stage: 'unknown'
+      });
+      
+      // Obtener sesión si existe para mantener stage coherente
+      const tempSession = session || null;
+      const latencyMs = Date.now() - startTime;
+      const clientMessageId = req.body?.clientEventId || req.body?.message_id || null;
+      
+      const timeoutResponse = normalizeChatResponse({
+        ok: true,
+        reply: 'Estoy tardando más de lo normal. Probemos un camino rápido: ¿podés decirme en una frase cuál es el problema principal? O si preferís, puedo conectar tu consulta directamente con un técnico.',
+        stage: tempSession?.stage || 'unknown',
+        error_code: 'SERVER_TIMEOUT',
+        options: [
+          { text: 'Reintentar', value: 'BTN_RETRY' },
+          { text: 'Hablar con un Técnico', value: 'BTN_CONNECT_TECH' }
+        ]
+      }, tempSession, correlationId, latencyMs, clientMessageId, null);
+      
+      // Log estructurado
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: tempSession?.conversationId || null,
+        session_id: tempSession?.id || null,
+        message_id: timeoutResponse.message_id || null,
+        parent_message_id: timeoutResponse.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: timeoutResponse.stage || 'unknown',
+        actor: 'bot',
+        text_preview: maskPII(timeoutResponse.text || '').substring(0, 100),
+        text_length: (timeoutResponse.text || '').length,
+        buttons_count: timeoutResponse.buttons?.length || 0,
+        latency_ms: latencyMs,
+        error_code: 'SERVER_TIMEOUT',
+        ok: true
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      res.json(timeoutResponse);
+    }
+  }, HARD_TIMEOUT_MS);
+  hardTimeoutId = hardTimeout;
+  
   let flowLogData = {
     sessionId: null,
     currentStage: null,
@@ -6622,6 +6802,15 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     serverAction: null,
     duration: 0,
     correlationId: correlationId
+  };
+  
+  // Helper para limpiar timeout antes de responder
+  const clearHardTimeout = () => {
+    if (hardTimeoutId) {
+      clearTimeout(hardTimeoutId);
+      hardTimeoutId = null;
+    }
+    hasResponded = true;
   };
 
   // Helper para retornar y loggear automáticamente
@@ -6701,6 +6890,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     
     // Emitir log estructurado (una línea JSON)
     console.log(JSON.stringify(logTurn));
+    
+    // ETAPA 1.D: Limpiar hard timeout antes de responder
+    clearHardTimeout();
 
     return res.json(normalizedResponse);
   };
@@ -6814,6 +7006,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
         ok: false
       };
       console.log(JSON.stringify(logTurn));
+      
+      // ETAPA 1.D: Limpiar hard timeout
+      clearHardTimeout();
       
       return res.status(429).json(errorResponse);
     }
@@ -7076,6 +7271,9 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
       };
       console.log(JSON.stringify(logTurn));
       
+      // ETAPA 1.D: Limpiar hard timeout
+      clearHardTimeout();
+      
       return res.json(dupResponse);
     }
     
@@ -7272,11 +7470,17 @@ Respondé con una explicación clara y útil para el usuario.`
               }
             ];
             
-            const visionResponse = await openai.chat.completions.create({
+            // ETAPA 1.D: Usar wrapper con timeout real (18s para análisis de imagen en chat)
+            const visionResponse = await callOpenAIWithTimeout({
               model: 'gpt-4o-mini',
               messages: visionMessages,
               max_tokens: 800,
               temperature: 0.4
+            }, {
+              timeoutMs: 18000,
+              correlationId: correlationId,
+              stage: session?.stage || null,
+              label: 'chat_vision_analysis'
             });
             
             const analysisText = visionResponse.choices[0]?.message?.content || '';
@@ -9095,7 +9299,8 @@ La guía debe ser:
 - Incluir enlaces oficiales de descarga si aplica (ej: sitio del fabricante)
 - En español argentino informal (vos, tené en cuenta, etc.)`;
 
-        const completion = await openai.chat.completions.create({
+        // ETAPA 1.D: Usar wrapper con timeout real (15s para guías de instalación)
+        const completion = await callOpenAIWithTimeout({
           model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: 'Sos un asistente técnico experto en instalación y configuración de dispositivos.' },
@@ -9103,6 +9308,11 @@ La guía debe ser:
           ],
           temperature: 0.3,
           max_tokens: 1000
+        }, {
+          timeoutMs: 15000,
+          correlationId: session?.correlationId || null,
+          stage: session?.stage || null,
+          label: 'generateHowToGuide'
         });
 
         const aiResponse = completion.choices[0]?.message?.content || '{}';
@@ -9795,34 +10005,118 @@ La guía debe ser:
     const duration = Date.now() - requestStartTime;
     console.log(`[CHAT_REQ_END] sid=${sid.substring(0, 20)}... stage=${session?.stage || 'UNKNOWN'} action=${action} replyLen=${String(response?.reply || '').length} duration=${duration}ms`);
     
+    // ETAPA 1.D: Limpiar hard timeout antes de responder
+    clearHardTimeout();
+    
     return res.json(response);
   }
+  
+  // ETAPA 1.D (P0): Garantía "siempre se responde" - Verificar antes de salir del try
+  if (!hasResponded && !res.headersSent) {
+    console.warn(`[CHAT_REQ_NO_RESPONSE] ⚠️ Request no tuvo respuesta - correlationId: ${correlationId}`);
+    
+    emitLogEvent('warn', 'NO_RESPONSE_PATH', {
+      correlation_id: correlationId,
+      stage: session?.stage || 'unknown',
+      sid: sid || 'unknown'
+    });
+    
+    const latencyMs = Date.now() - startTime;
+    const clientMessageId = body?.clientEventId || body?.message_id || null;
+    const safetyResponse = normalizeChatResponse({
+      ok: true,
+      reply: 'Estoy tardando más de lo normal. Probemos un camino rápido: ¿podés decirme en una frase cuál es el problema principal? O si preferís, puedo conectar tu consulta directamente con un técnico.',
+      stage: session?.stage || 'unknown',
+      error_code: 'NO_RESPONSE_PATH',
+      options: [
+        { text: 'Reintentar', value: 'BTN_RETRY' },
+        { text: 'Hablar con un Técnico', value: 'BTN_CONNECT_TECH' }
+      ]
+    }, session, correlationId, latencyMs, clientMessageId, null);
+    
+    // Log estructurado
+    const logTurn = {
+      event: 'CHAT_TURN',
+      timestamp_iso: new Date().toISOString(),
+      correlation_id: correlationId,
+      conversation_id: session?.conversationId || null,
+      session_id: sid || null,
+      message_id: safetyResponse.message_id || null,
+      parent_message_id: safetyResponse.parent_message_id || null,
+      client_message_id: clientMessageId || null,
+      stage: safetyResponse.stage || 'unknown',
+      actor: 'bot',
+      text_preview: maskPII(safetyResponse.text || '').substring(0, 100),
+      text_length: (safetyResponse.text || '').length,
+      buttons_count: safetyResponse.buttons?.length || 0,
+      latency_ms: latencyMs,
+      error_code: 'NO_RESPONSE_PATH',
+      ok: true
+    };
+    console.log(JSON.stringify(logTurn));
+    
+    clearHardTimeout();
+    return res.json(safetyResponse);
+  }
+  
   } catch (e) {
+    // ETAPA 1.D: Limpiar hard timeout en catch también
+    clearHardTimeout();
+    
     // 🔒 LOG: Error en request
-    const duration = Date.now() - requestStartTime;
-    const sidForError = body?.sessionId?.substring(0, 20) || 'unknown';
+    const duration = Date.now() - startTime;
+    const sidForError = body?.sessionId?.substring(0, 20) || sid || 'unknown';
     console.error(`[CHAT_REQ_ERROR] sid=${sidForError}... action=${action} msgLen=${msgLen} duration=${duration}ms error:`, e.message);
     console.error('[api/chat] Error completo:', e);
     console.error('[api/chat] Stack:', e && e.stack);
     
-    // 🔒 GUARD-RAIL EN CATCH: Si no se envió respuesta, enviar error
+    // 🔒 GUARD-RAIL EN CATCH: Si no se envió respuesta, enviar error normalizado
     if (!res.headersSent) {
-      const locale = (await getSession(sidForError))?.userLocale || 'es-AR';
+      let tempSession = null;
+      try {
+        tempSession = await getSession(sidForError);
+      } catch (errSession) {
+        // Ignorar error de sesión
+      }
+      
+      const locale = tempSession?.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
       const errorReply = isEn
         ? '⚠️ There was an error processing your message. Please try again.'
         : '⚠️ Hubo un error procesando tu mensaje. Por favor, probá de nuevo.';
       
-      console.log(`[CHAT_REQ_END] sid=${sidForError}... action=${action} replyLen=${errorReply.length} duration=${duration}ms [ERROR_CATCH]`);
-      
-      return res.status(200).json({
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const errorResponse = normalizeChatResponse({
         ok: false,
         reply: errorReply,
-        sid: sidForError,
-        stage: 'UNKNOWN',
-        allowWhatsapp: false,
-        error: 'internal_error'
-      });
+        stage: tempSession?.stage || 'UNKNOWN',
+        error_code: 'internal_error'
+      }, tempSession, correlationId, duration, clientMessageId, null);
+      
+      // Log estructurado
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: tempSession?.conversationId || null,
+        session_id: sidForError || null,
+        message_id: errorResponse.message_id || null,
+        parent_message_id: errorResponse.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: errorResponse.stage || 'UNKNOWN',
+        actor: 'bot',
+        text_preview: maskPII(errorResponse.text || '').substring(0, 100),
+        text_length: (errorResponse.text || '').length,
+        buttons_count: 0,
+        latency_ms: duration,
+        error_code: 'internal_error',
+        ok: false
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      console.log(`[CHAT_REQ_END] sid=${sidForError}... action=${action} replyLen=${errorReply.length} duration=${duration}ms [ERROR_CATCH]`);
+      
+      return res.status(200).json(errorResponse);
     }
 
     // Intentar obtener locale de la request o usar default
@@ -9844,6 +10138,7 @@ La guía debe ser:
 
     // Instrumentación: CHAT_ERR
     emitLogEvent('error', 'CHAT_ERR', {
+      correlation_id: correlationId,
       sid: sid || 'unknown',
       conversationId,
       errorName: e?.name || 'Error',
@@ -9851,21 +10146,44 @@ La guía debe ser:
       where: 'main_handler'
     });
 
-    const isEn = String(locale).toLowerCase().startsWith('en');
-    const errorMsg = isEn
-      ? '😅 I had a momentary problem. Please try again.'
-      : '😅 Tuve un problema momentáneo. Probá de nuevo.';
-    
-    // D) Respuesta de error SIEMPRE JSON con estructura completa
-    const errorResponse = {
-      ok: false,
-      reply: errorMsg,
-      sid: sid || 'unknown',
-      stage: existingSession?.stage || 'UNKNOWN',
-      allowWhatsapp: false
-    };
-    
-    return res.status(200).json(errorResponse);
+    // ETAPA 1.D: Normalizar respuesta de error
+    if (!res.headersSent) {
+      const isEn = String(locale).toLowerCase().startsWith('en');
+      const errorMsg = isEn
+        ? '😅 I had a momentary problem. Please try again.'
+        : '😅 Tuve un problema momentáneo. Probá de nuevo.';
+      
+      const clientMessageId = body?.clientEventId || body?.message_id || null;
+      const errorResponse = normalizeChatResponse({
+        ok: false,
+        reply: errorMsg,
+        stage: existingSession?.stage || 'UNKNOWN',
+        error_code: 'internal_error'
+      }, existingSession, correlationId, duration, clientMessageId, null);
+      
+      // Log estructurado
+      const logTurn = {
+        event: 'CHAT_TURN',
+        timestamp_iso: new Date().toISOString(),
+        correlation_id: correlationId,
+        conversation_id: conversationId || null,
+        session_id: sid || null,
+        message_id: errorResponse.message_id || null,
+        parent_message_id: errorResponse.parent_message_id || null,
+        client_message_id: clientMessageId || null,
+        stage: errorResponse.stage || 'UNKNOWN',
+        actor: 'bot',
+        text_preview: maskPII(errorResponse.text || '').substring(0, 100),
+        text_length: (errorResponse.text || '').length,
+        buttons_count: 0,
+        latency_ms: duration,
+        error_code: 'internal_error',
+        ok: false
+      };
+      console.log(JSON.stringify(logTurn));
+      
+      return res.status(200).json(errorResponse);
+    }
   }
 });
 
