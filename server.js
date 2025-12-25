@@ -9496,6 +9496,18 @@ Before we continue, please note:
         }
       }
 
+      // ETAPA 1.D (P0-FIX): Garantizar que session.problem esté seteado antes de analizar
+      if (!session.problem && effectiveText && effectiveText.trim().length > 0) {
+        session.problem = effectiveText.trim();
+        session.problemTextRaw = effectiveText.trim();
+        console.log('[ASK_PROBLEM] ✅ session.problem seteado desde effectiveText:', session.problem.substring(0, 50));
+      }
+      
+      // ETAPA 1.D (P0-FIX): Persistir sesión ANTES de analizar problema
+      if (session.problem) {
+        await saveSession(sid, session);
+      }
+      
       // OA analyze problem (optional) - incluir imágenes si las hay
       const locale = session.userLocale || 'es-AR';
       const isEn = String(locale).toLowerCase().startsWith('en');
@@ -10583,11 +10595,27 @@ La guía debe ser:
       return res.json(response);
     }
     
-    console.warn(`[CHAT_REQ_NO_RESPONSE] ⚠️ Request no tuvo respuesta - correlationId: ${correlationId}`);
+    // ETAPA 1.D (P0-FIX): Instrumentación mínima para saber POR QUÉ cae en NO_RESPONSE_PATH
+    console.error(`[CHAT_REQ_NO_RESPONSE] ⚠️ Request no tuvo respuesta - correlationId: ${correlationId}`, {
+      stage: session?.stage || 'unknown',
+      action: action || 'unknown',
+      hasButton: !!buttonToken,
+      buttonToken: buttonToken || null,
+      effectiveTextLen: (effectiveText || '').length,
+      session_problem: session?.problem || null,
+      session_device: session?.device || null,
+      session_issueKey: session?.issueKey || null,
+      sid: sid || 'unknown',
+      conversationId: session?.conversationId || null
+    });
     
     emitLogEvent('warn', 'NO_RESPONSE_PATH', {
       correlation_id: correlationId,
       stage: session?.stage || 'unknown',
+      action: action || 'unknown',
+      hasButton: !!buttonToken,
+      effectiveTextLen: (effectiveText || '').length,
+      session_problem: session?.problem || null,
       sid: sid || 'unknown'
     });
     

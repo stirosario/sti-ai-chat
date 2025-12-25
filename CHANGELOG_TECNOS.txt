@@ -603,3 +603,76 @@ NOTAS:
 
 ------------------------------------------------------------
 
+CHG-20251225-004 — Fix duplicación listeners + garantizar ASK_PROBLEM siempre responde
+Fecha: 2025-12-25
+Archivos:
+- C:\STI\public_html\index.php
+- C:\sti-ai-chat\server.js
+- C:\sti-ai-chat\CHANGELOG_TECNOS.txt
+
+OBJETIVO:
+1) Eliminar envíos duplicados desde el frontend (index.php).
+2) Garantizar 1 request = 1 turno (sin duplicados) y que el flujo NO caiga al fallback NO_RESPONSE_PATH en ASK_PROBLEM.
+3) Asegurar que ASK_PROBLEM siempre responda y transicione a la siguiente etapa (y que quede logueado/persistido).
+
+ANTES:
+index.php:
+- registerChatButton() y registerButtonListener() con cloneNode(true) causaban duplicación de listeners.
+- registerChatButton() comparaba foundBtn !== btn después de cloneNode, registrando listeners múltiples veces.
+- Delegación global document.addEventListener('click') también registrada, causando 1 click => 2+ "open" y 2+ requests.
+- displayConversationId() todavía se llamaba con setTimeout después de insertar ID directamente.
+- sendMsg no bloqueaba si input estaba deshabilitado.
+
+server.js:
+- No había instrumentación suficiente antes de NO_RESPONSE_PATH para diagnosticar por qué caía.
+- El handler de ASK_PROBLEM no garantizaba siempre setear session.problem antes de analizar.
+- Falta persistencia explícita antes de analizar problema.
+
+DESPUÉS:
+index.php:
+- INIT GUARD GLOBAL agregado antes de initSTIChat: if (window.__STI_CHAT_INIT_DONE) return; window.__STI_CHAT_INIT_DONE = true;
+- Eliminado registerChatButton() y registerButtonListener() completamente (causaban duplicados por cloneNode).
+- Delegación única: SOLO document.addEventListener('click') con throttle/lock (window.__STI_CHAT_OPENING).
+- Eliminada llamada a displayConversationId() en stiShowChat (ya se inserta directamente en addMsg).
+- sendMsg ahora bloquea si input.disabled o aria-disabled === 'true'.
+
+server.js:
+- Instrumentación mejorada antes de NO_RESPONSE_PATH: loggear stage, action, hasButton, effectiveTextLen, session.problem, session.device, etc.
+- Garantía en handler ASK_PROBLEM: setear session.problem desde effectiveText si no existe antes de analizar.
+- Persistencia explícita: await saveSession(sid, session) ANTES de analyzeProblemWithOA para asegurar que session.problem quede guardado.
+
+PRUEBAS DE ACEPTACIÓN:
+P1) Abrir chat desde header 10 veces:
+   - En consola NO deben aparecer múltiples "Listener registrado..." ni "openSTIChat llamada" duplicado.
+   - Cada click => 1 open.
+
+P2) Consent:
+   - Click en "Sí acepto" => 1 request, 1 transición a ASK_LANGUAGE (sin duplicados en transcript)
+
+P3) Idioma:
+   - Click "Español" => 1 request, 1 transición a ASK_NAME
+
+P4) Nombre:
+   - Enviar "Ale" => 1 request, 1 transición a ASK_PROBLEM
+
+P5) Problema:
+   - Enviar "mi pc no enciende"
+     => Debe responder con diagnóstico inicial o siguiente pregunta lógica (ej: "¿Es PC o notebook?" / o pasos).
+     => NO debe repetir "problema principal 1 frase".
+
+P6) Export JSON:
+   - Debe tener bot reply después de cada user msg (sin huecos).
+   - No deben existir pares duplicados BTN_CONSENT_YES / BTN_LANG_ES_AR.
+
+RIESGO/REGRESIÓN:
+- La eliminación de registerChatButton puede causar que botones no se registren si se cargan después del script, pero la delegación global document.addEventListener('click') debe cubrir este caso.
+- El INIT GUARD global puede potencialmente bloquear inicialización legítima si se evalúa múltiples veces, pero esto es el comportamiento deseado.
+- Los locks en sendMsg/sendButton ya estaban implementados, ahora solo agregamos check de input.disabled.
+
+NOTAS:
+- La delegación única document.addEventListener('click') con throttle es más robusta que múltiples listeners directos.
+- El handler de ASK_PROBLEM ahora garantiza que session.problem esté seteado antes de analizar, y persiste la sesión antes de llamar analyzeProblemWithOA.
+- La instrumentación mejorada permitirá diagnosticar mejor por qué cae en NO_RESPONSE_PATH si ocurre.
+
+------------------------------------------------------------
+
