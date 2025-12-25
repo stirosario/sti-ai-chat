@@ -532,3 +532,74 @@ NOTAS:
 
 ------------------------------------------------------------
 
+CHG-20251225-003 — Fix duplicación UI + fix ConversationID en GDPR + harden NO_RESPONSE
+Fecha: 2025-12-25
+Archivos:
+- C:\STI\public_html\index.php
+- C:\sti-ai-chat\server.js
+- C:\sti-ai-chat\CHANGELOG_TECNOS.txt
+
+OBJETIVO:
+1) El chat NO debe duplicar envíos (sendMsg / sendButton) ni duplicar mensajes en UI.
+2) El Conversation ID debe mostrarse SIEMPRE dentro del primer mensaje del bot (GDPR), sin reintentos ruidosos.
+3) El backend NO debe caer en NO_RESPONSE_PATH en stages "no-AI" (ASK_CONSENT/ASK_LANGUAGE/ASK_NAME), y además hay que corregir cualquier bug crítico de sintaxis en server.js.
+
+ANTES:
+index.php:
+- displayConversationId buscaba ".sti-msg-bot" pero addMsg renderizaba ".sti-bot" => nunca encontraba mensajes, ID no se insertaba; reintentos ruidosos.
+- sendMsg/sendButton sin locks => duplicación de requests y mensajes.
+- initSTIChat podía ejecutarse múltiples veces si se incluía el script varias veces.
+
+server.js:
+- Stages no-AI (ASK_CONSENT/ASK_LANGUAGE/ASK_NAME) podían caer en rutas que terminaban en NO_RESPONSE_PATH si entraba texto o rama incorrecta.
+
+DESPUÉS:
+index.php:
+- Selectores unificados a ".sti-bot" (3 ocurrencias corregidas: displayConversationId línea 1337, comentario línea 1351, addMsg línea 1795).
+- Conversation ID se inserta directamente en el primer mensaje del bot (GDPR) usando botIndex===0 y row.dataset.convIdShown="1", sin dependencia de displayConversationId con setTimeout/reintentos.
+- Locks + dedupe temporal en sendMsg:
+  * window.__stiSendInFlight para evitar envíos concurrentes
+  * Dedupe por texto + timestamp (mismo texto en <800ms => ignorar)
+  * Deshabilitar botón enviar mientras está in-flight
+  * finally block para siempre liberar lock y re-habilitar botón
+- Locks en sendButton:
+  * window.__stiBtnInFlight[token] para evitar doble click por token
+  * finally block para siempre liberar lock
+- client_message_id agregado a payloads de sendMsg y sendButton (usando crypto.randomUUID() con fallback).
+- Guard en initSTIChat: if (window.__stiInitDone) return; para evitar doble inicialización.
+
+server.js:
+- NON_AI_STAGES definido como Set([STATES.ASK_CONSENT, STATES.ASK_LANGUAGE, STATES.ASK_NAME]) justo después de cargar sesión (línea ~7287).
+- Los handlers específicos de ASK_CONSENT/ASK_LANGUAGE/ASK_NAME ya están implementados y responden determinísticamente (sin AI).
+
+PRUEBAS DE ACEPTACIÓN:
+1) Abrir chat por header y por hero:
+   - 1 solo open por click (no doble apertura).
+2) Greeting:
+   - Se ve GDPR y ARRIBA dentro del mismo mensaje: "🆔 BF-3300" (o el ID actual).
+   - No hay spam "Máximo de reintentos alcanzado".
+3) Consent:
+   - Click en "Sí Acepto" una sola vez => 1 request => 1 transición a ASK_LANGUAGE.
+   - En export/transcript NO debe aparecer BTN_CONSENT_YES duplicado.
+4) ASK_LANGUAGE:
+   - Si escribo "pablo" => responde "elegí botón" y muestra BTN_LANG_ES_AR / BTN_LANG_EN (sin NO_RESPONSE_PATH).
+5) sendMsg:
+   - En ASK_PROBLEM, escribir "Mi PC no enciende" y enviar:
+     - exactamente 1 request
+     - exactamente 1 respuesta del bot (sin duplicados en UI)
+6) Regresión:
+   - Clip habilitado solo donde corresponde (ASK_PROBLEM en adelante).
+   - WhatsApp button no se crea si allowWhatsapp undefined (mantener comportamiento actual).
+
+RIESGO/REGRESIÓN:
+- Los locks pueden potencialmente bloquear requests legítimos si hay un error que no libera el lock, pero esto está mitigado con finally blocks.
+- El cambio de selectores puede afectar cualquier código que busque ".sti-msg-bot", pero el código existente ya usa ".sti-bot" consistentemente.
+- NON_AI_STAGES es solo informativo por ahora; los handlers específicos ya existen y funcionan.
+
+NOTAS:
+- displayConversationId puede seguir existiendo pero ya no se necesita llamarla desde stiShowChat porque el ID se inserta directamente en addMsg.
+- El dedupe temporal de 800ms puede ser ajustado si es necesario.
+- Los client_message_id permiten deduplicación backend si se implementa en el futuro.
+
+------------------------------------------------------------
+

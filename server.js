@@ -7284,6 +7284,10 @@ app.post('/api/chat', chatLimiter, validateCSRF, async (req, res) => {
     let session = await getSession(sid);
     console.log('[DEBUG] Session loaded - stage:', session?.stage, 'userName:', session?.userName, 'conversationId:', session?.conversationId);
     
+    // ETAPA 1.D (P0-FIX): NON_AI_STAGES - Stages que NUNCA deben usar AI ni caer en NO_RESPONSE_PATH
+    // Estos stages deben responder determinísticamente con botones/texto
+    const NON_AI_STAGES = new Set([STATES.ASK_CONSENT, STATES.ASK_LANGUAGE, STATES.ASK_NAME]);
+    
     // 🆔 Si la sesión no tiene conversationId, generar uno (puede pasar si se crea sesión fuera de greeting)
     if (session && !session.conversationId) {
       session.conversationId = await generateAndPersistConversationId(sid);
